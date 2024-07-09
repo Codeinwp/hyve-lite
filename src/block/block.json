@@ -1,0 +1,36 @@
+{
+	"$schema": "https://schemas.wp.org/trunk/block.json",
+	"apiVersion": 3,
+	"name": "hyve/chat",
+	"version": "1.0.0",
+	"title": "Hyve Chat",
+	"category": "widgets",
+	"attributes": {
+		"variant": {
+			"type": "string"
+		}
+	},
+    "supports": {
+        "html": false
+    },
+    "variations": [
+        {
+            "name": "default",
+            "title": "Hyve Chat - Inline",
+            "isDefault": true
+        },
+        {
+            "name": "floating",
+            "title": "Hyve Chat - Chat Bubble",
+            "description": "A floating chat bubble that opens the chat window when clicked.",
+            "attributes": {
+                "variant": "floating"
+            }
+        }
+    ],
+	"textdomain": "hyve",
+	"editorScript": "file:./index.js",
+    "render": "file:./render.php",
+	"style": "hyve-styles",
+    "viewScript": "hyve-scripts"
+}
