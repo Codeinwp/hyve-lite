@@ -476,10 +476,12 @@ class API extends BaseAPI {
 	 * @return \WP_REST_Response
 	 */
 	public function get_threads( $request ) {
+		$pages = apply_filters( 'hyve_threads_per_page', 3 );
+
 		$args = array(
 			'post_type'      => 'hyve_threads',
 			'post_status'    => 'publish',
-			'posts_per_page' => 10,
+			'posts_per_page' => $pages,
 			'fields'         => 'ids',
 			'offset'         => $request->get_param( 'offset' ),
 		);
@@ -504,7 +506,7 @@ class API extends BaseAPI {
 
 		$posts = array(
 			'posts' => $posts_data,
-			'more'  => $query->found_posts > 10,
+			'more'  => $query->found_posts > $pages,
 		);
 
 		return rest_ensure_response( $posts );

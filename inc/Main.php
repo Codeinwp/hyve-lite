@@ -111,14 +111,14 @@ class Main {
 		);
 
 		wp_enqueue_script(
-			'hyve-scripts',
+			'hyve-lite-scripts',
 			HYVE_LITE_URL . 'build/backend/index.js',
 			$asset_file['dependencies'],
 			$asset_file['version'],
 			true
 		);
 
-		wp_set_script_translations( 'hyve-scripts', 'hyve' );
+		wp_set_script_translations( 'hyve-lite-scripts', 'hyve' );
 
 		$post_types        = get_post_types( array( 'public' => true ), 'objects' );
 		$post_types_for_js = array();
@@ -133,7 +133,7 @@ class Main {
 		$settings = self::get_settings();
 
 		wp_localize_script(
-			'hyve-scripts',
+			'hyve-lite-scripts',
 			'hyve',
 			apply_filters(
 				'hyve_options_data',
@@ -142,12 +142,16 @@ class Main {
 					'postTypes'   => $post_types_for_js,
 					'hasAPIKey'   => isset( $settings['api_key'] ) && ! empty( $settings['api_key'] ),
 					'chunksLimit' => apply_filters( 'hyve_chunks_limit', 500 ),
+					'assets'      => array(
+						'images' => HYVE_LITE_URL . 'assets/images/',
+					),
 					'stats'       => array(
 						'threads'     => Threads::get_thread_count(),
 						'messages'    => Threads::get_messages_count(),
 						'totalChunks' => $this->table->get_count(),
 					),
 					'docs'        => 'https://docs.themeisle.com/article/2009-hyve-documentation',
+					'pro'         => 'https://themeisle.com/plugins/hyve/',
 				)
 			)
 		);
@@ -217,19 +221,19 @@ class Main {
 		);
 
 		wp_register_script(
-			'hyve-scripts',
+			'hyve-lite-scripts',
 			HYVE_LITE_URL . 'build/frontend/frontend.js',
 			$asset_file['dependencies'],
 			$asset_file['version'],
 			true
 		);
 
-		wp_set_script_translations( 'hyve-scripts', 'hyve' );
+		wp_set_script_translations( 'hyve-lite-scripts', 'hyve' );
 
 		$settings = self::get_settings();
 
 		wp_localize_script(
-			'hyve-scripts',
+			'hyve-lite-scripts',
 			'hyve',
 			apply_filters(
 				'hyve_frontend_data',
@@ -250,7 +254,30 @@ class Main {
 		}
 
 		wp_enqueue_style( 'hyve-styles' );
-		wp_enqueue_script( 'hyve-scripts' );
+		wp_enqueue_script( 'hyve-lite-scripts' );
+
+		$has_pro = apply_filters( 'product_hyve_license_status', false );
+
+		if ( $has_pro ) {
+			return;
+		}
+
+		add_action(
+			'wp_footer',
+			function () {
+				?>
+				<script>
+					document.addEventListener('DOMContentLoaded', function() {
+						const credits = document.createElement('div');
+						credits.className = 'hyve-credits';
+						credits.innerHTML = '<a href="https://themeisle.com/plugins/hyve/" target="_blank">Powered by Hyve</a>';
+						document.querySelector( '.hyve-input-box' ).before( credits );
+					});
+				</script>
+				<?php
+			},
+			99
+		);
 	}
 
 	/**

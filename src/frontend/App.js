@@ -407,11 +407,6 @@ class App {
 		const chatMessageBox = this.createElement( 'div', { className: 'hyve-message-box', id: 'hyve-message-box' });
 
 		const chatInputBox = this.createElement( 'div', { className: 'hyve-input-box' });
-		const chatCreditsAnchor = this.createElement( 'a', {
-			href: 'https://themeisle.com/plugins/hyve/',
-			target: '_blank'
-		}, 'Powered by Hyve' );
-		const chatCredits = this.createElement( 'div', { className: 'hyve-credits' });
 		const chatWrite = this.createElement( 'div', { className: 'hyve-write' });
 
 		const chatInputText = this.createElement( 'input', {
@@ -431,8 +426,6 @@ class App {
 		);
 
 		chatWindow.appendChild( chatMessageBox );
-		chatWindow.appendChild( chatCredits );
-		chatCredits.appendChild( chatCreditsAnchor );
 		chatWrite.appendChild( chatInputText );
 		chatInputBox.appendChild( chatWrite );
 		chatInputBox.appendChild( chatSendButton );

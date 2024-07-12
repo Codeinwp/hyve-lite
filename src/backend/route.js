@@ -27,7 +27,7 @@ import Assistant from './parts/settings/Assistant';
 import Moderation from './parts/settings/Moderation';
 import Advanced from './parts/settings/Advanced';
 
-export const ROUTE = {
+export const ROUTE_TREE = {
 	home: {
 		label: __( 'Dashboard', 'hyve' ),
 		icon: home,
@@ -56,11 +56,13 @@ export const ROUTE = {
 			},
 			custom: {
 				label: __( 'Custom Data', 'hyve' ),
-				component: Custom
+				component: Custom,
+				isPro: true
 			},
 			faq: {
 				label: __( 'FAQ', 'hyve' ),
-				component: FAQ
+				component: FAQ,
+				isPro: true
 			}
 		}
 	},
@@ -77,10 +79,11 @@ export const ROUTE = {
 				label: __( 'General', 'hyve' ),
 				component: General
 			},
-			apperance: {
+			appearance: {
 				label: __( 'Appearance', 'hyve' ),
 				component: Appearance,
-				disabled: true
+				disabled: true,
+				isPro: true
 			},
 			assistant: {
 				label: __( 'Assistant', 'hyve' ),
@@ -100,17 +103,3 @@ export const ROUTE = {
 		}
 	}
 };
-
-export const ROUTE_COMPONENTS = Object.keys( ROUTE ).reduce( ( acc, key ) => {
-	if ( ROUTE[key].component ) {
-		acc[key] = ROUTE[key].component;
-	}
-
-	if ( ROUTE[key].children ) {
-		Object.keys( ROUTE[key].children ).forEach( ( childKey ) => {
-			acc[childKey] = ROUTE[key].children[childKey].component;
-		});
-	}
-
-	return acc;
-}, {});

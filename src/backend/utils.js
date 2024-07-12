@@ -233,3 +233,16 @@ export const onProcessData = async({
 		onError( error );
 	}
 };
+
+
+/**
+ * Helper function to add proper utm.
+ * @param {string} url Url to add utms.
+ * @param {string} area Descriptive name of the link
+ * @returns {string}
+ */
+export const setUtm = ( urlAdress, linkArea ) => {
+	const urlLink = new URL( urlAdress );
+	urlLink.searchParams.set( 'utm_campaign', linkArea );
+	return urlLink.toString();
+};

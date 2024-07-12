@@ -22,6 +22,43 @@ import {
 	useSelect
 } from '@wordpress/data';
 
+import { applyFilters } from '@wordpress/hooks';
+
+const SuggestedQuestions = () => {
+	return (
+		<UpsellContainer
+			title={ __( 'Suggested Questions is a Premium feature', 'hyve' ) }
+			description={ __( 'Get the conversation started with suggested questions. Upgrade now!', 'hyve' ) }
+			campaign="suggested-questions-settings"
+		>
+			<PanelRow>
+				<BaseControl
+					label={ __( 'Suggested Questions', 'hyve' ) }
+				>
+					<p className="components-base-control__help text-xs not-italic text-[rgb(117,117,117)] mt-[calc(8px)] mb-[revert]">{ __( 'These questions will be displayed in the chat to get the conversation started.', 'hyve' ) }</p>
+
+					<div className="overflow-y-auto max-h-96 flex flex-col gap-4">
+						{ Array.from({ length: 3 }).map( ( _, index ) => (
+							<TextControl
+								key={ index }
+								value={ '' }
+								placeholder={ __( 'e.g. Do you ship to Europe?', 'hyve' ) }
+								className="flex-1"
+								onChange={ () => {} }
+							/>
+						) ) }
+					</div>
+				</BaseControl>
+			</PanelRow>
+		</UpsellContainer>
+	);
+};
+
+/**
+ * Internal dependencies.
+ */
+import UpsellContainer from '../UpsellContainer';
+
 const General = () => {
 	const settings = useSelect( ( select ) => select( 'hyve' ).getSettings() );
 	const { setSetting } = useDispatch( 'hyve' );
@@ -29,12 +66,6 @@ const General = () => {
 	const { createNotice } = useDispatch( 'core/notices' );
 
 	const [ isSaving, setIsSaving ] = useState( false );
-
-	const updateQuestion = ( index, value ) => {
-		const newQuestions = [ ...settings.predefined_questions ];
-		newQuestions[ index ] = value;
-		setSetting( 'predefined_questions', newQuestions );
-	};
 
 	const onSave = async() => {
 		setIsSaving( true );
@@ -120,25 +151,7 @@ const General = () => {
 					/>
 				</PanelRow>
 
-				<PanelRow>
-					<BaseControl
-						label={ __( 'Suggested Questions', 'hyve' ) }
-					>
-						<p className="components-base-control__help text-xs not-italic text-[rgb(117,117,117)] mt-[calc(8px)] mb-[revert]">{ __( 'These questions will be displayed in the chat to get the conversation started.', 'hyve' ) }</p>
-
-						<div className="overflow-y-auto max-h-96 flex flex-col gap-4">
-							{ Array.from({ length: 3 }).map( ( _, index ) => (
-								<TextControl
-									key={ index }
-									value={ settings?.predefined_questions[ index ] || '' }
-									placeholder={ __( 'e.g. Do you ship to Europe?', 'hyve' ) }
-									className="flex-1"
-									onChange={ e => updateQuestion( index, e ) }
-								/>
-							) ) }
-						</div>
-					</BaseControl>
-				</PanelRow>
+				{ applyFilters( 'hyve.suggestedQuestions', <SuggestedQuestions />, isSaving, settings, setSetting ) }
 
 				<PanelRow>
 					<Button

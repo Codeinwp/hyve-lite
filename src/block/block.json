@@ -32,5 +32,5 @@
 	"editorScript": "file:./index.js",
     "render": "file:./render.php",
 	"style": "hyve-styles",
-    "viewScript": "hyve-scripts"
+    "viewScript": "hyve-lite-scripts"
 }

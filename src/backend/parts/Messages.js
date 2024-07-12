@@ -12,6 +12,7 @@ import apiFetch from '@wordpress/api-fetch';
 
 import {
 	Button,
+	Modal,
 	Panel,
 	PanelRow,
 	Spinner
@@ -22,12 +23,31 @@ import {
 	useState
 } from '@wordpress/element';
 
+import { applyFilters } from '@wordpress/hooks';
+
 import { addQueryArgs } from '@wordpress/url';
+
+/**
+ * Internal dependencies.
+ */
+import UpsellContainer from './UpsellContainer';
+
+const LoadMore = ({ onClick }) => (
+	<Button
+		onClick={ onClick }
+		className="flex items-center justify-center p-4 h-auto w-full text-base font-normal text-gray-900 hover:text-gray-900 hover:bg-gray-100 border-t-gray-300 border-t-[0.5px] border-solid"
+	>
+		<div className="flex flex-row gap-1">
+			{ __( 'Load more', 'hyve' ) }
+		</div>
+	</Button>
+);
 
 const Messages = () => {
 	const [ posts, setPosts ] = useState([]);
 	const [ selectedPost, setSelectedPost ] = useState( null );
 	const [ hasMore, setHasMore ] = useState( false );
+	const [ isUpsellOpen, setUpsellOpen ] = useState( false );
 	const [ isLoading, setLoading ] = useState( true );
 
 	const fetchPosts = async() => {
@@ -50,6 +70,24 @@ const Messages = () => {
 
 	return (
 		<div className="col-span-6 xl:col-span-4">
+			{ isUpsellOpen && (
+				<Modal
+					onRequestClose={ () => setUpsellOpen( false ) }
+					className="md:max-w-3xl md:w-full overflow-hidden"
+				>
+					<UpsellContainer
+						title={ __( 'Message History is a Premium feature', 'hyve' ) }
+						description={ __( 'Upgrade to Hyve Premium to unlock entire Message History feature and many more.', 'hyve' ) }
+						campaign="messages-feature"
+					>
+						<img
+							className="border-t-gray-300 border-t-[0.5px] border-x-0 border-b-0 border-solid"
+							src={ `${ window?.hyve?.assets?.images }threads.png` }
+						/>
+					</UpsellContainer>
+				</Modal>
+			) }
+
 			<Panel
 				header={ __( 'Messages', 'hyve' ) }
 			>
@@ -91,20 +129,17 @@ const Messages = () => {
 										</Button>
 									) ) }
 
-									{ hasMore && (
-										<Button
-											onClick={ fetchPosts }
-											disabled={ isLoading }
-											className="flex items-center justify-center p-4 h-auto w-full text-base font-normal text-gray-900 hover:text-gray-900 hover:bg-gray-100 border-t-gray-300 border-t-[0.5px] border-solid"
-										>
-											<div className="flex flex-row gap-1">
-												{ __( 'Load more', 'hyve' ) }
-
-												{ isLoading && (
-													<Spinner />
-												) }
-											</div>
-										</Button>
+									{ hasMore && applyFilters(
+										'hyve.messages.load-more',
+										() => {
+											return (
+												<LoadMore
+													onClick={ () => setUpsellOpen( true ) }
+												/>
+											);
+										},
+										isLoading,
+										fetchPosts
 									) }
 								</div>
 							) }

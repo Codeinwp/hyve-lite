@@ -1,10 +1,7 @@
 /**
  * WordPress dependencies.
  */
-import {
-	__,
-	sprintf
-} from '@wordpress/i18n';
+import { __ } from '@wordpress/i18n';
 
 import apiFetch from '@wordpress/api-fetch';
 
@@ -12,16 +9,12 @@ import {
 	BaseControl,
 	Button,
 	ExternalLink,
-	Icon,
 	Panel,
 	PanelRow,
 	TextControl
 } from '@wordpress/components';
 
-import {
-	useEffect,
-	useState
-} from '@wordpress/element';
+import { useState } from '@wordpress/element';
 
 import {
 	useDispatch,
@@ -38,16 +31,6 @@ const Advanced = () => {
 	const { createNotice } = useDispatch( 'core/notices' );
 
 	const [ isSaving, setIsSaving ] = useState( false );
-	const [ license, setLicense ] = useState( window.hyve?.license );
-	const [ licenseKey, setLicenseKey ] = useState( '' );
-
-	useEffect( () => {
-		const statuses = [ 'valid', 'active_expired' ];
-
-		if ( license.key && ( statuses.includes( license.valid ) ) ) {
-			setLicenseKey( license.key );
-		}
-	}, [ license ]);
 
 	const onSave = async() => {
 		setIsSaving( true );
@@ -91,119 +74,10 @@ const Advanced = () => {
 		setIsSaving( false );
 	};
 
-	const onSaveLicense = async( data ) => {
-		setIsSaving( true );
-
-		try {
-			const response = await apiFetch({
-				path: `${ window.hyve.api }/license`,
-				method: 'POST',
-				data: {
-					data
-				}
-			});
-
-			if ( response.error ) {
-				throw new Error( response.error );
-			}
-
-			createNotice(
-				response.success ? 'success' : 'error',
-				response.message,
-				{
-					isDismissible: true,
-					type: 'snackbar'
-				}
-			);
-
-			if ( response?.success && response.license && 'free' !== response.license.key ) {
-				setLicense( response.license );
-				setLicenseKey( response.license.key );
-			} else {
-				setLicense({});
-				setLicenseKey( '' );
-			}
-
-			window.location = window.location.href + '&nav=advanced';
-		} catch ( error ) {
-			createNotice(
-				'error',
-				error,
-				{
-					type: 'snackbar',
-					isDismissible: true
-				});
-		}
-		setIsSaving( false );
-	};
-
-	const isValid = 'valid' === license?.valid || 'valid' === license?.license;
-
 	return (
 		<div className="col-span-6 xl:col-span-4">
 			<Panel
-				header={ __( 'License', 'hyve' ) }
-			>
-				<PanelRow>
-					<BaseControl
-						help={ __( 'Enter your license from ThemeIsle purchase history in order to get plugin updates.', 'hyve' ) }
-					>
-						<TextControl
-							type="text"
-							value={ isValid ? '******************************' + licenseKey.slice( -5 ) : licenseKey }
-							placeholder={ __( 'Enter License Key', 'hyve' ) }
-							disabled={ isSaving || isValid }
-							onChange={ ( newValue ) => setLicenseKey( newValue ) }
-						/>
-					</BaseControl>
-
-					{ isValid && (
-						<div>
-							<p className="mb-2">
-								<Icon icon="yes" className="text-green-500" />
-								{
-									license.expiration ?
-										sprintf( __( 'Valid - Expires %s', 'hyve' ), license.expiration ) :
-										__( 'Valid', 'hyve' )
-								}
-							</p>
-						</div>
-					)}
-
-					{ 'active_expired' === license?.valid && (
-						<>
-							<p>{ __( 'License Key has expired. In order to continue receiving support and software updates you must renew your license key.', 'hyve' ) }</p>
-
-							<ExternalLink href={ `https://store.themeisle.com?license=${ licenseKey }` } className="flex mb-2 items-centertext-sm text-blue-600">
-								{ __( 'Renew License', 'hyve' ) }
-							</ExternalLink>
-						</>
-					)}
-
-					{ ! isValid && (
-						<ExternalLink href="https://store.themeisle.com/purchase-history" className="flex mb-2 items-centertext-sm text-blue-600">
-							{ __( 'Get license from Purchase History', 'hyve' ) }
-						</ExternalLink>
-					) }
-
-					<Button
-						variant={ isValid ? 'secondary' : 'primary' }
-						isBusy={ isSaving }
-						disabled={ isSaving }
-						onClick={ () => onSaveLicense({
-							action: isValid ? 'deactivate' : 'activate',
-							key: licenseKey
-						}) }
-					>
-						{ isValid ? __( 'Deactivate', 'hyve' ) : __( 'Activate', 'hyve' ) }
-					</Button>
-				</PanelRow>
-			</Panel>
-
-			<br/>
-
-			<Panel
-				header={ __( 'API Key', 'hyve' ) }
+				header={ __( 'Advanced', 'hyve' ) }
 			>
 				<PanelRow>
 					<BaseControl

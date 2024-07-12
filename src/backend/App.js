@@ -14,10 +14,12 @@ import {
 
 import { useEffect } from '@wordpress/element';
 
+import { applyFilters } from '@wordpress/hooks';
+
 /**
  * Internal dependencies.
  */
-import { ROUTE_COMPONENTS } from './route';
+import { ROUTE_TREE as ROUTE } from './route';
 import Sidebar from './parts/Sidebar';
 import Notices from './parts/Notices';
 
@@ -50,6 +52,22 @@ const App = () => {
 			setRoute( nav );
 		}
 	}, []);
+
+	const ROUTE_TREE = applyFilters( 'hyve.route', ROUTE );
+
+	const ROUTE_COMPONENTS = Object.keys( ROUTE_TREE ).reduce( ( acc, key ) => {
+		if ( ROUTE_TREE[key].component ) {
+			acc[key] = ROUTE_TREE[key].component;
+		}
+
+		if ( ROUTE_TREE[key].children ) {
+			Object.keys( ROUTE_TREE[key].children ).forEach( ( childKey ) => {
+				acc[childKey] = ROUTE_TREE[key].children[childKey].component;
+			});
+		}
+
+		return acc;
+	}, {});
 
 	const Page = ROUTE_COMPONENTS[route] || null;
 
