@@ -42,40 +42,42 @@ const colorOptions = [
 
 const Appearance = () => {
 	return (
-		<UpsellContainer
-			title={ __( 'Appearance customization is a Premium feature', 'hyve' ) }
-			description={ __( 'Customize the look and feel of your chat box with our Premium subscription. Upgrade now!', 'hyve' ) }
-			campaign="appearance-settings"
-		>
+		<div className="col-span-6 xl:col-span-4">
 			<Panel
 				header={ __( 'Appearance Settings', 'hyve' ) }
 			>
-				<PanelRow>
-					{ colorOptions.map( ( option ) => (
-						<BaseControl
-							key={ option.value }
-							label={ option.label }
-						>
-							<ColorPalette
-								colors={ [] }
-								value={ option.default }
-								onChange={ () => {} }
-							/>
-						</BaseControl>
-					) ) }
-				</PanelRow>
+				<UpsellContainer
+					title={ __( 'Appearance customization is a Premium feature', 'hyve' ) }
+					description={ __( 'Customize the look and feel of your chat box with our Premium subscription. Upgrade now!', 'hyve' ) }
+					campaign="appearance-settings"
+				>
+					<PanelRow>
+						{ colorOptions.map( ( option ) => (
+							<BaseControl
+								key={ option.value }
+								label={ option.label }
+							>
+								<ColorPalette
+									colors={ [] }
+									value={ option.default }
+									onChange={ () => {} }
+								/>
+							</BaseControl>
+						) ) }
+					</PanelRow>
 
-				<PanelRow>
-					<Button
-						variant="primary"
-						className="mt-2"
-						onClick={ () => {} }
-					>
-						{ __( 'Save', 'hyve' ) }
-					</Button>
-				</PanelRow>
+					<PanelRow>
+						<Button
+							variant="primary"
+							className="mt-2"
+							onClick={ () => {} }
+						>
+							{ __( 'Save', 'hyve' ) }
+						</Button>
+					</PanelRow>
+				</UpsellContainer>
 			</Panel>
-		</UpsellContainer>
+		</div>
 	);
 };
 

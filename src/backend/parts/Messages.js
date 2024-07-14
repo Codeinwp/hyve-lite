@@ -131,13 +131,9 @@ const Messages = () => {
 
 									{ hasMore && applyFilters(
 										'hyve.messages.load-more',
-										() => {
-											return (
-												<LoadMore
-													onClick={ () => setUpsellOpen( true ) }
-												/>
-											);
-										},
+										<LoadMore
+											onClick={ () => setUpsellOpen( true ) }
+										/>,
 										isLoading,
 										fetchPosts
 									) }

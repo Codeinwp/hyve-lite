@@ -17,7 +17,7 @@ class Threads {
 	public function __construct() {
 		add_action( 'init', array( $this, 'register' ) );
 		add_action( 'hyve_chat_response', array( $this, 'record_message' ), 10, 6 );
-		add_action( 'hyve_chat_request', array( $this, 'record_thread' ), 10, 3 );
+		add_filter( 'hyve_chat_request', array( $this, 'record_thread' ), 10, 3 );
 	}
 
 	/**
@@ -96,7 +96,7 @@ class Threads {
 	 * @param string|int $record_id Record ID.
 	 * @param string     $message   Message.
 	 * 
-	 * @return void
+	 * @return int
 	 */
 	public function record_thread( $thread_id, $record_id, $message ) {
 		if ( $record_id ) {
@@ -108,17 +108,18 @@ class Threads {
 					'message'   => $message,
 				)
 			);
-			return;
+		} else {
+			$record_id = self::create_thread(
+				$message,
+				array(
+					'thread_id' => $thread_id,
+					'sender'    => 'user',
+					'message'   => $message,
+				)
+			);
 		}
 
-		$record_id = self::create_thread(
-			$message,
-			array(
-				'thread_id' => $thread_id,
-				'sender'    => 'user',
-				'message'   => $message,
-			)
-		);
+		return $record_id;
 	}
 	
 
@@ -202,13 +203,15 @@ class Threads {
 	public static function get_messages_count() {
 		$messages = get_transient( 'hyve_messages_count' );
 
-		if ( false === $messages ) {
-			$messages = 0;
-
+		if ( ! $messages ) {
 			global $wpdb;
 
 			$query    = "SELECT SUM( CAST( meta_value AS UNSIGNED ) ) FROM {$wpdb->postmeta} WHERE meta_key = '_hyve_thread_count'";
 			$messages = $wpdb->get_var( $query ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+
+			if ( ! $messages ) {
+				$messages = 0;
+			}
 
 			set_transient( 'hyve_messages_count', $messages, HOUR_IN_SECONDS );
 		}

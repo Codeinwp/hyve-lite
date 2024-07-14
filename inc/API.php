@@ -713,7 +713,7 @@ class API extends BaseAPI {
 			}
 		}
 
-		do_action( 'hyve_chat_request', $thread_id, $record_id, $message );
+		$record_id = apply_filters( 'hyve_chat_request', $thread_id, $record_id, $message );
 
 		return rest_ensure_response(
 			array(
