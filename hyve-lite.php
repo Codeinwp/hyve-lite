@@ -6,7 +6,7 @@
  *
  * Plugin Name:       Hyve Lite
  * Plugin URI:        https://themeisle.com/plugins/hyve/
- * Description:       An AI powered chatbot.
+ * Description:       Hyve is an AI-powered chatbot that transforms your WordPress content into engaging conversations.
  * Version:           1.1.0
  * Author:            ThemeIsle
  * Author URI:        https://themeisle.com

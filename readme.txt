@@ -8,11 +8,11 @@ Stable tag: trunk
 License: GPLv3
 License URI: https://www.gnu.org/licenses/gpl-3.0.en.html
 
-Hyve Description
+Hyve is an AI-powered chatbot that transforms your WordPress content into engaging conversations.
 
 == Description ==
 
-== Screenshots ==
+Hyve is an AI-powered chatbot that transforms your WordPress content into engaging conversations. It uses the content from your WordPress site as a knowledge base to intelligently respond to user inquiries, providing accurate and context-aware answers directly from your existing materials.
 
 == Installation ==
 
