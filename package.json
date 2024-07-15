@@ -1,0 +1,65 @@
+{
+  "name": "hyve-lite",
+  "version": "1.1.0",
+  "description": "An AI support bot.",
+  "scripts": {
+    "build": "npm-run-all build:*",
+    "build:backend": "wp-scripts build --webpack-src-dir=src/backend --output-path=build/backend --output-filename=index.js",
+    "build:frontend": "wp-scripts build --webpack-src-dir=src/frontend --output-path=build/frontend --output-filename=frontend.js",
+    "build:block": "wp-scripts build --webpack-src-dir=src/block --output-path=build/block --output-filename=index.js",
+    "check-engines": "wp-scripts check-engines",
+    "check-licenses": "wp-scripts check-licenses",
+    "format": "wp-scripts format",
+    "lint:css": "wp-scripts lint-style",
+    "lint:js": "wp-scripts lint-js",
+    "lint:md:docs": "wp-scripts lint-md-docs",
+    "lint:pkg-json": "wp-scripts lint-pkg-json",
+    "packages-update": "wp-scripts packages-update",
+    "plugin-zip": "wp-scripts plugin-zip",
+    "start": "npm-run-all --parallel start:*",
+    "start:backend": "wp-scripts start --webpack-src-dir=src/backend --output-path=build/backend --output-filename=index.js",
+    "start:frontend": "wp-scripts start --webpack-src-dir=src/frontend --output-path=build/frontend --output-filename=frontend.js",
+    "start:block": "wp-scripts start --webpack-src-dir=src/block --output-path=build/block --output-filename=index.js",
+    "test:e2e": "wp-scripts test-e2e",
+    "test:unit": "wp-scripts test-unit-js",
+    "dist": "bash bin/dist.sh",
+    "release": "npx semantic-release"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Codeinwp/hyve-lite.git"
+  },
+  "keywords": [
+    "wordpress-plugin"
+  ],
+  "author": "Hardeep Asrani <hardeep@themeisle.com>",
+  "license": "GPL-3.0-or-later",
+  "bugs": {
+    "url": "https://github.com/Codeinwp/hyve-lite/issues"
+  },
+  "homepage": "https://github.com/Codeinwp/hyve-lite#readme",
+  "devDependencies": {
+    "@semantic-release/changelog": "^6.0.3",
+    "@semantic-release/exec": "^6.0.3",
+    "@semantic-release/git": "^10.0.1",
+    "@wordpress/scripts": "^26.19.0",
+    "conventional-changelog-simple-preset": "^1.0.24",
+    "eslint-config-wordpress": "^2.0.0",
+    "grunt": "^1.6.1",
+    "grunt-version": "^3.0.1",
+    "grunt-wp-readme-to-markdown": "^2.1.0",
+    "npm-run-all": "^4.1.5",
+    "replace-in-file": "^7.1.0",
+		"semantic-release": "^19.0.5",
+    "semantic-release-slack-bot": "^4.0.2",
+    "simple-git-hooks": "^2.9.0",
+    "tailwindcss": "^3.4.0"
+  },
+  "dependencies": {
+    "@dqbd/tiktoken": "^1.0.13",
+    "@wordpress/icons": "^9.39.0",
+    "classnames": "^2.5.1",
+    "js-tiktoken": "^1.0.10",
+    "object-hash": "^3.0.0"
+  }
+}
