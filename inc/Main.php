@@ -68,8 +68,8 @@ class Main {
 	 */
 	public function register_menu_page() {
 		$page_hook_suffix = add_menu_page(
-			__( 'Hyve', 'hyve' ),
-			__( 'Hyve', 'hyve' ),
+			__( 'Hyve', 'hyve-lite' ),
+			__( 'Hyve', 'hyve-lite' ),
 			'manage_options',
 			'hyve',
 			array( $this, 'menu_page' ),
@@ -118,7 +118,7 @@ class Main {
 			true
 		);
 
-		wp_set_script_translations( 'hyve-lite-scripts', 'hyve' );
+		wp_set_script_translations( 'hyve-lite-scripts', 'hyve-lite' );
 
 		$post_types        = get_post_types( array( 'public' => true ), 'objects' );
 		$post_types_for_js = array();
@@ -170,8 +170,8 @@ class Main {
 			array(
 				'api_key'              => '',
 				'chat_enabled'         => true,
-				'welcome_message'      => __( 'Hello! How can I help you today?', 'hyve' ),
-				'default_message'      => __( 'Sorry, I\'m not able to help with that.', 'hyve' ),
+				'welcome_message'      => __( 'Hello! How can I help you today?', 'hyve-lite' ),
+				'default_message'      => __( 'Sorry, I\'m not able to help with that.', 'hyve-lite' ),
 				'temperature'          => 1,
 				'top_p'                => 1,
 				'moderation_threshold' => array(
@@ -228,7 +228,7 @@ class Main {
 			true
 		);
 
-		wp_set_script_translations( 'hyve-lite-scripts', 'hyve' );
+		wp_set_script_translations( 'hyve-lite-scripts', 'hyve-lite' );
 
 		$settings = self::get_settings();
 

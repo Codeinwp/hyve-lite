@@ -40,7 +40,7 @@ const Sidebar = () => {
 	return (
 		<div className="col-span-6 xl:col-span-2">
 			<Panel
-				header={ __( 'Menu', 'hyve' ) }
+				header={ __( 'Menu', 'hyve-lite' ) }
 			>
 				<div className="max-w-2xl mx-auto">
 					<aside aria-label="Sidebar">
@@ -85,7 +85,7 @@ const Sidebar = () => {
 															{ MENU_ITEMS[key].children[childKey].label }
 
 															{ MENU_ITEMS[key].children[childKey].isPro && (
-																<div className="text-xs py-1 px-3 bg-blue-500 text-white uppercase font-bold rounded-full">{ __( 'Pro', 'hyve' ) }</div>
+																<div className="text-xs py-1 px-3 bg-blue-500 text-white uppercase font-bold rounded-full">{ __( 'Pro', 'hyve-lite' ) }</div>
 															)}
 														</Button>
 													</li>
@@ -107,8 +107,8 @@ const Sidebar = () => {
 					<Panel>
 						<div className="flex flex-col items-center justify-center py-8 px-4 rounded-lg">
 							<div className="text-center">
-								<h3 className="text-lg font-semibold text-gray-800">{ __( 'Upgrade to Premium', 'hyve' ) }</h3>
-								<p className="text-sm text-gray-500">{ __( 'Unlock powerful features and enhance your chatbot experience.', 'hyve' ) }</p>
+								<h3 className="text-lg font-semibold text-gray-800">{ __( 'Upgrade to Premium', 'hyve-lite' ) }</h3>
+								<p className="text-sm text-gray-500">{ __( 'Unlock powerful features and enhance your chatbot experience.', 'hyve-lite' ) }</p>
 							</div>
 
 							<Button
@@ -117,7 +117,7 @@ const Sidebar = () => {
 								target="_blank"
 								href={ setUtm( window?.hyve?.pro, 'sidebar-banner' )}
 							>
-								{ __( 'Learn More', 'hyve' ) }
+								{ __( 'Learn More', 'hyve-lite' ) }
 							</Button>
 						</div>
 					</Panel>

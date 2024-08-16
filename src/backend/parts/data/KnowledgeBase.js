@@ -63,7 +63,7 @@ const KnowledgeBase = () => {
 
 		createNotice(
 			'success',
-			__( 'Post has been removed.', 'hyve' ),
+			__( 'Post has been removed.', 'hyve-lite' ),
 			{
 				type: 'snackbar',
 				isDismissible: true
@@ -78,10 +78,10 @@ const KnowledgeBase = () => {
 	return (
 		<div className="col-span-6 xl:col-span-4">
 			<Panel
-				header={ __( 'Knowledge Base', 'hyve' ) }
+				header={ __( 'Knowledge Base', 'hyve-lite' ) }
 			>
 				<PanelRow>
-					<p className="py-4">{ __( 'A list of all the content that has been added to the knowledge base. It\'s the foundation that supports your chat assistant, enabling it to provide accurate and insightful responses.', 'hyve' ) }</p>
+					<p className="py-4">{ __( 'A list of all the content that has been added to the knowledge base. It\'s the foundation that supports your chat assistant, enabling it to provide accurate and insightful responses.', 'hyve-lite' ) }</p>
 
 					<div className="relative pt-4 pb-8 overflow-x-auto">
 						<PostsTable
@@ -90,7 +90,7 @@ const KnowledgeBase = () => {
 							hasMore={ hasMore }
 							onFetch={ fetchPosts }
 							onAction={ onDelete }
-							actionLabel={ __( 'Remove', 'hyve' ) }
+							actionLabel={ __( 'Remove', 'hyve-lite' ) }
 							isBusy={ isDeleting }
 						/>
 					</div>

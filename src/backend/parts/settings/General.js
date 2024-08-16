@@ -27,22 +27,22 @@ import { applyFilters } from '@wordpress/hooks';
 const SuggestedQuestions = () => {
 	return (
 		<UpsellContainer
-			title={ __( 'Suggested Questions is a Premium feature', 'hyve' ) }
-			description={ __( 'Get the conversation started with suggested questions. Upgrade now!', 'hyve' ) }
+			title={ __( 'Suggested Questions is a Premium feature', 'hyve-lite' ) }
+			description={ __( 'Get the conversation started with suggested questions. Upgrade now!', 'hyve-lite' ) }
 			campaign="suggested-questions-settings"
 		>
 			<PanelRow>
 				<BaseControl
-					label={ __( 'Suggested Questions', 'hyve' ) }
+					label={ __( 'Suggested Questions', 'hyve-lite' ) }
 				>
-					<p className="components-base-control__help text-xs not-italic text-[rgb(117,117,117)] mt-[calc(8px)] mb-[revert]">{ __( 'These questions will be displayed in the chat to get the conversation started.', 'hyve' ) }</p>
+					<p className="components-base-control__help text-xs not-italic text-[rgb(117,117,117)] mt-[calc(8px)] mb-[revert]">{ __( 'These questions will be displayed in the chat to get the conversation started.', 'hyve-lite' ) }</p>
 
 					<div className="overflow-y-auto max-h-96 flex flex-col gap-4">
 						{ Array.from({ length: 3 }).map( ( _, index ) => (
 							<TextControl
 								key={ index }
 								value={ '' }
-								placeholder={ __( 'e.g. Do you ship to Europe?', 'hyve' ) }
+								placeholder={ __( 'e.g. Do you ship to Europe?', 'hyve-lite' ) }
 								className="flex-1"
 								onChange={ () => {} }
 							/>
@@ -85,7 +85,7 @@ const General = () => {
 
 			createNotice(
 				'success',
-				__( 'Settings saved.', 'hyve' ),
+				__( 'Settings saved.', 'hyve-lite' ),
 				{
 					type: 'snackbar',
 					isDismissible: true
@@ -106,25 +106,25 @@ const General = () => {
 	return (
 		<div className="col-span-6 xl:col-span-4">
 			<Panel
-				header={ __( 'General Settings', 'hyve' ) }
+				header={ __( 'General Settings', 'hyve-lite' ) }
 			>
 				<PanelRow>
 					<ToggleGroupControl
 						__nextHasNoMarginBottom
 						isBlock
-						label={ __( 'Enable Chat', 'hyve' ) }
+						label={ __( 'Enable Chat', 'hyve-lite' ) }
 						value={ Boolean( settings.chat_enabled ) }
 						onChange={ newValue => setSetting( 'chat_enabled', Boolean( newValue ) ) }
 					>
 						<ToggleGroupControlOption
-							aria-label={ __( 'Enable Chat', 'hyve' ) }
-							label={ __( 'Enable', 'hyve' ) }
+							aria-label={ __( 'Enable Chat', 'hyve-lite' ) }
+							label={ __( 'Enable', 'hyve-lite' ) }
 							showTooltip
 							value={ true }
 						/>
 						<ToggleGroupControlOption
-							aria-label={ __( 'Enable Chat', 'hyve' ) }
-							label={ __( 'Disable', 'hyve' ) }
+							aria-label={ __( 'Enable Chat', 'hyve-lite' ) }
+							label={ __( 'Disable', 'hyve-lite' ) }
 							showTooltip
 							value={ false }
 						/>
@@ -133,8 +133,8 @@ const General = () => {
 
 				<PanelRow>
 					<TextControl
-						label={ __( 'Welcome Message', 'hyve' ) }
-						help={ __( 'This message will be displayed when the chat is opened.', 'hyve' ) }
+						label={ __( 'Welcome Message', 'hyve-lite' ) }
+						help={ __( 'This message will be displayed when the chat is opened.', 'hyve-lite' ) }
 						value={ settings.welcome_message || '' }
 						disabled={ isSaving }
 						onChange={ ( newValue ) => setSetting( 'welcome_message', newValue ) }
@@ -143,8 +143,8 @@ const General = () => {
 
 				<PanelRow>
 					<TextControl
-						label={ __( 'Default Message', 'hyve' ) }
-						help={ __( 'This message will return when the chat is unable to find an answer.', 'hyve' ) }
+						label={ __( 'Default Message', 'hyve-lite' ) }
+						help={ __( 'This message will return when the chat is unable to find an answer.', 'hyve-lite' ) }
 						value={ settings.default_message || '' }
 						disabled={ isSaving }
 						onChange={ ( newValue ) => setSetting( 'default_message', newValue ) }
@@ -161,7 +161,7 @@ const General = () => {
 						className="mt-2"
 						onClick={ onSave }
 					>
-						{ __( 'Save', 'hyve' ) }
+						{ __( 'Save', 'hyve-lite' ) }
 					</Button>
 				</PanelRow>
 			</Panel>
