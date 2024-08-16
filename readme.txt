@@ -14,6 +14,8 @@ Hyve is an AI-powered chatbot that transforms your WordPress content into engagi
 
 Hyve is an AI-powered chatbot that transforms your WordPress content into engaging conversations. It uses the content from your WordPress site as a knowledge base to intelligently respond to user inquiries, providing accurate and context-aware answers directly from your existing materials.
 
+Hyve relies on the OpenAI API to provide certain features, such as text generation and language processing. When using these features, data is sent to the OpenAI servers for processing. You can learn more about their Terms of use here: [OpenAI Terms of Use](https://openai.com/policies/terms-of-use/).
+
 == Installation ==
 
 #### Automatic Installation
