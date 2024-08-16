@@ -187,7 +187,7 @@ class Main {
 					'harassment/threatening' => 60,
 					'violence'               => 70,
 				),
-			),
+			)
 		);
 	}
 
@@ -245,7 +245,7 @@ class Main {
 					),
 					'welcome'   => $settings['welcome_message'] ?? '',
 					'isEnabled' => $settings['chat_enabled'],
-				),
+				)
 			)
 		);
 
@@ -262,21 +262,9 @@ class Main {
 			return;
 		}
 
-		add_action(
-			'wp_footer',
-			function () {
-				?>
-				<script>
-					document.addEventListener('DOMContentLoaded', function() {
-						const credits = document.createElement('div');
-						credits.className = 'hyve-credits';
-						credits.innerHTML = '<a href="https://themeisle.com/plugins/hyve/" target="_blank">Powered by Hyve</a>';
-						document.querySelector( '.hyve-input-box' ).before( credits );
-					});
-				</script>
-				<?php
-			},
-			99
+		wp_add_inline_script(
+			'hyve-lite-scripts',
+			'document.addEventListener("DOMContentLoaded", function() { const c = document.createElement("div"); c.className = "hyve-credits"; c.innerHTML = "<a href=\"https://themeisle.com/plugins/hyve/\" target=\"_blank\">Powered by Hyve</a>"; document.querySelector( ".hyve-input-box" ).before( c ); });'
 		);
 	}
 
