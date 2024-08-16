@@ -206,8 +206,7 @@ class Threads {
 		if ( ! $messages ) {
 			global $wpdb;
 
-			$query    = "SELECT SUM( CAST( meta_value AS UNSIGNED ) ) FROM {$wpdb->postmeta} WHERE meta_key = '_hyve_thread_count'";
-			$messages = $wpdb->get_var( $query ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+			$messages = $wpdb->get_var( $wpdb->prepare( "SELECT SUM( CAST( meta_value AS UNSIGNED ) ) FROM {$wpdb->postmeta} WHERE meta_key = %s", '_hyve_thread_count' ) ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
 
 			if ( ! $messages ) {
 				$messages = 0;
