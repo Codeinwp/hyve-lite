@@ -62,7 +62,7 @@ const PostModal = ({
 
 		createNotice(
 			'success',
-			__( 'Post has been deleted.', 'hyve' ),
+			__( 'Post has been deleted.', 'hyve-lite' ),
 			{
 				type: 'snackbar',
 				isDismissible: true
@@ -117,7 +117,7 @@ const PostModal = ({
 
 	return (
 		<Modal
-			title={ isEdit ? __( 'Edit Data', 'hyve' ) : __( 'Add Data', 'hyve' )}
+			title={ isEdit ? __( 'Edit Data', 'hyve-lite' ) : __( 'Add Data', 'hyve-lite' )}
 			onRequestClose={ () => onClose( false ) }
 			shouldCloseOnOverlayClick={ true }
 			isOpen={ true }
@@ -125,7 +125,7 @@ const PostModal = ({
 		>
 			<div className="flex flex-col gap-4">
 				<TextControl
-					label={ __( 'Title', 'hyve' ) }
+					label={ __( 'Title', 'hyve-lite' ) }
 					value={ data?.title || '' }
 					disabled={ isLoading }
 					onChange={ ( title ) => {
@@ -137,7 +137,7 @@ const PostModal = ({
 				/>
 
 				<TextareaControl
-					label={ __( 'Content', 'hyve' ) }
+					label={ __( 'Content', 'hyve-lite' ) }
 					value={ data?.content || '' }
 					rows={ 8 }
 					disabled={ isLoading }
@@ -159,7 +159,7 @@ const PostModal = ({
 							isBusy={ isLoading }
 							onClick={ onDelete }
 						>
-							{ __( 'Delete', 'hyve' ) }
+							{ __( 'Delete', 'hyve-lite' ) }
 						</Button>
 					) }
 
@@ -170,7 +170,7 @@ const PostModal = ({
 						isBusy={ isLoading }
 						onClick={ onProcess }
 					>
-						{ isEdit ? __( 'Save', 'hyve' ) : __( 'Add', 'hyve' )}
+						{ isEdit ? __( 'Save', 'hyve-lite' ) : __( 'Add', 'hyve-lite' )}
 					</Button>
 				</div>
 			</div>

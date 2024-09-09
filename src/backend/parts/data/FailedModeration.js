@@ -92,10 +92,10 @@ const FailedModeration = () => {
 		<>
 			<div className="col-span-6 xl:col-span-4">
 				<Panel
-					header={ __( 'Failed Moderation', 'hyve' ) }
+					header={ __( 'Failed Moderation', 'hyve-lite' ) }
 				>
 					<PanelRow>
-						<p className="py-4">{ __( 'On this page, you\'ll find posts and pages that could not be added or updated due to non-compliance with content policies. Review these to understand the limitations and possibly modify content to align with required standards. You can also adjust the moderation threshold in the Settings.', 'hyve' ) }</p>
+						<p className="py-4">{ __( 'On this page, you\'ll find posts and pages that could not be added or updated due to non-compliance with content policies. Review these to understand the limitations and possibly modify content to align with required standards. You can also adjust the moderation threshold in the Settings.', 'hyve-lite' ) }</p>
 
 						<div className="relative pt-4 pb-8 overflow-x-auto">
 							<PostsTable
@@ -104,10 +104,10 @@ const FailedModeration = () => {
 								hasMore={ hasMoreUpdate }
 								onFetch={ fetchUpdate }
 								onAction={ onUpdate }
-								actionLabel={ __( 'Update', 'hyve' ) }
+								actionLabel={ __( 'Update', 'hyve-lite' ) }
 								isBusy={ isUpdating }
 								secondaryAction={ {
-									label: __( 'More Info', 'hyve' ),
+									label: __( 'More Info', 'hyve-lite' ),
 									action: post => {
 										setOpen( true );
 										setPost( post );

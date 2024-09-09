@@ -29,74 +29,74 @@ import Advanced from './parts/settings/Advanced';
 
 export const ROUTE_TREE = {
 	home: {
-		label: __( 'Dashboard', 'hyve' ),
+		label: __( 'Dashboard', 'hyve-lite' ),
 		icon: home,
 		component: Home,
 		disabled: false
 	},
 	data: {
-		label: __( 'Data', 'hyve' ),
+		label: __( 'Data', 'hyve-lite' ),
 		icon: archive,
 		children: {
 			data: {
-				label: __( 'Knowledge Base', 'hyve' ),
+				label: __( 'Knowledge Base', 'hyve-lite' ),
 				component: KnowledgeBase
 			},
 			add: {
-				label: __( 'Add Data', 'hyve' ),
+				label: __( 'Add Data', 'hyve-lite' ),
 				component: AddData
 			},
 			update: {
-				label: __( 'Requires Update', 'hyve' ),
+				label: __( 'Requires Update', 'hyve-lite' ),
 				component: Updated
 			},
 			flagged: {
-				label: __( 'Failed Moderation', 'hyve' ),
+				label: __( 'Failed Moderation', 'hyve-lite' ),
 				component: FailedModeration
 			},
 			custom: {
-				label: __( 'Custom Data', 'hyve' ),
+				label: __( 'Custom Data', 'hyve-lite' ),
 				component: Custom,
 				isPro: true
 			},
 			faq: {
-				label: __( 'FAQ', 'hyve' ),
+				label: __( 'FAQ', 'hyve-lite' ),
 				component: FAQ,
 				isPro: true
 			}
 		}
 	},
 	messages: {
-		label: __( 'Messages', 'hyve' ),
+		label: __( 'Messages', 'hyve-lite' ),
 		icon: comment,
 		component: Messages
 	},
 	settings: {
-		label: __( 'Settings', 'hyve' ),
+		label: __( 'Settings', 'hyve-lite' ),
 		icon: settings,
 		children: {
 			settings: {
-				label: __( 'General', 'hyve' ),
+				label: __( 'General', 'hyve-lite' ),
 				component: General
 			},
 			appearance: {
-				label: __( 'Appearance', 'hyve' ),
+				label: __( 'Appearance', 'hyve-lite' ),
 				component: Appearance,
 				disabled: true,
 				isPro: true
 			},
 			assistant: {
-				label: __( 'Assistant', 'hyve' ),
+				label: __( 'Assistant', 'hyve-lite' ),
 				component: Assistant,
 				disabled: true
 			},
 			moderation: {
-				label: __( 'Moderation', 'hyve' ),
+				label: __( 'Moderation', 'hyve-lite' ),
 				component: Moderation,
 				disabled: true
 			},
 			advanced: {
-				label: __( 'Advanced', 'hyve' ),
+				label: __( 'Advanced', 'hyve-lite' ),
 				component: Advanced,
 				disabled: false
 			}

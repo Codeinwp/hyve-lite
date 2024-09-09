@@ -27,25 +27,25 @@ class Threads {
 	 */
 	public function register() {
 		$labels = array(
-			'name'               => _x( 'Threads', 'post type general name', 'hyve' ),
-			'singular_name'      => _x( 'Thread', 'post type singular name', 'hyve' ),
-			'menu_name'          => _x( 'Threads', 'admin menu', 'hyve' ),
-			'name_admin_bar'     => _x( 'Thread', 'add new on admin bar', 'hyve' ),
-			'add_new'            => _x( 'Add New', 'Thread', 'hyve' ),
-			'add_new_item'       => __( 'Add New Thread', 'hyve' ),
-			'new_item'           => __( 'New Thread', 'hyve' ),
-			'edit_item'          => __( 'Edit Thread', 'hyve' ),
-			'view_item'          => __( 'View Thread', 'hyve' ),
-			'all_items'          => __( 'All Threads', 'hyve' ),
-			'search_items'       => __( 'Search Threads', 'hyve' ),
-			'parent_item_colon'  => __( 'Parent Thread:', 'hyve' ),
-			'not_found'          => __( 'No Threads found.', 'hyve' ),
-			'not_found_in_trash' => __( 'No Threads found in Trash.', 'hyve' ),
+			'name'               => _x( 'Threads', 'post type general name', 'hyve-lite' ),
+			'singular_name'      => _x( 'Thread', 'post type singular name', 'hyve-lite' ),
+			'menu_name'          => _x( 'Threads', 'admin menu', 'hyve-lite' ),
+			'name_admin_bar'     => _x( 'Thread', 'add new on admin bar', 'hyve-lite' ),
+			'add_new'            => _x( 'Add New', 'Thread', 'hyve-lite' ),
+			'add_new_item'       => __( 'Add New Thread', 'hyve-lite' ),
+			'new_item'           => __( 'New Thread', 'hyve-lite' ),
+			'edit_item'          => __( 'Edit Thread', 'hyve-lite' ),
+			'view_item'          => __( 'View Thread', 'hyve-lite' ),
+			'all_items'          => __( 'All Threads', 'hyve-lite' ),
+			'search_items'       => __( 'Search Threads', 'hyve-lite' ),
+			'parent_item_colon'  => __( 'Parent Thread:', 'hyve-lite' ),
+			'not_found'          => __( 'No Threads found.', 'hyve-lite' ),
+			'not_found_in_trash' => __( 'No Threads found in Trash.', 'hyve-lite' ),
 		);
 
 		$args = array(
 			'labels'             => $labels,
-			'description'        => __( 'Threads.', 'hyve' ),
+			'description'        => __( 'Threads.', 'hyve-lite' ),
 			'public'             => false,
 			'publicly_queryable' => false,
 			'show_ui'            => false,
@@ -206,8 +206,7 @@ class Threads {
 		if ( ! $messages ) {
 			global $wpdb;
 
-			$query    = "SELECT SUM( CAST( meta_value AS UNSIGNED ) ) FROM {$wpdb->postmeta} WHERE meta_key = '_hyve_thread_count'";
-			$messages = $wpdb->get_var( $query ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+			$messages = $wpdb->get_var( $wpdb->prepare( "SELECT SUM( CAST( meta_value AS UNSIGNED ) ) FROM {$wpdb->postmeta} WHERE meta_key = %s", '_hyve_thread_count' ) ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
 
 			if ( ! $messages ) {
 				$messages = 0;

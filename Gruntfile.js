@@ -30,6 +30,14 @@ module.exports = function( grunt ) {
 						flags: ''
 					},
 					src: [ 'hyve-lite.php' ]
+				},
+				readmetxt: {
+					options: {
+						prefix: 'Stable tag:\\s*'
+					},
+					src: [
+						'readme.txt'
+					]
 				}
 			}
 		}

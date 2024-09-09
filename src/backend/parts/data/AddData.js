@@ -44,7 +44,7 @@ const excludeTypes = [ 'attachment' ];
 let postTypes = window.hyve.postTypes.filter( ( postType ) => ! excludeTypes.includes( postType.value ) );
 
 postTypes.unshift({
-	label: __( 'All', 'hyve' ),
+	label: __( 'All', 'hyve-lite' ),
 	value: 'any'
 });
 
@@ -130,7 +130,7 @@ const AddData = () => {
 		<>
 			<div className="col-span-6 xl:col-span-4">
 				<Panel
-					header={ __( 'Add Data', 'hyve' ) }
+					header={ __( 'Add Data', 'hyve-lite' ) }
 				>
 					<PanelRow>
 						{ hasReachedLimit && (
@@ -138,17 +138,17 @@ const AddData = () => {
 								status="warning"
 								isDismissible={ false }
 							>
-								{ __( 'You have reached the limit of posts that can be added to the knowledge base. Please delete existing posts if you wish to add more.', 'hyve' ) }
+								{ __( 'You have reached the limit of posts that can be added to the knowledge base. Please delete existing posts if you wish to add more.', 'hyve-lite' ) }
 							</Notice>
 						) }
 
-						<p className="py-4">{ __( 'Select posts that are informative, engaging, and relevant. These will be the building blocks that empower your chat assistant to deliver precise and helpful responses. Whether it is answering FAQs or diving into detailed explanations, the content you choose here will shape how effectively your assistant interacts with users.', 'hyve' ) }</p>
+						<p className="py-4">{ __( 'Select posts that are informative, engaging, and relevant. These will be the building blocks that empower your chat assistant to deliver precise and helpful responses. Whether it is answering FAQs or diving into detailed explanations, the content you choose here will shape how effectively your assistant interacts with users.', 'hyve-lite' ) }</p>
 
 						<div className="relative pt-4 pb-8 overflow-x-auto">
 							<div className="flex gap-4 pb-2">
 								<div className="w-1/4">
 									<SelectControl
-										label={ __( 'Post Type', 'hyve' ) }
+										label={ __( 'Post Type', 'hyve-lite' ) }
 										hideLabelFromVision={ true }
 										className="h-10"
 										options={ postTypes }
@@ -158,7 +158,7 @@ const AddData = () => {
 
 								<div className="w-3/4">
 									<SearchControl
-										label={ __( 'Search for Posts', 'hyve' ) }
+										label={ __( 'Search for Posts', 'hyve-lite' ) }
 										value={ query.search }
 										onChange={ e => onChangeQuery( 'search', e )}
 									/>
@@ -171,7 +171,7 @@ const AddData = () => {
 								hasMore={ hasMore }
 								onFetch={ fetchData }
 								onAction={ onProcess }
-								actionLabel={ __( 'Add', 'hyve' ) }
+								actionLabel={ __( 'Add', 'hyve-lite' ) }
 								isBusy={ isUpdating }
 								isDisabled={ hasReachedLimit }
 							/>

@@ -50,8 +50,8 @@ class BaseAPI {
 		$this->table = new DB_Table();
 
 		$this->errors = array(
-			'invalid_api_key' => __( 'Incorrect API key provided.', 'hyve' ),
-			'missing_scope'   => __( ' You have insufficient permissions for this operation.', 'hyve' ),
+			'invalid_api_key' => __( 'Incorrect API key provided.', 'hyve-lite' ),
+			'missing_scope'   => __( ' You have insufficient permissions for this operation.', 'hyve-lite' ),
 		);
 	}
 

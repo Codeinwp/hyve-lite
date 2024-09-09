@@ -31,7 +31,7 @@ const UpsellContainer = ({
 						target="_blank"
 						href={ setUtm( window?.hyve?.pro, campaign )}
 					>
-						{ __( 'Get Hyve Pro!', 'hyve' ) }
+						{ __( 'Get Hyve Pro!', 'hyve-lite' ) }
 					</Button>
 				</div>
 			</div>

@@ -92,10 +92,10 @@ const Updated = () => {
 		<>
 			<div className="col-span-6 xl:col-span-4">
 				<Panel
-					header={ __( 'Updated', 'hyve' ) }
+					header={ __( 'Updated', 'hyve-lite' ) }
 				>
 					<PanelRow>
-						<p className="py-4">{ __( 'Here, you\'ll see posts that have been updated since their addition to the knowledge base. This page allows you to review these updates and decide if you want to refresh the knowledge your assistant relies on.', 'hyve' ) }</p>
+						<p className="py-4">{ __( 'Here, you\'ll see posts that have been updated since their addition to the knowledge base. This page allows you to review these updates and decide if you want to refresh the knowledge your assistant relies on.', 'hyve-lite' ) }</p>
 
 						<div className="relative pt-4 pb-8 overflow-x-auto">
 							<PostsTable
@@ -104,7 +104,7 @@ const Updated = () => {
 								hasMore={ hasMoreUpdate }
 								onFetch={ fetchUpdate }
 								onAction={ onUpdate }
-								actionLabel={ __( 'Update', 'hyve' ) }
+								actionLabel={ __( 'Update', 'hyve-lite' ) }
 								isBusy={ isUpdating }
 							/>
 						</div>

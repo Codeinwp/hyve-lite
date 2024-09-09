@@ -38,7 +38,7 @@ const LoadMore = ({ onClick }) => (
 		className="flex items-center justify-center p-4 h-auto w-full text-base font-normal text-gray-900 hover:text-gray-900 hover:bg-gray-100 border-t-gray-300 border-t-[0.5px] border-solid"
 	>
 		<div className="flex flex-row gap-1">
-			{ __( 'Load more', 'hyve' ) }
+			{ __( 'Load more', 'hyve-lite' ) }
 		</div>
 	</Button>
 );
@@ -76,8 +76,8 @@ const Messages = () => {
 					className="md:max-w-3xl md:w-full overflow-hidden"
 				>
 					<UpsellContainer
-						title={ __( 'Message History is a Premium feature', 'hyve' ) }
-						description={ __( 'Upgrade to Hyve Premium to unlock entire Message History feature and many more.', 'hyve' ) }
+						title={ __( 'Message History is a Premium feature', 'hyve-lite' ) }
+						description={ __( 'Upgrade to Hyve Premium to unlock entire Message History feature and many more.', 'hyve-lite' ) }
 						campaign="messages-feature"
 					>
 						<img
@@ -89,10 +89,10 @@ const Messages = () => {
 			) }
 
 			<Panel
-				header={ __( 'Messages', 'hyve' ) }
+				header={ __( 'Messages', 'hyve-lite' ) }
 			>
 				<PanelRow>
-					<p className="py-4">{ __( 'Here you can see an history of all the messages between Hyve and your users.', 'hyve' ) }</p>
+					<p className="py-4">{ __( 'Here you can see an history of all the messages between Hyve and your users.', 'hyve-lite' ) }</p>
 
 					{ ( isLoading && ! posts?.length ) && (
 						<div className="flex justify-center items-center h-52 border-[0.5px] border-gray-300 border-solid">
@@ -102,7 +102,7 @@ const Messages = () => {
 
 					{ ( ! isLoading && ! posts?.length ) && (
 						<div className="flex justify-center items-center h-52 border-[0.5px] border-gray-300 border-solid">
-							<p className="text-xs">{ __( 'Messsages between Hyve and your users will appear here', 'hyve' ) }</p>
+							<p className="text-xs">{ __( 'Messsages between Hyve and your users will appear here', 'hyve-lite' ) }</p>
 						</div>
 					)}
 
@@ -143,14 +143,14 @@ const Messages = () => {
 							<div className="flex flex-col col-span-6 xl:col-span-4 p-4 max-h-[672px]">
 								{ ! selectedPost && (
 									<div className="flex justify-center w-full h-full items-center">
-										<p className="text-xs">{ __( 'Select a message to view the conversation', 'hyve' ) }</p>
+										<p className="text-xs">{ __( 'Select a message to view the conversation', 'hyve-lite' ) }</p>
 									</div>
 								) }
 
 								{ selectedPost && (
 									<>
 										<div className="flex justify-between pb-3 border-b-gray-300 border-b-[0.5px] border-solid">
-											<h2 className="text-xs font-semibold">{ __( 'Thread ID', 'hyve' ) }</h2>
+											<h2 className="text-xs font-semibold">{ __( 'Thread ID', 'hyve-lite' ) }</h2>
 											<p className="text-xs text-gray-500">{ selectedPost?.thread_id?.replace( 'thread_', '' ) }</p>
 										</div>
 
