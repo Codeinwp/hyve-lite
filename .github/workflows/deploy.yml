@@ -1,0 +1,32 @@
+name: Deploy
+on:
+  push:
+    tags:
+      - "*"
+jobs:
+  tag:
+    name: Deploy to WordPress.org
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@master
+      - name: Get the version
+        id: get_version
+        run: echo ::set-output name=VERSION::${GITHUB_REF#refs/tags/}
+      - name: Add SSH Key
+        run: |
+          mkdir $HOME/.ssh
+          echo "$SSH_KEY" > "$HOME/.ssh/key"
+          chmod 600 "$HOME/.ssh/key"
+      - name: Install composer deps
+        run: composer install --no-dev --prefer-dist --no-progress --no-suggest
+      - name: Install npm deps
+        run: npm ci
+      - name: Build files
+        run: npm run build
+      - name: Build zip
+        run: npm run dist
+      - name: WordPress Plugin Deploy
+        uses: 10up/action-wordpress-plugin-deploy@master
+        env:
+          SVN_PASSWORD: ${{ secrets.SVN_THEMEISLE_PASSWORD }}
+          SVN_USERNAME: ${{ secrets.SVN_THEMEISLE_USERNAME }}
