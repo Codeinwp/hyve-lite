@@ -50,7 +50,7 @@ const Moderation = () => {
 
 			createNotice(
 				'success',
-				__( 'Settings saved.', 'hyve' ),
+				__( 'Settings saved.', 'hyve-lite' ),
 				{
 					type: 'snackbar',
 					isDismissible: true
@@ -78,12 +78,12 @@ const Moderation = () => {
 	return (
 		<div className="col-span-6 xl:col-span-4">
 			<Panel
-				header={ __( 'Moderation Settings', 'hyve' ) }
+				header={ __( 'Moderation Settings', 'hyve-lite' ) }
 			>
 				<PanelRow>
-					<p className="py-4">{ __( 'With the moderation functionality, you can check whether your content is potentially harmful. Users can use it to identify content that might be harmful and take action.', 'hyve' ) }</p>
+					<p className="py-4">{ __( 'With the moderation functionality, you can check whether your content is potentially harmful. Users can use it to identify content that might be harmful and take action.', 'hyve-lite' ) }</p>
 
-					<p className="pt-2 pb-4">{ __( 'Occasionally, OpenAI\'s Moderation system may incorrectly flag content as a violation—these are false positives. Such errors can occur because automated systems sometimes lack the necessary context to interpret nuances accurately. If your content is flagged but you believe it adheres to the guidelines, please manually review it. Should you determine it does not violate the content policies, you can also override the moderation decisions.', 'hyve' ) }</p>
+					<p className="pt-2 pb-4">{ __( 'Occasionally, OpenAI\'s Moderation system may incorrectly flag content as a violation—these are false positives. Such errors can occur because automated systems sometimes lack the necessary context to interpret nuances accurately. If your content is flagged but you believe it adheres to the guidelines, please manually review it. Should you determine it does not violate the content policies, you can also override the moderation decisions.', 'hyve-lite' ) }</p>
 
 					{ Object.keys( moderationLabels ).map( moderation => (
 						<RangeControl
@@ -112,7 +112,7 @@ const Moderation = () => {
 						className="mt-2"
 						onClick={ onSave }
 					>
-						{ __( 'Save', 'hyve' ) }
+						{ __( 'Save', 'hyve-lite' ) }
 					</Button>
 				</PanelRow>
 			</Panel>

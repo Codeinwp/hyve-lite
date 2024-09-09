@@ -95,7 +95,7 @@ class DB_Table {
 	public function table_exists() {
 		global $wpdb;
 		$table = sanitize_text_field( $this->table_name );
-		return $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) ) === $table; // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery
+		return $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) ) === $table;
 	}
 
 	/**
@@ -231,9 +231,7 @@ class DB_Table {
 			return $cache;
 		}
 
-		$query = $wpdb->prepare( "SELECT * FROM {$this->table_name} WHERE post_status = %s LIMIT %d", $status, $limit ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-
-		$results = $wpdb->get_results( $query ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+		$results = $wpdb->get_results( $wpdb->prepare( 'SELECT * FROM %i WHERE post_status = %s LIMIT %d', $this->table_name, $status, $limit ) );
 
 		if ( 'scheduled' !== $status ) {
 			$this->set_cache( 'entries_' . $status, $results );
@@ -292,9 +290,7 @@ class DB_Table {
 
 		global $wpdb;
 
-		$query = "SELECT COUNT(*) FROM {$this->table_name}";
-
-		$count = $wpdb->get_var( $query ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+		$count = $wpdb->get_var( $wpdb->prepare( 'SELECT COUNT(*) FROM %i', $this->table_name ) );
 
 		$this->set_cache( 'entries_count', $count );
 

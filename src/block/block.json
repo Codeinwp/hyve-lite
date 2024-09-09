@@ -28,7 +28,7 @@
             }
         }
     ],
-	"textdomain": "hyve",
+	"textdomain": "hyve-lite",
 	"editorScript": "file:./index.js",
     "render": "file:./render.php",
 	"style": "hyve-styles",

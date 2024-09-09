@@ -68,8 +68,8 @@ class Main {
 	 */
 	public function register_menu_page() {
 		$page_hook_suffix = add_menu_page(
-			__( 'Hyve', 'hyve' ),
-			__( 'Hyve', 'hyve' ),
+			__( 'Hyve', 'hyve-lite' ),
+			__( 'Hyve', 'hyve-lite' ),
 			'manage_options',
 			'hyve',
 			array( $this, 'menu_page' ),
@@ -118,7 +118,7 @@ class Main {
 			true
 		);
 
-		wp_set_script_translations( 'hyve-lite-scripts', 'hyve' );
+		wp_set_script_translations( 'hyve-lite-scripts', 'hyve-lite' );
 
 		$post_types        = get_post_types( array( 'public' => true ), 'objects' );
 		$post_types_for_js = array();
@@ -170,8 +170,8 @@ class Main {
 			array(
 				'api_key'              => '',
 				'chat_enabled'         => true,
-				'welcome_message'      => __( 'Hello! How can I help you today?', 'hyve' ),
-				'default_message'      => __( 'Sorry, I\'m not able to help with that.', 'hyve' ),
+				'welcome_message'      => __( 'Hello! How can I help you today?', 'hyve-lite' ),
+				'default_message'      => __( 'Sorry, I\'m not able to help with that.', 'hyve-lite' ),
 				'temperature'          => 1,
 				'top_p'                => 1,
 				'moderation_threshold' => array(
@@ -187,7 +187,7 @@ class Main {
 					'harassment/threatening' => 60,
 					'violence'               => 70,
 				),
-			),
+			)
 		);
 	}
 
@@ -228,7 +228,7 @@ class Main {
 			true
 		);
 
-		wp_set_script_translations( 'hyve-lite-scripts', 'hyve' );
+		wp_set_script_translations( 'hyve-lite-scripts', 'hyve-lite' );
 
 		$settings = self::get_settings();
 
@@ -245,7 +245,7 @@ class Main {
 					),
 					'welcome'   => $settings['welcome_message'] ?? '',
 					'isEnabled' => $settings['chat_enabled'],
-				),
+				)
 			)
 		);
 
@@ -262,21 +262,9 @@ class Main {
 			return;
 		}
 
-		add_action(
-			'wp_footer',
-			function () {
-				?>
-				<script>
-					document.addEventListener('DOMContentLoaded', function() {
-						const credits = document.createElement('div');
-						credits.className = 'hyve-credits';
-						credits.innerHTML = '<a href="https://themeisle.com/plugins/hyve/" target="_blank">Powered by Hyve</a>';
-						document.querySelector( '.hyve-input-box' ).before( credits );
-					});
-				</script>
-				<?php
-			},
-			99
+		wp_add_inline_script(
+			'hyve-lite-scripts',
+			'document.addEventListener("DOMContentLoaded", function() { const c = document.createElement("div"); c.className = "hyve-credits"; c.innerHTML = "<a href=\"https://themeisle.com/plugins/hyve/\" target=\"_blank\">Powered by Hyve</a>"; document.querySelector( ".hyve-input-box" ).before( c ); });'
 		);
 	}
 

@@ -47,7 +47,7 @@ const Assistant = () => {
 
 			createNotice(
 				'success',
-				__( 'Settings saved.', 'hyve' ),
+				__( 'Settings saved.', 'hyve-lite' ),
 				{
 					type: 'snackbar',
 					isDismissible: true
@@ -68,12 +68,12 @@ const Assistant = () => {
 	return (
 		<div className="col-span-6 xl:col-span-4">
 			<Panel
-				header={ __( 'Assistant Settings', 'hyve' ) }
+				header={ __( 'Assistant Settings', 'hyve-lite' ) }
 			>
 				<PanelRow>
 					<RangeControl
-						label={ __( 'Temperature', 'hyve' ) }
-						help={ __( 'What sampling temperature to use, between 0 and 2. Higher values like 0.8 will make the output more random, while lower values like 0.2 will make it more focused and deterministic. We generally recommend altering this or temperature but not both.', 'hyve' ) }
+						label={ __( 'Temperature', 'hyve-lite' ) }
+						help={ __( 'What sampling temperature to use, between 0 and 2. Higher values like 0.8 will make the output more random, while lower values like 0.2 will make it more focused and deterministic. We generally recommend altering this or temperature but not both.', 'hyve-lite' ) }
 						initialPosition={ settings.temperature || 1 }
 						max={ 2 }
 						min={ 0.1 }
@@ -86,8 +86,8 @@ const Assistant = () => {
 
 				<PanelRow>
 					<RangeControl
-						label={ __( 'Top P', 'hyve' ) }
-						help={ __( 'What sampling temperature to use, between 0 and 2. Higher values like 0.8 will make the output more random, while lower values like 0.2 will make it more focused and deterministic.', 'hyve' ) }
+						label={ __( 'Top P', 'hyve-lite' ) }
+						help={ __( 'What sampling temperature to use, between 0 and 2. Higher values like 0.8 will make the output more random, while lower values like 0.2 will make it more focused and deterministic.', 'hyve-lite' ) }
 						initialPosition={ settings.top_p || 1 }
 						max={ 1 }
 						min={ 0.1 }
@@ -106,7 +106,7 @@ const Assistant = () => {
 						className="mt-2"
 						onClick={ onSave }
 					>
-						{ __( 'Save', 'hyve' ) }
+						{ __( 'Save', 'hyve-lite' ) }
 					</Button>
 				</PanelRow>
 			</Panel>

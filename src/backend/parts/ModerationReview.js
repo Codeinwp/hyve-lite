@@ -56,14 +56,14 @@ const ModerationReview = ({
 
 	return (
 		<Modal
-			title={ sprintf( __( 'Failed Moderation: %s', 'hyve' ), ( post?.title || __( 'Untitled', 'hyve' ) ) ) }
+			title={ sprintf( __( 'Failed Moderation: %s', 'hyve-lite' ), ( post?.title || __( 'Untitled', 'hyve-lite' ) ) ) }
 			onRequestClose={ onClose }
 			shouldCloseOnClickOutside={ false }
 			className="md:max-w-3xl md:w-full"
 		>
-			<p className="pb-4">{ __( 'The content of the post listed here could not be added or updated due to non-compliance with content policies. Review these to understand the limitations and possibly modify content to align with required standards.', 'hyve' ) }</p>
+			<p className="pb-4">{ __( 'The content of the post listed here could not be added or updated due to non-compliance with content policies. Review these to understand the limitations and possibly modify content to align with required standards.', 'hyve-lite' ) }</p>
 
-			<p className="pb-4">{ __( 'The following content was flagged for:', 'hyve' ) }</p>
+			<p className="pb-4">{ __( 'The following content was flagged for:', 'hyve-lite' ) }</p>
 
 			{ post && Object.keys( post.review ).map( review => (
 				<div
@@ -99,7 +99,7 @@ const ModerationReview = ({
 				</div>
 			) ) }
 
-			<p className="pt-4">{ __( 'Occasionally, OpenAI\'s Moderation system may incorrectly flag content as a violation—these are false positives. Such errors can occur because automated systems sometimes lack the necessary context to interpret nuances accurately. If your content is flagged but you believe it adheres to the guidelines, please manually review it. Should you determine it does not violate the content policies, you can click the button below to override the moderation decision.', 'hyve' ) }</p>
+			<p className="pt-4">{ __( 'Occasionally, OpenAI\'s Moderation system may incorrectly flag content as a violation—these are false positives. Such errors can occur because automated systems sometimes lack the necessary context to interpret nuances accurately. If your content is flagged but you believe it adheres to the guidelines, please manually review it. Should you determine it does not violate the content policies, you can click the button below to override the moderation decision.', 'hyve-lite' ) }</p>
 
 			<div className="flex">
 				<Button
@@ -109,7 +109,7 @@ const ModerationReview = ({
 					isBusy={ isBusy }
 					onClick={ onOverride }
 				>
-					{ __( 'Override Moderation', 'hyve' ) }
+					{ __( 'Override Moderation', 'hyve-lite' ) }
 				</Button>
 			</div>
 		</Modal>

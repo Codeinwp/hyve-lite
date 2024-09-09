@@ -226,7 +226,7 @@ class API extends BaseAPI {
 		}
 
 		if ( empty( $updated ) ) {
-			return rest_ensure_response( array( 'error' => __( 'No settings to update.', 'hyve' ) ) );
+			return rest_ensure_response( array( 'error' => __( 'No settings to update.', 'hyve-lite' ) ) );
 		}
 
 		$validation = apply_filters(
@@ -267,7 +267,7 @@ class API extends BaseAPI {
 				return rest_ensure_response(
 					array(
 						// translators: %s: option key.
-						'error' => sprintf( __( 'Invalid value: %s', 'hyve' ), $key ),
+						'error' => sprintf( __( 'Invalid value: %s', 'hyve-lite' ), $key ),
 					)
 				);
 			}
@@ -290,7 +290,7 @@ class API extends BaseAPI {
 
 		update_option( 'hyve_settings', $settings );
 
-		return rest_ensure_response( __( 'Settings updated.', 'hyve' ) );
+		return rest_ensure_response( __( 'Settings updated.', 'hyve-lite' ) );
 	}
 
 	/**
@@ -426,7 +426,7 @@ class API extends BaseAPI {
 
 			return rest_ensure_response(
 				array(
-					'error'  => __( 'The content failed moderation policies.', 'hyve' ),
+					'error'  => __( 'The content failed moderation policies.', 'hyve-lite' ),
 					'code'   => 'content_failed_moderation',
 					'review' => $moderation,
 				)
@@ -555,7 +555,7 @@ class API extends BaseAPI {
 		$message = json_decode( $message, true );
 
 		if ( json_last_error() !== JSON_ERROR_NONE ) {
-			return rest_ensure_response( array( 'error' => __( 'No messages found.', 'hyve' ) ) );
+			return rest_ensure_response( array( 'error' => __( 'No messages found.', 'hyve-lite' ) ) );
 		}
 
 		$settings = Main::get_settings();
@@ -586,7 +586,7 @@ class API extends BaseAPI {
 		$moderation = $this->moderate( $message );
 
 		if ( true !== $moderation ) {
-			return rest_ensure_response( array( 'error' => __( 'Message was flagged.', 'hyve' ) ) );
+			return rest_ensure_response( array( 'error' => __( 'Message was flagged.', 'hyve-lite' ) ) );
 		}
 
 		$openai         = new OpenAI();
@@ -595,7 +595,7 @@ class API extends BaseAPI {
 		$message_vector = $message_vector->embedding;
 
 		if ( is_wp_error( $message_vector ) ) {
-			return rest_ensure_response( array( 'error' => __( 'No embeddings found.', 'hyve' ) ) );
+			return rest_ensure_response( array( 'error' => __( 'No embeddings found.', 'hyve-lite' ) ) );
 		}
 
 		$hash = md5( strtolower( $message ) );

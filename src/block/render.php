@@ -5,6 +5,11 @@
  * @package Codeinwp/HyveLite
  */
 
+// If this file is called directly, abort.
+if ( ! defined( 'WPINC' ) ) {
+	die;
+}
+
 $hyve_id = 'hyve-inline-chat';
 
 if ( isset( $attributes['variant'] ) && 'floating' === $attributes['variant'] ) {

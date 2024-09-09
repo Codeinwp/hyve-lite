@@ -99,7 +99,7 @@ class OpenAI {
 			return $response->id;
 		}
 
-		return new \WP_Error( 'unknown_error', __( 'An error occurred while creating the assistant.', 'hyve' ) );
+		return new \WP_Error( 'unknown_error', __( 'An error occurred while creating the assistant.', 'hyve-lite' ) );
 	}
 
 	/**
@@ -201,7 +201,7 @@ class OpenAI {
 			return $response->data;
 		}
 
-		return new \WP_Error( 'unknown_error', __( 'An error occurred while creating the embeddings.', 'hyve' ) );
+		return new \WP_Error( 'unknown_error', __( 'An error occurred while creating the embeddings.', 'hyve-lite' ) );
 	}
 
 	/**
@@ -225,7 +225,7 @@ class OpenAI {
 			return $response->id;
 		}
 
-		return new \WP_Error( 'unknown_error', __( 'An error occurred while creating the thread.', 'hyve' ) );
+		return new \WP_Error( 'unknown_error', __( 'An error occurred while creating the thread.', 'hyve-lite' ) );
 	}
 
 	/**
@@ -254,7 +254,7 @@ class OpenAI {
 			return true;
 		}
 
-		return new \WP_Error( 'unknown_error', __( 'An error occurred while sending the message.', 'hyve' ) );
+		return new \WP_Error( 'unknown_error', __( 'An error occurred while sending the message.', 'hyve-lite' ) );
 	}
 
 	/**
@@ -286,7 +286,7 @@ class OpenAI {
 		}
 
 		if ( ! isset( $response->id ) || ( isset( $response->status ) && 'queued' !== $response->status ) ) {
-			return new \WP_Error( 'unknown_error', __( 'An error occurred while creating the run.', 'hyve' ) );
+			return new \WP_Error( 'unknown_error', __( 'An error occurred while creating the run.', 'hyve-lite' ) );
 		}
 
 		return $response->id;
@@ -311,7 +311,7 @@ class OpenAI {
 			return $response->status;
 		}
 
-		return new \WP_Error( 'unknown_error', __( 'An error occurred while getting the run status.', 'hyve' ) );
+		return new \WP_Error( 'unknown_error', __( 'An error occurred while getting the run status.', 'hyve-lite' ) );
 	}
 
 	/**
@@ -332,7 +332,7 @@ class OpenAI {
 			return $response->data;
 		}
 
-		return new \WP_Error( 'unknown_error', __( 'An error occurred while getting the messages.', 'hyve' ) );
+		return new \WP_Error( 'unknown_error', __( 'An error occurred while getting the messages.', 'hyve-lite' ) );
 	}
 
 	/**
@@ -430,7 +430,7 @@ class OpenAI {
 					return new \WP_Error( isset( $body->error->code ) ? $body->error->code : 'unknown_error', $body->error->message );
 				}
 
-				return new \WP_Error( 'unknown_error', __( 'An error occurred while processing the request.', 'hyve' ) );
+				return new \WP_Error( 'unknown_error', __( 'An error occurred while processing the request.', 'hyve-lite' ) );
 			}
 
 			return $body;

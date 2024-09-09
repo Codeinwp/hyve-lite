@@ -24,9 +24,9 @@ const PostsTable = ({
 			<div className="flex flex-col">
 				<div className="bg-gray-50 px-6 py-3 text-left text-xs text-gray-700 uppercase">
 					<div className="flex">
-						<div className="w-1/6">{ __( 'ID', 'hyve' ) }</div>
-						<div className="flex-1">{ __( 'Title', 'hyve' ) }</div>
-						<div className="w-1/6 flex justify-center">{ __( 'Action', 'hyve' ) }</div>
+						<div className="w-1/6">{ __( 'ID', 'hyve-lite' ) }</div>
+						<div className="flex-1">{ __( 'Title', 'hyve-lite' ) }</div>
+						<div className="w-1/6 flex justify-center">{ __( 'Action', 'hyve-lite' ) }</div>
 					</div>
 				</div>
 				<div className="flex flex-col">
@@ -69,7 +69,7 @@ const PostsTable = ({
 
 					{ ( ! posts.length && ! isLoading ) && (
 						<div className="flex justify-center py-4">
-							{__( 'No data found.', 'hyve' )}
+							{__( 'No data found.', 'hyve-lite' )}
 						</div>
 					)}
 				</div>
@@ -87,7 +87,7 @@ const PostsTable = ({
 						variant="secondary"
 						onClick={ onFetch }
 					>
-						{ __( 'Load More', 'hyve' ) }
+						{ __( 'Load More', 'hyve-lite' ) }
 					</Button>
 				</div>
 			)}

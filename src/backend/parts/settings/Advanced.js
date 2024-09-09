@@ -56,7 +56,7 @@ const Advanced = () => {
 
 			createNotice(
 				'success',
-				__( 'Settings saved.', 'hyve' ),
+				__( 'Settings saved.', 'hyve-lite' ),
 				{
 					type: 'snackbar',
 					isDismissible: true
@@ -77,14 +77,14 @@ const Advanced = () => {
 	return (
 		<div className="col-span-6 xl:col-span-4">
 			<Panel
-				header={ __( 'Advanced', 'hyve' ) }
+				header={ __( 'Advanced', 'hyve-lite' ) }
 			>
 				<PanelRow>
 					<BaseControl
-						help={ __( 'This plugin requires an OpenAI API key to function properly.', 'hyve' ) }
+						help={ __( 'This plugin requires an OpenAI API key to function properly.', 'hyve-lite' ) }
 					>
 						<TextControl
-							label={ __( 'API Key', 'hyve' ) }
+							label={ __( 'API Key', 'hyve-lite' ) }
 							type="password"
 							value={ settings.api_key || '' }
 							disabled={ isSaving }
@@ -93,7 +93,7 @@ const Advanced = () => {
 					</BaseControl>
 
 					<ExternalLink href="https://platform.openai.com/api-keys" className="flex mb-2 items-centertext-sm text-blue-600">
-						{ __( 'Get an API key', 'hyve' ) }
+						{ __( 'Get an API key', 'hyve-lite' ) }
 					</ExternalLink>
 
 					<Button
@@ -103,7 +103,7 @@ const Advanced = () => {
 						className="mt-2"
 						onClick={ onSave }
 					>
-						{ __( 'Save', 'hyve' ) }
+						{ __( 'Save', 'hyve-lite' ) }
 					</Button>
 				</PanelRow>
 			</Panel>
