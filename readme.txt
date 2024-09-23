@@ -1,4 +1,4 @@
-=== Hyve Lite - AI Chatbot ===
+=== AI Chatbot for WordPress - Hyve Lite ===
 Contributors: themeisle, hardeepasrani
 Tags: automation, support, chat, ai, openai
 Requires at least: 6.2
