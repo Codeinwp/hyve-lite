@@ -28,6 +28,13 @@ class OpenAI {
 	private $prompt_version = '1.1.0';
 
 	/**
+	 * Chat Model.
+	 * 
+	 * @var string
+	 */
+	private $chat_model = 'gpt-4o-mini';
+
+	/**
 	 * API Key.
 	 * 
 	 * @var string
@@ -50,6 +57,7 @@ class OpenAI {
 		$settings           = Main::get_settings();
 		$this->api_key      = ! empty( $api_key ) ? $api_key : ( isset( $settings['api_key'] ) ? $settings['api_key'] : '' );
 		$this->assistant_id = isset( $settings['assistant_id'] ) ? $settings['assistant_id'] : '';
+		$this->chat_model   = isset( $settings['chat_model'] ) ? $settings['chat_model'] : $this->chat_model;
 
 		if ( $this->assistant_id && version_compare( $this->prompt_version, get_option( 'hyve_prompt_version', '1.0.0' ), '>' ) ) {
 			$this->update_assistant();
@@ -86,7 +94,7 @@ class OpenAI {
 			array(
 				'instructions' => "Assistant Role & Concise Response Guidelines: As a Support Assistant, provide precise, to-the-point answers based exclusively on the previously provided context.\r\n\r\nSET OF PRINCIPLES TO FOLLOW:\r\n\r\n1. **Identify the Context and Question**:\r\n1.1. **START CONTEXT**: Identify the context provided in the message. **: END CONTEXT**\r\n1.2. **START QUESTION**: Identify the question that needs to be answered based on the context.. **: END QUESTION**\r\n\r\n2. **Check the Context for Relevance**:\r\n2.1. Determine if the context contains information directly relevant to the question.\r\n2.2. If the context addresses the user's question, proceed to the next step.\r\n2.3. If the question is a greeting, respond appropriately with the greeting.\r\n2.4. If the context does not address the user's question, respond with: `{\"response\": \"\", \"success\": false}`.\r\n\r\n3. **Formulate the Response**:\r\n3.1. If the context is sufficient, formulate a clear and concise response using only the information provided in the context.\r\n3.2. Ensure the response includes all important details covered in the context, but avoid any extraneous information.\r\n\r\n4. **Avoid Referring to the Context**:\r\n4.1. Do not refer to the context or state that the response is based on the context in your answer.\r\n4.2. Ensure the response is straightforward and directly answers the question.\r\n\r\n5. **Generate the JSON Response**:\r\n5.1. Structure the response according to the following JSON schema:\r\n\r\n\r\n{\r\n  \"\$schema\": \"http:\/\/json-schema.org\/draft-07\/schema#\",\r\n  \"type\": \"object\",\r\n  \"properties\": {\r\n    \"response\": {\r\n      \"type\": \"string\",\r\n      \"description\": \"Contains the response to the question. Do not include it if the answer wasn't available in the context.\"\r\n    },\r\n    \"success\": {\r\n      \"type\": \"boolean\",\r\n      \"description\": \"Indicates whether the question was successfully answered from provided context.\"\r\n    }\r\n  },\r\n  \"required\": [\"success\"]\r\n}\r\n\r\nExample Usage:\r\n\r\nContext: [Provide context here]\r\nQuestion: [Provide question here]\r\n\r\nExpected Behavior:\r\n\r\n- If the question is fully covered by the context, provide a response using the provided JSON schema.\r\n- If the question is not fully covered by the context, respond with: {\"response\": \"\", \"success\": false}.\r\n\r\nExample Responses:\r\n\r\n- Context covers the question: {\"response\": \"Here is the information you requested.\", \"success\": true}\r\n- Context does not cover the question: {\"response\": \"\", \"success\": false}\r\n- Context does not cover the question but is a greeting: {\"response\": \"Hello, what can I help you with?.\", \"success\": true}",
 				'name'         => 'Chatbot by Hyve',
-				'model'        => 'gpt-3.5-turbo-0125',
+				'model'        => $this->chat_model,
 			)
 		);
 
@@ -273,6 +281,7 @@ class OpenAI {
 			array(
 				'assistant_id'        => $this->assistant_id,
 				'additional_messages' => $messages,
+				'model'               => $this->chat_model,
 				'temperature'         => $settings['temperature'],
 				'top_p'               => $settings['top_p'],
 				'response_format'     => array(

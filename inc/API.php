@@ -244,6 +244,9 @@ class API extends BaseAPI {
 				'default_message'      => function ( $value ) {
 					return is_string( $value );
 				},
+				'chat_model'		   => function ( $value ) {
+					return is_string( $value );
+				},
 				'temperature'          => function ( $value ) {
 					return is_numeric( $value );
 				},

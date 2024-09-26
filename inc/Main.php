@@ -172,6 +172,7 @@ class Main {
 				'chat_enabled'         => true,
 				'welcome_message'      => __( 'Hello! How can I help you today?', 'hyve-lite' ),
 				'default_message'      => __( 'Sorry, I\'m not able to help with that.', 'hyve-lite' ),
+				'chat_model'           => 'gpt-4o-mini',
 				'temperature'          => 1,
 				'top_p'                => 1,
 				'moderation_threshold' => array(
