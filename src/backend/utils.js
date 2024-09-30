@@ -55,8 +55,6 @@ export const tokenize = ( post, chunk = true ) => {
 		content
 	} = post;
 
-	content = content.replace( /<[^>]+>/g, '' );
-
 	const tokens = tokenizer.encode( content );
 
 	const article = {
