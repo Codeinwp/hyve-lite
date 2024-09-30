@@ -163,9 +163,12 @@ const Messages = () => {
 													return (
 														<div
 															key={ index }
-															className="text-black max-w- max-w-[75%] min-w-[50%] flex flex-col items-start mr-auto my-3.5"
+															className="text-black max-w-[75%] min-w-[50%] flex flex-col items-start mr-auto my-3.5"
 														>
-															<p className="text-[13px] flex w-full break-words bg-[#ecf1fb] justify-start m-0 p-2.5 rounded-md">{ message.message }</p>
+															<p
+																className="hyve-chat-message text-[13px] flex flex-col w-full break-words bg-[#ecf1fb] justify-start m-0 p-2.5 rounded-md"
+																dangerouslySetInnerHTML={{ __html: message.message }}
+															/>
 															<time className="text-[10px] text-black p-1">{ date }</time>
 														</div>
 													);
@@ -177,7 +180,7 @@ const Messages = () => {
 															key={ index }
 															className="max-w-[75%] min-w-[50%] text-[white] flex flex-col items-end ml-auto my-3.5"
 														>
-															<p className="text-[13px] flex w-full break-words bg-[#1155cc] justify-end m-0 p-2.5 rounded-md">{ message.message }</p>
+															<p className="hyve-chat-message text-[13px] flex flex-col w-full break-words bg-[#1155cc] justify-end m-0 p-2.5 rounded-md">{ message.message }</p>
 															<time className="text-[10px] text-black p-1">{ date }</time>
 														</div>
 													);

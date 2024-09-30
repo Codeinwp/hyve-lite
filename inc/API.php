@@ -244,7 +244,7 @@ class API extends BaseAPI {
 				'default_message'      => function ( $value ) {
 					return is_string( $value );
 				},
-				'chat_model'		   => function ( $value ) {
+				'chat_model'           => function ( $value ) {
 					return is_string( $value );
 				},
 				'temperature'          => function ( $value ) {
@@ -723,6 +723,7 @@ class API extends BaseAPI {
 				'thread_id' => $thread_id,
 				'query_run' => $query_run,
 				'record_id' => $record_id ? $record_id : null,
+				'content'   => $article_context,
 			) 
 		);
 	}

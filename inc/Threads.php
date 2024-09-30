@@ -145,7 +145,7 @@ class Threads {
 			array(
 				'time'    => time(),
 				'sender'  => $data['sender'],
-				'message' => $data['message'],
+				'message' => wp_kses_post( $data['message'] ),
 			),
 		);
 
@@ -176,7 +176,7 @@ class Threads {
 		$thread_data[] = array(
 			'time'    => time(),
 			'sender'  => $data['sender'],
-			'message' => $data['message'],
+			'message' => wp_kses_post( $data['message'] ),
 		);
 
 		update_post_meta( $post_id, '_hyve_thread_data', $thread_data );
