@@ -65,7 +65,11 @@ class App {
 	add( message, sender, id = null ) {
 		const time = new Date();
 
-		message = this.sanitize( message );
+		if ( 'user' === sender ) {
+			message = this.sanitize( message );
+		}
+
+		message = this.addTargetBlack( message );
 
 		this.messages.push({ time, message, sender, id  });
 		this.addMessage( time, message, sender, id );
@@ -86,6 +90,19 @@ class App {
 	sanitize( input ) {
 		const tempDiv = document.createElement( 'div' );
 		tempDiv.textContent = input;
+		return tempDiv.innerHTML;
+	}
+
+	addTargetBlack( message ) {
+		const tempDiv = document.createElement( 'div' );
+		tempDiv.innerHTML = message;
+
+		const links = tempDiv.querySelectorAll( 'a' );
+
+		links.forEach( link => {
+			link.target = '_blank';
+		});
+
 		return tempDiv.innerHTML;
 	}
 
@@ -204,7 +221,7 @@ class App {
 
 		const date = `${ String( datetime.getDate() ).padStart( 2, 0 ) }/${ String( datetime.getMonth() + 1 ).padStart( 2, 0 ) }/${ datetime.getFullYear() } ${ String( datetime.getHours() ).padStart( 2, 0 ) }:${ String( datetime.getMinutes() ).padStart( 2, 0 ) } ${ 12 <= datetime.getHours() ? 'PM' : 'AM' }`;
 
-		let messageHTML = `<p>${message}</p>`;
+		let messageHTML = `<div>${message}</div>`;
 
 		if ( null === id ) {
 			messageHTML += `<time datetime="${time}">${date}</time>`;
