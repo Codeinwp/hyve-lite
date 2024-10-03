@@ -28,7 +28,7 @@ class DB_Table {
 	 * @since 1.2.0
 	 * @var string
 	 */
-	public $version = '1.0.0';
+	public $version = '1.1.0';
 
 	/**
 	 * Cache prefix.
@@ -37,6 +37,26 @@ class DB_Table {
 	 * @var string
 	 */
 	const CACHE_PREFIX = 'hyve-';
+
+	/**
+	 * The single instance of the class.
+	 *
+	 * @var DB_Table
+	 */
+	private static $instance = null;
+
+	/**
+	 * Ensures only one instance of the class is loaded.
+	 *
+	 * @return DB_Table An instance of the class.
+	 */
+	public static function instance() {
+		if ( null === self::$instance ) {
+			self::$instance = new self();
+		}
+
+		return self::$instance;
+	}
 
 	/**
 	 * DB_Table constructor.
@@ -78,6 +98,7 @@ class DB_Table {
 		embeddings longtext NOT NULL,
 		token_count int(11) NOT NULL DEFAULT 0,
 		post_status VARCHAR(255) NOT NULL DEFAULT "scheduled",
+        source VARCHAR(255) NOT NULL DEFAULT "WordPress",
 		PRIMARY KEY (id)
 		) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;';
 
@@ -115,6 +136,7 @@ class DB_Table {
 			'embeddings'   => '%s',
 			'token_count'  => '%d',
 			'post_status'  => '%s',
+			'source'       => '%s',
 		);
 	}
 
@@ -135,6 +157,7 @@ class DB_Table {
 			'embeddings'   => '',
 			'token_count'  => 0,
 			'post_status'  => 'scheduled',
+			'source'       => 'wordpress',
 		);
 	}
 
@@ -241,6 +264,20 @@ class DB_Table {
 	}
 
 	/**
+	 * Get all rows by source.
+	 * 
+	 * @since 1.3.0
+	 * 
+	 * @param string $source The source.
+	 * @param int    $limit The limit.
+	 */
+	public function get_by_source( $source, $limit = 100 ) {
+		global $wpdb;
+		$results = $wpdb->get_results( $wpdb->prepare( 'SELECT * FROM %i WHERE source = %s LIMIT %d', $this->table_name, $source, $limit ) );
+		return $results;
+	}
+
+	/**
 	 * Process posts.
 	 * 
 	 * @since 1.2.0
@@ -253,7 +290,7 @@ class DB_Table {
 		foreach ( $posts as $post ) {
 			$id         = $post->id;
 			$content    = $post->post_content;
-			$openai     = new OpenAI();
+			$openai     = OpenAI::instance();
 			$embeddings = $openai->create_embeddings( $content );
 			$embeddings = reset( $embeddings );
 			$embeddings = $embeddings->embedding;

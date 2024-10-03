@@ -12,6 +12,7 @@ use ThemeIsle\HyveLite\Block;
 use ThemeIsle\HyveLite\Cosine_Similarity;
 use ThemeIsle\HyveLite\Threads;
 use ThemeIsle\HyveLite\API;
+use ThemeIsle\HyveLite\Qdrant_API;
 
 /**
  * Class Main
@@ -35,11 +36,20 @@ class Main {
 	public $api;
 
 	/**
+	 * Instace of Qdrant_API class.
+	 *
+	 * @since 1.2.0
+	 * @var Qdrant_API
+	 */
+	public $qdrant;
+
+	/**
 	 * Main constructor.
 	 */
 	public function __construct() {
-		$this->table = new DB_Table();
-		$this->api   = new API();
+		$this->table  = new DB_Table();
+		$this->api    = new API();
+		$this->qdrant = new Qdrant_API();
 
 		new Block();
 		new Threads();
@@ -151,6 +161,7 @@ class Main {
 						'totalChunks' => $this->table->get_count(),
 					),
 					'docs'        => 'https://docs.themeisle.com/article/2009-hyve-documentation',
+					'qdrant_docs' => 'https://docs.themeisle.com/article/2066-integrate-hyve-with-qdrant',
 					'pro'         => 'https://themeisle.com/plugins/hyve/',
 				)
 			)
@@ -169,6 +180,8 @@ class Main {
 			'hyve_default_settings',
 			array(
 				'api_key'              => '',
+				'qdrant_api_key'       => '',
+				'qdrant_endpoint'      => '',
 				'chat_enabled'         => true,
 				'welcome_message'      => __( 'Hello! How can I help you today?', 'hyve-lite' ),
 				'default_message'      => __( 'Sorry, I\'m not able to help with that.', 'hyve-lite' ),
@@ -301,5 +314,9 @@ class Main {
 	 */
 	public function delete_post( $post_id ) {
 		$this->table->delete_by_post_id( $post_id );
+
+		if ( Qdrant_API::is_active() ) {
+			$this->qdrant->delete_point( $post_id );
+		}
 	}
 }
