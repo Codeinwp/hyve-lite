@@ -49,6 +49,26 @@ class OpenAI {
 	private $assistant_id;
 
 	/**
+	 * The single instance of the class.
+	 *
+	 * @var OpenAI
+	 */
+	private static $instance = null;
+
+	/**
+	 * Ensures only one instance of the class is loaded.
+	 *
+	 * @return OpenAI An instance of the class.
+	 */
+	public static function instance() {
+		if ( null === self::$instance ) {
+			self::$instance = new self();
+		}
+
+		return self::$instance;
+	}
+
+	/**
 	 * Constructor.
 	 * 
 	 * @param string $api_key API Key.
