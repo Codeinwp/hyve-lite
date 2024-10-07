@@ -105,7 +105,20 @@ class Qdrant_API {
 
 		update_option( 'hyve_qdrant_status', 'active' );
 
-		wp_schedule_single_event( time(), 'hyve_lite_migrate_data' );
+		$existing_chunks = DB_Table::instance()->get_count();
+
+		if ( $existing_chunks > 0 ) {
+			update_option(
+				'hyve_qdrant_migration',
+				array(
+					'total'       => (int) $existing_chunks,
+					'current'     => 0,
+					'in_progress' => true,
+				) 
+			);
+
+			wp_schedule_single_event( time(), 'hyve_lite_migrate_data' );
+		}
 
 		return true;
 	}
@@ -152,19 +165,18 @@ class Qdrant_API {
 	/**
 	 * Add point to collection.
 	 * 
-	 * @param int   $id         ID.
 	 * @param array $embeddings Embeddings.
 	 * @param array $data       Data.
 	 * 
 	 * @return bool|\WP_Error
 	 */
-	public function add_point( $id, $embeddings, $data ) {
+	public function add_point( $embeddings, $data ) {
 		try {
 			$points = new PointsStruct();
 
 			$points->addPoint(
 				new PointStruct(
-					(int) $id,
+					self::random_hash(),
 					new VectorStruct( $embeddings, 'embeddings' ),
 					$data
 				)
@@ -197,7 +209,7 @@ class Qdrant_API {
 			foreach ( $points as $point ) {
 				$points_struct->addPoint(
 					new PointStruct(
-						(int) $point['id'],
+						self::random_hash(),
 						new VectorStruct( $point['embeddings'], 'embeddings' ),
 						$point['data']
 					)
@@ -227,12 +239,11 @@ class Qdrant_API {
 		try {
 			$response = $this->client->collections( self::COLLECTION_NAME )->points()->deleteByFilter(
 				( new Filter() )->addMust(
-					new MatchString( 'post_id', $id )
-				),
-				array( 'wait' => 'true' )
+					new MatchString( 'post_id', (string) $id )
+				)
 			);
 
-			return 'completed' === $response['result']['status'];
+			return 'acknowledged' === $response['result']['status'];
 		} catch ( \Exception $e ) {
 			if ( 403 === $e->getCode() ) {
 				update_option( 'hyve_qdrant_status', 'inactive' );
@@ -287,13 +298,34 @@ class Qdrant_API {
 	}
 
 	/**
+	 * Disconnect Qdrant Integration.
+	 *
+	 * @since 1.3.0
+	 *  
+	 * @return bool|\WP_Error
+	 */
+	public function disconnect() {
+		try {
+			$response = $this->client->collections( self::COLLECTION_NAME )->points()->deleteByFilter(
+				( new Filter() )->addMust(
+					new MatchString( 'website_url', get_site_url() )
+				)
+			);
+
+			return 'acknowledged' === $response['result']['status'];
+		} catch ( \Exception $e ) {
+			return new \WP_Error( 'collection_error', $e->getMessage() );
+		}
+	}
+
+	/**
 	 * Migrate Data to Qdrant.
 	 * 
 	 * @return void
 	 */
-	public static function migrate_data() {
+	public function migrate_data() {
 		$db_table = DB_Table::instance();
-		$posts    = $db_table->get_by_source( 'WordPress' );
+		$posts    = $db_table->get_by_storage( 'WordPress' );
 
 		if ( empty( $posts ) ) {
 			return;
@@ -303,13 +335,13 @@ class Qdrant_API {
 
 		foreach ( $posts as $post ) {
 			$points[] = array(
-				'id'         => $post->id,
 				'embeddings' => json_decode( $post->embeddings, true ),
 				'data'       => array(
 					'post_id'      => $post->post_id,
 					'post_title'   => $post->post_title,
 					'post_content' => $post->post_content,
 					'token_count'  => $post->token_count,
+					'website_url'  => get_site_url(),
 				),
 			);
 		}
@@ -326,13 +358,25 @@ class Qdrant_API {
 			$db_table->update(
 				$post->id,
 				array(
-					'source' => 'qdrant',
+					'storage' => 'Qdrant',
 				) 
 			);
 		}
 
-		if ( 100 === count( $posts ) ) {
-			wp_schedule_single_event( time() + 30, 'hyve_lite_migrate_data' );
+		$migration_status = get_option( 'hyve_qdrant_migration', array() );
+
+		$migration_status['current'] += count( $posts );
+
+		$has_more = $migration_status['current'] < $migration_status['total'];
+
+		if ( ! $has_more ) {
+			$migration_status['in_progress'] = false;
+		}
+
+		update_option( 'hyve_qdrant_migration', $migration_status );
+
+		if ( $has_more ) {
+			wp_schedule_single_event( time() + 10, 'hyve_lite_migrate_data' );
 		}
 	}
 
@@ -345,5 +389,34 @@ class Qdrant_API {
 	 */
 	public static function is_active() {
 		return 'active' === get_option( 'hyve_qdrant_status', 'inactive' );
+	}
+
+	/**
+	 * Qdrant Migration Status.
+	 * 
+	 * @since 1.3.0
+	 * 
+	 * @return array
+	 */
+	public static function migration_status() {
+		$db              = DB_Table::instance();
+		$existing_chunks = $db->get_posts_over_limit();
+		return get_option( 'hyve_qdrant_migration', array() );
+	}
+
+	/**
+	 * Random Hash.
+	 * 
+	 * @since 1.3.0
+	 * 
+	 * @return string
+	 */
+	public static function random_hash() {
+		$data = random_bytes( 16 );
+
+		$data[6] = chr( ( ord( $data[6] ) & 0x0f ) | 0x40 );
+		$data[8] = chr( ( ord( $data[8] ) & 0x3f ) | 0x80 );
+
+		return vsprintf( '%s%s-%s-%s-%s-%s%s%s', str_split( bin2hex( $data ), 4 ) );
 	}
 }

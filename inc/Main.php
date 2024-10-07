@@ -148,21 +148,22 @@ class Main {
 			apply_filters(
 				'hyve_options_data',
 				array(
-					'api'         => $this->api->get_endpoint(),
-					'postTypes'   => $post_types_for_js,
-					'hasAPIKey'   => isset( $settings['api_key'] ) && ! empty( $settings['api_key'] ),
-					'chunksLimit' => apply_filters( 'hyve_chunks_limit', 500 ),
-					'assets'      => array(
+					'api'            => $this->api->get_endpoint(),
+					'postTypes'      => $post_types_for_js,
+					'hasAPIKey'      => isset( $settings['api_key'] ) && ! empty( $settings['api_key'] ),
+					'chunksLimit'    => apply_filters( 'hyve_chunks_limit', 500 ),
+					'isQdrantActive' => Qdrant_API::is_active(),
+					'assets'         => array(
 						'images' => HYVE_LITE_URL . 'assets/images/',
 					),
-					'stats'       => array(
+					'stats'          => array(
 						'threads'     => Threads::get_thread_count(),
 						'messages'    => Threads::get_messages_count(),
 						'totalChunks' => $this->table->get_count(),
 					),
-					'docs'        => 'https://docs.themeisle.com/article/2009-hyve-documentation',
-					'qdrant_docs' => 'https://docs.themeisle.com/article/2066-integrate-hyve-with-qdrant',
-					'pro'         => 'https://themeisle.com/plugins/hyve/',
+					'docs'           => 'https://docs.themeisle.com/article/2009-hyve-documentation',
+					'qdrant_docs'    => 'https://docs.themeisle.com/article/2066-integrate-hyve-with-qdrant',
+					'pro'            => 'https://themeisle.com/plugins/hyve/',
 				)
 			)
 		);

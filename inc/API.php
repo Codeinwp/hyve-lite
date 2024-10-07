@@ -146,6 +146,16 @@ class API extends BaseAPI {
 					'callback' => array( $this, 'get_threads' ),
 				),
 			),
+			'qdrant'   => array(
+				array(
+					'methods'  => \WP_REST_Server::READABLE,
+					'callback' => array( $this, 'qdrant_status' ),
+				),
+				array(
+					'methods'  => \WP_REST_Server::CREATABLE,
+					'callback' => array( $this, 'qdrant_deactivate' ),
+				),
+			),
 			'chat'     => array(
 				array(
 					'methods'             => \WP_REST_Server::READABLE,
@@ -448,6 +458,7 @@ class API extends BaseAPI {
 	 * @param \WP_REST_Request $request Request object.
 	 * 
 	 * @return \WP_REST_Response
+	 * @throws \Exception If Qdrant API fails.
 	 */
 	public function add_data( $request ) {
 		$data    = $request->get_param( 'data' );
@@ -474,22 +485,30 @@ class API extends BaseAPI {
 		}
 
 		if ( 'update' === $request->get_param( 'action' ) ) {
-			$this->table->delete_by_post_id( $data['post_id'] );
-
 			if ( Qdrant_API::is_active() ) {
-				Qdrant_API::instance()->delete_point( $data['post_id'] );
+				try {
+					$delete_result = Qdrant_API::instance()->delete_point( $data['post_id'] );
+
+					if ( ! $delete_result ) {
+						throw new \Exception( __( 'Failed to delete point in Qdrant.', 'hyve-lite' ) );
+					}
+				} catch ( \Exception $e ) {
+					return rest_ensure_response( array( 'error' => $e->getMessage() ) );
+				}
 			}
+
+			$this->table->delete_by_post_id( $data['post_id'] );
 
 			delete_post_meta( $data['post_id'], '_hyve_needs_update' );
 		}
 
-		$this->table->insert( $data );
+		$post_id = $this->table->insert( $data );
 
 		update_post_meta( $data['post_id'], '_hyve_added', 1 );
 		delete_post_meta( $data['post_id'], '_hyve_moderation_failed' );
 		delete_post_meta( $data['post_id'], '_hyve_moderation_review' );
 
-		$this->table->process_posts();
+		$this->table->process_post( $post_id );
 
 		return rest_ensure_response( true );
 	}
@@ -500,15 +519,24 @@ class API extends BaseAPI {
 	 * @param \WP_REST_Request $request Request object.
 	 * 
 	 * @return \WP_REST_Response
+	 * @throws \Exception If Qdrant API fails.
 	 */
 	public function delete_data( $request ) {
 		$id = $request->get_param( 'id' );
 
-		$this->table->delete_by_post_id( $id );
-
 		if ( Qdrant_API::is_active() ) {
-			Qdrant_API::instance()->delete_point( $id );
+			try {
+				$delete_result = Qdrant_API::instance()->delete_point( $id );
+
+				if ( ! $delete_result ) {
+					throw new \Exception( __( 'Failed to delete point in Qdrant.', 'hyve-lite' ) );
+				}
+			} catch ( \Exception $e ) {
+				return rest_ensure_response( array( 'error' => $e->getMessage() ) );
+			}
 		}
+
+		$this->table->delete_by_post_id( $id );
 
 		delete_post_meta( $id, '_hyve_added' );
 		delete_post_meta( $id, '_hyve_needs_update' );
@@ -559,6 +587,57 @@ class API extends BaseAPI {
 		);
 
 		return rest_ensure_response( $posts );
+	}
+
+	/**
+	 * Qdrant status.
+	 * 
+	 * @return \WP_REST_Response
+	 */
+	public function qdrant_status() {
+		return rest_ensure_response(
+			array(
+				'status'    => Qdrant_API::is_active(),
+				'migration' => Qdrant_API::instance()->migration_status(),
+			)
+		);
+	}
+
+	/**
+	 * Qdrant deactivate.
+	 * 
+	 * @return \WP_REST_Response
+	 * @throws \Exception If Qdrant API fails.
+	 */
+	public function qdrant_deactivate() {
+		$settings = Main::get_settings();
+
+		try {
+			$deactivated = Qdrant_API::instance()->disconnect();
+
+			if ( ! $deactivated ) {
+				throw new \Exception( __( 'Failed to deactivate Qdrant.', 'hyve-lite' ) );
+			}
+		} catch ( \Exception $e ) {
+			return rest_ensure_response( array( 'error' => $e->getMessage() ) );
+		}
+
+		$over_limit = DB_Table::instance()->get_posts_over_limit();
+
+		if ( ! empty( $over_limit ) ) {
+			wp_schedule_single_event( time(), 'hyve_delete_posts', array( $over_limit ) );
+		}
+
+		DB_Table::instance()->update_storage( 'WordPress', 'Qdrant' );
+
+		$settings['qdrant_api_key']  = '';
+		$settings['qdrant_endpoint'] = '';
+
+		update_option( 'hyve_settings', $settings );
+		update_option( 'hyve_qdrant_status', 'inactive' );
+		delete_option( 'hyve_qdrant_migration' );
+
+		return rest_ensure_response( __( 'Qdrant deactivated.', 'hyve-lite' ) );
 	}
 
 	/**
@@ -656,7 +735,7 @@ class API extends BaseAPI {
 					);
 				}
 
-				$distance = Cosine_Similarity::calculate( $message_vector, $embeddings );
+				$score = Cosine_Similarity::calculate( $message_vector, $embeddings );
 
 				return array(
 					'post_id'      => $row->post_id,
