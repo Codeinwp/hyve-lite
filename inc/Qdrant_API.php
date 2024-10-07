@@ -80,7 +80,7 @@ class Qdrant_API {
 		$transport    = ( new Builder() )->build( $config );
 		$this->client = new Qdrant( $transport );
 
-		add_action( 'hyve_lite_migrate_data', array( $this, 'migrate_data' ) );
+		add_action( 'hyve_lite_migrate_data', [ $this, 'migrate_data' ] );
 	}
 
 	/**
@@ -110,11 +110,11 @@ class Qdrant_API {
 		if ( $existing_chunks > 0 ) {
 			update_option(
 				'hyve_qdrant_migration',
-				array(
+				[
 					'total'       => (int) $existing_chunks,
 					'current'     => 0,
 					'in_progress' => true,
-				) 
+				] 
 			);
 
 			wp_schedule_single_event( time(), 'hyve_lite_migrate_data' );
@@ -182,7 +182,7 @@ class Qdrant_API {
 				)
 			);
 
-			$response = $this->client->collections( self::COLLECTION_NAME )->points()->upsert( $points, array( 'wait' => 'true' ) );
+			$response = $this->client->collections( self::COLLECTION_NAME )->points()->upsert( $points, [ 'wait' => 'true' ] );
 
 			return 'completed' === $response['result']['status'];
 		} catch ( \Exception $e ) {
@@ -216,7 +216,7 @@ class Qdrant_API {
 				);
 			}
 
-			$response = $this->client->collections( self::COLLECTION_NAME )->points()->upsert( $points_struct, array( 'wait' => 'true' ) );
+			$response = $this->client->collections( self::COLLECTION_NAME )->points()->upsert( $points_struct, [ 'wait' => 'true' ] );
 
 			return 'completed' === $response['result']['status'];
 		} catch ( \Exception $e ) {
@@ -273,7 +273,7 @@ class Qdrant_API {
 			$response = $this->client->collections( self::COLLECTION_NAME )->points()->search( $search );
 
 			if ( empty( $response['result'] ) ) {
-				return array();
+				return [];
 			}
 
 			$results = $response['result'];
@@ -331,19 +331,19 @@ class Qdrant_API {
 			return;
 		}
 
-		$points = array();
+		$points = [];
 
 		foreach ( $posts as $post ) {
-			$points[] = array(
+			$points[] = [
 				'embeddings' => json_decode( $post->embeddings, true ),
-				'data'       => array(
+				'data'       => [
 					'post_id'      => $post->post_id,
 					'post_title'   => $post->post_title,
 					'post_content' => $post->post_content,
 					'token_count'  => $post->token_count,
 					'website_url'  => get_site_url(),
-				),
-			);
+				],
+			];
 		}
 
 		$qdrant = self::instance();
@@ -357,13 +357,13 @@ class Qdrant_API {
 		foreach ( $posts as $post ) {
 			$db_table->update(
 				$post->id,
-				array(
+				[
 					'storage' => 'Qdrant',
-				) 
+				] 
 			);
 		}
 
-		$migration_status = get_option( 'hyve_qdrant_migration', array() );
+		$migration_status = get_option( 'hyve_qdrant_migration', [] );
 
 		$migration_status['current'] += count( $posts );
 
@@ -401,7 +401,7 @@ class Qdrant_API {
 	public static function migration_status() {
 		$db              = DB_Table::instance();
 		$existing_chunks = $db->get_posts_over_limit();
-		return get_option( 'hyve_qdrant_migration', array() );
+		return get_option( 'hyve_qdrant_migration', [] );
 	}
 
 	/**

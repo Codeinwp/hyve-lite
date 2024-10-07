@@ -41,7 +41,7 @@ class BaseAPI {
 	 * 
 	 * @var array
 	 */
-	private $errors = array();
+	private $errors = [];
 
 	/**
 	 * Constructor.
@@ -49,10 +49,10 @@ class BaseAPI {
 	public function __construct() {
 		$this->table = DB_Table::instance();
 
-		$this->errors = array(
+		$this->errors = [
 			'invalid_api_key' => __( 'Incorrect API key provided.', 'hyve-lite' ),
 			'missing_scope'   => __( ' You have insufficient permissions for this operation.', 'hyve-lite' ),
-		);
+		];
 	}
 
 	/**
@@ -97,13 +97,13 @@ class BaseAPI {
 		}
 
 		$openai               = OpenAI::instance();
-		$results              = array();
+		$results              = [];
 		$return               = true;
 		$settings             = Main::get_settings();
 		$moderation_threshold = $settings['moderation_threshold'];
 
 		if ( ! is_array( $chunks ) ) {
-			$chunks = array( $chunks );
+			$chunks = [ $chunks ];
 		}
 
 		foreach ( $chunks as $chunk ) {
@@ -119,7 +119,7 @@ class BaseAPI {
 		}
 
 		if ( ! empty( $results ) ) {
-			$flagged = array();
+			$flagged = [];
 	
 			foreach ( $results as $result ) {
 				$categories = $result->categories;

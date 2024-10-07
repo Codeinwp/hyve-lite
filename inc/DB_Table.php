@@ -68,8 +68,8 @@ class DB_Table {
 		global $wpdb;
 		$this->table_name = $wpdb->prefix . 'hyve';
 
-		add_action( 'hyve_process_post', array( $this, 'process_post' ), 10, 1 );
-		add_action( 'hyve_delete_posts', array( $this, 'delete_posts' ), 10, 1 );
+		add_action( 'hyve_process_post', [ $this, 'process_post' ], 10, 1 );
+		add_action( 'hyve_delete_posts', [ $this, 'delete_posts' ], 10, 1 );
 
 		if ( ! $this->table_exists() || version_compare( $this->version, get_option( $this->table_name . '_db_version' ), '>' ) ) {
 			$this->create_table();
@@ -125,7 +125,7 @@ class DB_Table {
 	 * @return array
 	 */
 	public function get_columns() {
-		return array(
+		return [
 			'date'         => '%s',
 			'modified'     => '%s',
 			'post_id'      => '%s',
@@ -135,7 +135,7 @@ class DB_Table {
 			'token_count'  => '%d',
 			'post_status'  => '%s',
 			'storage'      => '%s',
-		);
+		];
 	}
 
 	/**
@@ -146,7 +146,7 @@ class DB_Table {
 	 * @return array
 	 */
 	public function get_column_defaults() {
-		return array(
+		return [
 			'date'         => gmdate( 'Y-m-d H:i:s' ),
 			'modified'     => gmdate( 'Y-m-d H:i:s' ),
 			'post_id'      => '',
@@ -156,7 +156,7 @@ class DB_Table {
 			'token_count'  => 0,
 			'post_status'  => 'scheduled',
 			'storage'      => 'WordPress',
-		);
+		];
 	}
 
 	/**
@@ -228,7 +228,7 @@ class DB_Table {
 
 		$data = array_intersect_key( $data, $column_formats );
 
-		$wpdb->update( $this->table_name, $data, array( 'id' => $id ), $column_formats, array( '%d' ) );
+		$wpdb->update( $this->table_name, $data, [ 'id' => $id ], $column_formats, [ '%d' ] );
 
 		$this->delete_cache( 'entry_' . $id );
 		$this->delete_cache( 'entries_processed' );
@@ -248,7 +248,7 @@ class DB_Table {
 	public function delete_by_post_id( $post_id ) {
 		global $wpdb;
 
-		$wpdb->delete( $this->table_name, array( 'post_id' => $post_id ), array( '%d' ) );
+		$wpdb->delete( $this->table_name, [ 'post_id' => $post_id ], [ '%d' ] );
 
 		$this->delete_cache( 'entry_post_' . $post_id );
 		$this->delete_cache( 'entries' );
@@ -314,7 +314,7 @@ class DB_Table {
 	 */
 	public function update_storage( $to, $from ) {
 		global $wpdb;
-		$wpdb->update( $this->table_name, array( 'storage' => $to ), array( 'storage' => $from ), array( '%s' ), array( '%s' ) );
+		$wpdb->update( $this->table_name, [ 'storage' => $to ], [ 'storage' => $from ], [ '%s' ], [ '%s' ] );
 		$this->delete_cache( 'entries' );
 		$this->delete_cache( 'entries_processed' );
 		return $wpdb->rows_affected;
@@ -334,7 +334,7 @@ class DB_Table {
 		$posts = $wpdb->get_results( $wpdb->prepare( 'SELECT post_id FROM %i ORDER BY id DESC LIMIT %d, %d', $this->table_name, $limit, $this->get_count() ) );
 
 		if ( ! $posts ) {
-			return array();
+			return [];
 		}
 
 		$posts = wp_list_pluck( $posts, 'post_id' );
@@ -359,7 +359,7 @@ class DB_Table {
 		$embeddings = $openai->create_embeddings( $content );
 
 		if ( is_wp_error( $embeddings ) || ! $embeddings ) {
-			wp_schedule_single_event( time() + 60, 'hyve_process_post', array( $id ) );
+			wp_schedule_single_event( time() + 60, 'hyve_process_post', [ $id ] );
 			return;
 		}
 
@@ -371,13 +371,13 @@ class DB_Table {
 			try {
 				$success = Qdrant_API::instance()->add_point(
 					$embeddings,
-					array(
+					[
 						'post_id'      => $post->post_id,
 						'post_title'   => $post->post_title,
 						'post_content' => $post->post_content,
 						'token_count'  => $post->token_count,
 						'website_url'  => get_site_url(),
-					)
+					]
 				);
 
 				$storage = 'Qdrant';
@@ -386,7 +386,7 @@ class DB_Table {
 			}
 
 			if ( is_wp_error( $success ) ) {
-				wp_schedule_single_event( time() + 60, 'hyve_process_post', array( $id ) );
+				wp_schedule_single_event( time() + 60, 'hyve_process_post', [ $id ] );
 				return;
 			}
 		}
@@ -395,11 +395,11 @@ class DB_Table {
 
 		$this->update(
 			$id,
-			array(
+			[
 				'embeddings'  => $embeddings,
 				'post_status' => 'processed',
 				'storage'     => $storage,
-			) 
+			] 
 		);
 	}
 
@@ -412,7 +412,7 @@ class DB_Table {
 	 * 
 	 * @return void
 	 */
-	public function delete_posts( $posts = array() ) {
+	public function delete_posts( $posts = [] ) {
 		$twenty = array_slice( $posts, 0, 20 );
 
 		foreach ( $twenty as $id ) {
@@ -427,7 +427,7 @@ class DB_Table {
 		$has_more = count( $posts ) > 20;
 
 		if ( $has_more ) {
-			wp_schedule_single_event( time() + 10, 'hyve_delete_posts', array( array_slice( $posts, 20 ) ) );
+			wp_schedule_single_event( time() + 10, 'hyve_delete_posts', [ array_slice( $posts, 20 ) ] );
 		}
 	}
 
@@ -473,7 +473,7 @@ class DB_Table {
 				return false;
 			}
 
-			$entries = array();
+			$entries = [];
 
 			for ( $i = 0; $i < $total; $i++ ) {
 				$chunk_key = $key . '_' . $i;

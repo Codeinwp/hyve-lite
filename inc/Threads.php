@@ -15,9 +15,9 @@ class Threads {
 	 * Constructor.
 	 */
 	public function __construct() {
-		add_action( 'init', array( $this, 'register' ) );
-		add_action( 'hyve_chat_response', array( $this, 'record_message' ), 10, 6 );
-		add_filter( 'hyve_chat_request', array( $this, 'record_thread' ), 10, 3 );
+		add_action( 'init', [ $this, 'register' ] );
+		add_action( 'hyve_chat_response', [ $this, 'record_message' ], 10, 6 );
+		add_filter( 'hyve_chat_request', [ $this, 'record_thread' ], 10, 3 );
 	}
 
 	/**
@@ -26,7 +26,7 @@ class Threads {
 	 * @return void
 	 */
 	public function register() {
-		$labels = array(
+		$labels = [
 			'name'               => _x( 'Threads', 'post type general name', 'hyve-lite' ),
 			'singular_name'      => _x( 'Thread', 'post type singular name', 'hyve-lite' ),
 			'menu_name'          => _x( 'Threads', 'admin menu', 'hyve-lite' ),
@@ -41,9 +41,9 @@ class Threads {
 			'parent_item_colon'  => __( 'Parent Thread:', 'hyve-lite' ),
 			'not_found'          => __( 'No Threads found.', 'hyve-lite' ),
 			'not_found_in_trash' => __( 'No Threads found in Trash.', 'hyve-lite' ),
-		);
+		];
 
-		$args = array(
+		$args = [
 			'labels'             => $labels,
 			'description'        => __( 'Threads.', 'hyve-lite' ),
 			'public'             => false,
@@ -51,13 +51,13 @@ class Threads {
 			'show_ui'            => false,
 			'show_in_menu'       => false,
 			'query_var'          => false,
-			'rewrite'            => array( 'slug' => 'threads' ),
+			'rewrite'            => [ 'slug' => 'threads' ],
 			'capability_type'    => 'post',
 			'has_archive'        => false,
 			'hierarchical'       => false,
 			'show_in_rest'       => false,
-			'supports'           => array( 'title', 'editor', 'custom-fields', 'comments' ),
-		);
+			'supports'           => [ 'title', 'editor', 'custom-fields', 'comments' ],
+		];
 
 		register_post_type( 'hyve_threads', $args );
 	}
@@ -81,11 +81,11 @@ class Threads {
 
 		self::add_message(
 			$record_id,
-			array(
+			[
 				'thread_id' => $thread_id,
 				'sender'    => 'bot',
 				'message'   => $response,
-			)
+			]
 		);
 	}
 
@@ -102,20 +102,20 @@ class Threads {
 		if ( $record_id ) {
 			$record_id = self::add_message(
 				$record_id,
-				array(
+				[
 					'thread_id' => $thread_id,
 					'sender'    => 'user',
 					'message'   => $message,
-				)
+				]
 			);
 		} else {
 			$record_id = self::create_thread(
 				$message,
-				array(
+				[
 					'thread_id' => $thread_id,
 					'sender'    => 'user',
 					'message'   => $message,
-				)
+				]
 			);
 		}
 
@@ -133,21 +133,21 @@ class Threads {
 	 */
 	public static function create_thread( $title, $data ) {
 		$post_id = wp_insert_post(
-			array(
+			[
 				'post_title'   => $title,
 				'post_content' => '',
 				'post_status'  => 'publish',
 				'post_type'    => 'hyve_threads',
-			)
+			]
 		);
 
-		$thread_data = array(
-			array(
+		$thread_data = [
+			[
 				'time'    => time(),
 				'sender'  => $data['sender'],
 				'message' => wp_kses_post( $data['message'] ),
-			),
-		);
+			],
+		];
 
 		update_post_meta( $post_id, '_hyve_thread_data', $thread_data );
 		update_post_meta( $post_id, '_hyve_thread_count', 1 );
@@ -173,11 +173,11 @@ class Threads {
 
 		$thread_data = get_post_meta( $post_id, '_hyve_thread_data', true );
 
-		$thread_data[] = array(
+		$thread_data[] = [
 			'time'    => time(),
 			'sender'  => $data['sender'],
 			'message' => wp_kses_post( $data['message'] ),
-		);
+		];
 
 		update_post_meta( $post_id, '_hyve_thread_data', $thread_data );
 		update_post_meta( $post_id, '_hyve_thread_count', count( $thread_data ) );
