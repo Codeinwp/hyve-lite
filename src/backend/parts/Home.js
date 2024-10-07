@@ -10,6 +10,7 @@ import {
 } from '@wordpress/components';
 
 import {
+	dispatch,
 	useDispatch,
 	useSelect
 } from '@wordpress/data';
@@ -19,6 +20,8 @@ import {
 	brush,
 	help
 } from '@wordpress/icons';
+
+const { setRoute } = dispatch( 'hyve' );
 
 const STATUS = [
 	{
@@ -33,8 +36,13 @@ const STATUS = [
 	},
 	{
 		label: __( 'Knowledge Base', 'hyve-lite' ),
-		value: `${ hyve?.stats?.totalChunks } / ${ hyve?.chunksLimit }`,
-		description: __( 'Current knowledge base chunks used.', 'hyve-lite' )
+		value: Boolean( hyve.isQdrantActive ) ? hyve?.stats?.totalChunks : `${ hyve?.stats?.totalChunks } / ${ hyve?.chunksLimit }`,
+		description: __( 'Current knowledge base chunks used.', 'hyve-lite' ),
+		action: {
+			label: __( 'Need more storage?', 'hyve-lite' ),
+			action: () => setRoute( 'integrations' ),
+			condition: ! Boolean( hyve.isQdrantActive ) && 400 < hyve?.stats?.totalChunks
+		}
 	}
 ];
 
@@ -114,7 +122,7 @@ const Home = () => {
 					</h2>
 
 					<div className="grid grid-cols-1 gap-5 sm:grid-cols-3 mt-4">
-						{ STATUS.map( ({ label, value, description }) => (
+						{ STATUS.map( ({ label, value, description, action }) => (
 							<div key={ label } className="bg-white overflow-hidden shadow border-[0.5px] border-gray-300 border-solid rounded-md">
 								<div className="px-4 py-5 sm:p-6">
 									<dl>
@@ -129,6 +137,12 @@ const Home = () => {
 										<dt className="text-xs text-gray-500">
 											{ description }
 										</dt>
+
+										{ ( action && action?.condition ) && (
+											<dt className="text-xs pt-1 text-blue-500 cursor-pointer" onClick={ action?.action }>
+												{ action?.label }
+											</dt>
+										) }
 									</dl>
 								</div>
 							</div>

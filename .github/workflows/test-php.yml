@@ -11,12 +11,12 @@ jobs:
         if: github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.event.pull_request.base.repo.full_name
         steps:
             - name: Setup PHP version
-              uses: shivammathur/setup-php@v1
+              uses: shivammathur/setup-php@v2
               with:
-                  php-version: '7.4'
+                  php-version: '8.1'
                   extensions: simplexml
             - name: Checkout source code
-              uses: actions/checkout@v2
+              uses: actions/checkout@v4
             - name: Get Composer Cache Directory
               id: composer-cache
               run: |
@@ -41,10 +41,10 @@ jobs:
             - name: Setup PHP version
               uses: shivammathur/setup-php@v2
               with:
-                  php-version: '7.4'
+                  php-version: '8.1'
                   extensions: simplexml, mysql
             - name: Checkout source code
-              uses: actions/checkout@v2
+              uses: actions/checkout@v4
             - name: Get Composer Cache Directory
               id: composer-cache
               run: |

@@ -47,7 +47,7 @@ class BaseAPI {
 	 * Constructor.
 	 */
 	public function __construct() {
-		$this->table = new DB_Table();
+		$this->table = DB_Table::instance();
 
 		$this->errors = array(
 			'invalid_api_key' => __( 'Incorrect API key provided.', 'hyve-lite' ),
@@ -96,7 +96,7 @@ class BaseAPI {
 			}
 		}
 
-		$openai               = new OpenAI();
+		$openai               = OpenAI::instance();
 		$results              = array();
 		$return               = true;
 		$settings             = Main::get_settings();

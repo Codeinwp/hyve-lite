@@ -36,10 +36,14 @@
 	},
 	"config": {
 		"allow-plugins": {
-            "dealerdirect/phpcodesniffer-composer-installer": true
+            "dealerdirect/phpcodesniffer-composer-installer": true,
+            "php-http/discovery": true
         }
 	},
     "require": {
-        "codeinwp/themeisle-sdk": "^3.3"
+        "codeinwp/themeisle-sdk": "^3.3",
+        "hkulekci/qdrant": "^0.5.7",
+        "symfony/http-client": "^6.4",
+        "nyholm/psr7": "^1.8"
     }
 }
