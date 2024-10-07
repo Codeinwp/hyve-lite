@@ -15,8 +15,8 @@ class Block {
 	 * Constructor.
 	 */
 	public function __construct() {
-		add_action( 'init', array( $this, 'register_block' ) );
-		add_shortcode( 'hyve', array( $this, 'render_shortcode' ) );
+		add_action( 'init', [ $this, 'register_block' ] );
+		add_shortcode( 'hyve', [ $this, 'render_shortcode' ] );
 	}
 
 	/**

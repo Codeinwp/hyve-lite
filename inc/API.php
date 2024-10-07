@@ -52,7 +52,7 @@ class API extends BaseAPI {
 	 * @return void
 	 */
 	private function register_route() {
-		add_action( 'rest_api_init', array( $this, 'register_routes' ) );
+		add_action( 'rest_api_init', [ $this, 'register_routes' ] );
 	}
 
 	/**
@@ -63,156 +63,156 @@ class API extends BaseAPI {
 	public function register_routes() {
 		$namespace = $this->get_endpoint();
 
-		$routes = array(
-			'settings' => array(
-				array(
+		$routes = [
+			'settings' => [
+				[
 					'methods'  => \WP_REST_Server::READABLE,
-					'callback' => array( $this, 'get_settings' ),
-				),
-				array(
+					'callback' => [ $this, 'get_settings' ],
+				],
+				[
 					'methods'  => \WP_REST_Server::CREATABLE,
-					'args'     => array(
-						'data' => array(
+					'args'     => [
+						'data' => [
 							'required'          => true,
 							'type'              => 'object',
 							'validate_callback' => function ( $param ) {
 								return is_array( $param );
 							},
-						),
-					),
-					'callback' => array( $this, 'update_settings' ),
-				),
-			),
-			'data'     => array(
-				array(
+						],
+					],
+					'callback' => [ $this, 'update_settings' ],
+				],
+			],
+			'data'     => [
+				[
 					'methods'  => \WP_REST_Server::READABLE,
-					'args'     => array(
-						'offset' => array(
+					'args'     => [
+						'offset' => [
 							'required' => false,
 							'type'     => 'integer',
 							'default'  => 0,
-						),
-						'type'   => array(
+						],
+						'type'   => [
 							'required' => false,
 							'type'     => 'string',
 							'default'  => 'any',
-						),
-						'search' => array(
+						],
+						'search' => [
 							'required' => false,
 							'type'     => 'string',
-						),
-						'status' => array(
+						],
+						'status' => [
 							'required' => false,
 							'type'     => 'string',
-						),
-					),
-					'callback' => array( $this, 'get_data' ),
-				),
-				array(
+						],
+					],
+					'callback' => [ $this, 'get_data' ],
+				],
+				[
 					'methods'  => \WP_REST_Server::CREATABLE,
-					'args'     => array(
-						'action' => array(
+					'args'     => [
+						'action' => [
 							'required' => false,
 							'type'     => 'string',
-						),
-						'data'   => array(
+						],
+						'data'   => [
 							'required' => true,
 							'type'     => 'object',
-						),
-					),
-					'callback' => array( $this, 'add_data' ),
-				),
-				array(
+						],
+					],
+					'callback' => [ $this, 'add_data' ],
+				],
+				[
 					'methods'  => \WP_REST_Server::DELETABLE,
-					'args'     => array(
-						'id' => array(
+					'args'     => [
+						'id' => [
 							'required' => true,
 							'type'     => 'integer',
-						),
-					),
-					'callback' => array( $this, 'delete_data' ),
-				),
-			),
-			'threads'  => array(
-				array(
+						],
+					],
+					'callback' => [ $this, 'delete_data' ],
+				],
+			],
+			'threads'  => [
+				[
 					'methods'  => \WP_REST_Server::READABLE,
-					'args'     => array(
-						'offset' => array(
+					'args'     => [
+						'offset' => [
 							'required' => false,
 							'type'     => 'integer',
 							'default'  => 0,
-						),
-					),
-					'callback' => array( $this, 'get_threads' ),
-				),
-			),
-			'qdrant'   => array(
-				array(
+						],
+					],
+					'callback' => [ $this, 'get_threads' ],
+				],
+			],
+			'qdrant'   => [
+				[
 					'methods'  => \WP_REST_Server::READABLE,
-					'callback' => array( $this, 'qdrant_status' ),
-				),
-				array(
+					'callback' => [ $this, 'qdrant_status' ],
+				],
+				[
 					'methods'  => \WP_REST_Server::CREATABLE,
-					'callback' => array( $this, 'qdrant_deactivate' ),
-				),
-			),
-			'chat'     => array(
-				array(
+					'callback' => [ $this, 'qdrant_deactivate' ],
+				],
+			],
+			'chat'     => [
+				[
 					'methods'             => \WP_REST_Server::READABLE,
-					'args'                => array(
-						'run_id'    => array(
+					'args'                => [
+						'run_id'    => [
 							'required' => true,
 							'type'     => 'string',
-						),
-						'thread_id' => array(
+						],
+						'thread_id' => [
 							'required' => true,
 							'type'     => 'string',
-						),
-						'record_id' => array(
+						],
+						'record_id' => [
 							'required' => true,
-							'type'     => array(
+							'type'     => [
 								'string',
 								'integer',
-							),
-						),
-						'message'   => array(
+							],
+						],
+						'message'   => [
 							'required' => false,
 							'type'     => 'string',
-						),
-					),
-					'callback'            => array( $this, 'get_chat' ),
+						],
+					],
+					'callback'            => [ $this, 'get_chat' ],
 					'permission_callback' => function ( $request ) {
 						$nonce = $request->get_header( 'x_wp_nonce' );
 						return wp_verify_nonce( $nonce, 'wp_rest' );
 					},
-				),
-				array(
+				],
+				[
 					'methods'             => \WP_REST_Server::CREATABLE,
-					'args'                => array(
-						'message'   => array(
+					'args'                => [
+						'message'   => [
 							'required' => true,
 							'type'     => 'string',
-						),
-						'thread_id' => array(
+						],
+						'thread_id' => [
 							'required' => false,
 							'type'     => 'string',
-						),
-						'record_id' => array(
+						],
+						'record_id' => [
 							'required' => false,
-							'type'     => array(
+							'type'     => [
 								'string',
 								'integer',
-							),
-						),
-					),
-					'callback'            => array( $this, 'send_chat' ),
+							],
+						],
+					],
+					'callback'            => [ $this, 'send_chat' ],
 					'permission_callback' => function ( $request ) {
 						$nonce = $request->get_header( 'x_wp_nonce' );
 						return wp_verify_nonce( $nonce, 'wp_rest' );
 					},
-				),
-			),
-		);
+				],
+			],
+		];
 
 		foreach ( $routes as $route => $args ) {
 			foreach ( $args as $key => $arg ) {
@@ -247,7 +247,7 @@ class API extends BaseAPI {
 	public function update_settings( $request ) {
 		$data     = $request->get_param( 'data' );
 		$settings = Main::get_settings();
-		$updated  = array();
+		$updated  = [];
 
 		foreach ( $data as $key => $datum ) {
 			if ( ! array_key_exists( $key, $settings ) || $settings[ $key ] === $datum ) {
@@ -258,12 +258,12 @@ class API extends BaseAPI {
 		}
 
 		if ( empty( $updated ) ) {
-			return rest_ensure_response( array( 'error' => __( 'No settings to update.', 'hyve-lite' ) ) );
+			return rest_ensure_response( [ 'error' => __( 'No settings to update.', 'hyve-lite' ) ] );
 		}
 
 		$validation = apply_filters(
 			'hyve_settings_validation',
-			array(
+			[
 				'api_key'              => function ( $value ) {
 					return is_string( $value );
 				},
@@ -300,16 +300,16 @@ class API extends BaseAPI {
 						true
 					);
 				},
-			)
+			]
 		);
 
 		foreach ( $updated as $key => $value ) {
 			if ( ! $validation[ $key ]( $value ) ) {
 				return rest_ensure_response(
-					array(
+					[
 						// translators: %s: option key.
 						'error' => sprintf( __( 'Invalid value: %s', 'hyve-lite' ), $key ),
-					)
+					]
 				);
 			}
 		}
@@ -322,7 +322,7 @@ class API extends BaseAPI {
 				$valid_api = $openai->setup_assistant();
 	
 				if ( is_wp_error( $valid_api ) ) {
-					return rest_ensure_response( array( 'error' => $this->get_error_message( $valid_api ) ) );
+					return rest_ensure_response( [ 'error' => $this->get_error_message( $valid_api ) ] );
 				}
 
 				$settings['assistant_id'] = $valid_api;
@@ -334,7 +334,7 @@ class API extends BaseAPI {
 			$init   = $qdrant->init();
 
 			if ( is_wp_error( $init ) ) {
-				return rest_ensure_response( array( 'error' => $this->get_error_message( $init ) ) );
+				return rest_ensure_response( [ 'error' => $this->get_error_message( $init ) ] );
 			}
 		}
 
@@ -351,23 +351,23 @@ class API extends BaseAPI {
 	 * @return \WP_REST_Response
 	 */
 	public function get_data( $request ) {
-		$args = array(
+		$args = [
 			'post_type'      => $request->get_param( 'type' ),
 			'post_status'    => 'publish',
 			'posts_per_page' => 20,
 			'fields'         => 'ids',
 			'offset'         => $request->get_param( 'offset' ),
-			'meta_query'     => array(
-				array(
+			'meta_query'     => [
+				[
 					'key'     => '_hyve_added',
 					'compare' => 'NOT EXISTS',
-				),
-				array(
+				],
+				[
 					'key'     => '_hyve_moderation_failed',
 					'compare' => 'NOT EXISTS',
-				),
-			),
-		);
+				],
+			],
+		];
 
 		$search = $request->get_param( 'search' );
 
@@ -378,62 +378,62 @@ class API extends BaseAPI {
 		$status = $request->get_param( 'status' );
 
 		if ( 'included' === $status ) {
-			$args['meta_query'] = array(
+			$args['meta_query'] = [
 				'relation' => 'AND',
-				array(
+				[
 					'key'     => '_hyve_added',
 					'value'   => '1',
 					'compare' => '=',
-				),
-				array(
+				],
+				[
 					'key'     => '_hyve_moderation_failed',
 					'compare' => 'NOT EXISTS',
-				),
-			);
+				],
+			];
 		}
 
 		if ( 'pending' === $status ) {
-			$args['meta_query'] = array(
+			$args['meta_query'] = [
 				'relation' => 'AND',
-				array(
+				[
 					'key'     => '_hyve_needs_update',
 					'value'   => '1',
 					'compare' => '=',
-				),
-				array(
+				],
+				[
 					'key'     => '_hyve_moderation_failed',
 					'compare' => 'NOT EXISTS',
-				),
-			);
+				],
+			];
 		}
 
 		if ( 'moderation' === $status ) {
-			$args['meta_query'] = array(
-				array(
+			$args['meta_query'] = [
+				[
 					'key'     => '_hyve_moderation_failed',
 					'value'   => '1',
 					'compare' => '=',
-				),
-			);
+				],
+			];
 		}
 
 		$query = new \WP_Query( $args );
 
-		$posts_data = array();
+		$posts_data = [];
 		
 		if ( $query->have_posts() ) {
 			foreach ( $query->posts as $post_id ) {
-				$post_data = array(
+				$post_data = [
 					'ID'      => $post_id,
 					'title'   => get_the_title( $post_id ),
 					'content' => apply_filters( 'the_content', get_post_field( 'post_content', $post_id ) ),
-				);
+				];
 
 				if ( 'moderation' === $status ) {
 					$review = get_post_meta( $post_id, '_hyve_moderation_review', true );
 	
 					if ( ! is_array( $review ) || empty( $review ) ) {
-						$review = array();
+						$review = [];
 					}
 
 					$post_data['review'] = $review;
@@ -443,11 +443,11 @@ class API extends BaseAPI {
 			}
 		}
 
-		$posts = array(
+		$posts = [
 			'posts'       => $posts_data,
 			'more'        => $query->found_posts > 20,
 			'totalChunks' => $this->table->get_count(),
-		);
+		];
 		
 		return rest_ensure_response( $posts );
 	}
@@ -468,7 +468,7 @@ class API extends BaseAPI {
 		$moderation = $this->moderate( $chunks, $data['post_id'] );
 
 		if ( is_wp_error( $moderation ) ) {
-			return rest_ensure_response( array( 'error' => $this->get_error_message( $moderation ) ) );
+			return rest_ensure_response( [ 'error' => $this->get_error_message( $moderation ) ] );
 		}
 
 		if ( true !== $moderation && 'override' !== $request->get_param( 'action' ) ) {
@@ -476,11 +476,11 @@ class API extends BaseAPI {
 			update_post_meta( $data['post_id'], '_hyve_moderation_review', $moderation );
 
 			return rest_ensure_response(
-				array(
+				[
 					'error'  => __( 'The content failed moderation policies.', 'hyve-lite' ),
 					'code'   => 'content_failed_moderation',
 					'review' => $moderation,
-				)
+				]
 			);
 		}
 
@@ -493,7 +493,7 @@ class API extends BaseAPI {
 						throw new \Exception( __( 'Failed to delete point in Qdrant.', 'hyve-lite' ) );
 					}
 				} catch ( \Exception $e ) {
-					return rest_ensure_response( array( 'error' => $e->getMessage() ) );
+					return rest_ensure_response( [ 'error' => $e->getMessage() ] );
 				}
 			}
 
@@ -532,7 +532,7 @@ class API extends BaseAPI {
 					throw new \Exception( __( 'Failed to delete point in Qdrant.', 'hyve-lite' ) );
 				}
 			} catch ( \Exception $e ) {
-				return rest_ensure_response( array( 'error' => $e->getMessage() ) );
+				return rest_ensure_response( [ 'error' => $e->getMessage() ] );
 			}
 		}
 
@@ -555,36 +555,36 @@ class API extends BaseAPI {
 	public function get_threads( $request ) {
 		$pages = apply_filters( 'hyve_threads_per_page', 3 );
 
-		$args = array(
+		$args = [
 			'post_type'      => 'hyve_threads',
 			'post_status'    => 'publish',
 			'posts_per_page' => $pages,
 			'fields'         => 'ids',
 			'offset'         => $request->get_param( 'offset' ),
-		);
+		];
 
 		$query = new \WP_Query( $args );
 
-		$posts_data = array();
+		$posts_data = [];
 
 		if ( $query->have_posts() ) {
 			foreach ( $query->posts as $post_id ) {
-				$post_data = array(
+				$post_data = [
 					'ID'        => $post_id,
 					'title'     => get_the_title( $post_id ),
 					'date'      => get_the_date( 'd/m/Y g:i A', $post_id ),
 					'thread'    => get_post_meta( $post_id, '_hyve_thread_data', true ),
 					'thread_id' => get_post_meta( $post_id, '_hyve_thread_id', true ),
-				);
+				];
 
 				$posts_data[] = $post_data;
 			}
 		}
 
-		$posts = array(
+		$posts = [
 			'posts' => $posts_data,
 			'more'  => $query->found_posts > $pages,
-		);
+		];
 
 		return rest_ensure_response( $posts );
 	}
@@ -596,10 +596,10 @@ class API extends BaseAPI {
 	 */
 	public function qdrant_status() {
 		return rest_ensure_response(
-			array(
+			[
 				'status'    => Qdrant_API::is_active(),
 				'migration' => Qdrant_API::instance()->migration_status(),
-			)
+			]
 		);
 	}
 
@@ -619,13 +619,13 @@ class API extends BaseAPI {
 				throw new \Exception( __( 'Failed to deactivate Qdrant.', 'hyve-lite' ) );
 			}
 		} catch ( \Exception $e ) {
-			return rest_ensure_response( array( 'error' => $e->getMessage() ) );
+			return rest_ensure_response( [ 'error' => $e->getMessage() ] );
 		}
 
 		$over_limit = DB_Table::instance()->get_posts_over_limit();
 
 		if ( ! empty( $over_limit ) ) {
-			wp_schedule_single_event( time(), 'hyve_delete_posts', array( $over_limit ) );
+			wp_schedule_single_event( time(), 'hyve_delete_posts', [ $over_limit ] );
 		}
 
 		DB_Table::instance()->update_storage( 'WordPress', 'Qdrant' );
@@ -658,17 +658,17 @@ class API extends BaseAPI {
 		$status = $openai->get_status( $run_id, $thread_id );
 
 		if ( is_wp_error( $status ) ) {
-			return rest_ensure_response( array( 'error' => $this->get_error_message( $status ) ) );
+			return rest_ensure_response( [ 'error' => $this->get_error_message( $status ) ] );
 		}
 
 		if ( 'completed' !== $status ) {
-			return rest_ensure_response( array( 'status' => $status ) );
+			return rest_ensure_response( [ 'status' => $status ] );
 		}
 
 		$messages = $openai->get_messages( $thread_id );
 
 		if ( is_wp_error( $messages ) ) {
-			return rest_ensure_response( array( 'error' => $this->get_error_message( $messages ) ) );
+			return rest_ensure_response( [ 'error' => $this->get_error_message( $messages ) ] );
 		}
 
 		$messages = array_filter(
@@ -683,7 +683,7 @@ class API extends BaseAPI {
 		$message = json_decode( $message, true );
 
 		if ( json_last_error() !== JSON_ERROR_NONE ) {
-			return rest_ensure_response( array( 'error' => __( 'No messages found.', 'hyve-lite' ) ) );
+			return rest_ensure_response( [ 'error' => __( 'No messages found.', 'hyve-lite' ) ] );
 		}
 
 		$settings = Main::get_settings();
@@ -693,11 +693,11 @@ class API extends BaseAPI {
 		do_action( 'hyve_chat_response', $run_id, $thread_id, $query, $record_id, $message, $response );
 
 		return rest_ensure_response(
-			array(
+			[
 				'status'  => $status,
 				'success' => isset( $message['success'] ) ? $message['success'] : false,
 				'message' => $response,
-			) 
+			] 
 		);
 	}
 
@@ -713,7 +713,7 @@ class API extends BaseAPI {
 			$scored_points = Qdrant_API::instance()->search( $message_vector );
 
 			if ( is_wp_error( $scored_points ) ) {
-				return array();
+				return [];
 			}
 
 			return $scored_points;
@@ -726,24 +726,24 @@ class API extends BaseAPI {
 				$embeddings = json_decode( $row->embeddings, true );
 
 				if ( ! is_array( $embeddings ) ) {
-					return array(
+					return [
 						'post_id'      => $row->post_id,
 						'score'        => 0,
 						'token_count'  => $row->token_count,
 						'post_title'   => $row->post_title,
 						'post_content' => $row->post_content,
-					);
+					];
 				}
 
 				$score = Cosine_Similarity::calculate( $message_vector, $embeddings );
 
-				return array(
+				return [
 					'post_id'      => $row->post_id,
 					'score'        => $score,
 					'token_count'  => $row->token_count,
 					'post_title'   => $row->post_title,
 					'post_content' => $row->post_content,
-				);
+				];
 			},
 			$posts 
 		);
@@ -777,7 +777,7 @@ class API extends BaseAPI {
 		$moderation = $this->moderate( $message );
 
 		if ( true !== $moderation ) {
-			return rest_ensure_response( array( 'error' => __( 'Message was flagged.', 'hyve-lite' ) ) );
+			return rest_ensure_response( [ 'error' => __( 'Message was flagged.', 'hyve-lite' ) ] );
 		}
 
 		$openai         = OpenAI::instance();
@@ -786,7 +786,7 @@ class API extends BaseAPI {
 		$message_vector = $message_vector->embedding;
 
 		if ( is_wp_error( $message_vector ) ) {
-			return rest_ensure_response( array( 'error' => __( 'No embeddings found.', 'hyve-lite' ) ) );
+			return rest_ensure_response( [ 'error' => __( 'No embeddings found.', 'hyve-lite' ) ] );
 		}
 
 		$scored_points = $this->get_similarity( $message_vector );
@@ -816,20 +816,20 @@ class API extends BaseAPI {
 		}
 
 		if ( is_wp_error( $thread_id ) ) {
-			return rest_ensure_response( array( 'error' => $this->get_error_message( $thread_id ) ) );
+			return rest_ensure_response( [ 'error' => $this->get_error_message( $thread_id ) ] );
 		}
 
 		$query_run = $openai->create_run(
-			array(
-				array(
+			[
+				[
 					'role'    => 'user',
 					'content' => 'START QUESTION: ' . $message . ' :END QUESTION',
-				),
-				array(
+				],
+				[
 					'role'    => 'user',
 					'content' => 'START CONTEXT: ' . $article_context . ' :END CONTEXT',
-				),
-			),
+				],
+			],
 			$thread_id
 		);
 
@@ -838,25 +838,25 @@ class API extends BaseAPI {
 				$thread_id = $openai->create_thread();
 
 				if ( is_wp_error( $thread_id ) ) {
-					return rest_ensure_response( array( 'error' => $this->get_error_message( $thread_id ) ) );
+					return rest_ensure_response( [ 'error' => $this->get_error_message( $thread_id ) ] );
 				}
 
 				$query_run = $openai->create_run(
-					array(
-						array(
+					[
+						[
 							'role'    => 'user',
 							'content' => 'Question: ' . $message,
-						),
-						array(
+						],
+						[
 							'role'    => 'user',
 							'content' => 'Context: ' . $article_context,
-						),
-					),
+						],
+					],
 					$thread_id
 				);
 
 				if ( is_wp_error( $query_run ) ) {
-					return rest_ensure_response( array( 'error' => $this->get_error_message( $query_run ) ) );
+					return rest_ensure_response( [ 'error' => $this->get_error_message( $query_run ) ] );
 				}
 			}
 		}
@@ -864,12 +864,12 @@ class API extends BaseAPI {
 		$record_id = apply_filters( 'hyve_chat_request', $thread_id, $record_id, $message );
 
 		return rest_ensure_response(
-			array(
+			[
 				'thread_id' => $thread_id,
 				'query_run' => $query_run,
 				'record_id' => $record_id ? $record_id : null,
 				'content'   => $article_context,
-			) 
+			] 
 		);
 	}
 }
