@@ -12,6 +12,7 @@ const DEFAULT_STATE = {
 	settings: {},
 	processed: [],
 	hasAPI: Boolean( window.hyve.hasAPIKey ),
+	isQdrantActive: Boolean( window.hyve.isQdrantActive ),
 	totalChunks: 0
 };
 
@@ -51,6 +52,12 @@ const actions = {
 			type: 'SET_TOTAL_CHUNKS',
 			totalChunks
 		};
+	},
+	setQdrantStatus( isQdrantActive ) {
+		return {
+			type: 'SET_QDRANT_STATUS',
+			isQdrantActive
+		};
 	}
 };
 
@@ -71,7 +78,10 @@ const selectors = {
 		return state.totalChunks;
 	},
 	hasReachedLimit( state ) {
-		return hyve.chunksLimit <= Number( state.totalChunks );
+		return hyve.chunksLimit <= Number( state.totalChunks ) && ! Boolean( hyve.isQdrantActive );
+	},
+	isQdrantActive( state ) {
+		return state.isQdrantActive;
 	}
 };
 
@@ -109,6 +119,11 @@ const reducer = ( state = DEFAULT_STATE, action ) => {
 		return {
 			...state,
 			totalChunks: action.totalChunks
+		};
+	case 'SET_QDRANT_STATUS':
+		return {
+			...state,
+			isQdrantActive: action.isQdrantActive
 		};
 	default:
 		return state;

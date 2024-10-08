@@ -1,9 +1,4 @@
 /**
- * External dependencies.
- */
-import hash from 'object-hash';
-
-/**
  * WordPress dependencies.
  */
 import { __ } from '@wordpress/i18n';

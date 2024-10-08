@@ -5,6 +5,7 @@ import { __ } from '@wordpress/i18n';
 
 import {
 	archive,
+	blockMeta,
 	comment,
 	home,
 	settings
@@ -21,6 +22,7 @@ import FailedModeration from './parts/data/FailedModeration';
 import Custom from './parts/data/Custom';
 import FAQ from './parts/data/FAQ';
 import Messages from './parts/Messages';
+import Qdrant from './parts/integrations/Qdrant';
 import General from './parts/settings/General';
 import Appearance from './parts/settings/Appearance';
 import Assistant from './parts/settings/Assistant';
@@ -70,6 +72,16 @@ export const ROUTE_TREE = {
 		label: __( 'Messages', 'hyve-lite' ),
 		icon: comment,
 		component: Messages
+	},
+	integrations: {
+		label: __( 'Integrations', 'hyve-lite' ),
+		icon: blockMeta,
+		children: {
+			integrations: {
+				label: __( 'Qdrant', 'hyve-lite' ),
+				component: Qdrant
+			}
+		}
 	},
 	settings: {
 		label: __( 'Settings', 'hyve-lite' ),

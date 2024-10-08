@@ -39,3 +39,57 @@
         height: 100%;
       }
 }
+
+.hyve-chat-message {
+	p {
+		font-size: 13px;
+	}
+
+	h1, h2, h3, h4, h5, h6 {
+		font-size: 13px;
+		margin-bottom: 12px;
+	}
+
+	ol, ul {
+		padding-left: 12px;
+	}
+
+    pre {
+        background-color: #282c34;
+        color: #abb2bf;
+        padding: 1em;
+        border-radius: 0;
+        font-family: monospace;
+        line-height: 1.5;
+        overflow-x: auto;
+        white-space: pre;
+        word-spacing: normal;
+        margin: 20px -10px;
+
+        * {
+            color: #abb2bf;
+            word-break: normal;
+            word-wrap: normal;
+        }
+
+        ::selection {
+            background-color: #3e4451;
+        }
+
+        ::before {
+            content: attr(data-content);
+        }
+
+        ::before:has(+ :matches(function, const, return, let, var)) {
+            color: #c678dd;
+        }
+    }
+
+    code {
+        background: #d0effb;
+        border-radius: 5px;
+        border: none;
+        padding: 0 3px;
+        color: #333;
+    }
+}
