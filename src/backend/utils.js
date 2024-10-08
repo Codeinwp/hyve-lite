@@ -1,9 +1,4 @@
 /**
- * External dependencies.
- */
-import { getEncoding } from 'js-tiktoken';
-
-/**
  * WordPress dependencies.
  */
 import { __ } from '@wordpress/i18n';
@@ -13,87 +8,6 @@ import apiFetch from '@wordpress/api-fetch';
 import { dispatch } from '@wordpress/data';
 
 const { createNotice } = dispatch( 'core/notices' );
-
-const tokenizer = getEncoding( 'cl100k_base' );
-
-const createChunks = ( text, maxTokens, tokenizer ) => {
-	const sentences = text.split( '. ' );
-
-	const chunks = [];
-	let tokensSoFar = 0;
-	let chunk = [];
-
-	for ( let i = 0; i < sentences.length; i++ ) {
-		const sentence = sentences[i];
-		const tokenLength = tokenizer.encode( ' ' + sentence ).length;
-
-		if ( tokensSoFar + tokenLength > maxTokens ) {
-			chunks.push( chunk.join( '. ' ) + '.' );
-			chunk = [];
-			tokensSoFar = 0;
-		}
-
-		if ( tokenLength > maxTokens ) {
-			continue;
-		}
-
-		chunk.push( sentence );
-		tokensSoFar += tokenLength + 1;
-	}
-
-	if ( 0 < chunk.length ) {
-		chunks.push( chunk.join( '. ' ) + '.' );
-	}
-
-	return chunks;
-};
-
-export const tokenize = ( post, chunk = true ) => {
-	let {
-		ID,
-		title,
-		content
-	} = post;
-
-	const tokens = tokenizer.encode( content );
-
-	const article = {
-		'post_id': ID,
-		'post_title': title,
-		'post_content': content,
-		tokens
-	};
-
-	let data = [];
-
-	const chunkedTokenSize = 1000;
-	const tokenLength = article.tokens.length;
-
-	if ( ( tokenLength > chunkedTokenSize ) && chunk ) {
-		const shortenedSentences = createChunks( article.post_content, chunkedTokenSize, tokenizer );
-
-		for ( const shortenedSentence of shortenedSentences ) {
-			const chunkedTokens = tokenizer.encode( article.title + ' ' + shortenedSentence );
-
-			data.push({
-				...article,
-				'post_content': shortenedSentence,
-				tokens: chunkedTokens,
-				'token_count': chunkedTokens.length
-			});
-		}
-	} else {
-		const chunkedTokens = tokenizer.encode( article.title + ' ' + article.post_content );
-
-		data.push({
-			...article,
-			tokens: chunkedTokens,
-			'token_count': chunkedTokens.length
-		});
-	}
-
-	return data;
-};
 
 export const moderationLabels = {
 	'hate': {
@@ -160,52 +74,42 @@ export const onProcessData = async({
 	onSuccess = () => {},
 	onError = () => {}
 }) => {
-	const chunks = tokenize( post );
-	let bailOut = false;
+	let response;
 
 	try {
-		for ( const data of chunks ) {
-			if ( bailOut ) {
-				break;
-			}
-
-			let response = '';
-
-			if ( 'knowledge' === type ) {
-				if ( post.ID ) {
-					response = await apiFetch({
-						path: `${ window.hyve.api }/knowledge/${ post.ID }`,
-						method: 'POST',
-						data: {
-							data,
-							...params
-						}
-					});
-				} else {
-					response = await apiFetch({
-						path: `${ window.hyve.api }/knowledge`,
-						method: 'POST',
-						data: {
-							data,
-							...params
-						}
-					});
-				}
-			} else {
+		if ( 'knowledge' === type ) {
+			if ( post.ID ) {
 				response = await apiFetch({
-					path: `${ window.hyve.api }/data`,
+					path: `${ window.hyve.api }/knowledge/${ post.ID }`,
 					method: 'POST',
 					data: {
-						data,
+						data: post,
+						...params
+					}
+				});
+			} else {
+				response = await apiFetch({
+					path: `${ window.hyve.api }/knowledge`,
+					method: 'POST',
+					data: {
+						data: post,
 						...params
 					}
 				});
 			}
+		} else {
+			response = await apiFetch({
+				path: `${ window.hyve.api }/data`,
+				method: 'POST',
+				data: {
+					data: post,
+					...params
+				}
+			});
+		}
 
-			if ( response.error ) {
-				bailOut = true;
-				throw response;
-			}
+		if ( response.error ) {
+			throw response;
 		}
 
 		createNotice(
