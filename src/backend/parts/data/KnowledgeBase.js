@@ -3,77 +3,30 @@
  */
 import { __ } from '@wordpress/i18n';
 
-import apiFetch from '@wordpress/api-fetch';
-
 import {
+	Button,
 	Panel,
 	PanelRow
 } from '@wordpress/components';
 
-import { useDispatch } from '@wordpress/data';
+import { useState } from '@wordpress/element';
 
-import {
-	useEffect,
-	useState
-} from '@wordpress/element';
-
-import { addQueryArgs } from '@wordpress/url';
+import { applyFilters } from '@wordpress/hooks';
 
 /**
  * Internal dependencies.
  */
-import PostsTable from '../PostsTable';
+import { KNOWLEDGE_BASE } from '../../route';
 
 const KnowledgeBase = () => {
-	const [ posts, setPosts ] = useState([]);
-	const [ hasMore, setHasMore ] = useState( false );
-	const [ isLoading, setLoading ] = useState( true );
-	const [ isDeleting, setDeleting ] = useState([]);
+	const [ view, setView ] = useState( null );
 
-	const { createNotice } = useDispatch( 'core/notices' );
-	const { setTotalChunks } = useDispatch( 'hyve' );
+	const SOURCES = applyFilters( 'hyve.data', KNOWLEDGE_BASE );
 
-	const fetchPosts = async() => {
-		setLoading( true );
-
-		const response = await apiFetch({
-			path: addQueryArgs( `${ window.hyve.api }/data`, {
-				offset: posts?.length || 0,
-				status: 'included'
-			})
-		});
-
-		setLoading( false );
-		setPosts( posts.concat( response.posts ) );
-		setHasMore( response.more );
-		setTotalChunks( response?.totalChunks );
-	};
-
-	const onDelete = async( id ) => {
-		setDeleting([ ...isDeleting, id ]);
-
-		await apiFetch({
-			path: addQueryArgs( `${ window.hyve.api }/data`, {
-				id
-			}),
-			method: 'DELETE'
-		});
-
-		setPosts( posts.filter( ( post ) => post.ID !== id ) );
-
-		createNotice(
-			'success',
-			__( 'Post has been removed.', 'hyve-lite' ),
-			{
-				type: 'snackbar',
-				isDismissible: true
-			}
-		);
-	};
-
-	useEffect( () => {
-		fetchPosts();
-	}, []);
+	if ( view ) {
+		const { component: Component } = SOURCES[view];
+		return <Component setView={ setView } />;
+	}
 
 	return (
 		<div className="col-span-6 xl:col-span-4">
@@ -81,18 +34,41 @@ const KnowledgeBase = () => {
 				header={ __( 'Knowledge Base', 'hyve-lite' ) }
 			>
 				<PanelRow>
-					<p className="py-4">{ __( 'A list of all the content that has been added to the knowledge base. It\'s the foundation that supports your chat assistant, enabling it to provide accurate and insightful responses.', 'hyve-lite' ) }</p>
+					<p className="py-4">{ __( 'A list of all the content that has been added to the Knowledge Base. It\'s the foundation that supports your chat assistant, enabling it to provide accurate and insightful responses.', 'hyve-lite' ) }</p>
 
-					<div className="relative pt-4 pb-8 overflow-x-auto">
-						<PostsTable
-							posts={ posts }
-							isLoading={ isLoading }
-							hasMore={ hasMore }
-							onFetch={ fetchPosts }
-							onAction={ onDelete }
-							actionLabel={ __( 'Remove', 'hyve-lite' ) }
-							isBusy={ isDeleting }
-						/>
+					<div className="grid grid-cols-1 gap-5 sm:grid-cols-2 my-4">
+						{ Object.keys( SOURCES ).map( key => {
+							const { label, description, icon, isPro = false } = SOURCES[key];
+							return (
+								<Button
+									key={ label }
+									className="bg-white h-auto text-left overflow-hidden shadow border-[0.5px] border-gray-300 border-solid rounded-md cursor-pointer"
+									onClick={ () => setView( key ) }
+								>
+									<div className="px-4 py-5 w-full sm:p-6">
+										<dl>
+											<dt className="flex flex-row justify-between">
+												<div className="w-8">
+													{ icon }
+												</div>
+
+												{ isPro && (
+													<div className="text-xs h-6 py-1 px-3 bg-blue-500 text-white uppercase font-bold rounded-full">{ __( 'Pro', 'hyve-lite' ) }</div>
+												)}
+											</dt>
+
+											<dt className="text-sm leading-5 font-medium py-4">
+												{ label } →
+											</dt>
+
+											<dt className="text-xs font-medium text-gray-500">
+												{ description }
+											</dt>
+										</dl>
+									</div>
+								</Button>
+							);
+						})}
 					</div>
 				</PanelRow>
 			</Panel>

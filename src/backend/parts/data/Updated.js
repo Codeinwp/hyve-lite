@@ -95,7 +95,7 @@ const Updated = () => {
 					header={ __( 'Updated', 'hyve-lite' ) }
 				>
 					<PanelRow>
-						<p className="py-4">{ __( 'Here, you\'ll see posts that have been updated since their addition to the knowledge base. This page allows you to review these updates and decide if you want to refresh the knowledge your assistant relies on.', 'hyve-lite' ) }</p>
+						<p className="py-4">{ __( 'Here, you\'ll see posts that have been updated since their addition to the Knowledge Base. This page allows you to review these updates and decide if you want to refresh the knowledge your assistant relies on.', 'hyve-lite' ) }</p>
 
 						<div className="relative pt-4 pb-8 overflow-x-auto">
 							<PostsTable

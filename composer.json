@@ -35,6 +35,9 @@
 		"phpcompatibility/php-compatibility": "^9.3"
 	},
 	"config": {
+		"platform": {
+			"php": "8.1"
+		},
 		"allow-plugins": {
             "dealerdirect/phpcodesniffer-composer-installer": true,
             "php-http/discovery": true

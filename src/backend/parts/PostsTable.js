@@ -14,6 +14,9 @@ const PostsTable = ({
 	hasMore,
 	onFetch,
 	onAction,
+	actionProps = {
+		variant: 'primary'
+	},
 	actionLabel,
 	isBusy,
 	isDisabled = false,
@@ -55,7 +58,7 @@ const PostsTable = ({
 								)}
 
 								<Button
-									variant="primary"
+									{ ...actionProps }
 									onClick={ () => onAction( post.ID ) }
 									disabled={ isBusy.includes( post.ID ) || isDisabled }
 									isBusy={ isBusy.includes( post.ID ) }

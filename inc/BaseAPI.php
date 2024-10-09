@@ -186,7 +186,7 @@ class BaseAPI {
 		$token_length       = count( $tokens );
 
 		if ( $token_length > $chunked_token_size ) {
-			$shortened_sentences = $this->create_chunks( $content, $chunked_token_size );
+			$shortened_sentences = $this->create_chunks( $article['post_content'], $chunked_token_size );
 
 			foreach ( $shortened_sentences as $shortened_sentence ) {
 				$chunked_tokens = $encoder->encode( $post['title'] . ' ' . $shortened_sentence );
