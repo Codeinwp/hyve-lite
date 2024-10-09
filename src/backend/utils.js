@@ -78,25 +78,23 @@ export const onProcessData = async({
 
 	try {
 		if ( 'knowledge' === type ) {
-			if ( post.ID ) {
-				response = await apiFetch({
-					path: `${ window.hyve.api }/knowledge/${ post.ID }`,
-					method: 'POST',
-					data: {
-						data: post,
-						...params
-					}
-				});
-			} else {
-				response = await apiFetch({
-					path: `${ window.hyve.api }/knowledge`,
-					method: 'POST',
-					data: {
-						data: post,
-						...params
-					}
-				});
-			}
+			response = await apiFetch({
+				path: post.ID ? `${ window.hyve.api }/knowledge/${ post.ID }` : `${ window.hyve.api }/knowledge`,
+				method: 'POST',
+				data: {
+					data: post,
+					...params
+				}
+			});
+		} else if ( 'link' === type ) {
+			response = await apiFetch({
+				path: `${ window.hyve.api }/link`,
+				method: 'POST',
+				data: {
+					data: post,
+					...params
+				}
+			});
 		} else {
 			response = await apiFetch({
 				path: `${ window.hyve.api }/data`,
