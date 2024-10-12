@@ -79,7 +79,7 @@ const Posts = ({ setView }) => {
 	}, []);
 
 	if ( addPost ) {
-		return <AddData setAddPost={ setAddPost } />;
+		return <AddData refresh={ fetchPosts } setAddPost={ setAddPost } />;
 	}
 
 	return (

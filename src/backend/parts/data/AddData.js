@@ -49,7 +49,10 @@ postTypes.unshift({
 	value: 'any'
 });
 
-const AddData = ({ setAddPost }) => {
+const AddData = ({
+	refresh,
+	setAddPost
+}) => {
 	const [ posts, setPosts ] = useState({});
 	const [ processedPosts, setProcessedPosts ] = useState([]);
 	const [ hasMore, setHasMore ] = useState( false );
@@ -98,6 +101,7 @@ const AddData = ({ setAddPost }) => {
 			onSuccess: () => {
 				setUpdating( prev => prev.filter( postId => postId !== id ) );
 				setProcessedPosts( prev => [ ...prev, id ]);
+				refresh();
 			},
 			onError: ( error ) => {
 				if ( 'content_failed_moderation' === error?.code && undefined !== error.review ) {
