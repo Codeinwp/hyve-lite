@@ -266,9 +266,9 @@ class Qdrant_API {
 				new SearchRequest(
 					new VectorStruct( $embeddings, 'embeddings' )
 				)
-				)
-				->setLimit( 10 )
-				->setWithPayload( true );
+			)
+			->setLimit( 10 )
+			->setWithPayload( true );
 
 			$response = $this->client->collections( self::COLLECTION_NAME )->points()->search( $search );
 
@@ -367,7 +367,9 @@ class Qdrant_API {
 
 		$migration_status['current'] += count( $posts );
 
-		$has_more = $migration_status['current'] < $migration_status['total'];
+		$current  = $migration_status['current'] ?? 0;
+		$total    = $migration_status['total'] ?? 0;
+		$has_more = $current < $total;
 
 		if ( ! $has_more ) {
 			$migration_status['in_progress'] = false;

@@ -347,6 +347,13 @@
 				}
 			}
 
+			img {
+				max-width: 100%;
+				height: auto;
+				border-radius: 5px;
+				cursor: pointer;
+			}
+
 			code {
 				background: #d0effb;
 				border-radius: 5px;

@@ -463,9 +463,9 @@ class API extends BaseAPI {
 	public function add_data( $request ) {
 		$data       = $request->get_param( 'data' );
 		$post_id    = $data['ID'];
-		$data       = $this->tokenize( $data );
+		$data       = Tokenizer::tokenize( $data );
 		$chunks     = array_column( $data, 'post_content' );
-		$moderation = $this->moderate( $chunks, $post_id );
+		$moderation = OpenAI::instance()->moderate_chunks( $chunks, $post_id );
 
 		if ( is_wp_error( $moderation ) ) {
 			return rest_ensure_response( [ 'error' => $this->get_error_message( $moderation ) ] );
@@ -622,13 +622,13 @@ class API extends BaseAPI {
 			return rest_ensure_response( [ 'error' => $e->getMessage() ] );
 		}
 
-		$over_limit = DB_Table::instance()->get_posts_over_limit();
+		$over_limit = $this->table->get_posts_over_limit();
 
 		if ( ! empty( $over_limit ) ) {
 			wp_schedule_single_event( time(), 'hyve_delete_posts', [ $over_limit ] );
 		}
 
-		DB_Table::instance()->update_storage( 'WordPress', 'Qdrant' );
+		$this->table->update_storage( 'WordPress', 'Qdrant' );
 
 		$settings['qdrant_api_key']  = '';
 		$settings['qdrant_endpoint'] = '';
@@ -774,7 +774,7 @@ class API extends BaseAPI {
 	public function send_chat( $request ) {
 		$message    = $request->get_param( 'message' );
 		$record_id  = $request->get_param( 'record_id' );
-		$moderation = $this->moderate( $message );
+		$moderation = OpenAI::instance()->moderate_chunks( $message );
 
 		if ( true !== $moderation ) {
 			return rest_ensure_response( [ 'error' => __( 'Message was flagged.', 'hyve-lite' ) ] );

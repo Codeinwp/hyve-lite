@@ -356,7 +356,8 @@ class DB_Table {
 		$post       = $this->get( $id );
 		$content    = $post->post_content;
 		$openai     = OpenAI::instance();
-		$embeddings = $openai->create_embeddings( $content );
+		$stripped   = wp_strip_all_tags( $content );
+		$embeddings = $openai->create_embeddings( $stripped );
 
 		if ( is_wp_error( $embeddings ) || ! $embeddings ) {
 			wp_schedule_single_event( time() + 60, 'hyve_process_post', [ $id ] );
