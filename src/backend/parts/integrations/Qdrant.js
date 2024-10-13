@@ -228,6 +228,8 @@ const Qdrant = () => {
 								<Button
 									variant="primary"
 									isDestructive
+									isBusy={ isSaving }
+									disabled={ isSaving }
 									onClick={ onDeactivate }
 								>
 									{ __( 'Disconnect', 'hyve-lite' ) }
