@@ -89,7 +89,7 @@ const Posts = ({ setView }) => {
 					<Button
 						icon="arrow-left-alt"
 						hideLabel
-						label={ __( 'Back', 'hyve' ) }
+						label={ __( 'Back', 'hyve-lite' ) }
 						onClick={ () => setView( null ) }
 					/>
 
@@ -104,7 +104,7 @@ const Posts = ({ setView }) => {
 							variant="primary"
 							onClick={ () => setAddPost( true ) }
 						>
-							{ __( 'Add Posts', 'hyve' ) }
+							{ __( 'Add Posts', 'hyve-lite' ) }
 						</Button>
 					</div>
 

@@ -51,11 +51,11 @@ const Custom = ({ setView }) => {
 					<Button
 						icon="arrow-left-alt"
 						hideLabel
-						label={ __( 'Back', 'hyve' ) }
+						label={ __( 'Back', 'hyve-lite' ) }
 						onClick={ () => setView( null ) }
 					/>
 
-					<h3>{ __( 'Custom Data', 'hyve' ) }</h3>
+					<h3>{ __( 'Custom Data', 'hyve-lite' ) }</h3>
 				</div>
 
 				<PanelRow>

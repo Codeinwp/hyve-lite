@@ -139,7 +139,7 @@ const AddData = ({
 						<Button
 							icon="arrow-left-alt"
 							hideLabel
-							label={ __( 'Back', 'hyve' ) }
+							label={ __( 'Back', 'hyve-lite' ) }
 							onClick={ () => setAddPost( false ) }
 						/>
 
