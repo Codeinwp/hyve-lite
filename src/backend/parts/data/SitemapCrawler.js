@@ -40,15 +40,15 @@ const SitemapCrawler = ({ setView }) => {
 						<Button
 							icon="arrow-left-alt"
 							hideLabel
-							label={ __( 'Back', 'hyve' ) }
+							label={ __( 'Back', 'hyve-lite' ) }
 							onClick={ () => setView( null ) }
 						/>
 
-						<h3>{ __( 'Sitemap', 'hyve' ) }</h3>
+						<h3>{ __( 'Sitemap', 'hyve-lite' ) }</h3>
 					</div>
 
 					<PanelRow>
-						<p className="py-4">{ __( 'Use this tool to crawl a website and add its content to the Knowledge Base using the sitemap.', 'hyve' ) }</p>
+						<p className="py-4">{ __( 'Use this tool to crawl a website and add its content to the Knowledge Base using the sitemap.', 'hyve-lite' ) }</p>
 
 						<div className="relative pt-4 pb-8 overflow-x-auto">
 							<UpsellContainer
@@ -63,7 +63,7 @@ const SitemapCrawler = ({ setView }) => {
 											variant="primary"
 											onClick={ () => {} }
 										>
-											{ __( 'Add Sitemap', 'hyve' ) }
+											{ __( 'Add Sitemap', 'hyve-lite' ) }
 										</Button>
 									</div>
 								</div>
@@ -71,9 +71,9 @@ const SitemapCrawler = ({ setView }) => {
 								<div className="flex flex-col">
 									<div className="bg-gray-50 px-6 py-3 text-left text-xs text-gray-700 uppercase">
 										<div className="flex">
-											<div className="flex-1">{ __( 'Sitemap URL', 'hyve' ) }</div>
-											<div className="w-1/6">{ __( 'Status', 'hyve' ) }</div>
-											<div className="w-1/6 flex justify-center">{ __( 'Action', 'hyve' ) }</div>
+											<div className="flex-1">{ __( 'Sitemap URL', 'hyve-lite' ) }</div>
+											<div className="w-1/6">{ __( 'Status', 'hyve-lite' ) }</div>
+											<div className="w-1/6 flex justify-center">{ __( 'Action', 'hyve-lite' ) }</div>
 										</div>
 									</div>
 
@@ -95,7 +95,7 @@ const SitemapCrawler = ({ setView }) => {
 														variant="secondary"
 														className="w-20 justify-center"
 													>
-														{ __( 'Details', 'hyve' ) }
+														{ __( 'Details', 'hyve-lite' ) }
 													</Button>
 												</div>
 											</div>

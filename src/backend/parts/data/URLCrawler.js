@@ -48,15 +48,15 @@ const URLCrawler = ({ setView }) => {
 						<Button
 							icon="arrow-left-alt"
 							hideLabel
-							label={ __( 'Back', 'hyve' ) }
+							label={ __( 'Back', 'hyve-lite' ) }
 							onClick={ () => setView( null ) }
 						/>
 
-						<h3>{ __( 'Website URL', 'hyve' ) }</h3>
+						<h3>{ __( 'Website URL', 'hyve-lite' ) }</h3>
 					</div>
 
 					<PanelRow>
-						<p className="py-4">{ __( 'This page allows you to add URLs to the Knowledge Base. You can add URLs to the Knowledge Base by entering the URL in the field below and clicking the "Crawl URL" button.', 'hyve' ) }</p>
+						<p className="py-4">{ __( 'This page allows you to add URLs to the Knowledge Base. You can add URLs to the Knowledge Base by entering the URL in the field below and clicking the "Crawl URL" button.', 'hyve-lite' ) }</p>
 
 						<div className="relative pt-4 pb-8 overflow-x-auto">
 							<UpsellContainer
@@ -67,7 +67,7 @@ const URLCrawler = ({ setView }) => {
 								<div className="flex gap-4 pb-4 flex-col">
 									<div className="flex w-full items-end gap-4">
 										<TextControl
-											label={ __( 'Website URL', 'hyve' ) }
+											label={ __( 'Website URL', 'hyve-lite' ) }
 											placeholder={ 'https://' }
 											type="url"
 											className="w-full"
@@ -79,7 +79,7 @@ const URLCrawler = ({ setView }) => {
 											variant="secondary"
 											onClick={ () => {} }
 										>
-											{ __( 'Crawl URL', 'hyve' ) }
+											{ __( 'Crawl URL', 'hyve-lite' ) }
 										</Button>
 									</div>
 								</div>
@@ -95,7 +95,7 @@ const URLCrawler = ({ setView }) => {
 										variant: 'secondary',
 										isDestructive: true
 									}}
-									actionLabel={ __( 'Delete', 'hyve' ) }
+									actionLabel={ __( 'Delete', 'hyve-lite' ) }
 								/>
 							</UpsellContainer>
 						</div>
