@@ -188,6 +188,7 @@ const Qdrant = () => {
 						<PanelRow>
 							<TextControl
 								label={ __( 'API Endpoint', 'hyve-lite' ) }
+								type="url"
 								value={ settings.qdrant_endpoint || '' }
 								disabled={ isSaving }
 								onChange={ ( newValue ) => setSetting( 'qdrant_endpoint', newValue ) }
@@ -232,6 +233,8 @@ const Qdrant = () => {
 								<Button
 									variant="primary"
 									isDestructive
+									isBusy={ isSaving }
+									disabled={ isSaving }
 									onClick={ onDeactivate }
 								>
 									{ __( 'Disconnect', 'hyve-lite' ) }

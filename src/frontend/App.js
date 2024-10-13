@@ -103,6 +103,16 @@ class App {
 			link.target = '_blank';
 		});
 
+		const images = tempDiv.querySelectorAll( 'img' );
+
+		images.forEach( image => {
+			const anchor = document.createElement( 'a' );
+			anchor.href = image.src;
+			anchor.target = '_blank';
+			anchor.appendChild( image.cloneNode( true ) );
+			image.parentNode.replaceChild( anchor, image );
+		});
+
 		return tempDiv.innerHTML;
 	}
 

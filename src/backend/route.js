@@ -7,8 +7,10 @@ import {
 	archive,
 	blockMeta,
 	comment,
+	customLink,
 	home,
-	settings
+	settings,
+	wordpress
 } from '@wordpress/icons';
 
 /**
@@ -16,10 +18,12 @@ import {
  */
 import Home from './parts/Home';
 import KnowledgeBase from './parts/data/KnowledgeBase';
-import AddData from './parts/data/AddData';
+import Posts from './parts/data/Posts';
 import Updated from './parts/data/Updated';
 import FailedModeration from './parts/data/FailedModeration';
 import Custom from './parts/data/Custom';
+import URLCrawler from './parts/data/URLCrawler';
+import SitemapCrawler from './parts/data/SitemapCrawler';
 import FAQ from './parts/data/FAQ';
 import Messages from './parts/Messages';
 import Qdrant from './parts/integrations/Qdrant';
@@ -37,16 +41,12 @@ export const ROUTE_TREE = {
 		disabled: false
 	},
 	data: {
-		label: __( 'Data', 'hyve-lite' ),
+		label: __( 'Knowledge Base', 'hyve-lite' ),
 		icon: archive,
 		children: {
 			data: {
 				label: __( 'Knowledge Base', 'hyve-lite' ),
 				component: KnowledgeBase
-			},
-			add: {
-				label: __( 'Add Data', 'hyve-lite' ),
-				component: AddData
 			},
 			update: {
 				label: __( 'Requires Update', 'hyve-lite' ),
@@ -55,11 +55,6 @@ export const ROUTE_TREE = {
 			flagged: {
 				label: __( 'Failed Moderation', 'hyve-lite' ),
 				component: FailedModeration
-			},
-			custom: {
-				label: __( 'Custom Data', 'hyve-lite' ),
-				component: Custom,
-				isPro: true
 			},
 			faq: {
 				label: __( 'FAQ', 'hyve-lite' ),
@@ -113,5 +108,35 @@ export const ROUTE_TREE = {
 				disabled: false
 			}
 		}
+	}
+};
+
+export const KNOWLEDGE_BASE = {
+	posts: {
+		label: __( 'WordPress', 'hyve-lite' ),
+		description: __( 'Import your WordPress content into the Knowledge Base.', 'hyve-lite' ),
+		icon: wordpress,
+		component: Posts
+	},
+	custom: {
+		label: __( 'Custom Data', 'hyve-lite' ),
+		description: __( 'Add custom data to your Knowledge Base.', 'hyve-lite' ),
+		icon: archive,
+		component: Custom,
+		isPro: true
+	},
+	url: {
+		label: __( 'Website URL', 'hyve-lite' ),
+		description: __( 'Crawl URLs to add content to the Knowledge Base.', 'hyve-lite' ),
+		icon: customLink,
+		component: URLCrawler,
+		isPro: true
+	},
+	sitemap: {
+		label: __( 'Sitemap', 'hyve-lite' ),
+		description: __( 'Add a sitemap to the Knowledge Base.', 'hyve-lite' ),
+		icon: blockMeta,
+		component: SitemapCrawler,
+		isPro: true
 	}
 };
