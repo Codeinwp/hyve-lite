@@ -20,8 +20,6 @@
     "start:backend": "wp-scripts start --webpack-src-dir=src/backend --output-path=build/backend --output-filename=index.js",
     "start:frontend": "wp-scripts start --webpack-src-dir=src/frontend --output-path=build/frontend --output-filename=frontend.js",
     "start:block": "wp-scripts start --webpack-src-dir=src/block --output-path=build/block --output-filename=index.js",
-    "test:e2e": "wp-scripts test-e2e",
-    "test:unit": "wp-scripts test-unit-js",
     "dist": "bash bin/dist.sh",
     "release": "npx semantic-release"
   },

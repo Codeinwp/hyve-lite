@@ -11,6 +11,8 @@ use ThemeIsle\HyveLite\Main;
 use ThemeIsle\HyveLite\BaseAPI;
 use ThemeIsle\HyveLite\Cosine_Similarity;
 use ThemeIsle\HyveLite\Qdrant_API;
+use ThemeIsle\HyveLite\Tokenizer;
+use ThemeIsle\HyveLite\OpenAI;
 
 /**
  * API class.
