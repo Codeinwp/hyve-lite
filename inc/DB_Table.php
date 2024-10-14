@@ -228,12 +228,12 @@ class DB_Table {
 
 		$data = array_intersect_key( $data, $column_formats );
 
-		$wpdb->update( $this->table_name, $data, [ 'id' => $id ], $column_formats, [ '%d' ] );
+		$rows_affected = $wpdb->update( $this->table_name, $data, [ 'id' => $id ], $column_formats, [ '%d' ] );
 
 		$this->delete_cache( 'entry_' . $id );
 		$this->delete_cache( 'entries_processed' );
 
-		return $wpdb->rows_affected;
+		return $rows_affected;
 	}
 
 	/**
@@ -248,14 +248,13 @@ class DB_Table {
 	public function delete_by_post_id( $post_id ) {
 		global $wpdb;
 
-		$wpdb->delete( $this->table_name, [ 'post_id' => $post_id ], [ '%d' ] );
+		$rows_affected = $wpdb->delete( $this->table_name, [ 'post_id' => $post_id ], [ '%d' ] );
 
-		$this->delete_cache( 'entry_post_' . $post_id );
 		$this->delete_cache( 'entries' );
 		$this->delete_cache( 'entries_processed' );
 		$this->delete_cache( 'entries_count' );
 
-		return $wpdb->rows_affected;
+		return $rows_affected;
 	}
 
 	/**
