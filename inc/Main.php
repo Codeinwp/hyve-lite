@@ -13,6 +13,7 @@ use ThemeIsle\HyveLite\Cosine_Similarity;
 use ThemeIsle\HyveLite\Threads;
 use ThemeIsle\HyveLite\API;
 use ThemeIsle\HyveLite\Qdrant_API;
+use ThemeIsle\HyveLite\Logger;
 
 /**
  * Class Main
@@ -57,6 +58,11 @@ class Main {
 		add_action( 'admin_menu', [ $this, 'register_menu_page' ] );
 		add_action( 'save_post', [ $this, 'update_meta' ] );
 		add_action( 'delete_post', [ $this, 'delete_post' ] );
+		add_action( 'hyve_weekly_stats', [ $this, 'log_stats' ] );
+
+		if ( Logger::has_consent() && ! wp_next_scheduled( 'hyve_weekly_stats' ) ) {
+			wp_schedule_event( time(), 'weekly', 'hyve_weekly_stats' );
+		}
 
 		$settings = self::get_settings();
 
@@ -156,11 +162,7 @@ class Main {
 					'assets'         => [
 						'images' => HYVE_LITE_URL . 'assets/images/',
 					],
-					'stats'          => [
-						'threads'     => Threads::get_thread_count(),
-						'messages'    => Threads::get_messages_count(),
-						'totalChunks' => $this->table->get_count(),
-					],
+					'stats'          => $this->get_stats(),
 					'docs'           => 'https://docs.themeisle.com/article/2009-hyve-documentation',
 					'qdrant_docs'    => 'https://docs.themeisle.com/article/2066-integrate-hyve-with-qdrant',
 					'pro'            => 'https://themeisle.com/plugins/hyve/',
@@ -280,6 +282,40 @@ class Main {
 		wp_add_inline_script(
 			'hyve-lite-scripts',
 			'document.addEventListener("DOMContentLoaded", function() { const c = document.createElement("div"); c.className = "hyve-credits"; c.innerHTML = "<a href=\"https://themeisle.com/plugins/hyve/\" target=\"_blank\">Powered by Hyve</a>"; document.querySelector( ".hyve-input-box" ).before( c ); });'
+		);
+	}
+
+	/**
+	 * Get stats.
+	 *
+	 * @since 1.3.0
+	 * 
+	 * @return array
+	 */
+	public function get_stats() {
+		return [
+			'threads'     => Threads::get_thread_count(),
+			'messages'    => Threads::get_messages_count(),
+			'totalChunks' => $this->table->get_count(),
+		];
+	}
+
+	/**
+	 * Log stats.
+	 * 
+	 * @since 1.3.0
+	 * 
+	 * @return void
+	 */
+	public function log_stats() {
+		Logger::track(
+			[
+				[
+					'feature'          => 'system',
+					'featureComponent' => 'stats',
+					'featureValue'     => $this->get_stats(),
+				],
+			]
 		);
 	}
 
