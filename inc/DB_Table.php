@@ -8,6 +8,7 @@
 namespace ThemeIsle\HyveLite;
 
 use ThemeIsle\HyveLite\OpenAI;
+use ThemeIsle\HyveLite\Qdrant_API;
 
 /**
  * Class DB_Table
@@ -28,7 +29,7 @@ class DB_Table {
 	 * @since 1.2.0
 	 * @var string
 	 */
-	public $version = '1.0.0';
+	public $version = '1.1.0';
 
 	/**
 	 * Cache prefix.
@@ -39,6 +40,26 @@ class DB_Table {
 	const CACHE_PREFIX = 'hyve-';
 
 	/**
+	 * The single instance of the class.
+	 *
+	 * @var DB_Table
+	 */
+	private static $instance = null;
+
+	/**
+	 * Ensures only one instance of the class is loaded.
+	 *
+	 * @return DB_Table An instance of the class.
+	 */
+	public static function instance() {
+		if ( null === self::$instance ) {
+			self::$instance = new self();
+		}
+
+		return self::$instance;
+	}
+
+	/**
 	 * DB_Table constructor.
 	 *
 	 * @since 1.2.0
@@ -47,11 +68,8 @@ class DB_Table {
 		global $wpdb;
 		$this->table_name = $wpdb->prefix . 'hyve';
 
-		if ( ! wp_next_scheduled( 'hyve_process_posts' ) ) {
-			wp_schedule_event( time(), 'daily', 'hyve_process_posts' );
-		}
-
-		add_action( 'hyve_process_posts', array( $this, 'process_posts' ) );
+		add_action( 'hyve_process_post', [ $this, 'process_post' ], 10, 1 );
+		add_action( 'hyve_delete_posts', [ $this, 'delete_posts' ], 10, 1 );
 
 		if ( ! $this->table_exists() || version_compare( $this->version, get_option( $this->table_name . '_db_version' ), '>' ) ) {
 			$this->create_table();
@@ -78,6 +96,7 @@ class DB_Table {
 		embeddings longtext NOT NULL,
 		token_count int(11) NOT NULL DEFAULT 0,
 		post_status VARCHAR(255) NOT NULL DEFAULT "scheduled",
+        storage VARCHAR(255) NOT NULL DEFAULT "WordPress",
 		PRIMARY KEY (id)
 		) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;';
 
@@ -106,7 +125,7 @@ class DB_Table {
 	 * @return array
 	 */
 	public function get_columns() {
-		return array(
+		return [
 			'date'         => '%s',
 			'modified'     => '%s',
 			'post_id'      => '%s',
@@ -115,7 +134,8 @@ class DB_Table {
 			'embeddings'   => '%s',
 			'token_count'  => '%d',
 			'post_status'  => '%s',
-		);
+			'storage'      => '%s',
+		];
 	}
 
 	/**
@@ -126,7 +146,7 @@ class DB_Table {
 	 * @return array
 	 */
 	public function get_column_defaults() {
-		return array(
+		return [
 			'date'         => gmdate( 'Y-m-d H:i:s' ),
 			'modified'     => gmdate( 'Y-m-d H:i:s' ),
 			'post_id'      => '',
@@ -135,7 +155,33 @@ class DB_Table {
 			'embeddings'   => '',
 			'token_count'  => 0,
 			'post_status'  => 'scheduled',
-		);
+			'storage'      => 'WordPress',
+		];
+	}
+
+	/**
+	 * Get a row by ID.
+	 * 
+	 * @since 1.3.0
+	 * 
+	 * @param int $id The row ID.
+	 * 
+	 * @return object
+	 */
+	public function get( $id ) {
+		global $wpdb;
+
+		$cache = $this->get_cache( 'entry_' . $id );
+
+		if ( false !== $cache ) {
+			return $cache;
+		}
+
+		$result = $wpdb->get_row( $wpdb->prepare( 'SELECT * FROM %i WHERE id = %d', $this->table_name, $id ) );
+
+		$this->set_cache( 'entry_' . $id, $result );
+
+		return $result;
 	}
 
 	/**
@@ -182,12 +228,12 @@ class DB_Table {
 
 		$data = array_intersect_key( $data, $column_formats );
 
-		$wpdb->update( $this->table_name, $data, array( 'id' => $id ), $column_formats, array( '%d' ) );
+		$rows_affected = $wpdb->update( $this->table_name, $data, [ 'id' => $id ], $column_formats, [ '%d' ] );
 
 		$this->delete_cache( 'entry_' . $id );
 		$this->delete_cache( 'entries_processed' );
 
-		return $wpdb->rows_affected;
+		return $rows_affected;
 	}
 
 	/**
@@ -202,14 +248,13 @@ class DB_Table {
 	public function delete_by_post_id( $post_id ) {
 		global $wpdb;
 
-		$wpdb->delete( $this->table_name, array( 'post_id' => $post_id ), array( '%d' ) );
+		$rows_affected = $wpdb->delete( $this->table_name, [ 'post_id' => $post_id ], [ '%d' ] );
 
-		$this->delete_cache( 'entry_post_' . $post_id );
 		$this->delete_cache( 'entries' );
 		$this->delete_cache( 'entries_processed' );
 		$this->delete_cache( 'entries_count' );
 
-		return $wpdb->rows_affected;
+		return $rows_affected;
 	}
 
 	/**
@@ -241,36 +286,148 @@ class DB_Table {
 	}
 
 	/**
+	 * Get all rows by storage.
+	 * 
+	 * @since 1.3.0
+	 * 
+	 * @param string $storage The storage.
+	 * @param int    $limit The limit.
+	 * 
+	 * @return array
+	 */
+	public function get_by_storage( $storage, $limit = 100 ) {
+		global $wpdb;
+		$results = $wpdb->get_results( $wpdb->prepare( 'SELECT * FROM %i WHERE storage = %s LIMIT %d', $this->table_name, $storage, $limit ) );
+		return $results;
+	}
+
+	/**
+	 * Update storage of all rows.
+	 * 
+	 * @since 1.3.0
+	 * 
+	 * @param string $to   The storage.
+	 * @param string $from The storage.
+	 * 
+	 * @return int
+	 */
+	public function update_storage( $to, $from ) {
+		global $wpdb;
+		$wpdb->update( $this->table_name, [ 'storage' => $to ], [ 'storage' => $from ], [ '%s' ], [ '%s' ] );
+		$this->delete_cache( 'entries' );
+		$this->delete_cache( 'entries_processed' );
+		return $wpdb->rows_affected;
+	}
+
+	/**
+	 * Get Posts over limit.
+	 * 
+	 * @since 1.3.0
+	 * 
+	 * @return array
+	 */
+	public function get_posts_over_limit() {
+		$limit = apply_filters( 'hyve_chunks_limit', 500 );
+
+		global $wpdb;
+		$posts = $wpdb->get_results( $wpdb->prepare( 'SELECT post_id FROM %i ORDER BY id DESC LIMIT %d, %d', $this->table_name, $limit, $this->get_count() ) );
+
+		if ( ! $posts ) {
+			return [];
+		}
+
+		$posts = wp_list_pluck( $posts, 'post_id' );
+		$posts = array_unique( $posts );
+
+		return $posts;
+	}
+
+	/**
 	 * Process posts.
 	 * 
 	 * @since 1.2.0
 	 * 
+	 * @param int $id The post ID.
+	 * 
 	 * @return void
 	 */
-	public function process_posts() {
-		$posts = $this->get_by_status( 'scheduled' );
+	public function process_post( $id ) {
+		$post       = $this->get( $id );
+		$content    = $post->post_content;
+		$openai     = OpenAI::instance();
+		$stripped   = wp_strip_all_tags( $content );
+		$embeddings = $openai->create_embeddings( $stripped );
 
-		foreach ( $posts as $post ) {
-			$id         = $post->id;
-			$content    = $post->post_content;
-			$openai     = new OpenAI();
-			$embeddings = $openai->create_embeddings( $content );
-			$embeddings = reset( $embeddings );
-			$embeddings = $embeddings->embedding;
+		if ( is_wp_error( $embeddings ) || ! $embeddings ) {
+			wp_schedule_single_event( time() + 60, 'hyve_process_post', [ $id ] );
+			return;
+		}
 
-			if ( is_wp_error( $embeddings ) || ! $embeddings ) {
-				continue;
+		$embeddings = reset( $embeddings );
+		$embeddings = $embeddings->embedding;
+		$storage    = 'WordPress';
+
+		if ( Qdrant_API::is_active() ) {
+			try {
+				$success = Qdrant_API::instance()->add_point(
+					$embeddings,
+					[
+						'post_id'      => $post->post_id,
+						'post_title'   => $post->post_title,
+						'post_content' => $post->post_content,
+						'token_count'  => $post->token_count,
+						'website_url'  => get_site_url(),
+					]
+				);
+
+				$storage = 'Qdrant';
+			} catch ( \Exception $e ) {
+				$success = new \WP_Error( 'qdrant_error', $e->getMessage() );
 			}
 
-			$embeddings = wp_json_encode( $embeddings );
+			if ( is_wp_error( $success ) ) {
+				wp_schedule_single_event( time() + 60, 'hyve_process_post', [ $id ] );
+				return;
+			}
+		}
 
-			$this->update(
-				$id,
-				array(
-					'embeddings'  => $embeddings,
-					'post_status' => 'processed',
-				) 
-			);
+		$embeddings = wp_json_encode( $embeddings );
+
+		$this->update(
+			$id,
+			[
+				'embeddings'  => $embeddings,
+				'post_status' => 'processed',
+				'storage'     => $storage,
+			] 
+		);
+	}
+
+	/**
+	 * Delete posts.
+	 * 
+	 * @since 1.3.0
+	 * 
+	 * @param array $posts The posts.
+	 * 
+	 * @return void
+	 */
+	public function delete_posts( $posts = [] ) {
+		$twenty = array_slice( $posts, 0, 20 );
+
+		foreach ( $twenty as $id ) {
+			$this->delete_by_post_id( $id );
+	
+			delete_post_meta( $id, '_hyve_added' );
+			delete_post_meta( $id, '_hyve_needs_update' );
+			delete_post_meta( $id, '_hyve_moderation_failed' );
+			delete_post_meta( $id, '_hyve_moderation_review' );
+		}
+
+		$has_more = count( $posts ) > 20;
+
+		if ( $has_more ) {
+			wp_schedule_single_event( time() + 10, 'hyve_delete_posts', [ array_slice( $posts, 20 ) ] );
 		}
 	}
 
@@ -316,7 +473,7 @@ class DB_Table {
 				return false;
 			}
 
-			$entries = array();
+			$entries = [];
 
 			for ( $i = 0; $i < $total; $i++ ) {
 				$chunk_key = $key . '_' . $i;

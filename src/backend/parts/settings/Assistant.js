@@ -9,7 +9,8 @@ import {
 	Button,
 	Panel,
 	PanelRow,
-	RangeControl
+	RangeControl,
+	SelectControl
 } from '@wordpress/components';
 
 import {
@@ -70,6 +71,26 @@ const Assistant = () => {
 			<Panel
 				header={ __( 'Assistant Settings', 'hyve-lite' ) }
 			>
+				<PanelRow>
+					<SelectControl
+						label={ __( 'Model', 'hyve-lite' ) }
+						help={ __( 'What model to use for Chat.', 'hyve-lite' ) }
+						options={ [
+							{
+								label: __( 'GPT 4o Mini', 'hyve-lite' ),
+								value: 'gpt-4o-mini'
+							},
+							{
+								label: __( 'GPT 3.5 Turbo 0125', 'hyve-lite' ),
+								value: 'gpt-3.5-turbo-0125'
+							}
+						] }
+						value={ settings.model }
+						disabled={ isSaving }
+						onChange={ ( newValue ) => setSetting( 'chat_model', newValue ) }
+					/>
+				</PanelRow>
+
 				<PanelRow>
 					<RangeControl
 						label={ __( 'Temperature', 'hyve-lite' ) }

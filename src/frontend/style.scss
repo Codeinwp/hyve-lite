@@ -239,14 +239,26 @@
 		display: flex;
 		flex-direction: column;
 
-		p {
+		div {
 			font-size: 13px;
-			display: flex;
 			padding: 10px;
 			border-radius: 5px;
 			width: 100%;
 			overflow-wrap: break-word;
 			margin: 0;
+		}
+
+		p {
+			font-size: 13px;
+		}
+
+		h1, h2, h3, h4, h5, h6 {
+			font-size: 13px;
+			margin-bottom: 12px;
+		}
+
+		ol, ul {
+			padding-left: 12px;
 		}
 
 		time {
@@ -274,7 +286,7 @@
 			color: #000000;
 		}
 
-		p {
+		div {
 			background-color: var( --user_background, #1155cc );
 			justify-content: flex-end;
 		}
@@ -295,9 +307,60 @@
 			color: #ffffff;
 		}
 
-		p {
+		div {
 			background-color: var( --assistant_background, #ecf1fb );
 			justify-content: flex-start;
+
+			p {
+				margin: 0px;
+				padding: 0px;
+			}
+
+			pre {
+				background-color: #282c34;
+				color: #abb2bf;
+				padding: 1em;
+				border-radius: 0;
+				font-family: monospace;
+				line-height: 1.5;
+				overflow-x: auto;
+				white-space: pre;
+				word-spacing: normal;
+				margin: 20px -10px;
+
+				* {
+					color: #abb2bf;
+					word-break: normal;
+					word-wrap: normal;
+				}
+
+				::selection {
+					background-color: #3e4451;
+				}
+
+				::before {
+					content: attr(data-content);
+				}
+
+				::before:has(+ :matches(function, const, return, let, var)) {
+					color: #c678dd;
+				}
+			}
+
+			img {
+				max-width: 100%;
+				height: auto;
+				border-radius: 5px;
+				cursor: pointer;
+			}
+
+			code {
+				background: #d0effb;
+				border-radius: 5px;
+				border: none;
+				padding: 0 3px;
+				color: #333;
+			}
 		}
 	}
 

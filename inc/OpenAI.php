@@ -25,7 +25,14 @@ class OpenAI {
 	 * 
 	 * @var string
 	 */
-	private $prompt_version = '1.1.0';
+	private $prompt_version = '1.2.0';
+
+	/**
+	 * Chat Model.
+	 * 
+	 * @var string
+	 */
+	private $chat_model = 'gpt-4o-mini';
 
 	/**
 	 * API Key.
@@ -42,6 +49,26 @@ class OpenAI {
 	private $assistant_id;
 
 	/**
+	 * The single instance of the class.
+	 *
+	 * @var OpenAI
+	 */
+	private static $instance = null;
+
+	/**
+	 * Ensures only one instance of the class is loaded.
+	 *
+	 * @return OpenAI An instance of the class.
+	 */
+	public static function instance() {
+		if ( null === self::$instance ) {
+			self::$instance = new self();
+		}
+
+		return self::$instance;
+	}
+
+	/**
 	 * Constructor.
 	 * 
 	 * @param string $api_key API Key.
@@ -50,10 +77,50 @@ class OpenAI {
 		$settings           = Main::get_settings();
 		$this->api_key      = ! empty( $api_key ) ? $api_key : ( isset( $settings['api_key'] ) ? $settings['api_key'] : '' );
 		$this->assistant_id = isset( $settings['assistant_id'] ) ? $settings['assistant_id'] : '';
+		$this->chat_model   = isset( $settings['chat_model'] ) ? $settings['chat_model'] : $this->chat_model;
 
 		if ( $this->assistant_id && version_compare( $this->prompt_version, get_option( 'hyve_prompt_version', '1.0.0' ), '>' ) ) {
 			$this->update_assistant();
 		}
+	}
+
+	/**
+	 * Get Assistant Properties.
+	 * 
+	 * @return array
+	 */
+	public function get_properties() {
+		$props = [
+			'instructions' => "You are a Support Assistant tasked with providing precise, to-the-point answers based on the context provided for each query, as well as maintaining awareness of previous context for follow-up questions.\r\n\r\nCore Principles:\r\n\r\n1. Context and Question Analysis\r\n- Identify the context given in each message.\r\n- Determine the specific question to be answered based on the current context and previous interactions.\r\n\r\n2. Relevance Check\r\n- Assess if the current context or previous context contains information directly relevant to the question.\r\n- Proceed based on the following scenarios:\r\na) If current context addresses the question: Formulate a response using current context.\r\nb) If current context is empty but previous context is relevant: Use previous context to answer.\r\nc) If the input is a greeting: Respond appropriately.\r\nd) If neither current nor previous context addresses the question: Respond with an empty response and success: false.\r\n\r\n3. Response Formulation\r\n- Use information from the current context primarily. If current context is insufficient, refer to previous context for follow-up questions.\r\n- Include all relevant details, including any code snippets or links if present.\r\n- Avoid including unnecessary information.\r\n- Format the response in HTML using only these allowed tags: h2, h3, p, img, a, pre, strong, em.\r\n\r\n4. Context Reference\r\n- Do not explicitly mention or refer to the context in your answer.\r\n- Provide a straightforward response that directly answers the question.\r\n\r\n5. Response Structure\r\n- Always structure your response as a JSON object with 'response' and 'success' fields.\r\n- The 'response' field should contain the HTML-formatted answer.\r\n- The 'success' field should be a boolean indicating whether the question was successfully answered.\r\n\r\n6. Handling Follow-up Questions\r\n- Maintain awareness of previous context to answer follow-up questions.\r\n- If current context is empty but the question seems to be a follow-up, attempt to answer using previous context.\r\n\r\nExamples:\r\n\r\n1. Initial Question with Full Answer\r\nContext: The price of XYZ product is $99.99 USD.\r\nQuestion: How much does XYZ cost?\r\nResponse:\r\n{\r\n\"response\": \"<p>The price of XYZ product is $99.99 USD.</p>\",\r\n\"success\": true\r\n}\r\n\r\n2. Follow-up Question with Empty Current Context\r\nContext: [Empty]\r\nQuestion: What currency is that in?\r\nResponse:\r\n{\r\n\"response\": \"<p>The price is in USD (United States Dollars).</p>\",\r\n\"success\": true\r\n}\r\n\r\n3. No Relevant Information in Current or Previous Context\r\nContext: [Empty]\r\nQuestion: Do you offer gift wrapping?\r\nResponse:\r\n{\r\n\"response\": \"\",\r\n\"success\": false\r\n}\r\n\r\n4. Greeting\r\nQuestion: Hello!\r\nResponse:\r\n{\r\n\"response\": \"<p>Hello! How can I assist you today?</p>\",\r\n\"success\": true\r\n}\r\n\r\nError Handling:\r\nFor invalid inputs or unrecognized question formats, respond with:\r\n{\r\n\"response\": \"<p>I apologize, but I couldn't understand your question. Could you please rephrase it?</p>\",\r\n\"success\": false\r\n}\r\n\r\nHTML Usage Guidelines:\r\n- Use <h2> for main headings and <h3> for subheadings.\r\n- Wrap paragraphs in <p> tags.\r\n- Use <pre> for code snippets or formatted text.\r\n- Apply <strong> for bold and <em> for italic emphasis sparingly.\r\n- Include <img> only if specific image information is provided in the context.\r\n- Use <a> for links, ensuring they are relevant and from the provided context.\r\n\r\nRemember:\r\n- Prioritize using the current context for answers.\r\n- For follow-up questions with empty current context, refer to previous context if relevant.\r\n- If information isn't available in current or previous context, indicate this with an empty response and success: false.\r\n- Always strive to provide the most accurate and relevant information based on available context.",
+			'model'        => $this->chat_model,
+		];
+
+		if ( 'gpt-4o-mini' === $this->chat_model ) {
+			$props['response_format'] = [
+				'type'        => 'json_schema',
+				'json_schema' => [
+					'name'   => 'chatbot_response',
+					'strict' => false,
+					'schema' => [
+						'type'                 => 'object',
+						'properties'           => [
+							'response' => [
+								'type'        => 'string',
+								'description' => 'The HTML-formatted response to the user\'s question.',
+							],
+							'success'  => [
+								'type'        => 'boolean',
+								'description' => 'Indicates whether the question was successfully answered from the provided context.',
+							],
+						],
+						'required'             => [ 'success' ],
+						'additionalProperties' => false,
+					],
+				],
+			];
+		}
+
+		return $props;
 	}
 
 	/**
@@ -83,10 +150,11 @@ class OpenAI {
 	public function create_assistant() {
 		$response = $this->request(
 			'assistants',
-			array(
-				'instructions' => "Assistant Role & Concise Response Guidelines: As a Support Assistant, provide precise, to-the-point answers based exclusively on the previously provided context.\r\n\r\nSET OF PRINCIPLES TO FOLLOW:\r\n\r\n1. **Identify the Context and Question**:\r\n1.1. **START CONTEXT**: Identify the context provided in the message. **: END CONTEXT**\r\n1.2. **START QUESTION**: Identify the question that needs to be answered based on the context.. **: END QUESTION**\r\n\r\n2. **Check the Context for Relevance**:\r\n2.1. Determine if the context contains information directly relevant to the question.\r\n2.2. If the context addresses the user's question, proceed to the next step.\r\n2.3. If the question is a greeting, respond appropriately with the greeting.\r\n2.4. If the context does not address the user's question, respond with: `{\"response\": \"\", \"success\": false}`.\r\n\r\n3. **Formulate the Response**:\r\n3.1. If the context is sufficient, formulate a clear and concise response using only the information provided in the context.\r\n3.2. Ensure the response includes all important details covered in the context, but avoid any extraneous information.\r\n\r\n4. **Avoid Referring to the Context**:\r\n4.1. Do not refer to the context or state that the response is based on the context in your answer.\r\n4.2. Ensure the response is straightforward and directly answers the question.\r\n\r\n5. **Generate the JSON Response**:\r\n5.1. Structure the response according to the following JSON schema:\r\n\r\n\r\n{\r\n  \"\$schema\": \"http:\/\/json-schema.org\/draft-07\/schema#\",\r\n  \"type\": \"object\",\r\n  \"properties\": {\r\n    \"response\": {\r\n      \"type\": \"string\",\r\n      \"description\": \"Contains the response to the question. Do not include it if the answer wasn't available in the context.\"\r\n    },\r\n    \"success\": {\r\n      \"type\": \"boolean\",\r\n      \"description\": \"Indicates whether the question was successfully answered from provided context.\"\r\n    }\r\n  },\r\n  \"required\": [\"success\"]\r\n}\r\n\r\nExample Usage:\r\n\r\nContext: [Provide context here]\r\nQuestion: [Provide question here]\r\n\r\nExpected Behavior:\r\n\r\n- If the question is fully covered by the context, provide a response using the provided JSON schema.\r\n- If the question is not fully covered by the context, respond with: {\"response\": \"\", \"success\": false}.\r\n\r\nExample Responses:\r\n\r\n- Context covers the question: {\"response\": \"Here is the information you requested.\", \"success\": true}\r\n- Context does not cover the question: {\"response\": \"\", \"success\": false}\r\n- Context does not cover the question but is a greeting: {\"response\": \"Hello, what can I help you with?.\", \"success\": true}",
-				'name'         => 'Chatbot by Hyve',
-				'model'        => 'gpt-3.5-turbo-0125',
+			array_merge(
+				$this->get_properties(),
+				[
+					'name' => 'Chatbot by Hyve',
+				]
 			)
 		);
 
@@ -125,15 +193,13 @@ class OpenAI {
 		} else {
 			$response = $this->request(
 				'assistants/' . $this->assistant_id,
-				array(
-					'instructions' => "Assistant Role & Concise Response Guidelines: As a Support Assistant, provide precise, to-the-point answers based exclusively on the previously provided context.\r\n\r\nSET OF PRINCIPLES TO FOLLOW:\r\n\r\n1. **Identify the Context and Question**:\r\n1.1. **START CONTEXT**: Identify the context provided in the message. **: END CONTEXT**\r\n1.2. **START QUESTION**: Identify the question that needs to be answered based on the context.. **: END QUESTION**\r\n\r\n2. **Check the Context for Relevance**:\r\n2.1. Determine if the context contains information directly relevant to the question.\r\n2.2. If the context addresses the user's question, proceed to the next step.\r\n2.3. If the question is a greeting, respond appropriately with the greeting.\r\n2.4. If the context does not address the user's question, respond with: `{\"response\": \"\", \"success\": false}`.\r\n\r\n3. **Formulate the Response**:\r\n3.1. If the context is sufficient, formulate a clear and concise response using only the information provided in the context.\r\n3.2. Ensure the response includes all important details covered in the context, but avoid any extraneous information.\r\n\r\n4. **Avoid Referring to the Context**:\r\n4.1. Do not refer to the context or state that the response is based on the context in your answer.\r\n4.2. Ensure the response is straightforward and directly answers the question.\r\n\r\n5. **Generate the JSON Response**:\r\n5.1. Structure the response according to the following JSON schema:\r\n\r\n\r\n{\r\n  \"\$schema\": \"http:\/\/json-schema.org\/draft-07\/schema#\",\r\n  \"type\": \"object\",\r\n  \"properties\": {\r\n    \"response\": {\r\n      \"type\": \"string\",\r\n      \"description\": \"Contains the response to the question. Do not include it if the answer wasn't available in the context.\"\r\n    },\r\n    \"success\": {\r\n      \"type\": \"boolean\",\r\n      \"description\": \"Indicates whether the question was successfully answered from provided context.\"\r\n    }\r\n  },\r\n  \"required\": [\"success\"]\r\n}\r\n\r\nExample Usage:\r\n\r\nContext: [Provide context here]\r\nQuestion: [Provide question here]\r\n\r\nExpected Behavior:\r\n\r\n- If the question is fully covered by the context, provide a response using the provided JSON schema.\r\n- If the question is not fully covered by the context, respond with: {\"response\": \"\", \"success\": false}.\r\n\r\nExample Responses:\r\n\r\n- Context covers the question: {\"response\": \"Here is the information you requested.\", \"success\": true}\r\n- Context does not cover the question: {\"response\": \"\", \"success\": false}\r\n- Context does not cover the question but is a greeting: {\"response\": \"Hello, what can I help you with?.\", \"success\": true}",
-				)
+				$this->get_properties()
 			);
 
 			if ( is_wp_error( $response ) ) {
 				return $response;
 			}
-	
+
 			if ( ! isset( $response->id ) ) {
 				return false;
 			}
@@ -187,10 +253,10 @@ class OpenAI {
 	public function create_embeddings( $content, $model = 'text-embedding-3-small' ) {
 		$response = $this->request(
 			'embeddings',
-			array(
+			[
 				'input' => $content,
 				'model' => $model,
-			)
+			]
 		);
 
 		if ( is_wp_error( $response ) ) {
@@ -211,7 +277,7 @@ class OpenAI {
 	 * 
 	 * @return string|\WP_Error
 	 */
-	public function create_thread( $params = array() ) {
+	public function create_thread( $params = [] ) {
 		$response = $this->request(
 			'threads',
 			$params
@@ -240,10 +306,10 @@ class OpenAI {
 	public function send_message( $message, $thread, $role = 'assistant' ) {
 		$response = $this->request(
 			'threads/' . $thread . '/messages',
-			array(
+			[
 				'role'    => $role,
 				'content' => $message,
-			)
+			]
 		);
 
 		if ( is_wp_error( $response ) ) {
@@ -270,15 +336,16 @@ class OpenAI {
 
 		$response = $this->request(
 			'threads/' . $thread . '/runs',
-			array(
+			[
 				'assistant_id'        => $this->assistant_id,
 				'additional_messages' => $messages,
+				'model'               => $this->chat_model,
 				'temperature'         => $settings['temperature'],
 				'top_p'               => $settings['top_p'],
-				'response_format'     => array(
+				'response_format'     => [
 					'type' => 'json_object',
-				),
-			)
+				],
+			]
 		);
 
 		if ( is_wp_error( $response ) ) {
@@ -301,7 +368,7 @@ class OpenAI {
 	 * @return string|\WP_Error
 	 */
 	public function get_status( $run_id, $thread ) {
-		$response = $this->request( 'threads/' . $thread . '/runs/' . $run_id, array(), 'GET' );
+		$response = $this->request( 'threads/' . $thread . '/runs/' . $run_id, [], 'GET' );
 
 		if ( is_wp_error( $response ) ) {
 			return $response;
@@ -322,7 +389,7 @@ class OpenAI {
 	 * @return mixed
 	 */
 	public function get_messages( $thread ) {
-		$response = $this->request( 'threads/' . $thread . '/messages', array(), 'GET' );
+		$response = $this->request( 'threads/' . $thread . '/messages', [], 'GET' );
 
 		if ( is_wp_error( $response ) ) {
 			return $response;
@@ -345,9 +412,9 @@ class OpenAI {
 	public function moderate( $message ) {
 		$response = $this->request(
 			'moderations',
-			array(
+			[
 				'input' => $message,
-			)
+			]
 		);
 
 		if ( is_wp_error( $response ) ) {
@@ -366,6 +433,83 @@ class OpenAI {
 	}
 
 	/**
+	 * Moderate data.
+	 * 
+	 * @param array|string $chunks Data to moderate.
+	 * @param int          $id     Post ID.
+	 * 
+	 * @return true|array|\WP_Error
+	 */
+	public function moderate_chunks( $chunks, $id = null ) {
+		if ( $id ) {
+			$moderated = get_transient( 'hyve_moderate_post_' . $id );
+
+			if ( false !== $moderated ) {
+				return is_array( $moderated ) ? $moderated : true;
+			}
+		}
+
+		$openai               = self::instance();
+		$results              = [];
+		$return               = true;
+		$settings             = Main::get_settings();
+		$moderation_threshold = $settings['moderation_threshold'];
+
+		if ( ! is_array( $chunks ) ) {
+			$chunks = [ $chunks ];
+		}
+
+		foreach ( $chunks as $chunk ) {
+			$moderation = $openai->moderate( $chunk );
+
+			if ( is_wp_error( $moderation ) ) {
+				return $moderation;
+			}
+
+			if ( true !== $moderation && is_object( $moderation ) ) {
+				$results[] = $moderation;
+			}
+		}
+
+		if ( ! empty( $results ) ) {
+			$flagged = [];
+	
+			foreach ( $results as $result ) {
+				$categories = $result->categories;
+	
+				foreach ( $categories as $category => $flag ) {
+					if ( ! $flag ) {
+						continue;
+					}
+
+					if ( ! isset( $moderation_threshold[ $category ] ) || $result->category_scores->$category < ( $moderation_threshold[ $category ] / 100 ) ) {
+						continue;
+					}
+
+					if ( ! isset( $flagged[ $category ] ) ) {
+						$flagged[ $category ] = $result->category_scores->$category;
+						continue;
+					}
+	
+					if ( $result->category_scores->$category > $flagged[ $category ] ) {
+						$flagged[ $category ] = $result->category_scores->$category;
+					}
+				}
+			}
+
+			if ( ! empty( $flagged ) ) {
+				$return = $flagged;
+			}
+		}
+
+		if ( $id ) {
+			set_transient( 'hyve_moderate_post_' . $id, $return, MINUTE_IN_SECONDS );
+		}
+
+		return $return;
+	}
+
+	/**
 	 * Create Request.
 	 * 
 	 * @param string $endpoint Endpoint.
@@ -374,12 +518,12 @@ class OpenAI {
 	 * 
 	 * @return mixed
 	 */
-	private function request( $endpoint, $params = array(), $method = 'POST' ) {
+	private function request( $endpoint, $params = [], $method = 'POST' ) {
 		if ( ! $this->api_key ) {
-			return (object) array(
+			return (object) [
 				'error'   => true,
 				'message' => 'API key is missing.',
-			);
+			];
 		}
 
 		$body = wp_json_encode( $params );
@@ -389,28 +533,28 @@ class OpenAI {
 		if ( 'POST' === $method ) {
 			$response = wp_remote_post(
 				self::$base_url . $endpoint,
-				array(
-					'headers'     => array(
+				[
+					'headers'     => [
 						'Content-Type'  => 'application/json',
 						'Authorization' => 'Bearer ' . $this->api_key,
 						'OpenAI-Beta'   => 'assistants=v2',
-					), 
+					],
 					'body'        => $body,
 					'method'      => 'POST',
 					'data_format' => 'body',
-				) 
+				]
 			);
 		}
 
 		if ( 'GET' === $method ) {
 			$url  = self::$base_url . $endpoint;
-			$args = array(
-				'headers' => array(
+			$args = [
+				'headers' => [
 					'Content-Type'  => 'application/json',
 					'Authorization' => 'Bearer ' . $this->api_key,
 					'OpenAI-Beta'   => 'assistants=v2',
-				),
-			);
+				],
+			];
 
 			if ( function_exists( 'vip_safe_wp_remote_get' ) ) {
 				$response = vip_safe_wp_remote_get( $url, '', 3, 1, 20, $args );
