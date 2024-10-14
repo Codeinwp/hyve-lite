@@ -84,6 +84,8 @@ jobs:
                   key: ${{ runner.os }}-composer-${{ hashFiles('**/composer.lock') }}
                   restore-keys: |
                       ${{ runner.os }}-composer-
+            - name: Install Subversion
+              run: sudo apt-get update && sudo apt-get install -y subversion
             - name: Install composer
               run: composer install --prefer-dist --no-progress --no-suggest
             - name: Install npm
