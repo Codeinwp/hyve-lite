@@ -26,7 +26,6 @@
 		"lint": "phpcs --standard=phpcs.xml",
 		"format": "phpcbf --standard=phpcs.xml",
 		"phpstan": "phpstan analyse --memory-limit 2G",
-		"setup": "bash ./bin/install-wp-tests.sh localhost root root",
 		"phpunit": "phpunit"
 	},
 	"require-dev": {
