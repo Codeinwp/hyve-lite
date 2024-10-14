@@ -11,6 +11,7 @@ import { __ } from '@wordpress/i18n';
 import apiFetch from '@wordpress/api-fetch';
 
 import {
+	Button,
 	Notice,
 	Panel,
 	PanelRow,
@@ -48,7 +49,10 @@ postTypes.unshift({
 	value: 'any'
 });
 
-const AddData = () => {
+const AddData = ({
+	refresh,
+	setAddPost
+}) => {
 	const [ posts, setPosts ] = useState({});
 	const [ processedPosts, setProcessedPosts ] = useState([]);
 	const [ hasMore, setHasMore ] = useState( false );
@@ -97,6 +101,7 @@ const AddData = () => {
 			onSuccess: () => {
 				setUpdating( prev => prev.filter( postId => postId !== id ) );
 				setProcessedPosts( prev => [ ...prev, id ]);
+				refresh();
 			},
 			onError: ( error ) => {
 				if ( 'content_failed_moderation' === error?.code && undefined !== error.review ) {
@@ -129,16 +134,25 @@ const AddData = () => {
 	return (
 		<>
 			<div className="col-span-6 xl:col-span-4">
-				<Panel
-					header={ __( 'Add Data', 'hyve-lite' ) }
-				>
+				<Panel>
+					<div className="items-center gap-4 flex shrink-0 h-12 px-4 py-0 border-b-[#ddd] border-b border-solid">
+						<Button
+							icon="arrow-left-alt"
+							hideLabel
+							label={ __( 'Back', 'hyve-lite' ) }
+							onClick={ () => setAddPost( false ) }
+						/>
+
+						<h3>{ __( 'Add Data', 'hyve-lite' ) }</h3>
+					</div>
+
 					<PanelRow>
 						{ hasReachedLimit && (
 							<Notice
 								status="warning"
 								isDismissible={ false }
 							>
-								{ __( 'You have reached the limit of posts that can be added to the knowledge base. Please delete existing posts if you wish to add more.', 'hyve-lite' ) }
+								{ __( 'You have reached the limit of posts that can be added to the Knowledge Base. Please delete existing posts if you wish to add more.', 'hyve-lite' ) }
 							</Notice>
 						) }
 

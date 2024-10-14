@@ -10,6 +10,7 @@ import {
 } from '@wordpress/components';
 
 import {
+	dispatch,
 	useDispatch,
 	useSelect
 } from '@wordpress/data';
@@ -19,6 +20,8 @@ import {
 	brush,
 	help
 } from '@wordpress/icons';
+
+const { setRoute } = dispatch( 'hyve' );
 
 const STATUS = [
 	{
@@ -33,54 +36,18 @@ const STATUS = [
 	},
 	{
 		label: __( 'Knowledge Base', 'hyve-lite' ),
-		value: `${ hyve?.stats?.totalChunks } / ${ hyve?.chunksLimit }`,
-		description: __( 'Current knowledge base chunks used.', 'hyve-lite' )
+		value: Boolean( hyve.isQdrantActive ) ? hyve?.stats?.totalChunks : `${ hyve?.stats?.totalChunks } / ${ hyve?.chunksLimit }`,
+		description: __( 'Current knowledge base chunks used.', 'hyve-lite' ),
+		action: {
+			label: __( 'Need more storage?', 'hyve-lite' ),
+			action: () => setRoute( 'integrations' ),
+			condition: ! Boolean( hyve.isQdrantActive ) && 400 < hyve?.stats?.totalChunks
+		}
 	}
 ];
 
-const Home = () => {
-	const hasAPI = useSelect( ( select ) => select( 'hyve' ).hasAPI() );
-
+const Dashboard = () => {
 	const { setRoute } = useDispatch( 'hyve' );
-
-	if ( ! hasAPI ) {
-		return (
-			<div className="col-span-6 xl:col-span-4">
-				<Panel
-					header={ __( 'Dashboard', 'hyve-lite' ) }
-				>
-					<PanelRow>
-						<div className="hyve-video">
-							<iframe width="560" height="315" className="py-4" src="https://www.youtube.com/embed/av2sVbWSG3c?si=E9DEEsv00-guyn1c" title="YouTube video player" frameBorder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerPolicy="strict-origin-when-cross-origin" allowFullScreen></iframe>
-						</div>
-
-						<p className="py-2">{ __( 'Welcome to Hyve! Designed to seamlessly integrate AI chat into your WordPress site, this plugin allows you to craft a personalized chat experience using your own posts and pages. Enjoy engaging with your website visitors through Hyve!', 'hyve-lite' ) }</p>
-
-						<p className="py-2">{ __( 'To begin using the Hyve plugin, you\'ll need an OpenAI API key. This key enables Hyve to communicate with OpenAI\'s powerful language models, ensuring you get the best possible responses.', 'hyve-lite' ) }</p>
-
-						<div className="flex gap-4">
-							<Button
-								variant="primary"
-								className="mt-2"
-								onClick={ () => setRoute( 'advanced' ) }
-							>
-								{ __( 'Setup API Key', 'hyve-lite' ) }
-							</Button>
-
-							<Button
-								variant="secondary"
-								className="mt-2"
-								href={ window?.hyve?.docs }
-								target="_blank"
-							>
-								{ __( 'Documentation', 'hyve-lite' ) }
-							</Button>
-						</div>
-					</PanelRow>
-				</Panel>
-			</div>
-		);
-	}
 
 	const ACTIONS = [
 		{
@@ -114,7 +81,7 @@ const Home = () => {
 					</h2>
 
 					<div className="grid grid-cols-1 gap-5 sm:grid-cols-3 mt-4">
-						{ STATUS.map( ({ label, value, description }) => (
+						{ STATUS.map( ({ label, value, description, action }) => (
 							<div key={ label } className="bg-white overflow-hidden shadow border-[0.5px] border-gray-300 border-solid rounded-md">
 								<div className="px-4 py-5 sm:p-6">
 									<dl>
@@ -129,6 +96,12 @@ const Home = () => {
 										<dt className="text-xs text-gray-500">
 											{ description }
 										</dt>
+
+										{ ( action && action?.condition ) && (
+											<dt className="text-xs pt-1 text-blue-500 cursor-pointer" onClick={ action?.action }>
+												{ action?.label }
+											</dt>
+										) }
 									</dl>
 								</div>
 							</div>
@@ -168,6 +141,49 @@ const Home = () => {
 			</Panel>
 		</div>
 	);
+};
+
+const Home = () => {
+	const hasAPI = useSelect( ( select ) => select( 'hyve' ).hasAPI() );
+
+	const { setRoute } = useDispatch( 'hyve' );
+
+	if ( ! hasAPI ) {
+		return (
+			<div className="col-span-6 xl:col-span-4 relative">
+				<Dashboard />
+
+				<div className="w-full h-full absolute bg-white/75 flex justify-center items-center top-0">
+					<div className="flex flex-col items-center max-w-lg gap-2 p-6 rounded-lg bg-white shadow-lg">
+						<p className="py-2">{ __( 'Welcome to Hyve! Designed to seamlessly integrate AI chat into your WordPress site, this plugin allows you to craft a personalized chat experience using your own posts and pages. Enjoy engaging with your website visitors through Hyve!', 'hyve-lite' ) }</p>
+
+						<p className="py-2">{ __( 'To begin using the Hyve plugin, you\'ll need an OpenAI API key. This key enables Hyve to communicate with OpenAI\'s powerful language models, ensuring you get the best possible responses.', 'hyve-lite' ) }</p>
+
+						<div className="flex gap-4">
+							<Button
+								variant="primary"
+								className="mt-2"
+								onClick={ () => setRoute( 'advanced' ) }
+							>
+								{ __( 'Setup API Key', 'hyve-lite' ) }
+							</Button>
+
+							<Button
+								variant="secondary"
+								className="mt-2"
+								href={ window?.hyve?.docs }
+								target="_blank"
+							>
+								{ __( 'Documentation', 'hyve-lite' ) }
+							</Button>
+						</div>
+					</div>
+				</div>
+			</div>
+		);
+	}
+
+	return <Dashboard />;
 };
 
 export default Home;

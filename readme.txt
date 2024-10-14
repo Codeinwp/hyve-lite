@@ -3,7 +3,7 @@ Contributors: themeisle, hardeepasrani
 Tags: automation, support, chat, ai, openai
 Requires at least: 6.2
 Tested up to: 6.6
-Requires PHP: 7.4
+Requires PHP: 8.1
 Stable tag: 1.1.0
 License: GPLv3
 License URI: https://www.gnu.org/licenses/gpl-3.0.en.html
@@ -23,6 +23,7 @@ For AI processing, Hyve relies on the OpenAI API to provide certain features, su
 By upgrading to [Hyve Pro](https://themeisle.com/plugins/hyve/?utm_source=plugin-readme&utm_medium=hyvelite&utm_campaign=profeatures), you unlock enhanced capabilities that enrich your chatbot's performance:
 
 - **Custom Data**: Add custom information to your chatbot’s knowledge base for data that may not be suitable for public display on your website.
+- **Website & Sitemap Crawling**: Use Website URLs and Sitemaps to add data to your knowledge base from external sources. 
 - **FAQ Insights**: Review frequently asked but unanswered questions to improve your bot's knowledge base.
 - **Chat History**: Access full chat history to analyze and enhance user interactions.
 - **Suggested Questions**: Encourage engagement with predefined starter questions.

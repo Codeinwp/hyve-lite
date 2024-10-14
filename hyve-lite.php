@@ -21,6 +21,21 @@ if ( ! defined( 'WPINC' ) ) {
 	die;
 }
 
+if ( version_compare( PHP_VERSION, '8.1', '<' ) ) {
+	add_action(
+		'admin_notices',
+		function () {
+			?>
+			<div class="notice notice-error">
+				<p><?php esc_html_e( 'Hyve Lite requires PHP 8.1 or higher. Please upgrade your PHP version.', 'hyve-lite' ); ?></p>
+			</div>
+			<?php
+		}
+	);
+
+	return;
+}
+
 define( 'HYVE_LITE_BASEFILE', __FILE__ );
 define( 'HYVE_LITE_URL', plugins_url( '/', __FILE__ ) );
 define( 'HYVE_LITE_PATH', __DIR__ );

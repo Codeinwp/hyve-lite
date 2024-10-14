@@ -23,6 +23,7 @@ import {
 
 const Advanced = () => {
 	const settings = useSelect( ( select ) => select( 'hyve' ).getSettings() );
+
 	const {
 		setHasAPI,
 		setSetting

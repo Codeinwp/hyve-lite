@@ -1,9 +1,4 @@
 /**
- * External dependencies.
- */
-import hash from 'object-hash';
-
-/**
  * WordPress dependencies.
  */
 import { __ } from '@wordpress/i18n';
@@ -48,12 +43,21 @@ const posts = [
 	}
 ];
 
-const Custom = () => {
+const Custom = ({ setView }) => {
 	return (
 		<div className="col-span-6 xl:col-span-4">
-			<Panel
-				header={ __( 'Custom Data', 'hyve-lite' ) }
-			>
+			<Panel>
+				<div className="items-center gap-4 flex shrink-0 h-12 px-4 py-0 border-b-[#ddd] border-b border-solid">
+					<Button
+						icon="arrow-left-alt"
+						hideLabel
+						label={ __( 'Back', 'hyve-lite' ) }
+						onClick={ () => setView( null ) }
+					/>
+
+					<h3>{ __( 'Custom Data', 'hyve-lite' ) }</h3>
+				</div>
+
 				<PanelRow>
 					<p className="py-4">{ __( 'Custom Data allows you to privately feed specific data directly into your chat bot without displaying this information on your public website. With this, you can equip your bot with unique, specialized knowledge that aligns with your business needs and customer queries.', 'hyve-lite' ) }</p>
 
@@ -74,10 +78,10 @@ const Custom = () => {
 
 								<div className="w-full flex justify-end">
 									<Button
-										variant="secondary"
+										variant="primary"
 										onClick={ () => {} }
 									>
-										{ __( 'Add New', 'hyve-lite' ) }
+										{ __( 'Add Data', 'hyve-lite' ) }
 									</Button>
 								</div>
 							</div>
