@@ -262,6 +262,12 @@ class Main {
 					],
 					'welcome'   => $settings['welcome_message'] ?? '',
 					'isEnabled' => $settings['chat_enabled'],
+					'strings'   => [
+						'reply'       => __( 'Write a reply…', 'hyve-lite' ),
+						'suggestions' => __( 'Not sure where to start?', 'hyve-lite' ),
+						'tryAgain'    => __( 'Sorry, I am not able to process your request at the moment. Please try again.', 'hyve-lite' ),
+						'typing'      => __( 'Typing…', 'hyve-lite' ),
+					],
 				]
 			)
 		);
