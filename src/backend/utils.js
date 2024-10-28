@@ -134,6 +134,18 @@ export const onProcessData = async({
 	}
 };
 
+export const formatDate = date => {
+	const options = {
+		day: '2-digit',
+		month: '2-digit',
+		year: 'numeric',
+		hour: '2-digit',
+		minute: '2-digit',
+		hour12: false
+	};
+
+	return new Intl.DateTimeFormat( 'en-GB', options ).format( new Date( date ) ).replace( ',', '' );
+};
 
 /**
  * Helper function to add proper utm.

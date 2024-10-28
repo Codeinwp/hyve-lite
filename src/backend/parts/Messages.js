@@ -32,6 +32,8 @@ import { addQueryArgs } from '@wordpress/url';
  */
 import UpsellContainer from './UpsellContainer';
 
+import { formatDate } from '../utils';
+
 const LoadMore = ({ onClick }) => (
 	<Button
 		onClick={ onClick }
@@ -124,7 +126,7 @@ const Messages = () => {
 										>
 											<div className="flex flex-col items-start gap-1">
 												<span className="text-sm overflow-hidden text-ellipsis text-left">{ post.title }</span>
-												<span className="text-xs text-gray-500">{ post.date }</span>
+												<span className="text-xs text-gray-500">{ formatDate( post.date ) }</span>
 											</div>
 										</Button>
 									) ) }
@@ -156,8 +158,7 @@ const Messages = () => {
 
 										<div className="overflow-scroll">
 											{ selectedPost?.thread && ( 0 < selectedPost?.thread?.length ) && selectedPost?.thread.map( ( message, index ) => {
-												const datetime = new Date( message.time * 1000 );
-												const date = `${ String( datetime.getDate() ).padStart( 2, 0 ) }/${ String( datetime.getMonth() + 1 ).padStart( 2, 0 ) }/${ datetime.getFullYear() } ${ String( datetime.getHours() ).padStart( 2, 0 ) }:${ String( datetime.getMinutes() ).padStart( 2, 0 ) } ${ 12 <= datetime.getHours() ? 'PM' : 'AM' }`;
+												const date = formatDate( message.time * 1000 );
 
 												if ( 'bot' === message.sender ) {
 													return (
