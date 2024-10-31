@@ -11,7 +11,6 @@ use ThemeIsle\HyveLite\Main;
 use ThemeIsle\HyveLite\BaseAPI;
 use ThemeIsle\HyveLite\Cosine_Similarity;
 use ThemeIsle\HyveLite\Qdrant_API;
-use ThemeIsle\HyveLite\Tokenizer;
 use ThemeIsle\HyveLite\OpenAI;
 
 /**
@@ -463,54 +462,27 @@ class API extends BaseAPI {
 	 * @throws \Exception If Qdrant API fails.
 	 */
 	public function add_data( $request ) {
-		$data       = $request->get_param( 'data' );
-		$post_id    = $data['ID'];
-		$data       = Tokenizer::tokenize( $data );
-		$chunks     = array_column( $data, 'post_content' );
-		$moderation = OpenAI::instance()->moderate_chunks( $chunks, $post_id );
+		$data    = $request->get_param( 'data' );
+		$post_id = $data['ID'];
+		$action  = $request->get_param( 'action' );
+		$process = $this->table->add_post( $post_id, $action );
 
-		if ( is_wp_error( $moderation ) ) {
-			return rest_ensure_response( [ 'error' => $this->get_error_message( $moderation ) ] );
-		}
+		if ( is_wp_error( $process ) ) {
+			if ( 'content_failed_moderation' === $process->get_error_code() ) {
+				$data   = $process->get_error_data();
+				$review = isset( $data['review'] ) ? $data['review'] : [];
 
-		if ( true !== $moderation && 'override' !== $request->get_param( 'action' ) ) {
-			update_post_meta( $post_id, '_hyve_moderation_failed', 1 );
-			update_post_meta( $post_id, '_hyve_moderation_review', $moderation );
-
-			return rest_ensure_response(
-				[
-					'error'  => __( 'The content failed moderation policies.', 'hyve-lite' ),
-					'code'   => 'content_failed_moderation',
-					'review' => $moderation,
-				]
-			);
-		}
-
-		if ( 'update' === $request->get_param( 'action' ) ) {
-			if ( Qdrant_API::is_active() ) {
-				try {
-					$delete_result = Qdrant_API::instance()->delete_point( $post_id );
-
-					if ( ! $delete_result ) {
-						throw new \Exception( __( 'Failed to delete point in Qdrant.', 'hyve-lite' ) );
-					}
-				} catch ( \Exception $e ) {
-					return rest_ensure_response( [ 'error' => $e->getMessage() ] );
-				}
+				return rest_ensure_response(
+					[
+						'error'  => $process->get_error_message(),
+						'code'   => $process->get_error_code(),
+						'review' => $review,
+					]
+				);
 			}
 
-			$this->table->delete_by_post_id( $post_id );
-			delete_post_meta( $post_id, '_hyve_needs_update' );
+			return rest_ensure_response( [ 'error' => $this->get_error_message( $process ) ] );
 		}
-
-		foreach ( $data as $datum ) {
-			$id = $this->table->insert( $datum );
-			$this->table->process_post( $id );
-		}
-
-		update_post_meta( $post_id, '_hyve_added', 1 );
-		delete_post_meta( $post_id, '_hyve_moderation_failed' );
-		delete_post_meta( $post_id, '_hyve_moderation_review' );
 
 		return rest_ensure_response( true );
 	}

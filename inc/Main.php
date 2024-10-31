@@ -56,7 +56,7 @@ class Main {
 		new Threads();
 
 		add_action( 'admin_menu', [ $this, 'register_menu_page' ] );
-		add_action( 'save_post', [ $this, 'update_meta' ] );
+		add_action( 'save_post', [ $this, 'update_meta' ], 10, 3 );
 		add_action( 'delete_post', [ $this, 'delete_post' ] );
 		add_action( 'hyve_weekly_stats', [ $this, 'log_stats' ] );
 
@@ -334,7 +334,15 @@ class Main {
 	 * 
 	 * @return void
 	 */
-	public function update_meta( $post_id ) {
+	public function update_meta( $post_id, $post, $update ) {
+		if (
+			( defined( 'DOING_AUTOSAVE' ) && DOING_AUTOSAVE ) ||
+			! $update ||
+			isset( $_REQUEST['bulk_edit'] ) || isset( $_REQUEST['_inline_edit'] ) // phpcs:ignore WordPress.Security.NonceVerification
+		) {
+			return;
+		}
+
 		$added = get_post_meta( $post_id, '_hyve_added', true );
 
 		if ( ! $added ) {
@@ -344,6 +352,8 @@ class Main {
 		update_post_meta( $post_id, '_hyve_needs_update', 1 );
 		delete_post_meta( $post_id, '_hyve_moderation_failed' );
 		delete_post_meta( $post_id, '_hyve_moderation_review' );
+
+		wp_schedule_single_event( time(), 'hyve_update_posts' );
 	}
 
 	/**

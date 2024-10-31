@@ -9,6 +9,7 @@ namespace ThemeIsle\HyveLite;
 
 use ThemeIsle\HyveLite\OpenAI;
 use ThemeIsle\HyveLite\Qdrant_API;
+use ThemeIsle\HyveLite\Tokenizer;
 
 /**
  * Class DB_Table
@@ -70,6 +71,11 @@ class DB_Table {
 
 		add_action( 'hyve_process_post', [ $this, 'process_post' ], 10, 1 );
 		add_action( 'hyve_delete_posts', [ $this, 'delete_posts' ], 10, 1 );
+		add_action( 'hyve_update_posts', [ $this, 'update_posts' ] );
+
+		if ( ! wp_next_scheduled( 'hyve_update_posts' ) ) {
+			wp_schedule_event( time(), 'hourly', 'hyve_update_posts' );
+		}
 
 		if ( ! $this->table_exists() || version_compare( $this->version, get_option( $this->table_name . '_db_version' ), '>' ) ) {
 			$this->create_table();
@@ -343,6 +349,71 @@ class DB_Table {
 	}
 
 	/**
+	 * Add Post to queue.
+	 * 
+	 * @since 1.3.1
+	 * 
+	 * @param int    $post_id The post ID.
+	 * @param string $action The action.
+	 * 
+	 * @return true|\WP_Error
+	 */
+	public function add_post( $post_id, $action = 'add' ) {
+		$data = [
+			'ID'      => $post_id,
+			'title'   => get_the_title( $post_id ),
+			'content' => apply_filters( 'the_content', get_post_field( 'post_content', $post_id ) ),
+		];
+
+		$data       = Tokenizer::tokenize( $data );
+		$chunks     = array_column( $data, 'post_content' );
+		$moderation = OpenAI::instance()->moderate_chunks( $chunks, $post_id );
+
+		if ( is_wp_error( $moderation ) ) {
+			return $moderation;
+		}
+
+		if ( true !== $moderation && 'override' !== $action ) {
+			update_post_meta( $post_id, '_hyve_moderation_failed', 1 );
+			update_post_meta( $post_id, '_hyve_moderation_review', $moderation );
+
+			return new \WP_Error(
+				'content_failed_moderation',
+				__( 'The content failed moderation policies.', 'hyve-lite' ),
+				[ 'review' => $moderation ]
+			);
+		}
+
+		if ( 'update' === $action ) {
+			if ( Qdrant_API::is_active() ) {
+				try {
+					$delete_result = Qdrant_API::instance()->delete_point( $post_id );
+
+					if ( ! $delete_result ) {
+						throw new \Exception( __( 'Failed to delete point in Qdrant.', 'hyve-lite' ) );
+					}
+				} catch ( \Exception $e ) {
+					return new \WP_Error( 'qdrant_error', $e->getMessage() );
+				}
+			}
+
+			$this->delete_by_post_id( $post_id );
+		}
+
+		foreach ( $data as $datum ) {
+			$id = $this->insert( $datum );
+			$this->process_post( $id );
+		}
+
+		update_post_meta( $post_id, '_hyve_added', 1 );
+		delete_post_meta( $post_id, '_hyve_moderation_failed' );
+		delete_post_meta( $post_id, '_hyve_moderation_review' );
+		delete_post_meta( $post_id, '_hyve_needs_update' );
+
+		return true;
+	}
+
+	/**
 	 * Process posts.
 	 * 
 	 * @since 1.2.0
@@ -401,6 +472,48 @@ class DB_Table {
 				'storage'     => $storage,
 			] 
 		);
+	}
+
+	/**
+	 * Update posts.
+	 * 
+	 * @since 1.3.1
+	 * 
+	 * @return void
+	 */
+	public function update_posts() {
+		$args = [
+			'post_type'      => 'any',
+			'post_status'    => 'publish',
+			'posts_per_page' => 5,
+			'fields'         => 'ids',
+			'meta_query'     => [
+				'relation' => 'AND',
+				[
+					'key'     => '_hyve_needs_update',
+					'value'   => '1',
+					'compare' => '=',
+				],
+				[
+					'key'     => '_hyve_moderation_failed',
+					'compare' => 'NOT EXISTS',
+				],
+			],
+		];
+
+		$query = new \WP_Query( $args );
+
+		if ( ! $query->have_posts() ) {
+			return;
+		}
+
+		$posts = $query->posts;
+
+		foreach ( $posts as $post_id ) {
+			$this->add_post( $post_id, 'update' );
+		}
+
+		wp_schedule_single_event( time() + 60, 'hyve_update_posts' );
 	}
 
 	/**
