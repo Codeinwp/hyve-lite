@@ -103,9 +103,15 @@ const Updated = () => {
 								isLoading={ isLoadingUpdate }
 								hasMore={ hasMoreUpdate }
 								onFetch={ fetchUpdate }
-								onAction={ onUpdate }
-								actionLabel={ __( 'Update', 'hyve-lite' ) }
-								isBusy={ isUpdating }
+								actions={
+									[
+										{
+											label: __( 'Update', 'hyve-lite' ),
+											isBusy: isUpdating,
+											onClick: onUpdate
+										}
+									]
+								}
 							/>
 						</div>
 					</PanelRow>

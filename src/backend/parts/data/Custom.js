@@ -91,9 +91,16 @@ const Custom = ({ setView }) => {
 								isLoading={ false }
 								hasMore={ false }
 								onFetch={ () => {} }
-								onAction={ () => {} }
-								actionLabel={ __( 'Edit', 'hyve-lite' ) }
-								isBusy={ [] }
+								actions={
+									[
+										{
+											label: __( 'Edit', 'hyve-lite' ),
+											isBusy: [],
+											onClick: () => {},
+											isDisabled: false
+										}
+									]
+								}
 							/>
 						</UpsellContainer>
 					</div>

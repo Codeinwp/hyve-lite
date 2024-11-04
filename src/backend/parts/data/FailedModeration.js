@@ -103,16 +103,25 @@ const FailedModeration = () => {
 								isLoading={ isLoadingUpdate }
 								hasMore={ hasMoreUpdate }
 								onFetch={ fetchUpdate }
-								onAction={ onUpdate }
-								actionLabel={ __( 'Update', 'hyve-lite' ) }
-								isBusy={ isUpdating }
-								secondaryAction={ {
-									label: __( 'More Info', 'hyve-lite' ),
-									action: post => {
-										setOpen( true );
-										setPost( post );
-									}
-								} }
+								actions={
+									[
+										{
+											label: __( 'More Info', 'hyve-lite' ),
+											isBusy: isUpdating,
+											variant: 'secondary',
+											onClick: ID => {
+												const post = needsUpdate.find( post => post.ID === ID );
+												setOpen( true );
+												setPost( post );
+											}
+										},
+										{
+											label: __( 'Update', 'hyve-lite' ),
+											isBusy: isUpdating,
+											onClick: onUpdate
+										}
+									]
+								}
 							/>
 						</div>
 					</PanelRow>

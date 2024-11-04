@@ -357,6 +357,7 @@ class DB_Table {
 	 * @param string $action The action.
 	 * 
 	 * @return true|\WP_Error
+	 * @throws \Exception If Qdrant API fails.
 	 */
 	public function add_post( $post_id, $action = 'add' ) {
 		$data = [

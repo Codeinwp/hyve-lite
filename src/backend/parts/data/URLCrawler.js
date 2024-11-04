@@ -68,13 +68,17 @@ const URLCrawler = ({ setView }) => {
 									isLoading={ false }
 									hasMore={ false }
 									onFetch={ () => {} }
-									onAction={ () => {} }
-									isBusy={ [] }
-									actionProps={{
-										variant: 'secondary',
-										isDestructive: true
-									}}
-									actionLabel={ __( 'Delete', 'hyve-lite' ) }
+									actions={
+										[
+											{
+												label: __( 'Delete', 'hyve-lite' ),
+												onClick: () => {},
+												isBusy: [],
+												variant: 'secondary',
+												isDestructive: true
+											}
+										]
+									}
 								/>
 							</UpsellContainer>
 						</div>
