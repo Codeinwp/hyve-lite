@@ -169,6 +169,11 @@ class Main {
 				]
 			)
 		);
+
+		$has_pro = apply_filters( 'product_hyve_license_status', false );
+		if ( ! $has_pro ) {
+			do_action( 'themeisle_sdk_load_banner', 'hyve' );
+		}
 	}
 
 	/**
