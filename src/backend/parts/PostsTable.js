@@ -13,14 +13,7 @@ const PostsTable = ({
 	isLoading,
 	hasMore,
 	onFetch,
-	onAction,
-	actionProps = {
-		variant: 'primary'
-	},
-	actionLabel,
-	isBusy,
-	isDisabled = false,
-	secondaryAction = false
+	actions
 }) => {
 	return (
 		<>
@@ -45,27 +38,19 @@ const PostsTable = ({
 							</div>
 
 							<div className="text-center flex gap-4">
-								{ ( false !== secondaryAction && undefined !== post.review ) && (
+								{ actions?.map( action => (
 									<Button
-										variant="secondary"
-										onClick={ () => secondaryAction?.action( post ) }
-										disabled={ isBusy.includes( post.ID ) || isDisabled }
-										isBusy={ isBusy.includes( post.ID ) }
+										key={ action?.label }
+										variant={ action?.variant || 'primary' }
+										onClick={ () => action?.onClick( post.ID ) }
+										disabled={ action?.isBusy.includes( post.ID ) || action?.isDisabled }
+										isBusy={ action?.isBusy.includes( post.ID ) }
+										isDestructive={ action?.isDestructive }
 										className="w-20 justify-center"
 									>
-										{ secondaryAction?.label }
+										{ action?.label }
 									</Button>
-								)}
-
-								<Button
-									{ ...actionProps }
-									onClick={ () => onAction( post.ID ) }
-									disabled={ isBusy.includes( post.ID ) || isDisabled }
-									isBusy={ isBusy.includes( post.ID ) }
-									className="w-20 justify-center"
-								>
-									{ actionLabel }
-								</Button>
+								) ) }
 							</div>
 						</div>
 					) )}
