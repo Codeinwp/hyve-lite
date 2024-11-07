@@ -1,3 +1,13 @@
+##### [Version 1.2.1](https://github.com/Codeinwp/hyve-lite/compare/v1.2.0...v1.2.1) (2024-11-07)
+
+### New Features
+- **Background Knowledge Base Updates**: Your Knowledge Base now updates in the background, automatically processing updated posts with the help of a cron job.
+- **URL Crawl Update Option**: Added an option to update existing content from URL Crawls, ensuring your Knowledge Base stays current.
+
+### Bug Fixes
+- **Chat Timing Display**: Chatbot timing now displays accurately in a 24-hour format.
+- **Internationalization Compatibility**: Frontend strings are now fully i18n-compatible, making Hyve easier to localize.
+
 #### [Version 1.2.0](https://github.com/Codeinwp/hyve-lite/compare/v1.1.0...v1.2.0) (2024-10-14)
 
 ### New Features
