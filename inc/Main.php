@@ -333,7 +333,9 @@ class Main {
 	/**
 	 * Update meta.
 	 * 
-	 * @param int $post_id Post ID.
+	 * @param int      $post_id Post ID.
+	 * @param \WP_Post $post Post object.
+	 * @param bool     $update Whether this is an existing post being updated.
 	 *
 	 * @since 1.2.0
 	 * 
