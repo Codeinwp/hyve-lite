@@ -184,10 +184,16 @@ const AddData = ({
 								isLoading={ isLoading }
 								hasMore={ hasMore }
 								onFetch={ fetchData }
-								onAction={ onProcess }
-								actionLabel={ __( 'Add', 'hyve-lite' ) }
-								isBusy={ isUpdating }
-								isDisabled={ hasReachedLimit }
+								actions={
+									[
+										{
+											label: __( 'Add', 'hyve-lite' ),
+											isBusy: isUpdating,
+											onClick: onProcess,
+											isDisabled: hasReachedLimit
+										}
+									]
+								}
 							/>
 						</div>
 					</PanelRow>

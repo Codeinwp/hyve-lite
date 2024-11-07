@@ -17,7 +17,7 @@ class Logger {
 	 *
 	 * @var string
 	 */
-	const TRACK_URL = 'https://api.themeisle.com/track/';
+	const TRACK_URL = 'https://api.themeisle.com/tracking/events';
 
 	/**
 	 * Send data to the server if the user has opted in.

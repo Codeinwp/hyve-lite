@@ -56,7 +56,7 @@ class Main {
 		new Threads();
 
 		add_action( 'admin_menu', [ $this, 'register_menu_page' ] );
-		add_action( 'save_post', [ $this, 'update_meta' ] );
+		add_action( 'save_post', [ $this, 'update_meta' ], 10, 3 );
 		add_action( 'delete_post', [ $this, 'delete_post' ] );
 		add_action( 'hyve_weekly_stats', [ $this, 'log_stats' ] );
 
@@ -169,6 +169,11 @@ class Main {
 				]
 			)
 		);
+
+		$has_pro = apply_filters( 'product_hyve_license_status', false );
+		if ( ! $has_pro ) {
+			do_action( 'themeisle_sdk_load_banner', 'hyve' );
+		}
 	}
 
 	/**
@@ -262,6 +267,12 @@ class Main {
 					],
 					'welcome'   => $settings['welcome_message'] ?? '',
 					'isEnabled' => $settings['chat_enabled'],
+					'strings'   => [
+						'reply'       => __( 'Write a reply…', 'hyve-lite' ),
+						'suggestions' => __( 'Not sure where to start?', 'hyve-lite' ),
+						'tryAgain'    => __( 'Sorry, I am not able to process your request at the moment. Please try again.', 'hyve-lite' ),
+						'typing'      => __( 'Typing…', 'hyve-lite' ),
+					],
 				]
 			)
 		);
@@ -322,13 +333,23 @@ class Main {
 	/**
 	 * Update meta.
 	 * 
-	 * @param int $post_id Post ID.
+	 * @param int      $post_id Post ID.
+	 * @param \WP_Post $post Post object.
+	 * @param bool     $update Whether this is an existing post being updated.
 	 *
 	 * @since 1.2.0
 	 * 
 	 * @return void
 	 */
-	public function update_meta( $post_id ) {
+	public function update_meta( $post_id, $post, $update ) {
+		if (
+			( defined( 'DOING_AUTOSAVE' ) && DOING_AUTOSAVE ) ||
+			! $update ||
+			isset( $_REQUEST['bulk_edit'] ) || isset( $_REQUEST['_inline_edit'] ) // phpcs:ignore WordPress.Security.NonceVerification
+		) {
+			return;
+		}
+
 		$added = get_post_meta( $post_id, '_hyve_added', true );
 
 		if ( ! $added ) {
@@ -338,6 +359,8 @@ class Main {
 		update_post_meta( $post_id, '_hyve_needs_update', 1 );
 		delete_post_meta( $post_id, '_hyve_moderation_failed' );
 		delete_post_meta( $post_id, '_hyve_moderation_review' );
+
+		wp_schedule_single_event( time(), 'hyve_update_posts' );
 	}
 
 	/**

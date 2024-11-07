@@ -35,7 +35,7 @@
 		"automattic/vipwpcs": "^3.0",
 		"phpcompatibility/php-compatibility": "^9.3",
         "phpunit/phpunit": "^9.6",
-        "yoast/phpunit-polyfills": "^2.0"
+        "yoast/phpunit-polyfills": "^3.0"
 	},
 	"config": {
 		"platform": {
@@ -51,6 +51,6 @@
         "hkulekci/qdrant": "^0.5.7",
         "symfony/http-client": "^6.4",
         "nyholm/psr7": "^1.8",
-        "yethee/tiktoken": "^0.6.0"
+        "yethee/tiktoken": "^0.7.0"
     }
 }

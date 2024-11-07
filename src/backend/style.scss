@@ -79,3 +79,7 @@
         color: #333;
     }
 }
+
+.hyve-banner:has(.tsdk-banner-cta) {
+    display: block;
+}

@@ -41,6 +41,9 @@ const App = () => {
 
 			setSettings( response );
 			setLoading();
+
+			const sdkEvent = new Event( 'themeisle:banner:init' );
+			document.dispatchEvent( sdkEvent );
 		};
 
 		fetchData();
@@ -80,6 +83,7 @@ const App = () => {
 			)}
 
 			<div className="mx-auto max-w-screen-2xl p-4 md:p-6 2xl:p-10">
+				<div id="tsdk_banner" class="hyve-banner mb-4 md:mb-6 2xl:mb-10 hidden"></div>
 				<div className="mx-auto max-w-270">
 					<div className="grid grid-cols-6 gap-8">
 						<Sidebar/>

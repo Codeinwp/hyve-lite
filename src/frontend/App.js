@@ -7,6 +7,7 @@ import { addQueryArgs } from '@wordpress/url';
 
 const clickAudio = new Audio( hyve.audio.click );
 const pingAudio = new Audio( hyve.audio.ping );
+const { strings } = window.hyve;
 
 class App {
 	constructor() {
@@ -116,6 +117,19 @@ class App {
 		return tempDiv.innerHTML;
 	}
 
+	formatDate( date ) {
+		const options = {
+			day: '2-digit',
+			month: '2-digit',
+			year: 'numeric',
+			hour: '2-digit',
+			minute: '2-digit',
+			hour12: false
+		};
+
+		return new Intl.DateTimeFormat( 'en-GB', options ).format( new Date( date ) ).replace( ',', '' );
+	}
+
 	setThreadID( threadID ) {
 		this.threadID = threadID;
 	}
@@ -151,7 +165,7 @@ class App {
 			});
 
 			if ( response.error ) {
-				this.add( 'Sorry, I am not able to process your request at the moment. Please try again.', 'bot' );
+				this.add( strings.tryAgain, 'bot' );
 				this.removeMessage( this.runID );
 				return;
 			}
@@ -172,11 +186,11 @@ class App {
 			}
 
 			if ( 'failed' === response.status ) {
-				this.add( 'Sorry, I am not able to process your request at the moment. Please try again.', 'bot' );
+				this.add( strings.tryAgain, 'bot' );
 				this.setLoading( false );
 			}
 		} catch ( error ) {
-			this.add( 'Sorry, I am not able to process your request at the moment. Please try again.', 'bot' );
+			this.add( strings.tryAgain, 'bot' );
 			this.setLoading( false );
 		}
 	}
@@ -196,7 +210,7 @@ class App {
 			});
 
 			if ( response.error ) {
-				this.add( 'Sorry, I am not able to process your request at the moment. Please try again.', 'bot' );
+				this.add( strings.tryAgain, 'bot' );
 				this.setLoading( false );
 				return;
 			}
@@ -211,11 +225,11 @@ class App {
 
 			this.setRunID( response.query_run );
 
-			this.add( 'Typing...', 'bot', response.query_run );
+			this.add( strings.typing, 'bot', response.query_run );
 
 			await this.getResponse( message );
 		} catch ( error ) {
-			this.add( 'Sorry, I am not able to process your request at the moment. Please try again.', 'bot' );
+			this.add( strings.tryAgain, 'bot' );
 			this.setLoading( false );
 		}
 	}
@@ -226,19 +240,16 @@ class App {
 
 	addMessage( time, message, sender, id, sound = true ) {
 		const chatMessageBox = document.getElementById( 'hyve-message-box' );
+		const date = this.formatDate( time );
 
-		const datetime = new Date( time );
-
-		const date = `${ String( datetime.getDate() ).padStart( 2, 0 ) }/${ String( datetime.getMonth() + 1 ).padStart( 2, 0 ) }/${ datetime.getFullYear() } ${ String( datetime.getHours() ).padStart( 2, 0 ) }:${ String( datetime.getMinutes() ).padStart( 2, 0 ) } ${ 12 <= datetime.getHours() ? 'PM' : 'AM' }`;
-
-		let messageHTML = `<div>${message}</div>`;
+		let messageHTML = `<div>${ message }</div>`;
 
 		if ( null === id ) {
-			messageHTML += `<time datetime="${time}">${date}</time>`;
+			messageHTML += `<time datetime="${ time }">${ date }</time>`;
 		}
 
 		const messageDiv = this.createElement( 'div', {
-			className: `hyve-${sender}-message`,
+			className: `hyve-${ sender }-message`,
 			innerHTML: messageHTML
 		});
 
@@ -255,7 +266,7 @@ class App {
 		}
 
 		if ( null !== id ) {
-			messageDiv.id = `hyve-message-${id}`;
+			messageDiv.id = `hyve-message-${ id }`;
 		}
 
 		chatMessageBox.appendChild( messageDiv );
@@ -269,7 +280,7 @@ class App {
 	}
 
 	removeMessage( id ) {
-		const message = document.getElementById( `hyve-message-${id}` );
+		const message = document.getElementById( `hyve-message-${ id }` );
 		if ( message ) {
 			message.remove();
 		}
@@ -320,11 +331,11 @@ class App {
 		const chatMessageBox = document.getElementById( 'hyve-message-box' );
 
 		let suggestions = [
-			'<span>Not sure where to start?</span>'
+			`<span>${ suggestions }</span>`
 		];
 
 		filteredQuestions.forEach( question => {
-			suggestions.push( `<button>${question}</button>` );
+			suggestions.push( `<button>${ question }</button>` );
 		});
 
 		const messageDiv = this.createElement( 'div', {
@@ -446,7 +457,7 @@ class App {
 			className: 'hyve-input-text',
 			type: 'text',
 			id: 'hyve-text-input',
-			placeholder: 'Write a reply...'
+			placeholder: strings.reply
 		});
 
 		const chatSendButton = this.createElement(

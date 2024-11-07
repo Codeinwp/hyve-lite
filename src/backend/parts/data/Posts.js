@@ -114,13 +114,17 @@ const Posts = ({ setView }) => {
 							isLoading={ isLoading }
 							hasMore={ hasMore }
 							onFetch={ fetchPosts }
-							onAction={ onDelete }
-							actionProps={{
-								variant: 'secondary',
-								isDestructive: true
-							}}
-							actionLabel={ __( 'Remove', 'hyve-lite' ) }
-							isBusy={ isDeleting }
+							actions={
+								[
+									{
+										label: __( 'Remove', 'hyve-lite' ),
+										isBusy: isDeleting,
+										variant: 'secondary',
+										isDestructive: true,
+										onClick: onDelete
+									}
+								]
+							}
 						/>
 					</div>
 				</PanelRow>
