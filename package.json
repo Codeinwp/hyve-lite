@@ -54,7 +54,6 @@
     "tailwindcss": "^3.4.0"
   },
   "dependencies": {
-    "@dqbd/tiktoken": "^1.0.13",
     "@wordpress/icons": "^10.11.0",
     "classnames": "^2.5.1",
     "object-hash": "^3.0.0"
