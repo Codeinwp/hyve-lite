@@ -2,7 +2,7 @@
 Contributors: themeisle, hardeepasrani
 Tags: automation, support, chat, ai, openai
 Requires at least: 6.2
-Tested up to: 6.6
+Tested up to: 6.7
 Requires PHP: 8.1
 Stable tag: 1.2.1
 License: GPLv3
