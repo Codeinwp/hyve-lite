@@ -331,7 +331,7 @@ class App {
 		const chatMessageBox = document.getElementById( 'hyve-message-box' );
 
 		let suggestions = [
-			`<span>${ suggestions }</span>`
+			`<span>${ strings.suggestions }</span>`
 		];
 
 		filteredQuestions.forEach( question => {
