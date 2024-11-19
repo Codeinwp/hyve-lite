@@ -233,6 +233,10 @@ class Main {
 	 * @return void
 	 */
 	public function enqueue_assets() {
+		if ( is_admin() || defined( 'REST_REQUEST' ) ) {
+			return;
+		}
+
 		$asset_file = include HYVE_LITE_PATH . '/build/frontend/frontend.asset.php';
 
 		wp_register_style(
