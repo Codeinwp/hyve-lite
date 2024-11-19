@@ -1,3 +1,9 @@
+##### [Version 1.2.2](https://github.com/Codeinwp/hyve-lite/compare/v1.2.1...v1.2.2) (2024-11-19)
+
+### Bug Fixes
+- **Hyve Icon in Widgets**: Resolved an issue where the Hyve icon was not appearing in Widgets.
+- **Suggested Questions**: Fixed an issue preventing Suggested Questions from appearing as expected.
+
 ##### [Version 1.2.1](https://github.com/Codeinwp/hyve-lite/compare/v1.2.0...v1.2.1) (2024-11-07)
 
 ### New Features
