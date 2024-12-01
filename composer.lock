@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "cb5cbfe30e97d345479c5bda502d70f0",
+    "content-hash": "b48e8c3207aee69d048e25e6fba2d3a5",
     "packages": [
         {
             "name": "codeinwp/themeisle-sdk",
@@ -49,16 +49,16 @@
         },
         {
             "name": "hkulekci/qdrant",
-            "version": "v0.5.7",
+            "version": "v0.5.8",
             "source": {
                 "type": "git",
                 "url": "https://github.com/hkulekci/qdrant-php.git",
-                "reference": "0a9219682b7ec485f4528a233f3e36a1cb60d2b5"
+                "reference": "9be8fa3c52514c35f3e6c7db1c34f43335891fa2"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/hkulekci/qdrant-php/zipball/0a9219682b7ec485f4528a233f3e36a1cb60d2b5",
-                "reference": "0a9219682b7ec485f4528a233f3e36a1cb60d2b5",
+                "url": "https://api.github.com/repos/hkulekci/qdrant-php/zipball/9be8fa3c52514c35f3e6c7db1c34f43335891fa2",
+                "reference": "9be8fa3c52514c35f3e6c7db1c34f43335891fa2",
                 "shasum": ""
             },
             "require": {
@@ -99,9 +99,9 @@
             "description": "PHP Client for Qdrant",
             "support": {
                 "issues": "https://github.com/hkulekci/qdrant-php/issues",
-                "source": "https://github.com/hkulekci/qdrant-php/tree/v0.5.7"
+                "source": "https://github.com/hkulekci/qdrant-php/tree/v0.5.8"
             },
-            "time": "2024-09-27T08:52:26+00:00"
+            "time": "2024-11-30T06:03:37+00:00"
         },
         {
             "name": "nyholm/psr7",
