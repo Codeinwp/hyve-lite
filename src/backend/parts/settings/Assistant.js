@@ -85,7 +85,7 @@ const Assistant = () => {
 								value: 'gpt-3.5-turbo-0125'
 							}
 						] }
-						value={ settings.model }
+						value={ settings.chat_model }
 						disabled={ isSaving }
 						onChange={ ( newValue ) => setSetting( 'chat_model', newValue ) }
 					/>
