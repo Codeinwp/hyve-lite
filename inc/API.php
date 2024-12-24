@@ -265,47 +265,79 @@ class API extends BaseAPI {
 		$validation = apply_filters(
 			'hyve_settings_validation',
 			[
-				'api_key'              => function ( $value ) {
-					return is_string( $value );
-				},
-				'qdrant_api_key'       => function ( $value ) {
-					return is_string( $value );
-				},
-				'qdrant_endpoint'      => function ( $value ) {
-					return is_string( $value );
-				},
-				'chat_enabled'         => function ( $value ) {
-					return is_bool( $value );
-				},
-				'welcome_message'      => function ( $value ) {
-					return is_string( $value );
-				},
-				'default_message'      => function ( $value ) {
-					return is_string( $value );
-				},
-				'chat_model'           => function ( $value ) {
-					return is_string( $value );
-				},
-				'temperature'          => function ( $value ) {
-					return is_numeric( $value );
-				},
-				'top_p'                => function ( $value ) {
-					return is_numeric( $value );
-				},
-				'moderation_threshold' => function ( $value ) {
-					return is_array( $value ) && array_reduce(
-						$value,
-						function ( $carry, $item ) {
-							return $carry && is_int( $item );
-						},
-						true
-					);
-				},
+				'api_key'              => [
+					'validate' => function ( $value ) {
+						return is_string( $value );
+					},
+					'sanitize' => 'sanitize_text_field',
+				],
+				'qdrant_api_key'       => [
+					'validate' => function ( $value ) {
+						return is_string( $value );
+					},
+					'sanitize' => 'sanitize_text_field',
+				],
+				'qdrant_endpoint'      => [
+					'validate' => function ( $value ) {
+						return is_string( $value );
+					},
+					'sanitize' => 'sanitize_url',
+				],
+				'chat_enabled'         => [
+					'validate' => function ( $value ) {
+						return is_bool( $value );
+					},
+					'sanitize' => 'rest_sanitize_boolean',
+				],
+				'welcome_message'      => [
+					'validate' => function ( $value ) {
+						return is_string( $value );
+					},
+					'sanitize' => 'sanitize_text_field',
+				],
+				'default_message'      => [
+					'validate' => function ( $value ) {
+						return is_string( $value );
+					},
+					'sanitize' => 'sanitize_text_field',
+				],
+				'chat_model'           => [
+					'validate' => function ( $value ) {
+						return is_string( $value );
+					},
+					'sanitize' => 'sanitize_text_field',
+				],
+				'temperature'          => [
+					'validate' => function ( $value ) {
+						return is_numeric( $value );
+					},
+					'sanitize' => 'floatval',
+				],
+				'top_p'                => [
+					'validate' => function ( $value ) {
+						return is_numeric( $value );
+					},
+					'sanitize' => 'floatval',
+				],
+				'moderation_threshold' => [
+					'validate' => function ( $value ) {
+						return is_array( $value ) && array_reduce(
+							$value,
+							function ( $carry, $item ) {
+								return $carry && is_int( $item );
+							},
+							true
+						);
+					},
+					'sanitize' => function ( $value ) {
+						return array_map( 'intval', $value );
+					},
+				],
 			]
 		);
 
 		foreach ( $updated as $key => $value ) {
-			if ( ! $validation[ $key ]( $value ) ) {
+			if ( ! $validation[ $key ]['validate']( $value ) ) {
 				return rest_ensure_response(
 					[
 						// translators: %s: option key.
@@ -313,6 +345,8 @@ class API extends BaseAPI {
 					]
 				);
 			}
+
+			$updated[ $key ] = $validation[ $key ]['sanitize']( $value );
 		}
 
 		foreach ( $updated as $key => $value ) {
@@ -662,7 +696,7 @@ class API extends BaseAPI {
 
 		$settings = Main::get_settings();
 
-		$response = ( isset( $message['success'] ) && true === $message['success'] && isset( $message['response'] ) ) ? $message['response'] : $settings['default_message'];
+		$response = ( isset( $message['success'] ) && true === $message['success'] && isset( $message['response'] ) ) ? $message['response'] : esc_html( $settings['default_message'] );
 
 		do_action( 'hyve_chat_response', $run_id, $thread_id, $query, $record_id, $message, $response );
 

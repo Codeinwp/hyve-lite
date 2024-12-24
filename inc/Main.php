@@ -269,7 +269,7 @@ class Main {
 						'click' => HYVE_LITE_URL . 'assets/audio/click.mp3',
 						'ping'  => HYVE_LITE_URL . 'assets/audio/ping.mp3',
 					],
-					'welcome'   => $settings['welcome_message'] ?? '',
+					'welcome'   => esc_html( $settings['welcome_message'] ?? '' ),
 					'isEnabled' => $settings['chat_enabled'],
 					'strings'   => [
 						'reply'       => __( 'Write a reply…', 'hyve-lite' ),
