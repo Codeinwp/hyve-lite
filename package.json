@@ -38,7 +38,7 @@
   "homepage": "https://github.com/Codeinwp/hyve-lite#readme",
   "devDependencies": {
     "@semantic-release/changelog": "^6.0.3",
-    "@semantic-release/exec": "^6.0.3",
+    "@semantic-release/exec": "^7.0.2",
     "@semantic-release/git": "^10.0.1",
     "@wordpress/scripts": "^26.19.0",
     "conventional-changelog-simple-preset": "^1.0.24",
