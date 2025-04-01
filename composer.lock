@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "eafac6c0e01b488e206df473fedf2516",
+    "content-hash": "99101ed5adc607d621bb97c98272a7ae",
     "packages": [
         {
             "name": "codeinwp/themeisle-sdk",
@@ -525,16 +525,16 @@
         },
         {
             "name": "symfony/deprecation-contracts",
-            "version": "v3.5.0",
+            "version": "v3.5.1",
             "source": {
                 "type": "git",
                 "url": "https://github.com/symfony/deprecation-contracts.git",
-                "reference": "0e0d29ce1f20deffb4ab1b016a7257c4f1e789a1"
+                "reference": "74c71c939a79f7d5bf3c1ce9f5ea37ba0114c6f6"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/symfony/deprecation-contracts/zipball/0e0d29ce1f20deffb4ab1b016a7257c4f1e789a1",
-                "reference": "0e0d29ce1f20deffb4ab1b016a7257c4f1e789a1",
+                "url": "https://api.github.com/repos/symfony/deprecation-contracts/zipball/74c71c939a79f7d5bf3c1ce9f5ea37ba0114c6f6",
+                "reference": "74c71c939a79f7d5bf3c1ce9f5ea37ba0114c6f6",
                 "shasum": ""
             },
             "require": {
@@ -542,12 +542,12 @@
             },
             "type": "library",
             "extra": {
+                "thanks": {
+                    "url": "https://github.com/symfony/contracts",
+                    "name": "symfony/contracts"
+                },
                 "branch-alias": {
                     "dev-main": "3.5-dev"
-                },
-                "thanks": {
-                    "name": "symfony/contracts",
-                    "url": "https://github.com/symfony/contracts"
                 }
             },
             "autoload": {
@@ -572,7 +572,7 @@
             "description": "A generic function and convention to trigger deprecation notices",
             "homepage": "https://symfony.com",
             "support": {
-                "source": "https://github.com/symfony/deprecation-contracts/tree/v3.5.0"
+                "source": "https://github.com/symfony/deprecation-contracts/tree/v3.5.1"
             },
             "funding": [
                 {
@@ -588,7 +588,7 @@
                     "type": "tidelift"
                 }
             ],
-            "time": "2024-04-18T09:32:20+00:00"
+            "time": "2024-09-25T14:20:29+00:00"
         },
         {
             "name": "symfony/http-client",
@@ -763,16 +763,16 @@
         },
         {
             "name": "symfony/service-contracts",
-            "version": "v3.5.0",
+            "version": "v3.5.1",
             "source": {
                 "type": "git",
                 "url": "https://github.com/symfony/service-contracts.git",
-                "reference": "bd1d9e59a81d8fa4acdcea3f617c581f7475a80f"
+                "reference": "e53260aabf78fb3d63f8d79d69ece59f80d5eda0"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/symfony/service-contracts/zipball/bd1d9e59a81d8fa4acdcea3f617c581f7475a80f",
-                "reference": "bd1d9e59a81d8fa4acdcea3f617c581f7475a80f",
+                "url": "https://api.github.com/repos/symfony/service-contracts/zipball/e53260aabf78fb3d63f8d79d69ece59f80d5eda0",
+                "reference": "e53260aabf78fb3d63f8d79d69ece59f80d5eda0",
                 "shasum": ""
             },
             "require": {
@@ -785,12 +785,12 @@
             },
             "type": "library",
             "extra": {
+                "thanks": {
+                    "url": "https://github.com/symfony/contracts",
+                    "name": "symfony/contracts"
+                },
                 "branch-alias": {
                     "dev-main": "3.5-dev"
-                },
-                "thanks": {
-                    "name": "symfony/contracts",
-                    "url": "https://github.com/symfony/contracts"
                 }
             },
             "autoload": {
@@ -826,7 +826,7 @@
                 "standards"
             ],
             "support": {
-                "source": "https://github.com/symfony/service-contracts/tree/v3.5.0"
+                "source": "https://github.com/symfony/service-contracts/tree/v3.5.1"
             },
             "funding": [
                 {
@@ -842,7 +842,7 @@
                     "type": "tidelift"
                 }
             ],
-            "time": "2024-04-18T09:32:20+00:00"
+            "time": "2024-09-25T14:20:29+00:00"
         },
         {
             "name": "webmozart/assert",
@@ -904,16 +904,16 @@
         },
         {
             "name": "yethee/tiktoken",
-            "version": "0.7.0",
+            "version": "0.9.0",
             "source": {
                 "type": "git",
                 "url": "https://github.com/yethee/tiktoken-php.git",
-                "reference": "16fa1045ce83375db88d74d503bbc72ff0d86c9e"
+                "reference": "6866101520300b7ab4ae35218f9dcdab1b997091"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/yethee/tiktoken-php/zipball/16fa1045ce83375db88d74d503bbc72ff0d86c9e",
-                "reference": "16fa1045ce83375db88d74d503bbc72ff0d86c9e",
+                "url": "https://api.github.com/repos/yethee/tiktoken-php/zipball/6866101520300b7ab4ae35218f9dcdab1b997091",
+                "reference": "6866101520300b7ab4ae35218f9dcdab1b997091",
                 "shasum": ""
             },
             "require": {
@@ -921,12 +921,15 @@
                 "symfony/service-contracts": "^2.5 || ^3.0"
             },
             "require-dev": {
-                "doctrine/coding-standard": "^12.0",
+                "doctrine/coding-standard": "^13",
                 "mikey179/vfsstream": "^1.6.11",
                 "phpbench/phpbench": "^1.2",
-                "phpunit/phpunit": "^10.5.20",
-                "psalm/plugin-phpunit": "^0.19.0",
-                "vimeo/psalm": "5.26.1"
+                "phpunit/phpunit": "^10.5.45",
+                "psalm/plugin-phpunit": "^0.19.2",
+                "vimeo/psalm": "6.8.9"
+            },
+            "suggest": {
+                "ext-ffi": "To allow use LibEncoder"
             },
             "type": "library",
             "autoload": {
@@ -949,9 +952,9 @@
             ],
             "support": {
                 "issues": "https://github.com/yethee/tiktoken-php/issues",
-                "source": "https://github.com/yethee/tiktoken-php/tree/0.7.0"
+                "source": "https://github.com/yethee/tiktoken-php/tree/0.9.0"
             },
-            "time": "2024-10-12T17:43:13+00:00"
+            "time": "2025-03-31T10:50:07+00:00"
         }
     ],
     "packages-dev": [
