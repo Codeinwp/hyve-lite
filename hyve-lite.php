@@ -40,6 +40,7 @@ define( 'HYVE_LITE_BASEFILE', __FILE__ );
 define( 'HYVE_LITE_URL', plugins_url( '/', __FILE__ ) );
 define( 'HYVE_LITE_PATH', __DIR__ );
 define( 'HYVE_LITE_VERSION', '1.2.3' );
+define( 'HYVE_PRODUCT_SLUG', basename( dirname( 'HYVE_LITE_BASEFILE' ) ) );
 
 $vendor_file = HYVE_LITE_PATH . '/vendor/autoload.php';
 
