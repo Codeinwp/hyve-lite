@@ -67,7 +67,6 @@ class Main {
 		$settings = self::get_settings();
 
 		if (
-			is_array( $settings ) &&
 			isset( $settings['api_key'] ) && isset( $settings['assistant_id'] ) &&
 			! empty( $settings['api_key'] ) && ! empty( $settings['assistant_id'] )
 		) {
@@ -117,6 +116,8 @@ class Main {
 	 * @return void
 	 */
 	public function enqueue_options_assets() {
+
+		// @phpstan-ignore include.fileNotFound
 		$asset_file = include HYVE_LITE_PATH . '/build/backend/index.asset.php';
 
 		wp_enqueue_style(
@@ -260,6 +261,7 @@ class Main {
 			return;
 		}
 
+		// @phpstan-ignore include.fileNotFound
 		$asset_file = include HYVE_LITE_PATH . '/build/frontend/frontend.asset.php';
 
 		wp_register_style(

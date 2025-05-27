@@ -466,7 +466,7 @@ class OpenAI {
 				return $moderation;
 			}
 
-			if ( true !== $moderation && is_object( $moderation ) ) {
+			if ( is_object( $moderation ) ) {
 				$results[] = $moderation;
 			}
 		}
