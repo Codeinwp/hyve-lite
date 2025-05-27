@@ -32,14 +32,14 @@ class BaseAPI {
 	/**
 	 * Instance of DB_Table class.
 	 *
-	 * @var object
+	 * @var \ThemeIsle\HyveLite\DB_Table
 	 */
 	protected $table;
 
 	/**
 	 * Error messages.
 	 * 
-	 * @var array
+	 * @var array<string, string>
 	 */
 	private $errors = [];
 
