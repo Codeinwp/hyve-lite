@@ -413,9 +413,9 @@ class Main {
 	/**
 	 * Set Black Friday data.
 	 *
-	 * @param array $configs The configuration array for the loaded products.
+	 * @param array<string, mixed> $configs The configuration array for the loaded products.
 	 *
-	 * @return array
+	 * @return array<string, mixed>
 	 */
 	public function add_black_friday_data( $configs ) {
 		$config = $configs['default'];
