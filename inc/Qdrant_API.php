@@ -356,7 +356,7 @@ class Qdrant_API {
 
 		foreach ( $posts as $post ) {
 			$db_table->update(
-				$post->id,
+				intval( $post->id ),
 				[
 					'storage' => 'Qdrant',
 				] 

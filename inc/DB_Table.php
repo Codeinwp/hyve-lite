@@ -175,7 +175,18 @@ class DB_Table {
 	 * 
 	 * @param int $id The row ID.
 	 * 
-	 * @return object
+	 * @return object{
+	 *     id: string,
+	 *     date: string,
+	 *     modified: string,
+	 *     post_id: string,
+	 *     post_title: string,
+	 *     post_content: string,
+	 *     embeddings: string,
+	 *     token_count: string,
+	 *     post_status: string,
+	 *     storage: string
+	 * }
 	 */
 	public function get( $id ) {
 		global $wpdb;
@@ -274,7 +285,18 @@ class DB_Table {
 	 * @param string $status The status.
 	 * @param int    $limit The limit.
 	 *
-	 * @return array<object>
+	 * @return array<object{
+	 *     id: string,
+	 *     date: string,
+	 *     modified: string,
+	 *     post_id: string,
+	 *     post_title: string,
+	 *     post_content: string,
+	 *     embeddings: string,
+	 *     token_count: string,
+	 *     post_status: string,
+	 *     storage: string
+	 * }>
 	 */
 	public function get_by_status( string $status, int $limit = 500 ): array {
 		global $wpdb;
@@ -302,7 +324,18 @@ class DB_Table {
 	 * @param string $storage The storage.
 	 * @param int    $limit The limit.
 	 *
-	 * @return array<object>
+	 * @return array<object{
+	 *     id: string,
+	 *     date: string,
+	 *     modified: string,
+	 *     post_id: string,
+	 *     post_title: string,
+	 *     post_content: string,
+	 *     embeddings: string,
+	 *     token_count: string,
+	 *     post_status: string,
+	 *     storage: string
+	 * }>
 	 */
 	public function get_by_storage( string $storage, int $limit = 100 ): array {
 		global $wpdb;
@@ -514,6 +547,11 @@ class DB_Table {
 		$posts = $query->posts;
 
 		foreach ( $posts as $post_id ) {
+			/**
+			 * The post id.
+			 * 
+			 * @var int $post_id
+			 */
 			$this->add_post( $post_id, 'update' );
 		}
 

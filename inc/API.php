@@ -459,6 +459,11 @@ class API extends BaseAPI {
 		
 		if ( $query->have_posts() ) {
 			foreach ( $query->posts as $post_id ) {
+				/**
+				 * The post id.
+				 * 
+				 * @var int $post_id
+				 */
 				$post_data = [
 					'ID'      => $post_id,
 					'title'   => get_the_title( $post_id ),
@@ -578,6 +583,12 @@ class API extends BaseAPI {
 
 		if ( $query->have_posts() ) {
 			foreach ( $query->posts as $post_id ) {
+				/**
+				 * The post id.
+				 * 
+				 * @var int $post_id
+				 */
+				
 				$post_data = [
 					'ID'        => $post_id,
 					'title'     => get_the_title( $post_id ),

@@ -80,7 +80,7 @@ class Threads {
 		}
 
 		self::add_message(
-			$record_id,
+			intval( $record_id ),
 			[
 				'thread_id' => $thread_id,
 				'sender'    => 'bot',
@@ -101,7 +101,7 @@ class Threads {
 	public function record_thread( $thread_id, $record_id, $message ) {
 		if ( $record_id ) {
 			$record_id = self::add_message(
-				$record_id,
+				intval( $record_id ),
 				[
 					'thread_id' => $thread_id,
 					'sender'    => 'user',

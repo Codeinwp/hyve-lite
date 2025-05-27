@@ -407,7 +407,7 @@ class OpenAI {
 	 * 
 	 * @param string $message Message.
 	 * 
-	 * @return true|object|\WP_Error
+	 * @return true|object{flagged: bool, categories: array<string, bool>, category_scores: array<string, float>, category_applied_input_types: array<string, string[]>}|\WP_Error Moderation result or error.
 	 */
 	public function moderate( $message ) {
 		$response = $this->request(
@@ -425,6 +425,10 @@ class OpenAI {
 			$result = reset( $response->results );
 
 			if ( isset( $result->flagged ) && $result->flagged ) {
+				/**
+				 * Moderation result or error.
+				 * 
+				 * @var object{flagged: bool, categories: array<string, bool>, category_scores: array<string, float>, category_applied_input_types: array<string, string[]>} $result */
 				return $result;
 			}
 		}
@@ -527,6 +531,13 @@ class OpenAI {
 		}
 
 		$body = wp_json_encode( $params );
+
+		if ( false === $body ) {
+			return (object) [
+				'error'   => true,
+				'message' => 'Invalid params.',
+			];
+		}
 
 		$response = '';
 
