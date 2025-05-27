@@ -30,31 +30,36 @@ class Logger {
 			return;
 		}
 
-		try {
-			$payload = [];
+		$payload = [];
+		$license = apply_filters( 'product_hyve_license_key', 'free' );
 
-			$license = apply_filters( 'product_hyve_license_key', 'free' );
+		if ( 'free' !== $license ) {
+			$license = wp_hash( $license );
+		}
 
-			if ( 'free' !== $license ) {
-				$license = wp_hash( $license );
-			}
-
-			foreach ( $events as $event ) {
-				$payload[] = [
-					'slug'    => 'hyve',
-					'site'    => get_site_url(),
-					'license' => $license,
-					'data'    => $event,
-				];
-			}
-
-			$args = [
-				'headers' => [
-					'Content-Type' => 'application/json',
-				],
-				'body'    => wp_json_encode( $payload ),
+		foreach ( $events as $event ) {
+			$payload[] = [
+				'slug'    => 'hyve',
+				'site'    => get_site_url(),
+				'license' => $license,
+				'data'    => $event,
 			];
+		}
 
+		$body = wp_json_encode( $payload );
+
+		if ( false === $body ) {
+			return;
+		}
+
+		$args = [
+			'headers' => [
+				'Content-Type' => 'application/json',
+			],
+			'body'    => $body,
+		];
+
+		try {
 			wp_remote_post( self::TRACK_URL, $args );
 		} finally {
 			return;
