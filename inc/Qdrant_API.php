@@ -165,8 +165,8 @@ class Qdrant_API {
 	/**
 	 * Add point to collection.
 	 * 
-	 * @param array $embeddings Embeddings.
-	 * @param array $data       Data.
+	 * @param array<float>         $embeddings Embeddings.
+	 * @param array<string, mixed> $data Data.
 	 * 
 	 * @return bool|\WP_Error
 	 */
@@ -198,7 +198,7 @@ class Qdrant_API {
 	/**
 	 * Add point to collection.
 	 * 
-	 * @param array $points Points.
+	 * @param array<array<string, mixed>> $points Points.
 	 * 
 	 * @return bool|\WP_Error
 	 */
@@ -256,9 +256,9 @@ class Qdrant_API {
 	/**
 	 * Search collection.
 	 * 
-	 * @param array $embeddings Embeddings.
+	 * @param array<float> $embeddings Embeddings.
 	 * 
-	 * @return array|\WP_Error
+	 * @return array<array<string, mixed>>|\WP_Error
 	 */
 	public function search( $embeddings ) {
 		try {
@@ -398,7 +398,7 @@ class Qdrant_API {
 	 * 
 	 * @since 1.3.0
 	 * 
-	 * @return array
+	 * @return array<string, mixed>
 	 */
 	public static function migration_status() {
 		return get_option( 'hyve_qdrant_migration', [] );

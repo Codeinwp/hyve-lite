@@ -39,7 +39,7 @@ class BaseAPI {
 	/**
 	 * Error messages.
 	 * 
-	 * @var array
+	 * @var array<string, string>
 	 */
 	private $errors = [];
 

@@ -22,7 +22,7 @@ class Logger {
 	/**
 	 * Send data to the server if the user has opted in.
 	 *
-	 * @param array $events  Data to track.
+	 * @param array<array<string, mixed>> $events  Data to track.
 	 * @return void
 	 */
 	public static function track( $events ) {
