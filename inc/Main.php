@@ -170,10 +170,8 @@ class Main {
 			)
 		);
 
-		$has_pro = apply_filters( 'product_hyve_license_status', false );
-		if ( ! $has_pro ) {
-			do_action( 'themeisle_sdk_load_banner', 'hyve' );
-		}
+		add_filter( 'themeisle_sdk_blackfriday_data', [ $this, 'add_black_friday_data' ] );
+		do_action( 'themeisle_internal_page', HYVE_PRODUCT_SLUG, 'dashboard' );
 	}
 
 	/**
@@ -382,5 +380,48 @@ class Main {
 		if ( Qdrant_API::is_active() ) {
 			$this->qdrant->delete_point( $post_id );
 		}
+	}
+
+	/**
+	 * Set Black Friday data.
+	 *
+	 * @param array $configs The configuration array for the loaded products.
+	 *
+	 * @return array
+	 */
+	public function add_black_friday_data( $configs ) {
+		$config = $configs['default'];
+
+		// translators: %1$s - HTML tag, %2$s - discount, %3$s - HTML tag, %4$s - product name.
+		$message_template = __( 'Our biggest sale of the year: %1$sup to %2$s OFF%3$s on %4$s. Don\'t miss this limited-time offer.', 'hyve-lite' );
+		$product_label    = 'Hyve';
+		$discount         = '70%';
+		
+		$plan    = apply_filters( 'product_hyve_license_plan', 0 );
+		$license = apply_filters( 'product_hyve_license_key', false );
+		$is_pro  = 0 < $plan;
+
+		if ( $is_pro ) {
+			// translators: %1$s - HTML tag, %2$s - discount, %3$s - HTML tag, %4$s - product name.
+			$message_template = __( 'Get %1$sup to %2$s off%3$s when you upgrade your %4$s plan or renew early.', 'hyve-lite' );
+			$product_label    = 'Hyve Pro';
+			$discount         = '30%';
+		}
+		
+		$product_label = sprintf( '<strong>%s</strong>', $product_label );
+		$url_params    = [
+			'utm_term' => $is_pro ? 'plan-' . $plan : 'free',
+			'lkey'     => ! empty( $license ) ? $license : false,
+		];
+		
+		$config['message']  = sprintf( $message_template, '<strong>', $discount, '</strong>', $product_label );
+		$config['sale_url'] = add_query_arg(
+			$url_params,
+			tsdk_translate_link( tsdk_utmify( 'https://themeisle.link/hyve-bf', 'bfcm', 'hyve' ) )
+		);
+
+		$configs[ HYVE_PRODUCT_SLUG ] = $config;
+
+		return $configs;
 	}
 }

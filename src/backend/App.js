@@ -7,10 +7,7 @@ import apiFetch from '@wordpress/api-fetch';
 
 import { Spinner } from '@wordpress/components';
 
-import {
-	useSelect,
-	useDispatch
-} from '@wordpress/data';
+import { useSelect, useDispatch } from '@wordpress/data';
 
 import { useEffect } from '@wordpress/element';
 
@@ -27,11 +24,7 @@ const App = () => {
 	const hasLoaded = useSelect( ( select ) => select( 'hyve' ).hasLoaded() );
 	const route = useSelect( ( select ) => select( 'hyve' ).getRoute() );
 
-	const {
-		setSettings,
-		setLoading,
-		setRoute
-	} = useDispatch( 'hyve' );
+	const { setSettings, setLoading, setRoute } = useDispatch( 'hyve' );
 
 	useEffect( () => {
 		const fetchData = async() => {
@@ -54,25 +47,30 @@ const App = () => {
 		if ( nav ) {
 			setRoute( nav );
 		}
+
+		if ( window.tsdk_reposition_notice ) {
+			window.tsdk_reposition_notice();
+		}
 	}, []);
 
 	const ROUTE_TREE = applyFilters( 'hyve.route', ROUTE );
 
 	const ROUTE_COMPONENTS = Object.keys( ROUTE_TREE ).reduce( ( acc, key ) => {
-		if ( ROUTE_TREE[key].component ) {
-			acc[key] = ROUTE_TREE[key].component;
+		if ( ROUTE_TREE[ key ].component ) {
+			acc[ key ] = ROUTE_TREE[ key ].component;
 		}
 
-		if ( ROUTE_TREE[key].children ) {
-			Object.keys( ROUTE_TREE[key].children ).forEach( ( childKey ) => {
-				acc[childKey] = ROUTE_TREE[key].children[childKey].component;
+		if ( ROUTE_TREE[ key ].children ) {
+			Object.keys( ROUTE_TREE[ key ].children ).forEach( ( childKey ) => {
+				acc[ childKey ] =
+					ROUTE_TREE[ key ].children[ childKey ].component;
 			});
 		}
 
 		return acc;
 	}, {});
 
-	const Page = ROUTE_COMPONENTS[route] || null;
+	const Page = ROUTE_COMPONENTS[ route ] || null;
 
 	return (
 		<>
@@ -80,20 +78,20 @@ const App = () => {
 				<div className="flex items-center justify-center absolute w-full h-screen z-10 bg-white">
 					<Spinner />
 				</div>
-			)}
+			) }
 
 			<div className="mx-auto max-w-screen-2xl p-4 md:p-6 2xl:p-10">
-				<div id="tsdk_banner" class="hyve-banner mb-4 md:mb-6 2xl:mb-10 hidden"></div>
+				<div id="tsdk_banner"></div>
 				<div className="mx-auto max-w-270">
 					<div className="grid grid-cols-6 gap-8">
-						<Sidebar/>
+						<Sidebar />
 
-						{ Page && <Page/> }
+						{ Page && <Page /> }
 					</div>
 				</div>
 			</div>
 
-			<Notices/>
+			<Notices />
 		</>
 	);
 };
