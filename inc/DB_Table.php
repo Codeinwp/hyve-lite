@@ -84,6 +84,8 @@ class DB_Table {
 
 	/**
 	 * Create the table.
+	 * 
+	 * @return void
 	 *
 	 * @since 1.2.0
 	 */
@@ -129,7 +131,7 @@ class DB_Table {
 	 *
 	 * @since 1.2.0
 	 *
-	 * @return array
+	 * @return array<string, string>
 	 */
 	public function get_columns() {
 		return [
@@ -150,7 +152,7 @@ class DB_Table {
 	 *
 	 * @since 1.2.0
 	 *
-	 * @return array
+	 * @return array<string, mixed>
 	 */
 	public function get_column_defaults() {
 		return [
@@ -196,11 +198,11 @@ class DB_Table {
 	 *
 	 * @since 1.2.0
 	 *
-	 * @param array $data The data to insert.
+	 * @param array<string, mixed> $data The data to insert.
 	 *
 	 * @return int
 	 */
-	public function insert( $data ) {
+	public function insert( array $data ): int {
 		global $wpdb;
 
 		$column_formats  = $this->get_columns();
@@ -222,12 +224,12 @@ class DB_Table {
 	 *
 	 * @since 1.2.0
 	 *
-	 * @param int   $id The row ID.
-	 * @param array $data The data to update.
+	 * @param int                  $id The row ID.
+	 * @param array<string, mixed> $data The data to update.
 	 *
 	 * @return int
 	 */
-	public function update( $id, $data ) {
+	public function update( int $id, array $data ): int {
 		global $wpdb;
 
 		$column_formats  = $this->get_columns();
@@ -272,9 +274,9 @@ class DB_Table {
 	 * @param string $status The status.
 	 * @param int    $limit The limit.
 	 *
-	 * @return array
+	 * @return array<object>
 	 */
-	public function get_by_status( $status, $limit = 500 ) {
+	public function get_by_status( string $status, int $limit = 500 ): array {
 		global $wpdb;
 
 		$cache = $this->get_cache( 'entries_' . $status );
@@ -294,15 +296,15 @@ class DB_Table {
 
 	/**
 	 * Get all rows by storage.
-	 * 
-	 * @since 1.3.0
-	 * 
+	 *
+	 * @since 1.2.0
+	 *
 	 * @param string $storage The storage.
 	 * @param int    $limit The limit.
-	 * 
-	 * @return array
+	 *
+	 * @return array<object>
 	 */
-	public function get_by_storage( $storage, $limit = 100 ) {
+	public function get_by_storage( string $storage, int $limit = 100 ): array {
 		global $wpdb;
 		$results = $wpdb->get_results( $wpdb->prepare( 'SELECT * FROM %i WHERE storage = %s LIMIT %d', $this->table_name, $storage, $limit ) );
 		return $results;
@@ -331,7 +333,7 @@ class DB_Table {
 	 * 
 	 * @since 1.3.0
 	 * 
-	 * @return array
+	 * @return array<integer>
 	 */
 	public function get_posts_over_limit() {
 		$limit = apply_filters( 'hyve_chunks_limit', 500 );
@@ -523,11 +525,11 @@ class DB_Table {
 	 * 
 	 * @since 1.3.0
 	 * 
-	 * @param array $posts The posts.
+	 * @param array<int> $posts The posts.
 	 * 
 	 * @return void
 	 */
-	public function delete_posts( $posts = [] ) {
+	public function delete_posts( array $posts ): void {
 		$twenty = array_slice( $posts, 0, 20 );
 
 		foreach ( $twenty as $id ) {

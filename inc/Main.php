@@ -180,7 +180,7 @@ class Main {
 	 * 
 	 * @since 1.1.0
 	 * 
-	 * @return array
+	 * @return array<string, mixed>
 	 */
 	public static function get_default_settings() {
 		return apply_filters(
@@ -217,7 +217,7 @@ class Main {
 	 * 
 	 * @since 1.1.0
 	 * 
-	 * @return array
+	 * @return array<string, mixed>
 	 */
 	public static function get_settings() {
 		$settings = get_option( 'hyve_settings', [] );
@@ -331,7 +331,7 @@ class Main {
 	 *
 	 * @since 1.3.0
 	 * 
-	 * @return array
+	 * @return array<string, mixed>
 	 */
 	public function get_stats() {
 		return [

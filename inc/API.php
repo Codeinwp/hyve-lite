@@ -242,7 +242,7 @@ class API extends BaseAPI {
 	/**
 	 * Update settings.
 	 * 
-	 * @param \WP_REST_Request $request Request object.
+	 * @param \WP_REST_Request<array<string, mixed>> $request Request object.
 	 * 
 	 * @return \WP_REST_Response
 	 */
@@ -382,7 +382,7 @@ class API extends BaseAPI {
 	/**
 	 * Get data.
 	 * 
-	 * @param \WP_REST_Request $request Request object.
+	 * @param \WP_REST_Request<array<string, mixed>> $request Request object.
 	 * 
 	 * @return \WP_REST_Response
 	 */
@@ -491,7 +491,7 @@ class API extends BaseAPI {
 	/**
 	 * Add data.
 	 * 
-	 * @param \WP_REST_Request $request Request object.
+	 * @param \WP_REST_Request<array<string, mixed>> $request Request object.
 	 * 
 	 * @return \WP_REST_Response
 	 * @throws \Exception If Qdrant API fails.
@@ -525,7 +525,7 @@ class API extends BaseAPI {
 	/**
 	 * Delete data.
 	 * 
-	 * @param \WP_REST_Request $request Request object.
+	 * @param \WP_REST_Request<array<string, mixed>> $request Request object.
 	 * 
 	 * @return \WP_REST_Response
 	 * @throws \Exception If Qdrant API fails.
@@ -557,7 +557,7 @@ class API extends BaseAPI {
 	/**
 	 * Get threads.
 	 * 
-	 * @param \WP_REST_Request $request Request object.
+	 * @param \WP_REST_Request<array<string, mixed>> $request Request object.
 	 * 
 	 * @return \WP_REST_Response
 	 */
@@ -652,7 +652,7 @@ class API extends BaseAPI {
 	/**
 	 * Get chat.
 	 * 
-	 * @param \WP_REST_Request $request Request object.
+	 * @param \WP_REST_Request<array<string, mixed>> $request Request object.
 	 * 
 	 * @return \WP_REST_Response
 	 */
@@ -714,9 +714,9 @@ class API extends BaseAPI {
 	/**
 	 * Get Similarity.
 	 * 
-	 * @param array $message_vector Message vector.
+	 * @param array<int, float> $message_vector Message vector.
 	 * 
-	 * @return array Posts.
+	 * @return array<int, array<string, mixed>> Posts.
 	 */
 	public function get_similarity( $message_vector ) {
 		if ( Qdrant_API::is_active() ) {
@@ -777,7 +777,7 @@ class API extends BaseAPI {
 	/**
 	 * Send chat.
 	 * 
-	 * @param \WP_REST_Request $request Request object.
+	 * @param \WP_REST_Request<array<string, mixed>> $request Request object.
 	 * 
 	 * @return \WP_REST_Response
 	 */
