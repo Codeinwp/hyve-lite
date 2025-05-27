@@ -21,7 +21,12 @@
     "start:frontend": "wp-scripts start --webpack-src-dir=src/frontend --output-path=build/frontend --output-filename=frontend.js",
     "start:block": "wp-scripts start --webpack-src-dir=src/block --output-path=build/block --output-filename=index.js",
     "dist": "bash bin/dist.sh",
-    "release": "npx semantic-release"
+    "release": "npx semantic-release",
+    "test:playwright": "wp-scripts test-playwright --config ./tests/e2e/playwright.config.ts",
+    "test:playwright:help": "wp-scripts test-playwright --help --config ./tests/e2e/playwright.config.ts",
+    "test:playwright:debug": "wp-scripts test-playwright --debug --config ./tests/e2e/playwright.config.ts",
+    "test:playwright:ui": "wp-scripts test-playwright --ui --config ./tests/e2e/playwright.config.ts",
+    "wp-env": "wp-env"
   },
   "repository": {
     "type": "git",
@@ -37,14 +42,18 @@
   },
   "homepage": "https://github.com/Codeinwp/hyve-lite#readme",
   "devDependencies": {
+    "@playwright/test": "^1.52.0",
     "@semantic-release/changelog": "^6.0.3",
     "@semantic-release/exec": "^6.0.3",
     "@semantic-release/git": "^10.0.1",
     "@tailwindcss/postcss": "^4.1.8",
-    "@wordpress/scripts": "^26.19.0",
+    "@wordpress/env": "^10.24.0",
+    "@wordpress/eslint-plugin": "^22.10.0",
+    "@wordpress/scripts": "^27.9.0",
     "conventional-changelog-simple-preset": "^1.0.24",
     "cssnano": "^7.0.7",
     "eslint-config-wordpress": "^2.0.0",
+    "filenamify": "^4.3.0",
     "grunt": "^1.6.1",
     "grunt-version": "^3.0.1",
     "grunt-wp-readme-to-markdown": "^2.1.0",
