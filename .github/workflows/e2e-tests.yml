@@ -1,0 +1,46 @@
+name: Test E2E
+
+on:
+  pull_request:
+    types: [opened, synchronize, ready_for_review]
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.event.pull_request.base.repo.full_name
+    name: JS Test
+    steps:
+      - uses: actions/checkout@master
+        with:
+          persist-credentials: false
+      - name: Build files using 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install deps
+        run: |
+          npm install -g npm
+          npm ci
+          composer install --prefer-dist --no-progress --no-suggest
+        env:
+          CI: true
+      - name: Build plugin
+        run: |
+          npm run build
+      - name: Install Playwright
+        run: |
+          npx playwright install
+      - name: Setup WP Env
+        run: |
+          npm run wp-env start
+      - name: Run tests
+        run: |
+          npm run test:playwright
+      - name: Archive test results
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-playwright-results
+          path: artifacts
+          retention-days: 1
+          if-no-files-found: ignore
