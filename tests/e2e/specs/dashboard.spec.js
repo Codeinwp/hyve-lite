@@ -329,7 +329,5 @@ test.describe( 'Dashboard', () => {
 		await expect(
 			page.getByText( '/05/2025 16:13' ).nth( 1 )
 		).toBeVisible();
-
-		await page.waitForTimeout( 1000 );
 	} );
 } );
