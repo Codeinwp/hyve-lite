@@ -205,6 +205,8 @@ class Main {
 					'harassment/threatening' => 60,
 					'violence'               => 70,
 				],
+				'welcome_message'      => '',
+				'default_message'      => '',
 			]
 		);
 	}
@@ -219,6 +221,31 @@ class Main {
 	public static function get_settings() {
 		$settings = get_option( 'hyve_settings', [] );
 		return wp_parse_args( $settings, self::get_default_settings() );
+	}
+
+	/**
+	 * Add the translatable label to the default value.
+	 * 
+	 * Use this in a context where translations are correctly loaded.
+	 * 
+	 * @since 1.2
+	 * 
+	 * @return void
+	 */
+	public static function add_labels_to_default_settings() {
+		add_filter(
+			'hyve_default_settings',
+			function ( $settings ) {
+				if ( ! is_array( $settings ) ) {
+					return $settings;
+				}
+
+				$settings['welcome_message'] = __( 'Hello! How can I help you today?', 'hyve-lite' );
+				$settings['default_message'] = __( 'Sorry, I\'m not able to help with that.', 'hyve-lite' );
+
+				return $settings;
+			}
+		);
 	}
 
 	/**
@@ -252,6 +279,7 @@ class Main {
 
 		wp_set_script_translations( 'hyve-lite-scripts', 'hyve-lite' );
 
+		self::add_labels_to_default_settings();
 		$settings = self::get_settings();
 
 		wp_localize_script(
@@ -265,7 +293,7 @@ class Main {
 						'click' => HYVE_LITE_URL . 'assets/audio/click.mp3',
 						'ping'  => HYVE_LITE_URL . 'assets/audio/ping.mp3',
 					],
-					'welcome'   => esc_html( $settings['welcome_message'] ?? __( 'Hello! How can I help you today?', 'hyve-lite' ) ),
+					'welcome'   => esc_html( $settings['welcome_message'] ?? '' ),
 					'isEnabled' => $settings['chat_enabled'],
 					'strings'   => [
 						'reply'       => __( 'Write a reply…', 'hyve-lite' ),

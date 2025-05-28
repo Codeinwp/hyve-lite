@@ -234,6 +234,7 @@ class API extends BaseAPI {
 	 * @return \WP_REST_Response
 	 */
 	public function get_settings() {
+		Main::add_labels_to_default_settings();
 		$settings = Main::get_settings();
 		return rest_ensure_response( $settings );
 	}
@@ -694,11 +695,10 @@ class API extends BaseAPI {
 			return rest_ensure_response( [ 'error' => __( 'No messages found.', 'hyve-lite' ) ] );
 		}
 
+		Main::add_labels_to_default_settings();
 		$settings = Main::get_settings();
 
-		$default_message = isset( $settings['default_message'] ) ? $settings['default_message'] : __( 'Sorry, I\'m not able to help with that.', 'hyve-lite' );
-
-		$response = ( isset( $message['success'] ) && true === $message['success'] && isset( $message['response'] ) ) ? $message['response'] : esc_html( $default_message );
+		$response = ( isset( $message['success'] ) && true === $message['success'] && isset( $message['response'] ) ) ? $message['response'] : esc_html( $settings['default_message'] );
 
 		do_action( 'hyve_chat_response', $run_id, $thread_id, $query, $record_id, $message, $response );
 
