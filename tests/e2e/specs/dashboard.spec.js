@@ -330,4 +330,99 @@ test.describe( 'Dashboard', () => {
 			page.getByText( '/05/2025 16:13' ).nth( 1 )
 		).toBeVisible();
 	} );
+
+	test( 'check posts list rendering on Knowledge Base > Failed Moderation', async ( {
+		page,
+	} ) => {
+		await page.route(
+			/.*rest_route=%2Fhyve%2Fv1%2Fdata.*offset=0.*status=moderation.*/,
+			async ( route ) => {
+				await route.fulfill( {
+					status: 200,
+					contentType: 'application/json',
+					body: JSON.stringify( {
+						posts: [
+							{
+								ID: 121,
+								title: 'Shop',
+								content: '',
+								review: {
+									hate: 0.5,
+								},
+							},
+							{
+								ID: 123,
+								title: 'Checkout',
+								content: 'Test checkout content',
+								review: {
+									hate: 0.5,
+								},
+							},
+							{
+								ID: 94,
+								title: 'Portofolio',
+								content: 'Test portfolio content',
+								review: {
+									hate: 0.5,
+								},
+							},
+							{
+								ID: 1,
+								title: 'Hello world!',
+								content: 'Test hello world content',
+								review: {
+									hate: 0.5,
+								},
+							},
+						],
+						more: false,
+						totalChunks: '4',
+					} ),
+				} );
+			}
+		);
+
+		await page
+			.getByRole( 'button', { name: 'Knowledge Base', exact: true } )
+			.click( { force: true } );
+
+		await page
+			.getByRole( 'button', { name: 'Failed Moderation' } )
+			.click( { force: true } );
+
+		await expect( page.getByText( '123' ) ).toBeVisible();
+		await expect( page.getByText( 'Checkout' ) ).toBeVisible();
+		await expect(
+			page.getByRole( 'button', { name: 'More Info' } ).nth( 1 )
+		).toBeVisible();
+		await expect(
+			page.getByRole( 'button', { name: 'Update' } ).nth( 2 )
+		).toBeVisible();
+
+		// Check Review Modal.
+		await page
+			.getByRole( 'button', { name: 'More Info' } )
+			.nth( 1 )
+			.click();
+
+		await expect(
+			page.getByRole( 'heading', { name: 'Failed Moderation: Checkout' } )
+		).toBeVisible();
+		await expect(
+			page.getByRole( 'heading', { name: 'Hate Speech' } )
+		).toBeVisible();
+		await expect(
+			page
+				.locator( 'div' )
+				.filter( { hasText: /^Hate Speech50%$/ } )
+				.locator( 'div' )
+				.nth( 3 )
+		).toBeVisible();
+		await expect(
+			page.getByRole( 'button', { name: 'Override Moderation' } )
+		).toBeVisible();
+		await expect(
+			page.getByRole( 'button', { name: 'Close' } )
+		).toBeVisible();
+	} );
 } );
