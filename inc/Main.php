@@ -189,8 +189,6 @@ class Main {
 				'qdrant_api_key'       => '',
 				'qdrant_endpoint'      => '',
 				'chat_enabled'         => true,
-				'welcome_message'      => __( 'Hello! How can I help you today?', 'hyve-lite' ),
-				'default_message'      => __( 'Sorry, I\'m not able to help with that.', 'hyve-lite' ),
 				'chat_model'           => 'gpt-4o-mini',
 				'temperature'          => 1,
 				'top_p'                => 1,
@@ -267,7 +265,7 @@ class Main {
 						'click' => HYVE_LITE_URL . 'assets/audio/click.mp3',
 						'ping'  => HYVE_LITE_URL . 'assets/audio/ping.mp3',
 					],
-					'welcome'   => esc_html( $settings['welcome_message'] ?? '' ),
+					'welcome'   => esc_html( $settings['welcome_message'] ?? __( 'Hello! How can I help you today?', 'hyve-lite' ) ),
 					'isEnabled' => $settings['chat_enabled'],
 					'strings'   => [
 						'reply'       => __( 'Write a reply…', 'hyve-lite' ),

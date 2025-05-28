@@ -56,7 +56,9 @@ const ModerationReview = ({
 
 	return (
 		<Modal
-			title={ sprintf( __( 'Failed Moderation: %s', 'hyve-lite' ), ( post?.title || __( 'Untitled', 'hyve-lite' ) ) ) }
+			title={ sprintf(
+				// translators: %s the reason for failed moderation.
+				__( 'Failed Moderation: %s', 'hyve-lite' ), ( post?.title || __( 'Untitled', 'hyve-lite' ) ) ) }
 			onRequestClose={ onClose }
 			shouldCloseOnClickOutside={ false }
 			className="md:max-w-3xl md:w-full"

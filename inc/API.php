@@ -696,7 +696,9 @@ class API extends BaseAPI {
 
 		$settings = Main::get_settings();
 
-		$response = ( isset( $message['success'] ) && true === $message['success'] && isset( $message['response'] ) ) ? $message['response'] : esc_html( $settings['default_message'] );
+		$default_message = isset( $settings['default_message'] ) ? $settings['default_message'] : __( 'Sorry, I\'m not able to help with that.', 'hyve-lite' );
+
+		$response = ( isset( $message['success'] ) && true === $message['success'] && isset( $message['response'] ) ) ? $message['response'] : esc_html( $default_message );
 
 		do_action( 'hyve_chat_response', $run_id, $thread_id, $query, $record_id, $message, $response );
 
