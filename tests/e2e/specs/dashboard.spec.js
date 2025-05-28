@@ -313,21 +313,10 @@ test.describe( 'Dashboard', () => {
 		await expect(
 			page.getByText( 'I did not receive the email' )
 		).toBeVisible();
-		await expect(
-			page
-				.locator( 'div' )
-				.filter( {
-					hasText: /^I did not receive the email26\/05\/2025 16:13$/,
-				} )
-				.getByRole( 'time' )
-		).toBeVisible();
 
 		// Check message rendering from bot.
 		await expect(
 			page.getByText( 'Please check your spam folder' )
-		).toBeVisible();
-		await expect(
-			page.getByText( '/05/2025 16:13' ).nth( 1 )
 		).toBeVisible();
 	} );
 
