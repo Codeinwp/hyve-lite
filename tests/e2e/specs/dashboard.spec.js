@@ -5,11 +5,11 @@ test.describe( 'Dashboard', () => {
 		await admin.visitAdminPage( 'admin.php?page=hyve' );
 	} );
 
-	test( 'check dashboard URL', async ( { page, admin } ) => {
+	test( 'check dashboard URL', async ( { page } ) => {
 		expect( await page.locator( '#hyve-options' ).count() ).toBe( 1 );
 	} );
 
-	test( 'check shortcuts', async ( { page, admin } ) => {
+	test( 'check shortcuts', async ( { page } ) => {
 		await page
 			.getByRole( 'button', { name: 'Knowledge Base → In Knowledge' } )
 			.click( { force: true } );
@@ -34,7 +34,7 @@ test.describe( 'Dashboard', () => {
 	/**
 	 * Navigate through the dashboard tabs and check for rendering issues.
 	 */
-	test( 'check tabs', async ( { page, admin } ) => {
+	test( 'check tabs', async ( { page } ) => {
 		await page
 			.getByRole( 'button', { name: 'Knowledge Base', exact: true } )
 			.click( { force: true } );
