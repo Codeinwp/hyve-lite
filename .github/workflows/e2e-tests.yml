@@ -8,22 +8,29 @@ jobs:
   run:
     runs-on: ubuntu-latest
     if: github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.event.pull_request.base.repo.full_name
-    name: JS Test
+    name: Playwright with WP Env
     steps:
       - uses: actions/checkout@master
         with:
           persist-credentials: false
-      - name: Build files using 20
+      - name: Setup Node 20 with cache
         uses: actions/setup-node@v4
         with:
           node-version: 20
-      - name: Install deps
+          cache: "npm"
+      - name: Setup PHP version
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.1"
+          extensions: simplexml
+      - name: Install NPM dependencies
         run: |
           npm install -g npm
           npm ci
-          composer install --prefer-dist --no-progress --no-suggest
         env:
           CI: true
+      - name: Install composer dependencies
+          composer install --prefer-dist --no-progress --no-suggest
       - name: Build plugin
         run: |
           npm run build
