@@ -51,6 +51,6 @@
         "hkulekci/qdrant": "^0.5.7",
         "symfony/http-client": "^6.4",
         "nyholm/psr7": "^1.8",
-        "yethee/tiktoken": "^0.7.0"
+        "yethee/tiktoken": "^0.10.0"
     }
 }
