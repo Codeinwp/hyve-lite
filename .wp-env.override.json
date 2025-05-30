@@ -1,0 +1,13 @@
+{
+	"core": null,
+	"plugins": [ "." ],
+	"config": {
+		"WP_DEBUG": true,
+		"WP_DEBUG_DISPLAY": true,
+		"FS_METHOD": "direct"
+	},
+	"phpVersion": "8.1",
+	"lifecycleScripts": {
+		"afterStart": "bash bin/e2e-tests.sh"
+	}
+}
