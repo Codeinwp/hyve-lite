@@ -234,6 +234,7 @@ class API extends BaseAPI {
 	 * @return \WP_REST_Response
 	 */
 	public function get_settings() {
+		Main::add_labels_to_default_settings();
 		$settings = Main::get_settings();
 		return rest_ensure_response( $settings );
 	}
@@ -694,6 +695,7 @@ class API extends BaseAPI {
 			return rest_ensure_response( [ 'error' => __( 'No messages found.', 'hyve-lite' ) ] );
 		}
 
+		Main::add_labels_to_default_settings();
 		$settings = Main::get_settings();
 
 		$response = ( isset( $message['success'] ) && true === $message['success'] && isset( $message['response'] ) ) ? $message['response'] : esc_html( $settings['default_message'] );
