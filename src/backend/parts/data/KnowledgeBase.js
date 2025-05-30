@@ -42,7 +42,7 @@ const KnowledgeBase = () => {
 							return (
 								<Button
 									key={ label }
-									className="bg-white h-auto text-left overflow-hidden shadow border-[0.5px] border-gray-300 border-solid rounded-md cursor-pointer"
+									className="bg-white h-auto text-left overflow-hidden shadow-sm border-[0.5px] border-gray-300 border-solid rounded-md cursor-pointer"
 									onClick={ () => setView( key ) }
 								>
 									<div className="px-4 py-5 w-full sm:p-6">
