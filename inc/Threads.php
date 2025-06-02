@@ -65,12 +65,12 @@ class Threads {
 	/**
 	 * Record the message.
 	 * 
-	 * @param string     $run_id    Run ID.
-	 * @param string     $thread_id Thread ID.
-	 * @param string     $query     Query.
-	 * @param string|int $record_id Record ID.
-	 * @param array      $message   Message.
-	 * @param string     $response  Response.
+	 * @param string               $run_id    Run ID.
+	 * @param string               $thread_id Thread ID.
+	 * @param string               $query     Query.
+	 * @param string|int           $record_id Record ID.
+	 * @param array<string, mixed> $message   Message.
+	 * @param string               $response  Response.
 	 * 
 	 * @return void
 	 */
@@ -80,7 +80,7 @@ class Threads {
 		}
 
 		self::add_message(
-			$record_id,
+			intval( $record_id ),
 			[
 				'thread_id' => $thread_id,
 				'sender'    => 'bot',
@@ -101,7 +101,7 @@ class Threads {
 	public function record_thread( $thread_id, $record_id, $message ) {
 		if ( $record_id ) {
 			$record_id = self::add_message(
-				$record_id,
+				intval( $record_id ),
 				[
 					'thread_id' => $thread_id,
 					'sender'    => 'user',
@@ -126,8 +126,8 @@ class Threads {
 	/**
 	 * Create a new thread.
 	 * 
-	 * @param string $title The title of the thread.
-	 * @param array  $data The data of the thread.
+	 * @param string               $title The title of the thread.
+	 * @param array<string, mixed> $data The data of the thread.
 	 * 
 	 * @return int
 	 */
@@ -159,8 +159,8 @@ class Threads {
 	/**
 	 * Add a new message to a thread.
 	 * 
-	 * @param int   $post_id The ID of the thread.
-	 * @param array $data The data of the message.
+	 * @param int                  $post_id The ID of the thread.
+	 * @param array<string, mixed> $data The data of the message.
 	 * 
 	 * @return int
 	 */

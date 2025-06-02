@@ -67,7 +67,6 @@ class Main {
 		$settings = self::get_settings();
 
 		if (
-			is_array( $settings ) &&
 			isset( $settings['api_key'] ) && isset( $settings['assistant_id'] ) &&
 			! empty( $settings['api_key'] ) && ! empty( $settings['assistant_id'] )
 		) {
@@ -117,6 +116,8 @@ class Main {
 	 * @return void
 	 */
 	public function enqueue_options_assets() {
+
+		// @phpstan-ignore include.fileNotFound
 		$asset_file = include HYVE_LITE_PATH . '/build/backend/index.asset.php';
 
 		wp_enqueue_style(
@@ -179,7 +180,7 @@ class Main {
 	 * 
 	 * @since 1.1.0
 	 * 
-	 * @return array
+	 * @return array<string, mixed>
 	 */
 	public static function get_default_settings() {
 		return apply_filters(
@@ -216,7 +217,7 @@ class Main {
 	 * 
 	 * @since 1.1.0
 	 * 
-	 * @return array
+	 * @return array<string, mixed>
 	 */
 	public static function get_settings() {
 		$settings = get_option( 'hyve_settings', [] );
@@ -260,6 +261,7 @@ class Main {
 			return;
 		}
 
+		// @phpstan-ignore include.fileNotFound
 		$asset_file = include HYVE_LITE_PATH . '/build/frontend/frontend.asset.php';
 
 		wp_register_style(
@@ -329,7 +331,7 @@ class Main {
 	 *
 	 * @since 1.3.0
 	 * 
-	 * @return array
+	 * @return array<string, mixed>
 	 */
 	public function get_stats() {
 		return [
@@ -411,9 +413,9 @@ class Main {
 	/**
 	 * Set Black Friday data.
 	 *
-	 * @param array $configs The configuration array for the loaded products.
+	 * @param array<string, mixed> $configs The configuration array for the loaded products.
 	 *
-	 * @return array
+	 * @return array<string, mixed>
 	 */
 	public function add_black_friday_data( $configs ) {
 		$config = $configs['default'];

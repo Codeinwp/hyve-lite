@@ -31,7 +31,7 @@ class Block {
 	/**
 	 * Render shortcode.
 	 * 
-	 * @param array $atts Shortcode attributes.
+	 * @param array<string, mixed> $atts Shortcode attributes.
 	 * 
 	 * @return string
 	 */

@@ -16,9 +16,9 @@ class Tokenizer {
 	/**
 	 * Tokenize data.
 	 * 
-	 * @param array $post Post data.
+	 * @param array<string, mixed> $post Post data.
 	 * 
-	 * @return array
+	 * @return array<array<string, mixed>>
 	 */
 	public static function tokenize( $post ) {
 		$provider = new EncoderProvider();
@@ -74,7 +74,7 @@ class Tokenizer {
 	 * @param string $text Text to chunk.
 	 * @param int    $size Chunk size.
 	 * 
-	 * @return array
+	 * @return array<string>
 	 */
 	public static function create_chunks( $text, $size = 1000 ) {
 		$provider = new EncoderProvider();

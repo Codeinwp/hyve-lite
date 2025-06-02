@@ -32,7 +32,7 @@ class BaseAPI {
 	/**
 	 * Instance of DB_Table class.
 	 *
-	 * @var object
+	 * @var \ThemeIsle\HyveLite\DB_Table
 	 */
 	protected $table;
 
