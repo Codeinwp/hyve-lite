@@ -21,10 +21,13 @@ registerBlockType( metadata.name, {
 		return (
 			<div { ...blockProps }>
 				<Placeholder>
-					{ __( 'Hyve Chatbot will appear here. No further action needed.', 'hyve-lite' ) }
+					{ __(
+						'Hyve Chatbot will appear here. No further action needed.',
+						'hyve-lite'
+					) }
 				</Placeholder>
 			</div>
 		);
 	},
-	save: () => null
-});
+	save: () => null,
+} );

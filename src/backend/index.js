@@ -22,4 +22,4 @@ window.hyveComponents.PostModal = PostModal;
 domReady( () => {
 	const root = createRoot( document.getElementById( 'hyve-options' ) );
 	root.render( <App /> );
-});
+} );

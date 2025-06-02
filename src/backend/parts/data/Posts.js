@@ -5,18 +5,11 @@ import { __ } from '@wordpress/i18n';
 
 import apiFetch from '@wordpress/api-fetch';
 
-import {
-	Button,
-	Panel,
-	PanelRow
-} from '@wordpress/components';
+import { Button, Panel, PanelRow } from '@wordpress/components';
 
 import { useDispatch } from '@wordpress/data';
 
-import {
-	useEffect,
-	useState
-} from '@wordpress/element';
+import { useEffect, useState } from '@wordpress/element';
 
 import { addQueryArgs } from '@wordpress/url';
 
@@ -26,25 +19,25 @@ import { addQueryArgs } from '@wordpress/url';
 import PostsTable from '../PostsTable';
 import AddData from './AddData';
 
-const Posts = ({ setView }) => {
-	const [ posts, setPosts ] = useState([]);
+const Posts = ( { setView } ) => {
+	const [ posts, setPosts ] = useState( [] );
 	const [ hasMore, setHasMore ] = useState( false );
 	const [ isLoading, setLoading ] = useState( true );
-	const [ isDeleting, setDeleting ] = useState([]);
+	const [ isDeleting, setDeleting ] = useState( [] );
 	const [ addPost, setAddPost ] = useState( false );
 
 	const { createNotice } = useDispatch( 'core/notices' );
 	const { setTotalChunks } = useDispatch( 'hyve' );
 
-	const fetchPosts = async() => {
+	const fetchPosts = async () => {
 		setLoading( true );
 
-		const response = await apiFetch({
+		const response = await apiFetch( {
 			path: addQueryArgs( `${ window.hyve.api }/data`, {
 				offset: posts?.length || 0,
-				status: 'included'
-			})
-		});
+				status: 'included',
+			} ),
+		} );
 
 		setLoading( false );
 		setPosts( posts.concat( response.posts ) );
@@ -52,31 +45,27 @@ const Posts = ({ setView }) => {
 		setTotalChunks( response?.totalChunks );
 	};
 
-	const onDelete = async( id ) => {
-		setDeleting([ ...isDeleting, id ]);
+	const onDelete = async ( id ) => {
+		setDeleting( [ ...isDeleting, id ] );
 
-		await apiFetch({
+		await apiFetch( {
 			path: addQueryArgs( `${ window.hyve.api }/data`, {
-				id
-			}),
-			method: 'DELETE'
-		});
+				id,
+			} ),
+			method: 'DELETE',
+		} );
 
 		setPosts( posts.filter( ( post ) => post.ID !== id ) );
 
-		createNotice(
-			'success',
-			__( 'Post has been removed.', 'hyve-lite' ),
-			{
-				type: 'snackbar',
-				isDismissible: true
-			}
-		);
+		createNotice( 'success', __( 'Post has been removed.', 'hyve-lite' ), {
+			type: 'snackbar',
+			isDismissible: true,
+		} );
 	};
 
 	useEffect( () => {
 		fetchPosts();
-	}, []);
+	}, [] );
 
 	if ( addPost ) {
 		return <AddData refresh={ fetchPosts } setAddPost={ setAddPost } />;
@@ -97,7 +86,12 @@ const Posts = ({ setView }) => {
 				</div>
 
 				<PanelRow>
-					<p className="py-4">{ __( 'All the content from your WordPress site that has been added to the Knowledge Base.', 'hyve-lite' ) }</p>
+					<p className="py-4">
+						{ __(
+							'All the content from your WordPress site that has been added to the Knowledge Base.',
+							'hyve-lite'
+						) }
+					</p>
 
 					<div className="w-full flex justify-end">
 						<Button
@@ -114,17 +108,15 @@ const Posts = ({ setView }) => {
 							isLoading={ isLoading }
 							hasMore={ hasMore }
 							onFetch={ fetchPosts }
-							actions={
-								[
-									{
-										label: __( 'Remove', 'hyve-lite' ),
-										isBusy: isDeleting,
-										variant: 'secondary',
-										isDestructive: true,
-										onClick: onDelete
-									}
-								]
-							}
+							actions={ [
+								{
+									label: __( 'Remove', 'hyve-lite' ),
+									isBusy: isDeleting,
+									variant: 'secondary',
+									isDestructive: true,
+									onClick: onDelete,
+								},
+							] }
 						/>
 					</div>
 				</PanelRow>
