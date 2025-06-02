@@ -30,6 +30,7 @@ jobs:
         env:
           CI: true
       - name: Install composer dependencies
+        run: |
           composer install --prefer-dist --no-progress --no-suggest
       - name: Build plugin
         run: |
