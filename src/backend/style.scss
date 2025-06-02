@@ -1,6 +1,10 @@
-@import 'tailwindcss/base';
-@import 'tailwindcss/components';
-@import 'tailwindcss/utilities';
+/**
+* Note: Do not use only `@import "tailwindcss";` since it is using cascade layers
+* which have a lower priority than normal CSS in WordPress React Component
+*/
+@import "tailwindcss/theme.css";
+@import "tailwindcss/preflight.css";
+@import "tailwindcss/utilities.css";
 
 #wpcontent {
     padding: 0;

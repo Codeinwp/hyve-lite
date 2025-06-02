@@ -82,7 +82,7 @@ const Dashboard = () => {
 
 					<div className="grid grid-cols-1 gap-5 sm:grid-cols-3 mt-4">
 						{ STATUS.map( ({ label, value, description, action }) => (
-							<div key={ label } className="bg-white overflow-hidden shadow border-[0.5px] border-gray-300 border-solid rounded-md">
+							<div key={ label } className="bg-white overflow-hidden shadow-sm border-[0.5px] border-gray-300 border-solid rounded-md">
 								<div className="px-4 py-5 sm:p-6">
 									<dl>
 										<dt className="text-sm leading-5 font-medium text-gray-500 truncate">
@@ -116,7 +116,7 @@ const Dashboard = () => {
 						{ ACTIONS.map( ({ label, description, icon, action }) => (
 							<Button
 								key={ label }
-								className="bg-white h-auto text-left overflow-hidden shadow border-[0.5px] border-gray-300 border-solid rounded-md cursor-pointer"
+								className="bg-white h-auto text-left overflow-hidden shadow-sm border-[0.5px] border-gray-300 border-solid rounded-md cursor-pointer"
 								onClick={ action }
 							>
 								<div className="px-4 py-5 sm:p-6">

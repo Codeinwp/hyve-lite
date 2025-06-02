@@ -44,7 +44,7 @@ const Sidebar = () => {
 			>
 				<div className="max-w-2xl mx-auto">
 					<aside aria-label="Sidebar">
-						<div className="px-3 py-4 overflow-y-auto rounded bg-white">
+						<div className="px-3 py-4 overflow-y-auto rounded-sm bg-white">
 							<ul className="space-y-2">
 								{ Object.keys( MENU_ITEMS ).map( ( key ) => (
 									<li key={ key }>
