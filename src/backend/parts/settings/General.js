@@ -11,7 +11,9 @@ import {
 	Panel,
 	PanelRow,
 	TextControl,
+	// eslint-disable-next-line @wordpress/no-unsafe-wp-apis
 	__experimentalToggleGroupControl as ToggleGroupControl,
+	// eslint-disable-next-line @wordpress/no-unsafe-wp-apis
 	__experimentalToggleGroupControlOption as ToggleGroupControlOption,
 } from '@wordpress/components';
 
@@ -35,7 +37,10 @@ const SuggestedQuestions = () => {
 			campaign="suggested-questions-settings"
 		>
 			<PanelRow>
-				<BaseControl label={ __( 'Suggested Questions', 'hyve-lite' ) }>
+				<BaseControl
+					id={ 'suggested-questions' }
+					label={ __( 'Suggested Questions', 'hyve-lite' ) }
+				>
 					<p className="components-base-control__help text-xs not-italic text-[rgb(117,117,117)] mt-[calc(8px)] mb-[revert]">
 						{ __(
 							'These questions will be displayed in the chat to get the conversation started.',

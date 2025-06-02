@@ -21,7 +21,7 @@ import {
 
 import { useDispatch, useSelect } from '@wordpress/data';
 
-import { useEffect, useState } from '@wordpress/element';
+import { useEffect, useState, useMemo } from '@wordpress/element';
 
 import { addQueryArgs } from '@wordpress/url';
 
@@ -30,13 +30,13 @@ import { addQueryArgs } from '@wordpress/url';
  */
 import { onProcessData } from '../../utils';
 
-import PostsTable from '../PostsTable';
+import { PostsTable } from '../PostsTable';
 
 import ModerationReview from '../ModerationReview';
 
 const excludeTypes = [ 'attachment' ];
 
-let postTypes = window.hyve.postTypes.filter(
+const postTypes = window.hyve.postTypes.filter(
 	( postType ) => ! excludeTypes.includes( postType.value )
 );
 
@@ -53,48 +53,25 @@ const AddData = ( { refresh, setAddPost } ) => {
 	const [ isUpdating, setUpdating ] = useState( [] );
 	const [ isModerationModalOpen, setModerationModalOpen ] = useState( false );
 	const [ post, setPost ] = useState( null );
+	const [ offset, setOffset ] = useState( 0 );
 
 	const [ query, setQuery ] = useState( {
 		type: 'any',
 		search: '',
 	} );
+	const queryHash = useMemo( () => hash( query ), [ query ] );
 
 	const { setTotalChunks } = useDispatch( 'hyve' );
 	const hasReachedLimit = useSelect( ( select ) =>
 		select( 'hyve' ).hasReachedLimit()
 	);
 
-	const fetchData = async () => {
-		setLoading( true );
-
-		const queryHash = hash( query );
-
-		const response = await apiFetch( {
-			path: addQueryArgs( `${ window.hyve.api }/data`, {
-				offset: posts[ queryHash ]?.length || 0,
-				...query,
-			} ),
-		} );
-
-		setLoading( false );
-
-		setPosts( {
-			...posts,
-			[ queryHash ]: ( posts[ queryHash ] || [] ).concat(
-				response.posts
-			),
-		} );
-
-		setHasMore( response.more );
-		setTotalChunks( response?.totalChunks );
-	};
-
 	const onProcess = async ( id ) => {
 		setUpdating( ( prev ) => [ ...prev, id ] );
-		const post = posts[ hash( query ) ].find( ( post ) => post.ID === id );
+		const currentPost = posts[ queryHash ].find( ( p ) => p.ID === id );
 
 		await onProcessData( {
-			post,
+			post: currentPost,
 			onSuccess: () => {
 				setUpdating( ( prev ) =>
 					prev.filter( ( postId ) => postId !== id )
@@ -108,7 +85,7 @@ const AddData = ( { refresh, setAddPost } ) => {
 					undefined !== error.review
 				) {
 					const newPost = {
-						...post,
+						...currentPost,
 						review: error.review,
 					};
 
@@ -124,9 +101,32 @@ const AddData = ( { refresh, setAddPost } ) => {
 	};
 
 	useEffect( () => {
+		const fetchData = async () => {
+			setLoading( true );
+
+			const response = await apiFetch( {
+				path: addQueryArgs( `${ window.hyve.api }/data`, {
+					offset,
+					...query,
+				} ),
+			} );
+
+			setLoading( false );
+
+			setPosts( ( prev ) => ( {
+				...prev,
+				[ queryHash ]: ( prev[ queryHash ] || [] ).concat(
+					response.posts
+				),
+			} ) );
+
+			setHasMore( response.more );
+			setTotalChunks( response?.totalChunks );
+		};
+
 		const handler = setTimeout( () => fetchData(), 1000 );
 		return () => clearTimeout( handler );
-	}, [ query ] );
+	}, [ query, setTotalChunks, queryHash, offset ] );
 
 	const onChangeQuery = ( key, value ) => {
 		setQuery( {
@@ -198,13 +198,17 @@ const AddData = ( { refresh, setAddPost } ) => {
 							<PostsTable
 								posts={
 									posts[ hash( query ) ]?.filter(
-										( post ) =>
-											! processedPosts.includes( post.ID )
+										( p ) =>
+											! processedPosts.includes( p.ID )
 									) || []
 								}
 								isLoading={ isLoading }
 								hasMore={ hasMore }
-								onFetch={ fetchData }
+								onFetch={ () => {
+									setOffset(
+										posts[ queryHash ]?.length ?? 0
+									);
+								} }
 								actions={ [
 									{
 										label: __( 'Add', 'hyve-lite' ),

@@ -57,6 +57,7 @@ const Appearance = () => {
 					<PanelRow>
 						{ colorOptions.map( ( option ) => (
 							<BaseControl
+								id={ option.label }
 								key={ option.value }
 								label={ option.label }
 							>

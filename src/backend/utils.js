@@ -178,9 +178,10 @@ export const formatDate = ( date ) => {
 
 /**
  * Helper function to add proper utm.
- * @param {string} url Url to add utms.
- * @param {string} area Descriptive name of the link
- * @returns {string}
+ *
+ * @param {string} urlAdress Url to add utms.
+ * @param {string} linkArea  Descriptive name of the link.
+ * @return {string} The URL with UTM parameters added.
  */
 export const setUtm = ( urlAdress, linkArea ) => {
 	const urlLink = new URL( urlAdress );

@@ -8,7 +8,7 @@ import { Button, Panel, PanelRow, SearchControl } from '@wordpress/components';
 /**
  * Internal dependencies.
  */
-import PostsTable from '../PostsTable';
+import { PostsTable } from '../PostsTable';
 import UpsellContainer from '../UpsellContainer';
 
 const posts = [

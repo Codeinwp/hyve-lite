@@ -5,7 +5,13 @@ import { __ } from '@wordpress/i18n';
 
 import { Button, Spinner } from '@wordpress/components';
 
-const PostsTable = ( { posts, isLoading, hasMore, onFetch, actions } ) => {
+export const PostsTable = ( {
+	posts,
+	isLoading,
+	hasMore,
+	onFetch,
+	actions,
+} ) => {
 	return (
 		<>
 			<div className="flex flex-col">
@@ -84,5 +90,3 @@ const PostsTable = ( { posts, isLoading, hasMore, onFetch, actions } ) => {
 		</>
 	);
 };
-
-export default PostsTable;

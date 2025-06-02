@@ -42,24 +42,25 @@ const Messages = () => {
 	const [ hasMore, setHasMore ] = useState( false );
 	const [ isUpsellOpen, setUpsellOpen ] = useState( false );
 	const [ isLoading, setLoading ] = useState( true );
-
-	const fetchPosts = async () => {
-		setLoading( true );
-
-		const response = await apiFetch( {
-			path: addQueryArgs( `${ window.hyve.api }/threads`, {
-				offset: posts?.length || 0,
-			} ),
-		} );
-
-		setLoading( false );
-		setPosts( posts.concat( response.posts ) );
-		setHasMore( response.more );
-	};
+	const [ offset, setOffset ] = useState( 0 );
 
 	useEffect( () => {
+		const fetchPosts = async () => {
+			setLoading( true );
+
+			const response = await apiFetch( {
+				path: addQueryArgs( `${ window.hyve.api }/threads`, {
+					offset,
+				} ),
+			} );
+
+			setLoading( false );
+			setPosts( ( prev ) => [ ...prev, ...response.posts ] );
+			setHasMore( response.more );
+		};
+
 		fetchPosts();
-	}, [] );
+	}, [ offset ] );
 
 	return (
 		<div className="col-span-6 xl:col-span-4">
@@ -82,6 +83,10 @@ const Messages = () => {
 						<img
 							className="border-t-gray-300 border-t-[0.5px] border-x-0 border-b-0 border-solid"
 							src={ `${ window?.hyve?.assets?.images }threads.png` }
+							alt={ __(
+								'Message threads preview showing conversation history',
+								'hyve-lite'
+							) }
 						/>
 					</UpsellContainer>
 				</Modal>
@@ -156,7 +161,9 @@ const Messages = () => {
 												}
 											/>,
 											isLoading,
-											fetchPosts
+											() => {
+												setOffset( posts.length );
+											}
 										) }
 								</div>
 							) }

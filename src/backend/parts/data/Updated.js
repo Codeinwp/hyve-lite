@@ -17,7 +17,7 @@ import { addQueryArgs } from '@wordpress/url';
  * Internal dependencies.
  */
 import { onProcessData } from '../../utils';
-import PostsTable from '../PostsTable';
+import { PostsTable } from '../PostsTable';
 import ModerationReview from '../ModerationReview';
 
 const Updated = () => {
@@ -27,31 +27,16 @@ const Updated = () => {
 	const [ isUpdating, setUpdating ] = useState( [] );
 	const [ isModerationModalOpen, setModerationModalOpen ] = useState( false );
 	const [ post, setPost ] = useState( null );
+	const [ offset, setOffset ] = useState( 0 );
 
 	const { setTotalChunks } = useDispatch( 'hyve' );
 
-	const fetchUpdate = async () => {
-		setLoadingUpdate( true );
-
-		const response = await apiFetch( {
-			path: addQueryArgs( `${ window.hyve.api }/data`, {
-				offset: needsUpdate?.length || 0,
-				status: 'pending',
-			} ),
-		} );
-
-		setLoadingUpdate( false );
-		setNeedsUpdate( [ ...needsUpdate, ...response.posts ] );
-		setHasMoreUpdate( response.more );
-		setTotalChunks( response?.totalChunks );
-	};
-
 	const onUpdate = async ( id ) => {
 		setUpdating( ( prev ) => [ ...prev, id ] );
-		const post = needsUpdate.find( ( post ) => post.ID === id );
+		const currentPost = needsUpdate.find( ( p ) => p.ID === id );
 
 		await onProcessData( {
-			post,
+			post: currentPost,
 			params: {
 				action: 'update',
 			},
@@ -60,7 +45,7 @@ const Updated = () => {
 					prev.filter( ( postId ) => postId !== id )
 				);
 				setNeedsUpdate( ( prev ) =>
-					prev.filter( ( post ) => post.ID !== id )
+					prev.filter( ( p ) => p.ID !== id )
 				);
 			},
 			onError: ( error ) => {
@@ -69,7 +54,7 @@ const Updated = () => {
 					undefined !== error.review
 				) {
 					const newPost = {
-						...post,
+						...currentPost,
 						review: error.review,
 					};
 
@@ -85,8 +70,24 @@ const Updated = () => {
 	};
 
 	useEffect( () => {
+		const fetchUpdate = async () => {
+			setLoadingUpdate( true );
+
+			const response = await apiFetch( {
+				path: addQueryArgs( `${ window.hyve.api }/data`, {
+					offset,
+					status: 'pending',
+				} ),
+			} );
+
+			setLoadingUpdate( false );
+			setNeedsUpdate( ( prev ) => [ ...prev, ...response.posts ] );
+			setHasMoreUpdate( response.more );
+			setTotalChunks( response?.totalChunks );
+		};
+
 		fetchUpdate();
-	}, [] );
+	}, [ setTotalChunks, offset ] );
 
 	return (
 		<>
@@ -105,7 +106,9 @@ const Updated = () => {
 								posts={ needsUpdate || [] }
 								isLoading={ isLoadingUpdate }
 								hasMore={ hasMoreUpdate }
-								onFetch={ fetchUpdate }
+								onFetch={ () => {
+									setOffset( needsUpdate.length );
+								} }
 								actions={ [
 									{
 										label: __( 'Update', 'hyve-lite' ),

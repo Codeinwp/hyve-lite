@@ -8,7 +8,7 @@ import { Button, TextControl, Panel, PanelRow } from '@wordpress/components';
 /**
  * Internal dependencies.
  */
-import PostsTable from '../PostsTable';
+import { PostsTable } from '../PostsTable';
 import UpsellContainer from '../UpsellContainer';
 
 const posts = Array.from( { length: 5 }, ( _, i ) => ( {

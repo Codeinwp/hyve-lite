@@ -15,7 +15,7 @@ import {
 	TextControl,
 } from '@wordpress/components';
 
-import { useEffect, useState } from '@wordpress/element';
+import { useEffect, useState, useCallback } from '@wordpress/element';
 
 import { useDispatch, useSelect } from '@wordpress/data';
 
@@ -40,7 +40,7 @@ const Qdrant = () => {
 	const [ isOpen, setIsOpen ] = useState( false );
 	const [ migrationStatus, setMigrationStatus ] = useState( [] );
 
-	const getQdrantStatus = async () => {
+	const getQdrantStatus = useCallback( async () => {
 		try {
 			const response = await apiFetch( {
 				path: `${ window.hyve.api }/qdrant`,
@@ -62,11 +62,11 @@ const Qdrant = () => {
 				isDismissible: true,
 			} );
 		}
-	};
+	}, [ setQdrantStatus, createNotice ] );
 
 	useEffect( () => {
 		getQdrantStatus();
-	}, [] );
+	}, [ getQdrantStatus ] );
 
 	const onDeactivate = async () => {
 		setIsSaving( true );

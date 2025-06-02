@@ -16,7 +16,7 @@ import { addQueryArgs } from '@wordpress/url';
 /**
  * Internal dependencies.
  */
-import PostsTable from '../PostsTable';
+import { PostsTable } from '../PostsTable';
 import AddData from './AddData';
 
 const Posts = ( { setView } ) => {
@@ -29,21 +29,7 @@ const Posts = ( { setView } ) => {
 	const { createNotice } = useDispatch( 'core/notices' );
 	const { setTotalChunks } = useDispatch( 'hyve' );
 
-	const fetchPosts = async () => {
-		setLoading( true );
-
-		const response = await apiFetch( {
-			path: addQueryArgs( `${ window.hyve.api }/data`, {
-				offset: posts?.length || 0,
-				status: 'included',
-			} ),
-		} );
-
-		setLoading( false );
-		setPosts( posts.concat( response.posts ) );
-		setHasMore( response.more );
-		setTotalChunks( response?.totalChunks );
-	};
+	const [ offset, setOffset ] = useState( 0 );
 
 	const onDelete = async ( id ) => {
 		setDeleting( [ ...isDeleting, id ] );
@@ -64,11 +50,34 @@ const Posts = ( { setView } ) => {
 	};
 
 	useEffect( () => {
+		const fetchPosts = async () => {
+			setLoading( true );
+
+			const response = await apiFetch( {
+				path: addQueryArgs( `${ window.hyve.api }/data`, {
+					offset,
+					status: 'included',
+				} ),
+			} );
+
+			setLoading( false );
+			setPosts( ( prev ) => [ ...prev, ...response.posts ] );
+			setHasMore( response.more );
+			setTotalChunks( response?.totalChunks );
+		};
+
 		fetchPosts();
-	}, [] );
+	}, [ offset, setTotalChunks ] );
 
 	if ( addPost ) {
-		return <AddData refresh={ fetchPosts } setAddPost={ setAddPost } />;
+		return (
+			<AddData
+				refresh={ () => {
+					setOffset( ( prev ) => prev + posts.length );
+				} }
+				setAddPost={ setAddPost }
+			/>
+		);
 	}
 
 	return (
@@ -107,7 +116,9 @@ const Posts = ( { setView } ) => {
 							posts={ posts }
 							isLoading={ isLoading }
 							hasMore={ hasMore }
-							onFetch={ fetchPosts }
+							onFetch={ () => {
+								setOffset( posts.length );
+							} }
 							actions={ [
 								{
 									label: __( 'Remove', 'hyve-lite' ),

@@ -76,8 +76,8 @@ const selectors = {
 	},
 	hasReachedLimit( state ) {
 		return (
-			hyve.chunksLimit <= Number( state.totalChunks ) &&
-			! Boolean( hyve.isQdrantActive )
+			window.hyve.chunksLimit <= Number( state.totalChunks ) &&
+			! Boolean( window.hyve.isQdrantActive )
 		);
 	},
 	isQdrantActive( state ) {

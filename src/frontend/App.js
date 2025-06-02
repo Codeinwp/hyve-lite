@@ -5,8 +5,8 @@ import apiFetch from '@wordpress/api-fetch';
 
 import { addQueryArgs } from '@wordpress/url';
 
-const clickAudio = new Audio( hyve.audio.click );
-const pingAudio = new Audio( hyve.audio.ping );
+const clickAudio = new Audio( window.hyve.audio.click );
+const pingAudio = new Audio( window.hyve.audio.ping );
 const { strings } = window.hyve;
 
 class App {
@@ -367,7 +367,7 @@ class App {
 
 		const chatMessageBox = document.getElementById( 'hyve-message-box' );
 
-		let suggestions = [ `<span>${ strings.suggestions }</span>` ];
+		const suggestions = [ `<span>${ strings.suggestions }</span>` ];
 
 		filteredQuestions.forEach( ( question ) => {
 			suggestions.push( `<button>${ question }</button>` );
@@ -412,14 +412,15 @@ class App {
 	}
 
 	setupListeners() {
-		const chatOpen = document.getElementById( 'hyve-open' );
-		const chatClose = document.getElementById( 'hyve-close' );
 		const chatInputText = document.getElementById( 'hyve-text-input' );
 		const chatSendButton = document.getElementById( 'hyve-send-button' );
 
 		if ( ! chatInputText || ! chatSendButton ) {
 			return;
 		}
+
+		const chatOpen = document.getElementById( 'hyve-open' );
+		const chatClose = document.getElementById( 'hyve-close' );
 
 		if ( chatOpen && chatClose ) {
 			chatOpen.addEventListener( 'click', () =>

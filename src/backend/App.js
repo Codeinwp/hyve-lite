@@ -1,8 +1,6 @@
 /**
  * WordPress dependencies.
  */
-import { __ } from '@wordpress/i18n';
-
 import apiFetch from '@wordpress/api-fetch';
 
 import { Spinner } from '@wordpress/components';
@@ -51,7 +49,7 @@ const App = () => {
 		if ( window.tsdk_reposition_notice ) {
 			window.tsdk_reposition_notice();
 		}
-	}, [] );
+	}, [ setSettings, setLoading, setRoute ] );
 
 	const ROUTE_TREE = applyFilters( 'hyve.route', ROUTE );
 

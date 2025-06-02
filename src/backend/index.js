@@ -11,7 +11,7 @@ import { createRoot } from '@wordpress/element';
 import './style.scss';
 import './store';
 import App from './App';
-import PostsTable from './parts/PostsTable';
+import { PostsTable } from './parts/PostsTable';
 import PostModal from './parts/PostModal';
 
 window.hyveComponents = {};

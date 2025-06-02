@@ -9,12 +9,12 @@ import { dispatch, useDispatch, useSelect } from '@wordpress/data';
 
 import { archive, brush, help } from '@wordpress/icons';
 
-const { setRoute } = dispatch( 'hyve' );
+const { setRoute: changeRoute } = dispatch( 'hyve' );
 
 const STATUS = [
 	{
 		label: __( 'Sessions', 'hyve-lite' ),
-		value: hyve?.stats?.threads,
+		value: window.hyve?.stats?.threads,
 		description: __(
 			'Unique chat sessions created by your users.',
 			'hyve-lite'
@@ -22,7 +22,7 @@ const STATUS = [
 	},
 	{
 		label: __( 'Messages', 'hyve-lite' ),
-		value: hyve?.stats?.messages,
+		value: window.hyve?.stats?.messages,
 		description: __(
 			'Total messages exchanged between users and Hyve.',
 			'hyve-lite'
@@ -30,16 +30,16 @@ const STATUS = [
 	},
 	{
 		label: __( 'Knowledge Base', 'hyve-lite' ),
-		value: Boolean( hyve.isQdrantActive )
-			? hyve?.stats?.totalChunks
-			: `${ hyve?.stats?.totalChunks } / ${ hyve?.chunksLimit }`,
+		value: Boolean( window.hyve.isQdrantActive )
+			? window.hyve?.stats?.totalChunks
+			: `${ window.hyve?.stats?.totalChunks } / ${ window.hyve?.chunksLimit }`,
 		description: __( 'Current knowledge base chunks used.', 'hyve-lite' ),
 		action: {
 			label: __( 'Need more storage?', 'hyve-lite' ),
-			action: () => setRoute( 'integrations' ),
+			action: () => changeRoute( 'integrations' ),
 			condition:
-				! Boolean( hyve.isQdrantActive ) &&
-				400 < hyve?.stats?.totalChunks,
+				! Boolean( window.hyve.isQdrantActive ) &&
+				400 < window.hyve?.stats?.totalChunks,
 		},
 	},
 ];
@@ -107,12 +107,12 @@ const Dashboard = () => {
 											</dt>
 
 											{ action && action?.condition && (
-												<dt
-													className="text-xs pt-1 text-blue-500 cursor-pointer"
+												<button
+													className="text-xs pt-1 text-blue-500 cursor-pointer bg-transparent border-none p-0 text-left"
 													onClick={ action?.action }
 												>
 													{ action?.label }
-												</dt>
+												</button>
 											) }
 										</dl>
 									</div>

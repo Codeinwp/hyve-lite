@@ -16,6 +16,7 @@ import metadata from './block.json';
 
 registerBlockType( metadata.name, {
 	edit: () => {
+		// eslint-disable-next-line react-hooks/rules-of-hooks
 		const blockProps = useBlockProps();
 
 		return (
