@@ -12,31 +12,9 @@
 	},
 	"ignorePatterns": [ "node_modules", "assets" ],
 	"rules": {
-		"indent": [
-			"error",
-			"tab"
-		],
 		"linebreak-style": [
 			"error",
 			"unix"
-		],
-		"quotes": [
-			"error",
-			"single"
-		],
-		"semi": [
-			"error",
-			"always"
-		],
-		"prefer-destructuring": [
-			"warn",
-			{
-				"array": false,
-				"object": true
-			},
-			{
-				"enforceForRenamedProperties": false
-			}
 		],
 		"array-bracket-spacing": [
 			"warn",
