@@ -1,8 +1,6 @@
 /**
  * WordPress dependencies.
  */
-import { __ } from '@wordpress/i18n';
-
 import apiFetch from '@wordpress/api-fetch';
 
 import { Spinner } from '@wordpress/components';
@@ -27,10 +25,10 @@ const App = () => {
 	const { setSettings, setLoading, setRoute } = useDispatch( 'hyve' );
 
 	useEffect( () => {
-		const fetchData = async() => {
-			const response = await apiFetch({
-				path: `${ window.hyve.api }/settings`
-			});
+		const fetchData = async () => {
+			const response = await apiFetch( {
+				path: `${ window.hyve.api }/settings`,
+			} );
 
 			setSettings( response );
 			setLoading();
@@ -51,7 +49,7 @@ const App = () => {
 		if ( window.tsdk_reposition_notice ) {
 			window.tsdk_reposition_notice();
 		}
-	}, []);
+	}, [ setSettings, setLoading, setRoute ] );
 
 	const ROUTE_TREE = applyFilters( 'hyve.route', ROUTE );
 
@@ -64,11 +62,11 @@ const App = () => {
 			Object.keys( ROUTE_TREE[ key ].children ).forEach( ( childKey ) => {
 				acc[ childKey ] =
 					ROUTE_TREE[ key ].children[ childKey ].component;
-			});
+			} );
 		}
 
 		return acc;
-	}, {});
+	}, {} );
 
 	const Page = ROUTE_COMPONENTS[ route ] || null;
 

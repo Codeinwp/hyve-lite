@@ -1,10 +1,7 @@
 /**
  * WordPress dependencies.
  */
-import {
-	createReduxStore,
-	register
-} from '@wordpress/data';
+import { createReduxStore, register } from '@wordpress/data';
 
 const DEFAULT_STATE = {
 	route: 'home',
@@ -13,52 +10,52 @@ const DEFAULT_STATE = {
 	processed: [],
 	hasAPI: Boolean( window.hyve.hasAPIKey ),
 	isQdrantActive: Boolean( window.hyve.isQdrantActive ),
-	totalChunks: 0
+	totalChunks: 0,
 };
 
 const actions = {
 	setRoute( route ) {
 		return {
 			type: 'SET_ROUTE',
-			route
+			route,
 		};
 	},
 	setLoading() {
 		return {
-			type: 'HAS_LOADED'
+			type: 'HAS_LOADED',
 		};
 	},
 	setSettings( settings ) {
 		return {
 			type: 'SET_SETTINGS',
-			settings
+			settings,
 		};
 	},
 	setSetting( key, value ) {
 		return {
 			type: 'SET_SETTING',
 			key,
-			value
+			value,
 		};
 	},
 	setHasAPI( hasAPI ) {
 		return {
 			type: 'SET_HAS_API',
-			hasAPI
+			hasAPI,
 		};
 	},
 	setTotalChunks( totalChunks ) {
 		return {
 			type: 'SET_TOTAL_CHUNKS',
-			totalChunks
+			totalChunks,
 		};
 	},
 	setQdrantStatus( isQdrantActive ) {
 		return {
 			type: 'SET_QDRANT_STATUS',
-			isQdrantActive
+			isQdrantActive,
 		};
-	}
+	},
 };
 
 const selectors = {
@@ -78,62 +75,65 @@ const selectors = {
 		return state.totalChunks;
 	},
 	hasReachedLimit( state ) {
-		return hyve.chunksLimit <= Number( state.totalChunks ) && ! Boolean( hyve.isQdrantActive );
+		return (
+			window.hyve.chunksLimit <= Number( state.totalChunks ) &&
+			! Boolean( window.hyve.isQdrantActive )
+		);
 	},
 	isQdrantActive( state ) {
 		return state.isQdrantActive;
-	}
+	},
 };
 
 const reducer = ( state = DEFAULT_STATE, action ) => {
 	switch ( action.type ) {
-	case 'SET_ROUTE':
-		return {
-			...state,
-			route: action.route
-		};
-	case 'HAS_LOADED':
-		return {
-			...state,
-			hasLoaded: true
-		};
-	case 'SET_SETTINGS':
-		return {
-			...state,
-			settings: action.settings
-		};
-	case 'SET_SETTING':
-		return {
-			...state,
-			settings: {
-				...state.settings,
-				[ action.key ]: action.value
-			}
-		};
-	case 'SET_HAS_API':
-		return {
-			...state,
-			hasAPI: action.hasAPI
-		};
-	case 'SET_TOTAL_CHUNKS':
-		return {
-			...state,
-			totalChunks: action.totalChunks
-		};
-	case 'SET_QDRANT_STATUS':
-		return {
-			...state,
-			isQdrantActive: action.isQdrantActive
-		};
-	default:
-		return state;
+		case 'SET_ROUTE':
+			return {
+				...state,
+				route: action.route,
+			};
+		case 'HAS_LOADED':
+			return {
+				...state,
+				hasLoaded: true,
+			};
+		case 'SET_SETTINGS':
+			return {
+				...state,
+				settings: action.settings,
+			};
+		case 'SET_SETTING':
+			return {
+				...state,
+				settings: {
+					...state.settings,
+					[ action.key ]: action.value,
+				},
+			};
+		case 'SET_HAS_API':
+			return {
+				...state,
+				hasAPI: action.hasAPI,
+			};
+		case 'SET_TOTAL_CHUNKS':
+			return {
+				...state,
+				totalChunks: action.totalChunks,
+			};
+		case 'SET_QDRANT_STATUS':
+			return {
+				...state,
+				isQdrantActive: action.isQdrantActive,
+			};
+		default:
+			return state;
 	}
 };
 
 const store = createReduxStore( 'hyve', {
 	reducer,
 	actions,
-	selectors
-});
+	selectors,
+} );
 
 register( store );
