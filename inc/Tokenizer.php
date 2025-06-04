@@ -7,7 +7,7 @@
 
 namespace ThemeIsle\HyveLite;
 
-use Yethee\Tiktoken\EncoderProvider;
+use guttedgarden\Tiktoken\EncoderProvider;
 
 /**
  * Tokenizer class.

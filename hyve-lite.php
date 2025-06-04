@@ -21,13 +21,13 @@ if ( ! defined( 'WPINC' ) ) {
 	die;
 }
 
-if ( version_compare( PHP_VERSION, '8.1', '<' ) ) {
+if ( version_compare( PHP_VERSION, '7.4', '<' ) ) {
 	add_action(
 		'admin_notices',
 		function () {
 			?>
 			<div class="notice notice-error">
-				<p><?php esc_html_e( 'Hyve Lite requires PHP 8.1 or higher. Please upgrade your PHP version.', 'hyve-lite' ); ?></p>
+				<p><?php esc_html_e( 'Hyve Lite requires PHP 7.4 or higher. Please upgrade your PHP version.', 'hyve-lite' ); ?></p>
 			</div>
 			<?php
 		}
