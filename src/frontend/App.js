@@ -190,7 +190,10 @@ class App {
 				return;
 			}
 
-			if ( 'in_progress' === response.status ) {
+			if (
+				'in_progress' === response.status ||
+				'queued' === response.status
+			) {
 				setTimeout( async () => {
 					await this.getResponse( message );
 				}, 2000 );
