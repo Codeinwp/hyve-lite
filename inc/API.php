@@ -465,9 +465,8 @@ class API extends BaseAPI {
 				 * @var int $post_id
 				 */
 				$post_data = [
-					'ID'      => $post_id,
-					'title'   => get_the_title( $post_id ),
-					'content' => apply_filters( 'the_content', get_post_field( 'post_content', $post_id ) ),
+					'ID'    => $post_id,
+					'title' => get_the_title( $post_id ),
 				];
 
 				if ( 'moderation' === $status ) {

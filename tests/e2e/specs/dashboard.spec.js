@@ -149,17 +149,14 @@ test.describe( 'Dashboard', () => {
 							{
 								ID: 123,
 								title: 'Checkout',
-								content: 'Test checkout content',
 							},
 							{
 								ID: 94,
 								title: 'Portofolio',
-								content: 'Test portfolio content',
 							},
 							{
 								ID: 1,
 								title: 'Hello world!',
-								content: 'Test hello world content',
 							},
 						],
 						more: false,
