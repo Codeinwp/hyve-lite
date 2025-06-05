@@ -99,7 +99,9 @@ test.describe( 'Dashboard', () => {
 		await page
 			.getByRole( 'button', { name: 'Assistant' } )
 			.click( { force: true } );
-		await expect( page.getByLabel( 'Model' ) ).toBeVisible();
+		await expect(
+			page.getByText( 'Model', { exact: true } )
+		).toBeVisible();
 		await expect(
 			page.getByRole( 'slider', { name: 'Temperature' } )
 		).toBeVisible();
@@ -427,5 +429,21 @@ test.describe( 'Dashboard', () => {
 		await expect(
 			page.getByRole( 'heading', { name: 'Assistant Settings' } )
 		).toBeVisible();
+	} );
+
+	test( 'choose assistant model', async ( { page } ) => {
+		await page
+			.getByRole( 'button', { name: 'Settings' } )
+			.click( { force: true } );
+		await page
+			.getByRole( 'button', { name: 'Assistant' } )
+			.click( { force: true } );
+
+		await page
+			.getByRole( 'radio', { name: 'GPT-4.1 nano' } )
+			.click( { force: true } );
+		await expect(
+			page.getByRole( 'radio', { name: 'GPT-4.1 nano' } )
+		).toBeChecked();
 	} );
 } );
