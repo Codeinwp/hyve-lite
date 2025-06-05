@@ -67,7 +67,6 @@ class Main {
 		$settings = self::get_settings();
 
 		if (
-			is_array( $settings ) &&
 			isset( $settings['api_key'] ) && isset( $settings['assistant_id'] ) &&
 			! empty( $settings['api_key'] ) && ! empty( $settings['assistant_id'] )
 		) {
@@ -117,6 +116,8 @@ class Main {
 	 * @return void
 	 */
 	public function enqueue_options_assets() {
+
+		// @phpstan-ignore include.fileNotFound
 		$asset_file = include HYVE_LITE_PATH . '/build/backend/index.asset.php';
 
 		wp_enqueue_style(
@@ -179,7 +180,7 @@ class Main {
 	 * 
 	 * @since 1.1.0
 	 * 
-	 * @return array
+	 * @return array<string, mixed>
 	 */
 	public static function get_default_settings() {
 		return apply_filters(
@@ -189,8 +190,6 @@ class Main {
 				'qdrant_api_key'       => '',
 				'qdrant_endpoint'      => '',
 				'chat_enabled'         => true,
-				'welcome_message'      => __( 'Hello! How can I help you today?', 'hyve-lite' ),
-				'default_message'      => __( 'Sorry, I\'m not able to help with that.', 'hyve-lite' ),
 				'chat_model'           => 'gpt-4o-mini',
 				'temperature'          => 1,
 				'top_p'                => 1,
@@ -207,6 +206,8 @@ class Main {
 					'harassment/threatening' => 60,
 					'violence'               => 70,
 				],
+				'welcome_message'      => '',
+				'default_message'      => '',
 			]
 		);
 	}
@@ -216,11 +217,36 @@ class Main {
 	 * 
 	 * @since 1.1.0
 	 * 
-	 * @return array
+	 * @return array<string, mixed>
 	 */
 	public static function get_settings() {
 		$settings = get_option( 'hyve_settings', [] );
 		return wp_parse_args( $settings, self::get_default_settings() );
+	}
+
+	/**
+	 * Add the translatable label to the default value.
+	 * 
+	 * Use this in a context where translations are correctly loaded.
+	 * 
+	 * @since 1.2
+	 * 
+	 * @return void
+	 */
+	public static function add_labels_to_default_settings() {
+		add_filter(
+			'hyve_default_settings',
+			function ( $settings ) {
+				if ( ! is_array( $settings ) ) {
+					return $settings;
+				}
+
+				$settings['welcome_message'] = __( 'Hello! How can I help you today?', 'hyve-lite' );
+				$settings['default_message'] = __( 'Sorry, I\'m not able to help with that.', 'hyve-lite' );
+
+				return $settings;
+			}
+		);
 	}
 
 	/**
@@ -235,6 +261,7 @@ class Main {
 			return;
 		}
 
+		// @phpstan-ignore include.fileNotFound
 		$asset_file = include HYVE_LITE_PATH . '/build/frontend/frontend.asset.php';
 
 		wp_register_style(
@@ -254,6 +281,7 @@ class Main {
 
 		wp_set_script_translations( 'hyve-lite-scripts', 'hyve-lite' );
 
+		self::add_labels_to_default_settings();
 		$settings = self::get_settings();
 
 		wp_localize_script(
@@ -303,7 +331,7 @@ class Main {
 	 *
 	 * @since 1.3.0
 	 * 
-	 * @return array
+	 * @return array<string, mixed>
 	 */
 	public function get_stats() {
 		return [
@@ -385,9 +413,9 @@ class Main {
 	/**
 	 * Set Black Friday data.
 	 *
-	 * @param array $configs The configuration array for the loaded products.
+	 * @param array<string, mixed> $configs The configuration array for the loaded products.
 	 *
-	 * @return array
+	 * @return array<string, mixed>
 	 */
 	public function add_black_friday_data( $configs ) {
 		$config = $configs['default'];

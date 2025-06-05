@@ -14,8 +14,8 @@ class Cosine_Similarity {
 	/**
 	 * Calculates the dot product of two vectors.
 	 *
-	 * @param array $vector_a First vector.
-	 * @param array $vector_b Second vector.
+	 * @param float[] $vector_a First vector.
+	 * @param float[] $vector_b Second vector.
 	 * @return float The dot product of the two vectors.
 	 */
 	private static function dot_product( array $vector_a, array $vector_b ): float {
@@ -31,7 +31,7 @@ class Cosine_Similarity {
 	/**
 	 * Calculates the magnitude (length) of a vector.
 	 *
-	 * @param array $vector The vector to calculate the magnitude of.
+	 * @param float[] $vector The vector to calculate the magnitude of.
 	 * @return float The magnitude of the vector.
 	 */
 	private static function magnitude( array $vector ): float {
@@ -45,8 +45,8 @@ class Cosine_Similarity {
 	/**
 	 * Calculates the cosine similarity between two vectors.
 	 *
-	 * @param array $vector_a First vector.
-	 * @param array $vector_b Second vector.
+	 * @param float[] $vector_a First vector.
+	 * @param float[] $vector_b Second vector.
 	 * @return float The cosine similarity between the two vectors.
 	 */
 	public static function calculate( array $vector_a, array $vector_b ): float {

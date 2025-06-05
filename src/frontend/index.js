@@ -11,4 +11,4 @@ import App from './App';
 
 domReady( () => {
 	new App();
-});
+} );

@@ -3,10 +3,7 @@
  */
 import { SnackbarList } from '@wordpress/components';
 
-import {
-	useDispatch,
-	useSelect
-} from '@wordpress/data';
+import { useDispatch, useSelect } from '@wordpress/data';
 
 import { store as noticesStore } from '@wordpress/notices';
 

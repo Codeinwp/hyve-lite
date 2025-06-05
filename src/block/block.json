@@ -10,27 +10,27 @@
 			"type": "string"
 		}
 	},
-    "supports": {
-        "html": false
-    },
-    "variations": [
-        {
-            "name": "default",
-            "title": "Hyve Chat - Inline",
-            "isDefault": true
-        },
-        {
-            "name": "floating",
-            "title": "Hyve Chat - Chat Bubble",
-            "description": "A floating chat bubble that opens the chat window when clicked.",
-            "attributes": {
-                "variant": "floating"
-            }
-        }
-    ],
+	"supports": {
+		"html": false
+	},
+	"variations": [
+		{
+			"name": "default",
+			"title": "Hyve Chat - Inline",
+			"isDefault": true
+		},
+		{
+			"name": "floating",
+			"title": "Hyve Chat - Chat Bubble",
+			"description": "A floating chat bubble that opens the chat window when clicked.",
+			"attributes": {
+				"variant": "floating"
+			}
+		}
+	],
 	"textdomain": "hyve-lite",
 	"editorScript": "file:./index.js",
-    "render": "file:./render.php",
+	"render": "file:./render.php",
 	"style": "hyve-styles",
-    "viewScript": "hyve-lite-scripts"
+	"viewScript": "hyve-lite-scripts"
 }

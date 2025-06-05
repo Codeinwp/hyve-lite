@@ -16,15 +16,19 @@ import metadata from './block.json';
 
 registerBlockType( metadata.name, {
 	edit: () => {
+		// eslint-disable-next-line react-hooks/rules-of-hooks
 		const blockProps = useBlockProps();
 
 		return (
 			<div { ...blockProps }>
 				<Placeholder>
-					{ __( 'Hyve Chatbot will appear here. No further action needed.', 'hyve-lite' ) }
+					{ __(
+						'Hyve Chatbot will appear here. No further action needed.',
+						'hyve-lite'
+					) }
 				</Placeholder>
 			</div>
 		);
 	},
-	save: () => null
-});
+	save: () => null,
+} );
