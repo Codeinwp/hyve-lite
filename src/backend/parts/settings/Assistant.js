@@ -10,7 +10,7 @@ import {
 	Panel,
 	PanelRow,
 	RangeControl,
-	SelectControl,
+	RadioControl,
 } from '@wordpress/components';
 
 import { useState } from '@wordpress/element';
@@ -59,23 +59,63 @@ const Assistant = () => {
 		<div className="col-span-6 xl:col-span-4">
 			<Panel header={ __( 'Assistant Settings', 'hyve-lite' ) }>
 				<PanelRow>
-					<SelectControl
+					<RadioControl
 						label={ __( 'Model', 'hyve-lite' ) }
 						help={ __(
-							'What model to use for Chat.',
+							'Choose the AI model that powers your chatbot. More advanced models provide better responses but may cost more.',
 							'hyve-lite'
 						) }
 						options={ [
 							{
-								label: __( 'GPT 4o Mini', 'hyve-lite' ),
-								value: 'gpt-4o-mini',
+								label: __( 'GPT-4.1', 'hyve-lite' ),
+								value: 'gpt-4.1',
+								description: __(
+									'Most accurate and capable model — ideal for complex tasks.',
+									'hyve-lite'
+								),
 							},
 							{
-								label: __( 'GPT 3.5 Turbo 0125', 'hyve-lite' ),
+								label: __( 'GPT-4.1 mini', 'hyve-lite' ),
+								value: 'gpt-4.1-mini',
+								description: __(
+									'Faster and cheaper than full GPT-4.1 — great balance of cost and quality.',
+									'hyve-lite'
+								),
+							},
+							{
+								label: __( 'GPT-4.1 nano', 'hyve-lite' ),
+								value: 'gpt-4.1-nano',
+								description: __(
+									'Ultra-fast and low-cost — best for lightweight and high-traffic chats.',
+									'hyve-lite'
+								),
+							},
+							{
+								label: __( 'GPT-4o', 'hyve-lite' ),
+								value: 'gpt-4o',
+								description: __(
+									'Fast, smart, and cost-effective — best for most use cases.',
+									'hyve-lite'
+								),
+							},
+							{
+								label: __( 'GPT-4o mini', 'hyve-lite' ),
+								value: 'gpt-4o-mini',
+								description: __(
+									'Optimized for real-time chats — faster and cheaper than GPT-4o.',
+									'hyve-lite'
+								),
+							},
+							{
+								label: __( 'GPT-3.5 Turbo 0125', 'hyve-lite' ),
 								value: 'gpt-3.5-turbo-0125',
+								description: __(
+									'Legacy model for basic tasks.',
+									'hyve-lite'
+								),
 							},
 						] }
-						value={ settings.chat_model }
+						selected={ settings.chat_model }
 						disabled={ isSaving }
 						onChange={ ( newValue ) =>
 							setSetting( 'chat_model', newValue )
