@@ -60,6 +60,8 @@ class Main {
 		add_action( 'delete_post', [ $this, 'delete_post' ] );
 		add_action( 'hyve_weekly_stats', [ $this, 'log_stats' ] );
 
+		add_filter( 'hyve_options_data', [ $this, 'append_services_error' ] );
+
 		if ( Logger::has_consent() && ! wp_next_scheduled( 'hyve_weekly_stats' ) ) {
 			wp_schedule_event( time(), 'weekly', 'hyve_weekly_stats' );
 		}
@@ -451,5 +453,37 @@ class Main {
 		$configs[ HYVE_PRODUCT_SLUG ] = $config;
 
 		return $configs;
+	}
+
+	/**
+	 * Append services errors if they exists.
+	 * 
+	 * @param mixed|array<string, mixed> $options The dashboard options.
+	 * 
+	 * @return mixed|array<string, mixed>
+	 */
+	public function append_services_error( $options ) {
+		if ( ! is_array( $options ) ) {
+			return $options;
+		}
+
+		$errors = [];
+
+		$open_ai_last_error = get_option( OpenAI::ERROR_OPTION_KEY, false );
+		if ( is_array( $open_ai_last_error ) ) {
+			$errors[] = $open_ai_last_error;
+		}
+
+		$qdrant_last_error = get_option( Qdrant_API::ERROR_OPTION_KEY, false );
+		if ( is_array( $qdrant_last_error ) ) {
+			$qdrant_last_error['message'] = __( 'Invalid credentials.', 'hyve-lite' ) . ' ' . __( 'Please check your API key and endpoint URL.', 'hyve-lite' );
+			$errors[]                     = $qdrant_last_error;
+		}
+
+		if ( ! empty( $errors ) ) {
+			$options['serviceErrors'] = $errors;
+		}
+
+		return $options;
 	}
 }
