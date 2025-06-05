@@ -414,4 +414,21 @@ test.describe( 'Dashboard', () => {
 			page.getByRole( 'button', { name: 'Close' } )
 		).toBeVisible();
 	} );
+
+	test( 'check route change by Dashboard URL', async ( { page, admin } ) => {
+		await admin.visitAdminPage( 'admin.php' ); // NOTE: this negate the first redirect from `beforeEach`.
+		await admin.visitAdminPage( 'admin.php?page=hyve&nav=advanced' );
+
+		await expect(
+			page.getByRole( 'textbox', { name: 'API Key' } )
+		).toBeVisible();
+
+		// Check if the navigation is not blocked.
+		await page
+			.getByRole( 'button', { name: 'Assistant' } )
+			.click( { force: true } );
+		await expect(
+			page.getByRole( 'heading', { name: 'Assistant Settings' } )
+		).toBeVisible();
+	} );
 } );
