@@ -2,7 +2,7 @@
 <ruleset name="">
     <description>ThemeIsle ruleset</description>
 
-    <config name="testVersion" value="8.1-" />
+    <config name="testVersion" value="7.4-" />
 
     <!-- Exclude deprecated Generic sniff -->
     <rule ref="Generic.Functions.CallTimePassByReference">

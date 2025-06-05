@@ -9,8 +9,7 @@ namespace ThemeIsle\HyveLite;
 
 use ThemeIsle\HyveLite\Main;
 use Qdrant\Qdrant;
-use Qdrant\Config;
-use Qdrant\Http\Builder;
+use Qdrant\Http\GuzzleClient;
 use Qdrant\Endpoints\Collections;
 use Qdrant\Models\PointsStruct;
 use Qdrant\Models\PointStruct;
@@ -74,10 +73,10 @@ class Qdrant_API {
 			return;
 		}
 
-		$config = new Config( $endpoint );
+		$config = new \Qdrant\Config( $endpoint );
 		$config->setApiKey( $api_key );
 
-		$transport    = ( new Builder() )->build( $config );
+		$transport    = new GuzzleClient( $config );
 		$this->client = new Qdrant( $transport );
 
 		add_action( 'hyve_lite_migrate_data', [ $this, 'migrate_data' ] );
@@ -130,9 +129,20 @@ class Qdrant_API {
 	 */ 
 	public function collection_exists() {
 		try {
-			$collections = ( new Collections( $this->client ) )->setCollectionName( self::COLLECTION_NAME );
-			$response    = $collections->exists();
-			return $response['result']['exists'];
+			
+			$response = ( new Collections( $this->client ) )->list();
+			
+			if ( empty( $response['result'] ) || empty( $response['result']['collections'] ) || ! is_array( $response['result']['collections'] ) ) {
+				return false;
+			}
+
+			foreach ( $response['result']['collections'] as $collection ) {
+				if ( self::COLLECTION_NAME === $collection['name'] ) {
+					return true;
+				}
+			}
+
+			return false;
 		} catch ( \Exception $e ) {
 			if ( 403 === $e->getCode() ) {
 				update_option( 'hyve_qdrant_status', 'inactive' );
