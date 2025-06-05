@@ -88,3 +88,7 @@ div.notice.themeisle-sale {
     margin: 0;
     margin-bottom: 1rem;
 }
+
+.service-error.components-notice.is-error {
+    background-color: #fabbbb; // Make the contrast ratio higher.
+}
