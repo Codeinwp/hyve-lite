@@ -267,10 +267,11 @@ class Qdrant_API {
 	 * Search collection.
 	 * 
 	 * @param array<float> $embeddings Embeddings.
+	 * @param float        $score_threshold Cosine similarity threshold.
 	 * 
 	 * @return array<array<string, mixed>>|\WP_Error
 	 */
-	public function search( $embeddings ) {
+	public function search( $embeddings, $score_threshold ) {
 		try {
 			$search = (
 				new SearchRequest(
@@ -278,6 +279,7 @@ class Qdrant_API {
 				)
 			)
 			->setLimit( 10 )
+			->setScoreThreshold( $score_threshold )
 			->setWithPayload( true );
 
 			$response = $this->client->collections( self::COLLECTION_NAME )->points()->search( $search );

@@ -344,6 +344,65 @@ class DB_Table {
 	}
 
 	/**
+	 * Get embeddings with pagination.
+	 * 
+	 * @param int $offset The offset for pagination.
+	 * @param int $limit  The limit of results to return.
+	 * 
+	 * @return array<object{
+	 *     id: string,
+	 *     embeddings: string,
+	 *     token_count: string
+	 * }>
+	 */
+	public function get_embeddings( $offset, $limit = 50 ) {
+		$cache_key = 'hyve_embeddings_' . $offset . '_' . $limit;
+		$cache     = $this->get_cache( $cache_key );
+
+		if ( false !== $cache ) {
+			return $cache;
+		}
+
+		global $wpdb;
+		$posts = $wpdb->get_results( $wpdb->prepare( 'SELECT id, embeddings, token_count FROM %i WHERE post_status = %s LIMIT %d OFFSET %d', $this->table_name, 'processed', $limit, $offset ) );
+		
+		if ( empty( $posts ) ) {
+			return [];
+		}
+
+		$this->set_cache( $cache_key, $posts );
+
+		return $posts;
+	}
+
+	/**
+	 * Get post data by ID.
+	 * 
+	 * @param int $id The row ID.
+	 * 
+	 * @return array{post_title: string, post_content: string}|null
+	 */
+	public function get_post_data( $id ) {
+		$cache_key = 'hyve_post_data_' . $id;
+		$cache     = $this->get_cache( $cache_key );
+
+		if ( false !== $cache ) {
+			return $cache;
+		}
+
+		global $wpdb;
+		$post = $wpdb->get_row( $wpdb->prepare( 'SELECT post_title, post_content FROM %i WHERE id = %d', $this->table_name, $id ), ARRAY_A );
+		
+		if ( empty( $post ) ) {
+			return null;
+		}
+
+		$this->set_cache( $cache_key, $post );
+
+		return $post;
+	}
+
+	/**
 	 * Update storage of all rows.
 	 * 
 	 * @since 1.3.0
