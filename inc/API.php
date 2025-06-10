@@ -146,6 +146,16 @@ class API extends BaseAPI {
 					],
 					'callback' => [ $this, 'get_threads' ],
 				],
+				[
+					'methods'  => \WP_REST_Server::DELETABLE,
+					'args'     => [
+						'id' => [
+							'required' => true,
+							'type'     => 'integer',
+						],
+					],
+					'callback' => [ $this, 'delete_thread' ],
+				],
 			],
 			'qdrant'   => [
 				[
@@ -556,6 +566,30 @@ class API extends BaseAPI {
 		delete_post_meta( $id, '_hyve_moderation_failed' );
 		delete_post_meta( $id, '_hyve_moderation_review' );
 		return rest_ensure_response( true );
+	}
+
+	/**
+	 * Delete thread.
+	 * 
+	 * @param \WP_REST_Request<array<string, mixed>> $request Request object.
+	 * 
+	 * @return \WP_REST_Response
+	 */
+	public function delete_thread( $request ) {
+		$id   = $request->get_param( 'id' );
+		$post = get_post( $id );
+
+		if ( ! $post || 'hyve_threads' !== $post->post_type ) {
+			return wp_send_json_error( __( 'Thread not found.', 'hyve-lite' ), 404 );
+		}
+		
+		$deleted = wp_delete_post( $id, true );
+
+		if ( ! $deleted ) {
+			return wp_send_json_error( __( 'Failed to delete thread.', 'hyve-lite' ), 500 );
+		}
+		
+		return wp_send_json_success( __( 'Thread deleted successfully.', 'hyve-lite' ) );
 	}
 
 	/**
