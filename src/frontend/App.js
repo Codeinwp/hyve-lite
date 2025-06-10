@@ -1,3 +1,5 @@
+// @ts-check
+
 /**
  * WordPress dependencies.
  */
@@ -5,9 +7,9 @@ import apiFetch from '@wordpress/api-fetch';
 
 import { addQueryArgs } from '@wordpress/url';
 
-const clickAudio = new Audio( window.hyve.audio.click );
-const pingAudio = new Audio( window.hyve.audio.ping );
-const { strings } = window.hyve;
+const clickAudio = new Audio( window.hyveClient.audio.click );
+const pingAudio = new Audio( window.hyveClient.audio.ping );
+const { strings } = window.hyveClient;
 
 class App {
 	constructor() {
@@ -17,6 +19,7 @@ class App {
 		this.threadID = null;
 		this.runID = null;
 		this.recordID = null;
+		this.isMenuOpen = false;
 
 		this.initialize();
 	}
@@ -28,25 +31,19 @@ class App {
 	}
 
 	restoreStorage() {
-		if ( null === window.localStorage.getItem( 'hyve-chat' ) ) {
+		const storageData = window.localStorage.getItem( 'hyve-chat' );
+
+		if ( null === storageData ) {
 			return;
 		}
 
-		const storage = JSON.parse(
-			window.localStorage.getItem( 'hyve-chat' )
-		);
+		const storage = JSON.parse( storageData );
 
 		if ( ! storage.timestamp ) {
 			return;
 		}
 
-		const currentDate = new Date();
-		const storageDate = new Date( storage.timestamp );
-
-		if (
-			86400000 < currentDate - storageDate ||
-			null === storage.threadID
-		) {
+		if ( this.isStorageExpired( storage ) ) {
 			window.localStorage.removeItem( 'hyve-chat' );
 			return;
 		}
@@ -65,6 +62,30 @@ class App {
 				false
 			);
 		} );
+	}
+
+	/**
+	 * Check if storage data has expired or is invalid
+	 * @param {Object} storage - The parsed storage data
+	 * @return {boolean} True if storage should be cleared
+	 */
+	isStorageExpired( storage ) {
+		const EXPIRY_TIME_MS = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
+
+		if ( ! storage.threadID ) {
+			return true;
+		}
+
+		const storageTime = new Date( storage.timestamp ).getTime();
+
+		// Check if timestamp is valid
+		if ( isNaN( storageTime ) ) {
+			return true;
+		}
+
+		const currentTime = Date.now();
+
+		return currentTime - storageTime > EXPIRY_TIME_MS;
 	}
 
 	updateStorage() {
@@ -131,7 +152,7 @@ class App {
 			anchor.href = image.src;
 			anchor.target = '_blank';
 			anchor.appendChild( image.cloneNode( true ) );
-			image.parentNode.replaceChild( anchor, image );
+			image.parentNode?.replaceChild( anchor, image );
 		} );
 
 		return tempDiv.innerHTML;
@@ -170,6 +191,10 @@ class App {
 			'.hyve-send-button button'
 		);
 
+		if ( ! chatInputText || ! chatSendButton ) {
+			return;
+		}
+
 		chatInputText.disabled = isLoading;
 		chatSendButton.disabled = isLoading;
 	}
@@ -178,7 +203,7 @@ class App {
 		try {
 			const response = await apiFetch( {
 				path: this.addCacheProtection(
-					addQueryArgs( `${ window.hyve.api }/chat`, {
+					addQueryArgs( `${ window.hyveClient.api }/chat`, {
 						thread_id: this.threadID,
 						run_id: this.runID,
 						record_id: this.recordID,
@@ -227,7 +252,9 @@ class App {
 			this.setLoading( true );
 
 			const response = await apiFetch( {
-				path: this.addCacheProtection( `${ window.hyve.api }/chat` ),
+				path: this.addCacheProtection(
+					`${ window.hyveClient.api }/chat`
+				),
 				method: 'POST',
 				data: {
 					message,
@@ -272,6 +299,10 @@ class App {
 
 	addMessage( time, message, sender, id, sound = true ) {
 		const chatMessageBox = document.getElementById( 'hyve-message-box' );
+		if ( ! chatMessageBox ) {
+			return;
+		}
+
 		const date = this.formatDate( time );
 
 		let messageHTML = `<div>${ message }</div>`;
@@ -285,18 +316,21 @@ class App {
 			innerHTML: messageHTML,
 		} );
 
-		if ( 'bot' === sender && window.hyve.colors?.assistant_background ) {
+		if (
+			'bot' === sender &&
+			window.hyveClient.colors?.assistant_background
+		) {
 			messageDiv.classList.add( 'is-dark' );
 		}
 
-		if ( 'user' === sender && window.hyve.colors?.user_background ) {
+		if ( 'user' === sender && window.hyveClient.colors?.user_background ) {
 			messageDiv.classList.add( 'is-dark' );
 		}
 
 		if (
 			'user' === sender &&
-			! window.hyve.colors?.user_background &&
-			undefined !== window.hyve.colors?.user_background
+			! window.hyveClient.colors?.user_background &&
+			undefined !== window.hyveClient.colors?.user_background
 		) {
 			messageDiv.classList.add( 'is-light' );
 		}
@@ -323,33 +357,39 @@ class App {
 	}
 
 	toggleChatWindow( isOpen ) {
-		const elements = [ 'hyve-open', 'hyve-close', 'hyve-window' ].map(
-			( id ) => document.getElementById( id )
-		);
+		const openButton = document.getElementById( 'hyve-open' );
+		const closeButton = document.getElementById( 'hyve-close' );
+		const chatWindow = document.getElementById( 'hyve-window' );
+
+		if ( ! openButton || ! closeButton || ! chatWindow ) {
+			return;
+		}
 
 		if ( isOpen ) {
-			elements[ 0 ].style.display = 'none';
-			elements[ 1 ].style.display = 'block';
-			elements[ 2 ].style.display = 'block';
+			openButton.style.display = 'none';
+			closeButton.style.display = 'block';
+			chatWindow.style.display = 'block';
 
 			const chatMessageBox =
 				document.getElementById( 'hyve-message-box' );
-			chatMessageBox.scrollTop = chatMessageBox.scrollHeight;
+			if ( chatMessageBox ) {
+				chatMessageBox.scrollTop = chatMessageBox.scrollHeight;
+			}
 		} else {
-			elements[ 0 ].style.display = 'block';
-			elements[ 1 ].style.display = 'none';
-			elements[ 2 ].style.display = 'none';
+			openButton.style.display = 'block';
+			closeButton.style.display = 'none';
+			chatWindow.style.display = 'none';
 		}
 
 		this.addAudioPlayback( clickAudio );
 
 		if (
-			window.hyve.welcome &&
-			'' !== window.hyve.welcome &&
+			window.hyveClient.welcome &&
+			'' !== window.hyveClient.welcome &&
 			this.isInitialToggle
 		) {
 			this.isInitialToggle = false;
-			const welcomeMessage = window.hyve.welcome;
+			const welcomeMessage = window.hyveClient.welcome;
 
 			setTimeout( () => {
 				this.add( welcomeMessage, 'bot' );
@@ -359,7 +399,7 @@ class App {
 	}
 
 	addSuggestions() {
-		const questions = window.hyve?.predefinedQuestions;
+		const questions = window.hyveClient?.predefinedQuestions;
 
 		if ( ! Array.isArray( questions ) ) {
 			return;
@@ -386,13 +426,13 @@ class App {
 			innerHTML: suggestions.join( '' ),
 		} );
 
-		if ( window.hyve.colors?.user_background ) {
+		if ( window.hyveClient.colors?.user_background ) {
 			messageDiv.classList.add( 'is-dark' );
 		}
 
 		if (
-			! window.hyve.colors?.user_background &&
-			undefined !== window.hyve.colors?.user_background
+			! window.hyveClient.colors?.user_background &&
+			undefined !== window.hyveClient.colors?.user_background
 		) {
 			messageDiv.classList.add( 'is-light' );
 		}
@@ -405,7 +445,7 @@ class App {
 			} );
 		} );
 
-		chatMessageBox.appendChild( messageDiv );
+		chatMessageBox?.appendChild( messageDiv );
 
 		this.hasSuggestions = true;
 	}
@@ -419,8 +459,47 @@ class App {
 		}
 	}
 
+	clearConversation() {
+		// Clear messages from UI
+		const chatMessageBox = document.getElementById( 'hyve-message-box' );
+		chatMessageBox.innerHTML = '';
+
+		// Reset state
+		this.messages = [];
+		this.threadID = null;
+		this.runID = null;
+		this.recordID = null;
+		this.hasSuggestions = false;
+		this.isInitialToggle = true;
+
+		// Clear local storage
+		window.localStorage.removeItem( 'hyve-chat' );
+
+		// Close menu
+		this.toggleMenu( false );
+
+		// Add welcome message if configured
+		if ( window.hyveClient.welcome && '' !== window.hyveClient.welcome ) {
+			setTimeout( () => {
+				this.add( window.hyveClient.welcome, 'bot' );
+				this.addSuggestions();
+			}, 500 );
+		}
+	}
+
+	toggleMenu( isOpen ) {
+		this.isMenuOpen = isOpen ?? ! this.isMenuOpen;
+		const menu = document.querySelector( '.hyve-menu-dropdown' );
+
+		if ( menu ) {
+			menu.style.display = this.isMenuOpen ? 'block' : 'none';
+		}
+	}
+
 	setupListeners() {
-		const chatInputText = document.getElementById( 'hyve-text-input' );
+		const chatInputText =
+			/** @type {HTMLInputElement|null} */
+			( document.getElementById( 'hyve-text-input' ) );
 		const chatSendButton = document.getElementById( 'hyve-send-button' );
 
 		if ( ! chatInputText || ! chatSendButton ) {
@@ -438,6 +517,39 @@ class App {
 				this.toggleChatWindow( false )
 			);
 		}
+
+		// Add menu listeners
+		const menuButtonElem = document.getElementById( 'hyve-menu-button' );
+		if ( menuButtonElem ) {
+			menuButtonElem.addEventListener( 'click', ( event ) => {
+				event.stopPropagation();
+				this.toggleMenu();
+			} );
+		}
+
+		const clearButton = document.getElementById(
+			'hyve-clear-conversation'
+		);
+		if ( clearButton ) {
+			clearButton.addEventListener( 'click', () => {
+				this.clearConversation();
+			} );
+		}
+
+		// Close menu when clicking outside
+		document.addEventListener( 'click', ( event ) => {
+			const menu = document.querySelector( '.hyve-menu-dropdown' );
+			const menuButton = document.getElementById( 'hyve-menu-button' );
+
+			if (
+				menu &&
+				menuButton &&
+				! menu.contains( event.target ) &&
+				! menuButton.contains( event.target )
+			) {
+				this.toggleMenu( false );
+			}
+		} );
 
 		chatInputText.addEventListener( 'keydown', ( event ) => {
 			if ( 13 === event.keyCode ) {
@@ -522,13 +634,13 @@ class App {
 			chatCloseButton
 		);
 
-		if ( window.hyve.colors?.icon_background ) {
+		if ( window.hyveClient.colors?.icon_background ) {
 			chatClose.classList.add( 'is-dark' );
 		}
 
 		if (
-			! window.hyve.colors?.icon_background &&
-			undefined !== window.hyve.colors?.icon_background
+			! window.hyveClient.colors?.icon_background &&
+			undefined !== window.hyveClient.colors?.icon_background
 		) {
 			chatClose.classList.add( 'is-light' );
 		}
@@ -538,9 +650,35 @@ class App {
 			id: 'hyve-window',
 		} );
 
-		if ( window.hyve.colors?.chat_background ) {
+		if ( window.hyveClient.colors?.chat_background ) {
 			chatWindow.classList.add( 'is-dark' );
 		}
+
+		// Create header with menu
+		const chatHeader = this.createElement( 'div', {
+			className: 'hyve-header',
+		} );
+
+		const menuButtonElement = this.createElement( 'button', {
+			className: 'hyve-menu-button',
+			id: 'hyve-menu-button',
+			innerHTML:
+				'<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="hyve-menu-icon"><path stroke-linecap="round" stroke-linejoin="round" d="M6.75 12a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0ZM12.75 12a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0ZM18.75 12a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0Z" /></svg>',
+		} );
+
+		const menuDropdown = this.createElement( 'div', {
+			className: 'hyve-menu-dropdown',
+			innerHTML: `<button id="hyve-clear-conversation" class="hyve-menu-item"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="16"><path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" /></svg> ${ strings.clearConversation }</button>`,
+		} );
+
+		const menuContainer = this.createElement(
+			'dv',
+			{ className: 'hyve-menu-container' },
+			menuButtonElement,
+			menuDropdown
+		);
+
+		chatHeader.appendChild( menuContainer );
 
 		const chatMessageBox = this.createElement( 'div', {
 			className: 'hyve-message-box',
@@ -574,6 +712,7 @@ class App {
 			} )
 		);
 
+		chatWindow.appendChild( chatHeader );
 		chatWindow.appendChild( chatMessageBox );
 		chatWrite.appendChild( chatInputText );
 		chatInputBox.appendChild( chatWrite );
@@ -583,7 +722,7 @@ class App {
 		const chatExists = document.querySelectorAll( '#hyve-chat' );
 
 		if (
-			true === Boolean( window?.hyve?.isEnabled ) ||
+			true === Boolean( window?.hyveClient?.isEnabled ) ||
 			0 < chatExists.length
 		) {
 			chatExists.forEach( ( element ) => {

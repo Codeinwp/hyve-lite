@@ -286,7 +286,7 @@ class Main {
 
 		wp_localize_script(
 			'hyve-lite-scripts',
-			'hyve',
+			'hyveClient',
 			apply_filters(
 				'hyve_frontend_data',
 				[
@@ -298,10 +298,11 @@ class Main {
 					'welcome'   => esc_html( $settings['welcome_message'] ?? '' ),
 					'isEnabled' => $settings['chat_enabled'],
 					'strings'   => [
-						'reply'       => __( 'Write a reply…', 'hyve-lite' ),
-						'suggestions' => __( 'Not sure where to start?', 'hyve-lite' ),
-						'tryAgain'    => __( 'Sorry, I am not able to process your request at the moment. Please try again.', 'hyve-lite' ),
-						'typing'      => __( 'Typing…', 'hyve-lite' ),
+						'reply'             => __( 'Write a reply…', 'hyve-lite' ),
+						'suggestions'       => __( 'Not sure where to start?', 'hyve-lite' ),
+						'tryAgain'          => __( 'Sorry, I am not able to process your request at the moment. Please try again.', 'hyve-lite' ),
+						'typing'            => __( 'Typing…', 'hyve-lite' ),
+						'clearConversation' => __( 'Clear Conversation', 'hyve-lite' ),
 					],
 					'icons'     => [
 						'chat-bubble-oval-left'          => esc_url( HYVE_LITE_URL . 'assets/icons/chat-bubble-oval-left.svg' ),
