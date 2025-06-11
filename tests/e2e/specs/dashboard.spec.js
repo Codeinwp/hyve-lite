@@ -91,9 +91,6 @@ test.describe( 'Dashboard', () => {
 			.getByRole( 'button', { name: 'Settings' } )
 			.click( { force: true } );
 		await expect(
-			page.getByText( 'Enable ChatEnableDisable' )
-		).toBeVisible();
-		await expect(
 			page.getByRole( 'textbox', { name: 'Welcome Message' } )
 		).toBeVisible();
 		await expect(

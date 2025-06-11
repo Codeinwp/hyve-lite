@@ -66,12 +66,36 @@ interface HyveClient {
 		type: string;
 		value: string;
 	};
+	canShow: boolean;
+}
+
+interface HyveChatBlock {
+	globalChatEnabled: string;
+	dashboardURL: string;
+	knowledgeBaseURL: string;
+	stats: {
+		messages: string;
+		threads: 14;
+		totalChunks: 6;
+	};
+}
+
+interface HyveChatBlock {
+	globalChatEnabled: string;
+	dashboardURL: string;
+	knowledgeBaseURL: string;
+	stats: {
+		messages: string;
+		threads: 14;
+		totalChunks: 6;
+	};
 }
 
 declare global {
 	interface Window {
 		hyve: HyveData;
 		hyveClient: HyveClient;
+		hyveChatBlock: HyveChatBlock;
 	}
 }
 

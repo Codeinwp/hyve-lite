@@ -21,7 +21,9 @@ class App {
 		this.recordID = null;
 		this.isMenuOpen = false;
 
-		this.initialize();
+		if ( ! Boolean( window.hyveClient?.canShow ) ) {
+			this.initialize();
+		}
 	}
 
 	async initialize() {
