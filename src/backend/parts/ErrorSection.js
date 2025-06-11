@@ -21,7 +21,7 @@ export const ErrorSection = () => {
 					return (
 						<Notice
 							key={ provider }
-							className="service-error mb-4"
+							className="service-error mb-4 mx-auto max-w-270 break-all"
 							isDismissible={ false }
 							status="error"
 						>
