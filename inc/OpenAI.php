@@ -554,7 +554,7 @@ class OpenAI {
 				[
 					'headers'     => [
 						'Content-Type'  => 'application/json',
-						'Authorization' => 'Bearer ' . $this->api_key . 'test',
+						'Authorization' => 'Bearer ' . $this->api_key,
 						'OpenAI-Beta'   => 'assistants=v2',
 					],
 					'body'        => $body,
@@ -580,7 +580,7 @@ class OpenAI {
 				$response = wp_remote_get( $url, $args ); // phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.wp_remote_get_wp_remote_get
 			}
 		}
-		
+
 		if ( is_wp_error( $response ) ) {
 			return $response;
 		} else {
@@ -588,7 +588,9 @@ class OpenAI {
 			$body = json_decode( $body );
 
 			if ( isset( $body->error ) ) {
-				$this->check_and_save_error( (array) $body->error );
+				if ( 'POST' === $method ) {
+					$this->check_and_save_error( (array) $body->error );
+				}
 
 				if ( isset( $body->error->message ) ) {
 					return new \WP_Error( isset( $body->error->code ) ? $body->error->code : 'unknown_error', $body->error->message );
