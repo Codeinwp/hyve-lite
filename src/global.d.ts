@@ -38,7 +38,7 @@ interface HyveData {
 		message: string;
 		provider: string;
 		date: string;
-	}[]
+	}[];
 }
 
 interface HyveAudio {
