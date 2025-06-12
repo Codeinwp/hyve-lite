@@ -1,7 +1,7 @@
 <?php
 /**
  * API class.
- * 
+ *
  * @package Codeinwp/HyveLite
  */
 
@@ -49,7 +49,7 @@ class API extends BaseAPI {
 
 	/**
 	 * Register hooks and actions.
-	 * 
+	 *
 	 * @return void
 	 */
 	private function register_route() {
@@ -58,7 +58,7 @@ class API extends BaseAPI {
 
 	/**
 	 * Register REST API route
-	 * 
+	 *
 	 * @return void
 	 */
 	public function register_routes() {
@@ -230,7 +230,7 @@ class API extends BaseAPI {
 
 	/**
 	 * Get settings.
-	 * 
+	 *
 	 * @return \WP_REST_Response
 	 */
 	public function get_settings() {
@@ -241,9 +241,9 @@ class API extends BaseAPI {
 
 	/**
 	 * Update settings.
-	 * 
+	 *
 	 * @param \WP_REST_Request<array<string, mixed>> $request Request object.
-	 * 
+	 *
 	 * @return \WP_REST_Response
 	 */
 	public function update_settings( $request ) {
@@ -356,7 +356,7 @@ class API extends BaseAPI {
 			if ( 'api_key' === $key && ! empty( $value ) ) {
 				$openai    = new OpenAI( $value );
 				$valid_api = $openai->setup_assistant();
-	
+
 				if ( is_wp_error( $valid_api ) ) {
 					return rest_ensure_response( [ 'error' => $this->get_error_message( $valid_api ) ] );
 				}
@@ -381,9 +381,9 @@ class API extends BaseAPI {
 
 	/**
 	 * Get data.
-	 * 
+	 *
 	 * @param \WP_REST_Request<array<string, mixed>> $request Request object.
-	 * 
+	 *
 	 * @return \WP_REST_Response
 	 */
 	public function get_data( $request ) {
@@ -456,12 +456,12 @@ class API extends BaseAPI {
 		$query = new \WP_Query( $args );
 
 		$posts_data = [];
-		
+
 		if ( $query->have_posts() ) {
 			foreach ( $query->posts as $post_id ) {
 				/**
 				 * The post id.
-				 * 
+				 *
 				 * @var int $post_id
 				 */
 				$post_data = [
@@ -471,7 +471,7 @@ class API extends BaseAPI {
 
 				if ( 'moderation' === $status ) {
 					$review = get_post_meta( $post_id, '_hyve_moderation_review', true );
-	
+
 					if ( ! is_array( $review ) || empty( $review ) ) {
 						$review = [];
 					}
@@ -488,15 +488,15 @@ class API extends BaseAPI {
 			'more'        => $query->found_posts > 20,
 			'totalChunks' => $this->table->get_count(),
 		];
-		
+
 		return rest_ensure_response( $posts );
 	}
 
 	/**
 	 * Add data.
-	 * 
+	 *
 	 * @param \WP_REST_Request<array<string, mixed>> $request Request object.
-	 * 
+	 *
 	 * @return \WP_REST_Response
 	 * @throws \Exception If Qdrant API fails.
 	 */
@@ -528,9 +528,9 @@ class API extends BaseAPI {
 
 	/**
 	 * Delete data.
-	 * 
+	 *
 	 * @param \WP_REST_Request<array<string, mixed>> $request Request object.
-	 * 
+	 *
 	 * @return \WP_REST_Response
 	 * @throws \Exception If Qdrant API fails.
 	 */
@@ -560,9 +560,9 @@ class API extends BaseAPI {
 
 	/**
 	 * Get threads.
-	 * 
+	 *
 	 * @param \WP_REST_Request<array<string, mixed>> $request Request object.
-	 * 
+	 *
 	 * @return \WP_REST_Response
 	 */
 	public function get_threads( $request ) {
@@ -584,10 +584,10 @@ class API extends BaseAPI {
 			foreach ( $query->posts as $post_id ) {
 				/**
 				 * The post id.
-				 * 
+				 *
 				 * @var int $post_id
 				 */
-				
+
 				$post_data = [
 					'ID'        => $post_id,
 					'title'     => get_the_title( $post_id ),
@@ -610,7 +610,7 @@ class API extends BaseAPI {
 
 	/**
 	 * Qdrant status.
-	 * 
+	 *
 	 * @return \WP_REST_Response
 	 */
 	public function qdrant_status() {
@@ -624,7 +624,7 @@ class API extends BaseAPI {
 
 	/**
 	 * Qdrant deactivate.
-	 * 
+	 *
 	 * @return \WP_REST_Response
 	 * @throws \Exception If Qdrant API fails.
 	 */
@@ -661,9 +661,9 @@ class API extends BaseAPI {
 
 	/**
 	 * Get chat.
-	 * 
+	 *
 	 * @param \WP_REST_Request<array<string, mixed>> $request Request object.
-	 * 
+	 *
 	 * @return \WP_REST_Response
 	 */
 	public function get_chat( $request ) {
@@ -694,7 +694,7 @@ class API extends BaseAPI {
 			$messages,
 			function ( $message ) use ( $run_id ) {
 				return $message->run_id === $run_id;
-			} 
+			}
 		);
 
 		$message = reset( $messages )->content[0]->text->value;
@@ -717,78 +717,156 @@ class API extends BaseAPI {
 				'status'  => $status,
 				'success' => isset( $message['success'] ) ? $message['success'] : false,
 				'message' => $response,
-			] 
+			]
 		);
+	}
+
+	/**
+	 * Search knowledge base using Qdrant vector database.
+	 *
+	 * @param array<int, float> $message_vector The embedding vector for the user's message.
+	 * @param float             $similarity_score_threshold Minimum cosine similarity score for relevance.
+	 * @param int               $tokens_threshold Maximum tokens to include in the response.
+	 *
+	 * @return string Concatenated article content.
+	 */
+	private function search_knowledge_base_qdrant( $message_vector, $similarity_score_threshold, $tokens_threshold ) {
+		$articles_embedded_data = '';
+		$current_token_count    = 0;
+
+		$knowledge_points = Qdrant_API::instance()->search( $message_vector, $similarity_score_threshold );
+
+		if ( is_wp_error( $knowledge_points ) ) {
+			return $articles_embedded_data;
+		}
+
+		foreach ( $knowledge_points as $point ) {
+			if ( empty( $point['post_title'] ) || empty( $point['post_content'] ) || empty( $point['token_count'] ) ) {
+				continue;
+			}
+
+			if ( $current_token_count > $tokens_threshold ) {
+				break;
+			}
+
+			$articles_embedded_data .= "\n ===START POST=== " . $point['post_title'] . ' - ' . $point['post_content'] . ' ===END POST===';
+			$current_token_count    += intval( $point['token_count'] );
+		}
+
+		return $articles_embedded_data;
+	}
+
+	/**
+	 * Search knowledge base using WordPress database storage.
+	 *
+	 * @param array<int, float> $message_vector The embedding vector for the user's message.
+	 * @param float             $similarity_score_threshold Minimum cosine similarity score for relevance.
+	 * @param int               $tokens_threshold Maximum tokens to include in the response.
+	 *
+	 * @return string Concatenated article content.
+	 */
+	private function search_knowledge_base_wp( $message_vector, $similarity_score_threshold, $tokens_threshold ) {
+		$articles_embedded_data = '';
+		$current_token_count    = 0;
+
+		$offset           = 0;
+		$items_per_page   = 50;
+		$saved_embeddings = $this->table->get_embeddings( $offset, $items_per_page );
+		$matched_articles = [];
+
+		do {
+			foreach ( $saved_embeddings as $data ) {
+				if ( empty( $data->embeddings ) ) {
+					continue;
+				}
+
+				$embeddings = json_decode( $data->embeddings, true );
+
+				if ( null === $embeddings ) {
+					continue;
+				}
+
+				$score = Cosine_Similarity::calculate( $message_vector, $embeddings );
+				if ( $similarity_score_threshold > $score ) {
+					continue;
+				}
+
+				$matched_articles[] = [
+					'id'          => intval( $data->id ),
+					'token_count' => intval( $data->token_count ),
+					'score'       => $score,
+				];
+
+				$current_token_count += intval( $data->token_count );
+				unset( $data );
+			}
+
+			if ( $current_token_count > $tokens_threshold ) {
+				// Sort by score and drop the ones that do not fit in the context.
+				usort(
+					$matched_articles,
+					function ( $a, $b ) {
+						if ( $a['score'] < $b['score'] ) {
+							return 1;
+						} elseif ( $a['score'] > $b['score'] ) {
+							return -1;
+						} else {
+							return 0;
+						}
+					}
+				);
+
+				while ( $current_token_count > $tokens_threshold ) {
+					$article = array_pop( $matched_articles );
+					if ( empty( $article ) ) {
+						break;
+					}
+					$current_token_count -= $article['token_count'];
+				}
+			}
+
+			$offset          += $items_per_page;
+			$saved_embeddings = $this->table->get_embeddings( $offset, $items_per_page );
+		} while ( ! empty( $saved_embeddings ) );
+
+		if ( empty( $matched_articles ) ) {
+			return $articles_embedded_data;
+		}
+
+		foreach ( $matched_articles as $article ) {
+			$article_data = $this->table->get_post_data( $article['id'] );
+			if ( empty( $article_data ) ) {
+				continue;
+			}
+
+			$articles_embedded_data .= "\n ===START POST=== " . $article_data['post_title'] . ' - ' . $article_data['post_content'] . ' ===END POST===';
+		}
+
+		return $articles_embedded_data;
 	}
 
 	/**
 	 * Get Similarity.
-	 * 
+	 *
 	 * @param array<int, float> $message_vector Message vector.
-	 * 
-	 * @return array<int, array<string, mixed>> Posts.
+	 * @param float             $similarity_score_threshold Cosine similarity score.
+	 * @param int               $tokens_threshold Tokens threshold for final data.
+	 *
+	 * @return string The articles blob data that match the given message vector.
 	 */
-	public function get_similarity( $message_vector ) {
+	public function search_knowledge_base( $message_vector, $similarity_score_threshold = 0.4, $tokens_threshold = 2000 ) {
 		if ( Qdrant_API::is_active() ) {
-			$scored_points = Qdrant_API::instance()->search( $message_vector );
-
-			if ( is_wp_error( $scored_points ) ) {
-				return [];
-			}
-
-			return $scored_points;
+			return $this->search_knowledge_base_qdrant( $message_vector, $similarity_score_threshold, $tokens_threshold );
 		}
 
-		$posts = $this->table->get_by_status( 'processed' );
-
-		$scored_points = array_map(
-			function ( $row ) use ( $message_vector ) {
-				$embeddings = json_decode( $row->embeddings, true );
-
-				if ( ! is_array( $embeddings ) ) {
-					return [
-						'post_id'      => $row->post_id,
-						'score'        => 0,
-						'token_count'  => $row->token_count,
-						'post_title'   => $row->post_title,
-						'post_content' => $row->post_content,
-					];
-				}
-
-				$score = Cosine_Similarity::calculate( $message_vector, $embeddings );
-
-				return [
-					'post_id'      => $row->post_id,
-					'score'        => $score,
-					'token_count'  => $row->token_count,
-					'post_title'   => $row->post_title,
-					'post_content' => $row->post_content,
-				];
-			},
-			$posts 
-		);
-
-		usort(
-			$scored_points,
-			function ( $a, $b ) {
-				if ( $a['score'] < $b['score'] ) {
-					return 1;
-				} elseif ( $a['score'] > $b['score'] ) {
-					return -1;
-				} else {
-					return 0;
-				}
-			} 
-		);
-
-		return $scored_points;
+		return $this->search_knowledge_base_wp( $message_vector, $similarity_score_threshold, $tokens_threshold );
 	}
 
 	/**
 	 * Send chat.
-	 * 
+	 *
 	 * @param \WP_REST_Request<array<string, mixed>> $request Request object.
-	 * 
+	 *
 	 * @return \WP_REST_Response
 	 */
 	public function send_chat( $request ) {
@@ -809,26 +887,6 @@ class API extends BaseAPI {
 			return rest_ensure_response( [ 'error' => __( 'No embeddings found.', 'hyve-lite' ) ] );
 		}
 
-		$scored_points = $this->get_similarity( $message_vector );
-
-		$scored_points = array_filter(
-			$scored_points,
-			function ( $row ) {
-				return $row['score'] > 0.4;
-			} 
-		);
-
-		$max_tokens_length  = 2000;
-		$curr_tokens_length = 0;
-		$article_context    = '';
-
-		foreach ( $scored_points as $row ) {
-			$curr_tokens_length += $row['token_count'];
-			if ( $curr_tokens_length < $max_tokens_length ) {
-				$article_context .= "\n ===START POST=== " . $row['post_title'] . ' - ' . $row['post_content'] . ' ===END POST===';
-			}
-		}
-
 		if ( $request->get_param( 'thread_id' ) ) {
 			$thread_id = $request->get_param( 'thread_id' );
 		} else {
@@ -839,7 +897,8 @@ class API extends BaseAPI {
 			return rest_ensure_response( [ 'error' => $this->get_error_message( $thread_id ) ] );
 		}
 
-		$query_run = $openai->create_run(
+		$article_context = $this->search_knowledge_base( $message_vector );
+		$query_run       = $openai->create_run(
 			[
 				[
 					'role'    => 'user',
@@ -889,7 +948,7 @@ class API extends BaseAPI {
 				'query_run' => $query_run,
 				'record_id' => $record_id ? $record_id : null,
 				'content'   => $article_context,
-			] 
+			]
 		);
 	}
 }
