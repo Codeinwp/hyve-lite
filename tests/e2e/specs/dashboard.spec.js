@@ -355,5 +355,6 @@ test.describe( 'Dashboard', () => {
 		await expect(
 			page.getByRole( 'button', { name: 'How to reset my password?' } )
 		).toBeHidden();
+		await expect( page.getByTestId( 'snackbar' ) ).toBeVisible();
 	} );
 } );

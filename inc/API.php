@@ -589,7 +589,11 @@ class API extends BaseAPI {
 			return wp_send_json_error( __( 'Failed to delete thread.', 'hyve-lite' ), 500 );
 		}
 		
-		return wp_send_json_success( __( 'Thread deleted successfully.', 'hyve-lite' ) );
+		return wp_send_json_success(
+			__( 'Thread removed from local storage.', 'hyve-lite' ) . ' ' . 
+			// translators: this sentence is after 'Thread removed from local storage.'.
+			__( 'It remains accessible via the OpenAI API.', 'hyve-lite' )
+		);
 	}
 
 	/**
