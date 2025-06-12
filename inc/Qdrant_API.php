@@ -32,6 +32,13 @@ class Qdrant_API {
 	const COLLECTION_NAME = 'hyve';
 
 	/**
+	 * The service error option key for `wp_options`.
+	 * 
+	 * @var string
+	 */
+	public const ERROR_OPTION_KEY = 'hyve_qdrant_api_error';
+
+	/**
 	 * Qdrant Client.
 	 * 
 	 * @var Qdrant
@@ -131,6 +138,7 @@ class Qdrant_API {
 		try {
 			
 			$response = ( new Collections( $this->client ) )->list();
+			delete_option( self::ERROR_OPTION_KEY );
 			
 			if ( empty( $response['result'] ) || empty( $response['result']['collections'] ) || ! is_array( $response['result']['collections'] ) ) {
 				return false;
@@ -146,6 +154,14 @@ class Qdrant_API {
 		} catch ( \Exception $e ) {
 			if ( 403 === $e->getCode() ) {
 				update_option( 'hyve_qdrant_status', 'inactive' );
+				update_option(
+					self::ERROR_OPTION_KEY,
+					[
+						'code'     => $e->getCode(),
+						'date'     => wp_date( 'c' ),
+						'provider' => 'Qdrant',
+					] 
+				);
 			}
 
 			return new \WP_Error( 'collection_error', $e->getMessage() );
@@ -162,10 +178,20 @@ class Qdrant_API {
 			$collection = new CreateCollection();
 			$collection->addVector( new VectorParams( 1536, VectorParams::DISTANCE_COSINE ), 'embeddings' );
 			$response = $this->client->collections( self::COLLECTION_NAME )->create( $collection );
+			delete_option( self::ERROR_OPTION_KEY );
+
 			return $response['result'];
 		} catch ( \Exception $e ) {
 			if ( 403 === $e->getCode() ) {
 				update_option( 'hyve_qdrant_status', 'inactive' );
+				update_option(
+					self::ERROR_OPTION_KEY,
+					[
+						'code'     => $e->getCode(),
+						'date'     => wp_date( 'c' ),
+						'provider' => 'Qdrant',
+					] 
+				);
 			}
 
 			return new \WP_Error( 'collection_error', $e->getMessage() );
@@ -273,7 +299,7 @@ class Qdrant_API {
 	 */
 	public function search( $embeddings, $score_threshold ) {
 		try {
-			$search = (
+			$search   = (
 				new SearchRequest(
 					new VectorStruct( $embeddings, 'embeddings' )
 				)
@@ -281,7 +307,6 @@ class Qdrant_API {
 			->setLimit( 10 )
 			->setScoreThreshold( $score_threshold )
 			->setWithPayload( true );
-
 			$response = $this->client->collections( self::COLLECTION_NAME )->points()->search( $search );
 
 			if ( empty( $response['result'] ) ) {
@@ -299,10 +324,20 @@ class Qdrant_API {
 				$results
 			);
 
+			delete_option( self::ERROR_OPTION_KEY );
+
 			return $payload;
 		} catch ( \Exception $e ) {
 			if ( 403 === $e->getCode() ) {
 				update_option( 'hyve_qdrant_status', 'inactive' );
+				update_option(
+					self::ERROR_OPTION_KEY,
+					[
+						'code'     => $e->getCode(),
+						'date'     => wp_date( 'c' ),
+						'provider' => 'Qdrant',
+					] 
+				);
 			}
 
 			return new \WP_Error( 'collection_error', $e->getMessage() );

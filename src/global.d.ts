@@ -18,6 +18,12 @@ interface HyveData {
 	docs: string;
 	qdrant_docs: string;
 	pro: string;
+	serviceErrors?: {
+		code: string;
+		message: string;
+		provider: string;
+		date: string;
+	}[]
 }
 
 declare global {
