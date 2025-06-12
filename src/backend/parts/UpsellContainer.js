@@ -10,12 +10,7 @@ import { Button } from '@wordpress/components';
  */
 import { setUtm } from '../utils';
 
-const UpsellContainer = ({
-	title,
-	description,
-	campaign,
-	children
-}) => {
+const UpsellContainer = ( { title, description, campaign, children } ) => {
 	return (
 		<div className="col-span-6 xl:col-span-4 relative">
 			{ children }
@@ -29,7 +24,7 @@ const UpsellContainer = ({
 						variant="primary"
 						className="mt-2"
 						target="_blank"
-						href={ setUtm( window?.hyve?.pro, campaign )}
+						href={ setUtm( window?.hyve?.pro, campaign ) }
 					>
 						{ __( 'Get Hyve Pro!', 'hyve-lite' ) }
 					</Button>

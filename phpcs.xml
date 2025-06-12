@@ -2,36 +2,51 @@
 <ruleset name="">
     <description>ThemeIsle ruleset</description>
 
-    <config name="testVersion" value="8.1-"/>
+    <config name="testVersion" value="7.4-" />
 
-    <rule ref="WordPress-VIP-Go" />
+    <!-- Exclude deprecated Generic sniff -->
+    <rule ref="Generic.Functions.CallTimePassByReference">
+        <exclude name="Generic.Functions.CallTimePassByReference" />
+    </rule>
+
+    <rule ref="WordPress-VIP-Go">
+        <!-- Exclude deprecated JS sniffs -->
+        <exclude name="WordPressVIPMinimum.JS.Window" />
+        <exclude name="WordPressVIPMinimum.JS.DangerouslySetInnerHTML" />
+        <exclude name="WordPressVIPMinimum.JS.InnerHTML" />
+        <exclude name="WordPressVIPMinimum.JS.StrippingTags" />
+        <exclude name="WordPressVIPMinimum.JS.StringConcat" />
+        <exclude name="WordPressVIPMinimum.JS.HTMLExecutingFunctions" />
+    </rule>
 
     <rule ref="WordPress-Core">
-        <exclude name="WordPress.DB.SlowDBQuery.slow_db_query_meta_query"/>
-        <exclude name="WordPress.DB.DirectDatabaseQuery.NoCaching"/>
-        <exclude name="WordPress.DB.DirectDatabaseQuery.DirectQuery"/>
+        <exclude name="WordPress.DB.SlowDBQuery.slow_db_query_meta_query" />
+        <exclude name="WordPress.DB.DirectDatabaseQuery.NoCaching" />
+        <exclude name="WordPress.DB.DirectDatabaseQuery.DirectQuery" />
     </rule>
 
     <rule ref="WordPress-Docs" />
 
     <rule ref="WordPress-Extra">
         <!-- Forget about file names -->
-        <exclude name="WordPress.Files.FileName"/>
-	    <exclude name="Universal.Arrays.DisallowShortArraySyntax.Found"/>
+        <exclude name="WordPress.Files.FileName" />
+        <exclude name="Universal.Arrays.DisallowShortArraySyntax.Found" />
     </rule>
 
     <rule ref="PHPCompatibility" />
 
     <rule ref="WordPress.WP.I18n">
         <properties>
-            <property name="text_domain" value="quickwp" />
+            <property name="text_domain" type="array">
+                <element value="hyve-lite" />
+            </property>
         </properties>
     </rule>
 
-    <rule ref="Generic.Arrays.DisallowLongArraySyntax.Found"/>
+    <rule ref="Generic.Arrays.DisallowLongArraySyntax.Found" />
 
-    <arg name="extensions" value="php"/>
-    <arg value="s"/>
+    <arg name="extensions" value="php" />
+    <arg value="s" />
 
     <file>.</file>
     <exclude-pattern>node_modules/*</exclude-pattern>
@@ -39,8 +54,11 @@
     <exclude-pattern>build/*</exclude-pattern>
     <exclude-pattern>Gruntfile.js</exclude-pattern>
     <exclude-pattern>dist</exclude-pattern>
+    <exclude-pattern>bin</exclude-pattern>
     <exclude-pattern>cypress</exclude-pattern>
     <exclude-pattern>dist/*</exclude-pattern>
     <exclude-pattern>artifact/*</exclude-pattern>
     <exclude-pattern>assets/*</exclude-pattern>
+    <exclude-pattern>src/*</exclude-pattern>
+    <exclude-pattern>tests/e2e/*</exclude-pattern>
 </ruleset>

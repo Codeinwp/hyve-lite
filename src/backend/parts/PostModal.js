@@ -9,7 +9,7 @@ import {
 	Button,
 	Modal,
 	TextControl,
-	TextareaControl
+	TextareaControl,
 } from '@wordpress/components';
 
 import { useDispatch } from '@wordpress/data';
@@ -22,12 +22,8 @@ import { useState } from '@wordpress/element';
 import { onProcessData } from '../utils';
 import ModerationReview from './ModerationReview';
 
-const PostModal = ({
-	action,
-	post,
-	onClose
-}) => {
-	const [ data, setData ] = useState({ ...post });
+const PostModal = ( { action, post, onClose } ) => {
+	const [ data, setData ] = useState( { ...post } );
 	const [ isLoading, setLoading ] = useState( false );
 	const [ isModerationModalOpen, setModerationModalOpen ] = useState( false );
 
@@ -35,47 +31,39 @@ const PostModal = ({
 
 	const isEdit = 'edit' === action;
 
-	const onDelete = async() => {
+	const onDelete = async () => {
 		setLoading( true );
 
-		const response = await apiFetch({
+		const response = await apiFetch( {
 			path: `${ window.hyve.api }/knowledge/${ data.ID }`,
 			method: 'POST',
 			headers: {
-				'X-HTTP-Method-Override': 'DELETE'
-			}
-		});
+				'X-HTTP-Method-Override': 'DELETE',
+			},
+		} );
 
 		if ( response.error ) {
-			createNotice(
-				'error',
-				response.error,
-				{
-					type: 'snackbar',
-					isDismissible: true
-				}
-			);
+			createNotice( 'error', response.error, {
+				type: 'snackbar',
+				isDismissible: true,
+			} );
 			setLoading( false );
 
 			return;
 		}
 
-		createNotice(
-			'success',
-			__( 'Post has been deleted.', 'hyve-lite' ),
-			{
-				type: 'snackbar',
-				isDismissible: true
-			}
-		);
+		createNotice( 'success', __( 'Post has been deleted.', 'hyve-lite' ), {
+			type: 'snackbar',
+			isDismissible: true,
+		} );
 
 		onClose( true );
 	};
 
-	const onProcess = async() => {
+	const onProcess = async () => {
 		setLoading( true );
 
-		await onProcessData({
+		await onProcessData( {
 			post: data,
 			type: 'knowledge',
 			onSuccess: () => {
@@ -83,10 +71,13 @@ const PostModal = ({
 				setLoading( false );
 			},
 			onError: ( error ) => {
-				if ( 'content_failed_moderation' === error?.code && undefined !== error.review ) {
+				if (
+					'content_failed_moderation' === error?.code &&
+					undefined !== error.review
+				) {
 					const newPost = {
 						...data,
-						review: error.review
+						review: error.review,
 					};
 
 					setData( newPost );
@@ -94,8 +85,8 @@ const PostModal = ({
 				}
 
 				setLoading( false );
-			}
-		});
+			},
+		} );
 	};
 
 	if ( isModerationModalOpen ) {
@@ -117,7 +108,11 @@ const PostModal = ({
 
 	return (
 		<Modal
-			title={ isEdit ? __( 'Edit Data', 'hyve-lite' ) : __( 'Add Data', 'hyve-lite' )}
+			title={
+				isEdit
+					? __( 'Edit Data', 'hyve-lite' )
+					: __( 'Add Data', 'hyve-lite' )
+			}
 			onRequestClose={ () => onClose( false ) }
 			shouldCloseOnOverlayClick={ true }
 			isOpen={ true }
@@ -129,10 +124,10 @@ const PostModal = ({
 					value={ data?.title || '' }
 					disabled={ isLoading }
 					onChange={ ( title ) => {
-						setData({
+						setData( {
 							...data,
-							title
-						});
+							title,
+						} );
 					} }
 				/>
 
@@ -143,10 +138,10 @@ const PostModal = ({
 					disabled={ isLoading }
 					maxLength={ 4000 }
 					onChange={ ( content ) => {
-						setData({
+						setData( {
 							...data,
-							content
-						});
+							content,
+						} );
 					} }
 				/>
 
@@ -170,7 +165,9 @@ const PostModal = ({
 						isBusy={ isLoading }
 						onClick={ onProcess }
 					>
-						{ isEdit ? __( 'Save', 'hyve-lite' ) : __( 'Add', 'hyve-lite' )}
+						{ isEdit
+							? __( 'Save', 'hyve-lite' )
+							: __( 'Add', 'hyve-lite' ) }
 					</Button>
 				</div>
 			</div>
