@@ -7,7 +7,7 @@
 
 namespace ThemeIsle\HyveLite;
 
-use Yethee\Tiktoken\EncoderProvider;
+use guttedgarden\Tiktoken\EncoderProvider;
 
 /**
  * Tokenizer class.
@@ -22,8 +22,9 @@ class Tokenizer {
 	 */
 	public static function tokenize( $post ) {
 		$provider = new EncoderProvider();
-		$encoder  = $provider->get( 'cl100k_base' );
+		$provider->setVocabCache( get_temp_dir() );
 
+		$encoder = $provider->get( 'cl100k_base' );
 		$content = preg_replace( '/<[^>]+>/', '', $post['content'] );
 		$tokens  = $encoder->encode( $content );
 
@@ -78,7 +79,9 @@ class Tokenizer {
 	 */
 	public static function create_chunks( $text, $size = 1000 ) {
 		$provider = new EncoderProvider();
-		$encoder  = $provider->get( 'cl100k_base' );
+		$provider->setVocabCache( get_temp_dir() );
+		
+		$encoder = $provider->get( 'cl100k_base' );
 
 		$sentences = explode( '. ', $text );
 

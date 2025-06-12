@@ -6,7 +6,7 @@
 		"WP_DEBUG_DISPLAY": true,
 		"FS_METHOD": "direct"
 	},
-	"phpVersion": "8.1",
+	"phpVersion": "7.4",
 	"lifecycleScripts": {
 		"afterStart": "bash bin/e2e-tests.sh"
 	}
