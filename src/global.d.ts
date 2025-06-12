@@ -1,3 +1,5 @@
+import type App from "./frontend/App";
+
 interface PostType {
 	label: string;
 	value: string;
@@ -35,6 +37,7 @@ declare global {
 	interface Window {
 		hyve: HyveData;
 		hyveChatBlock: HyveChatBlock;
+		hyveApp: App;
 	}
 }
 
