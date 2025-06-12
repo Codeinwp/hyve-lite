@@ -18,12 +18,12 @@ class Cosine_Similarity {
 	 * @param float[] $vector_b Second vector.
 	 * @return float The dot product of the two vectors.
 	 */
-	private static function dot_product( array $vector_a, array $vector_b ): float {
+	public static function dot_product( array $vector_a, array $vector_b ): float {
+		$len = max( count( $vector_a ), count( $vector_b ) );
 		$sum = 0.0;
-		foreach ( $vector_a as $key => $value ) {
-			if ( isset( $vector_b[ $key ] ) ) {
-				$sum += $value * $vector_b[ $key ];
-			}
+
+		for ( $idx = 0; $idx < $len; $idx++ ) {
+			$sum += $vector_a[ $idx ] * $vector_b[ $idx ];
 		}
 		return $sum;
 	}
@@ -34,12 +34,29 @@ class Cosine_Similarity {
 	 * @param float[] $vector The vector to calculate the magnitude of.
 	 * @return float The magnitude of the vector.
 	 */
-	private static function magnitude( array $vector ): float {
+	public static function magnitude( array $vector ): float {
 		$sum = 0.0;
 		foreach ( $vector as $component ) {
 			$sum += pow( $component, 2 );
 		}
 		return sqrt( $sum );
+	}
+
+	/**
+	 * Calculate the similarity score.
+	 * 
+	 * @param float $dot_product The dot product of the two vectors.
+	 * @param float $magnitude_a The magnitude of the first vector.
+	 * @param float $magnitude_b The magnitude of the second vector.
+	 * 
+	 * @return float The cosine similarity between the two vectors.
+	 */
+	public static function similarity( $dot_product, $magnitude_a, $magnitude_b ) {
+		if ( 0.0 === $magnitude_a || 0.0 === $magnitude_b ) {
+			return 0.0;
+		} 
+
+		return $dot_product / ( $magnitude_a * $magnitude_b );
 	}
 
 	/**
@@ -54,11 +71,6 @@ class Cosine_Similarity {
 		$magnitude_a = self::magnitude( $vector_a );
 		$magnitude_b = self::magnitude( $vector_b );
 
-		// To prevent division by zero.
-		if ( 0.0 === $magnitude_a || 0.0 === $magnitude_b ) {
-			return 0.0;
-		}
-
-		return $dot_product / ( $magnitude_a * $magnitude_b );
+		return self::similarity( $dot_product, $magnitude_a, $magnitude_b );
 	}
 }
