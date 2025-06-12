@@ -138,6 +138,7 @@ class Qdrant_API {
 		try {
 			
 			$response = ( new Collections( $this->client ) )->list();
+			delete_option( self::ERROR_OPTION_KEY );
 			
 			if ( empty( $response['result'] ) || empty( $response['result']['collections'] ) || ! is_array( $response['result']['collections'] ) ) {
 				return false;
@@ -153,6 +154,14 @@ class Qdrant_API {
 		} catch ( \Exception $e ) {
 			if ( 403 === $e->getCode() ) {
 				update_option( 'hyve_qdrant_status', 'inactive' );
+				update_option(
+					self::ERROR_OPTION_KEY,
+					[
+						'code'     => $e->getCode(),
+						'date'     => wp_date( 'c' ),
+						'provider' => 'Qdrant',
+					] 
+				);
 			}
 
 			return new \WP_Error( 'collection_error', $e->getMessage() );
@@ -169,10 +178,20 @@ class Qdrant_API {
 			$collection = new CreateCollection();
 			$collection->addVector( new VectorParams( 1536, VectorParams::DISTANCE_COSINE ), 'embeddings' );
 			$response = $this->client->collections( self::COLLECTION_NAME )->create( $collection );
+			delete_option( self::ERROR_OPTION_KEY );
+
 			return $response['result'];
 		} catch ( \Exception $e ) {
 			if ( 403 === $e->getCode() ) {
 				update_option( 'hyve_qdrant_status', 'inactive' );
+				update_option(
+					self::ERROR_OPTION_KEY,
+					[
+						'code'     => $e->getCode(),
+						'date'     => wp_date( 'c' ),
+						'provider' => 'Qdrant',
+					] 
+				);
 			}
 
 			return new \WP_Error( 'collection_error', $e->getMessage() );
