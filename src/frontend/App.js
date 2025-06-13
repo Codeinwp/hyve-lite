@@ -18,7 +18,11 @@ class App {
 		this.runID = null;
 		this.recordID = null;
 
-		this.renderUI();
+		this.initialize();
+	}
+
+	async initialize() {
+		await this.renderUI();
 		this.setupListeners();
 		this.restoreStorage();
 	}
@@ -464,11 +468,28 @@ class App {
 		return element;
 	}
 
-	renderUI() {
+	async renderUI() {
 		const chatOpenButton = this.createElement( 'button', {
 			className: 'collapsible open',
-			innerText: '💬',
 		} );
+
+		let useDefaultIcon = true;
+		if ( 'svg' === window.hyve?.chatIcon?.type ) {
+			/**
+			 * NOTE: Download the SVG to that we can use the styling via CSS.
+			 */
+			const iconURL =
+				window.hyve?.icons?.[ window.hyve?.chatIcon?.value ];
+			if ( iconURL ) {
+				const svg = await this.fetchSVG( iconURL );
+				chatOpenButton.innerHTML = svg;
+				useDefaultIcon = false;
+			}
+		}
+
+		if ( useDefaultIcon ) {
+			chatOpenButton.appendChild( document.createTextNode( '💬' ) );
+		}
 
 		const chatOpen = this.createElement(
 			'div',
@@ -567,6 +588,19 @@ class App {
 
 		if ( inlineChat ) {
 			inlineChat.appendChild( chatWindow );
+		}
+	}
+
+	async fetchSVG( url ) {
+		let svgBody = '';
+		try {
+			const response = await fetch( url );
+			if ( 200 === response.status ) {
+				svgBody = await response.text();
+			}
+		} catch ( e ) {
+		} finally {
+			return svgBody;
 		}
 	}
 }
