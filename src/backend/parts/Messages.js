@@ -10,13 +10,22 @@ import { __ } from '@wordpress/i18n';
 
 import apiFetch from '@wordpress/api-fetch';
 
-import { Button, Modal, Panel, PanelRow, Spinner } from '@wordpress/components';
+import {
+	Button,
+	Icon,
+	Modal,
+	Panel,
+	PanelRow,
+	Spinner,
+} from '@wordpress/components';
 
-import { useEffect, useState } from '@wordpress/element';
+import { useEffect, useState, useCallback } from '@wordpress/element';
 
 import { applyFilters } from '@wordpress/hooks';
 
 import { addQueryArgs } from '@wordpress/url';
+
+import { useDispatch } from '@wordpress/data';
 
 /**
  * Internal dependencies.
@@ -43,6 +52,38 @@ const Messages = () => {
 	const [ isUpsellOpen, setUpsellOpen ] = useState( false );
 	const [ isLoading, setLoading ] = useState( true );
 	const [ offset, setOffset ] = useState( 0 );
+
+	const { createNotice } = useDispatch( 'core/notices' );
+
+	const deleteConversation = useCallback(
+		async ( threadId ) => {
+			try {
+				const response = await apiFetch( {
+					path: addQueryArgs( `${ window.hyve.api }/threads`, {
+						id: threadId,
+					} ),
+					method: 'DELETE',
+				} );
+
+				if ( response.data ) {
+					setPosts( ( prev ) =>
+						prev.filter( ( post ) => post.ID !== selectedPost.ID )
+					);
+					setSelectedPost( null );
+					createNotice( 'success', response.data, {
+						type: 'snackbar',
+						isDismissible: true,
+					} );
+				}
+			} catch ( error ) {
+				createNotice( 'error', error?.message, {
+					type: 'snackbar',
+					isDismissible: true,
+				} );
+			}
+		},
+		[ selectedPost, createNotice ]
+	);
 
 	useEffect( () => {
 		const fetchPosts = async () => {
@@ -168,7 +209,7 @@ const Messages = () => {
 								</div>
 							) }
 
-							<div className="flex flex-col col-span-6 xl:col-span-4 p-4 max-h-[672px]">
+							<div className="flex flex-col col-span-6 xl:col-span-4 max-h-[672px]">
 								{ ! selectedPost && (
 									<div className="flex justify-center w-full h-full items-center">
 										<p className="text-xs">
@@ -182,7 +223,7 @@ const Messages = () => {
 
 								{ selectedPost && (
 									<>
-										<div className="flex justify-between pb-3 border-b-gray-300 border-b-[0.5px] border-solid">
+										<div className="flex justify-between px-4 border-b-gray-300 border-b-[0.5px] border-solid">
 											<h2 className="text-xs font-semibold">
 												{ __(
 													'Thread ID',
@@ -195,9 +236,23 @@ const Messages = () => {
 													''
 												) }
 											</p>
+											<Button
+												isDestructive={ true }
+												aria-label={ __(
+													'Delete conversation',
+													'hyve-lite'
+												) }
+												onClick={ () =>
+													deleteConversation(
+														selectedPost?.ID
+													)
+												}
+											>
+												<Icon icon={ 'trash' } />
+											</Button>
 										</div>
 
-										<div className="overflow-scroll">
+										<div className="overflow-scroll pl-4 grow">
 											{ selectedPost?.thread &&
 												0 <
 													selectedPost?.thread
