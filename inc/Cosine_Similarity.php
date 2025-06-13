@@ -19,7 +19,7 @@ class Cosine_Similarity {
 	 * @return float The dot product of the two vectors.
 	 */
 	public static function dot_product( array $vector_a, array $vector_b ): float {
-		$len = max( count( $vector_a ), count( $vector_b ) );
+		$len = min( count( $vector_a ), count( $vector_b ) );
 		$sum = 0.0;
 
 		for ( $idx = 0; $idx < $len; $idx++ ) {
