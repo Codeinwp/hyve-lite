@@ -177,12 +177,14 @@ class App {
 	async getResponse( message ) {
 		try {
 			const response = await apiFetch( {
-				path: addQueryArgs( `${ window.hyve.api }/chat`, {
-					thread_id: this.threadID,
-					run_id: this.runID,
-					record_id: this.recordID,
-					message,
-				} ),
+				path: this.addCacheProtection(
+					addQueryArgs( `${ window.hyve.api }/chat`, {
+						thread_id: this.threadID,
+						run_id: this.runID,
+						record_id: this.recordID,
+						message,
+					} )
+				),
 				headers: {
 					'Cache-Control': 'no-cache',
 				},
@@ -227,7 +229,7 @@ class App {
 			this.setLoading( true );
 
 			const response = await apiFetch( {
-				path: `${ window.hyve.api }/chat`,
+				path: this.addCacheProtection( `${ window.hyve.api }/chat` ),
 				method: 'POST',
 				data: {
 					message,
@@ -237,6 +239,9 @@ class App {
 					...( null !== this.recordID
 						? { record_id: this.recordID }
 						: {} ),
+				},
+				headers: {
+					'Cache-Control': 'no-cache',
 				},
 			} );
 
@@ -466,6 +471,12 @@ class App {
 			}
 		} );
 		return element;
+	}
+
+	addCacheProtection( url ) {
+		return addQueryArgs( url, {
+			t: Date.now(),
+		} );
 	}
 
 	async renderUI() {
