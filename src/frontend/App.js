@@ -18,6 +18,12 @@ class App {
 		this.runID = null;
 		this.recordID = null;
 
+		if ( Boolean( window.hyve?.canShow ) ) {
+			this.initialize();
+		}
+	}
+
+	initialize() {
 		this.renderUI();
 		this.setupListeners();
 		this.restoreStorage();

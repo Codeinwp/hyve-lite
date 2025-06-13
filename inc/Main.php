@@ -60,6 +60,9 @@ class Main {
 		add_action( 'delete_post', [ $this, 'delete_post' ] );
 		add_action( 'hyve_weekly_stats', [ $this, 'log_stats' ] );
 
+		add_filter( 'hyve_global_chat_enabled', [ $this, 'is_global_chat_enabled' ] );
+		add_filter( 'hyve_stats', [ $this, 'get_stats' ] );
+
 		if ( Logger::has_consent() && ! wp_next_scheduled( 'hyve_weekly_stats' ) ) {
 			wp_schedule_event( time(), 'weekly', 'hyve_weekly_stats' );
 		}
@@ -283,6 +286,16 @@ class Main {
 
 		self::add_labels_to_default_settings();
 		$settings = self::get_settings();
+		$stats    = $this->get_stats();
+		
+		/**
+		 * Filters whether the chat should be displayed.
+		 *
+		 * @since 1.4.0
+		 *
+		 * @param bool $should_show_chat Whether to display the chat. Default true if totalChunks > 0.
+		 */
+		$should_show_chat = apply_filters( 'hyve_display_chat', 0 < intval( $stats['totalChunks'] ) );
 
 		wp_localize_script(
 			'hyve-lite-scripts',
@@ -303,6 +316,7 @@ class Main {
 						'tryAgain'    => __( 'Sorry, I am not able to process your request at the moment. Please try again.', 'hyve-lite' ),
 						'typing'      => __( 'Typing…', 'hyve-lite' ),
 					],
+					'canShow'   => $should_show_chat,
 				]
 			)
 		);
@@ -339,6 +353,20 @@ class Main {
 			'messages'    => Threads::get_messages_count(),
 			'totalChunks' => $this->table->get_count(),
 		];
+	}
+
+	/**
+	 * Check if the Chat is enabled globally on all the pages.
+	 * 
+	 * @return boolean True if the chat is enabled.
+	 */
+	public function is_global_chat_enabled() {
+		$settings = self::get_settings();
+		if ( ! isset( $settings['chat_enabled'] ) ) {
+			return false;
+		}
+
+		return boolval( $settings['chat_enabled'] );
 	}
 
 	/**

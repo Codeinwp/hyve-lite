@@ -1,3 +1,5 @@
+import type App from "./frontend/App";
+
 interface PostType {
 	label: string;
 	value: string;
@@ -20,9 +22,22 @@ interface HyveData {
 	pro: string;
 }
 
+interface HyveChatBlock {
+	globalChatEnabled: string;
+	dashboardURL: string;
+	knowledgeBaseURL: string;
+	stats: {
+		messages: string;
+		threads: 14;
+		totalChunks: 6;
+	};
+}
+
 declare global {
 	interface Window {
 		hyve: HyveData;
+		hyveChatBlock: HyveChatBlock;
+		hyveApp: App;
 	}
 }
 

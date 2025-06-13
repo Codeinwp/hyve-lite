@@ -35,6 +35,10 @@ test.describe( 'Dashboard', () => {
 	 * Navigate through the dashboard tabs and check for rendering issues.
 	 */
 	test( 'check tabs', async ( { page } ) => {
+		await expect(
+			page.getByText( 'Enable Chat on all the pages' )
+		).toBeVisible();
+
 		await page
 			.getByRole( 'button', { name: 'Knowledge Base', exact: true } )
 			.click( { force: true } );
@@ -86,9 +90,6 @@ test.describe( 'Dashboard', () => {
 		await page
 			.getByRole( 'button', { name: 'Settings' } )
 			.click( { force: true } );
-		await expect(
-			page.getByText( 'Enable ChatEnableDisable' )
-		).toBeVisible();
 		await expect(
 			page.getByRole( 'textbox', { name: 'Welcome Message' } )
 		).toBeVisible();
@@ -445,5 +446,18 @@ test.describe( 'Dashboard', () => {
 		await expect(
 			page.getByRole( 'radio', { name: 'GPT-4.1 nano' } )
 		).toBeChecked();
+	} );
+
+	test( 'empty knowledge base warning', async ( { page } ) => {
+		await expect(
+			page.getByText( 'Your Knowledge Base is' )
+		).toBeVisible();
+
+		await page
+			.getByRole( 'button', { name: 'Click here to add content.' } )
+			.click( { force: true } );
+		await expect(
+			page.getByRole( 'button', { name: 'WordPress → Import your' } )
+		).toBeVisible();
 	} );
 } );
