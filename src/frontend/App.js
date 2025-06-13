@@ -185,9 +185,7 @@ class App {
 						message,
 					} )
 				),
-				headers: {
-					'Cache-Control': 'no-cache',
-				},
+				headers: this.getDefaultHeaders(),
 			} );
 
 			if ( response.error ) {
@@ -240,9 +238,7 @@ class App {
 						? { record_id: this.recordID }
 						: {} ),
 				},
-				headers: {
-					'Cache-Control': 'no-cache',
-				},
+				headers: this.getDefaultHeaders(),
 			} );
 
 			if ( response.error ) {
@@ -477,6 +473,12 @@ class App {
 		return addQueryArgs( url, {
 			t: Date.now(),
 		} );
+	}
+
+	getDefaultHeaders() {
+		return {
+			'Cache-Control': 'no-cache',
+		};
 	}
 
 	async renderUI() {
