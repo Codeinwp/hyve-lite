@@ -767,12 +767,17 @@ class API extends BaseAPI {
 	 */
 	private function search_knowledge_base_wp( $message_vector, $similarity_score_threshold, $tokens_threshold ) {
 		$articles_embedded_data = '';
-		$current_token_count    = 0;
+		$message_vector_mag     = Cosine_Similarity::magnitude( $message_vector );
 
-		$offset           = 0;
-		$items_per_page   = 50;
-		$saved_embeddings = $this->table->get_embeddings( $offset, $items_per_page );
-		$matched_articles = [];
+		if ( 0.0 === $message_vector_mag ) {
+			return $articles_embedded_data;
+		}
+
+		$current_token_count = 0;
+		$offset              = 0;
+		$items_per_page      = 50;
+		$saved_embeddings    = $this->table->get_embeddings( $offset, $items_per_page );
+		$matched_articles    = [];
 
 		do {
 			foreach ( $saved_embeddings as $data ) {
@@ -782,11 +787,17 @@ class API extends BaseAPI {
 
 				$embeddings = json_decode( $data->embeddings, true );
 
-				if ( null === $embeddings ) {
+				if ( ! is_array( $embeddings ) ) {
 					continue;
 				}
 
-				$score = Cosine_Similarity::calculate( $message_vector, $embeddings );
+				$embeddings_mag = Cosine_Similarity::magnitude( $embeddings );
+				if ( 0.0 === $embeddings_mag ) {
+					continue;
+				}
+
+				$score = Cosine_Similarity::similarity( Cosine_Similarity::dot_product( $message_vector, $embeddings ), $message_vector_mag, $embeddings_mag );
+
 				if ( $similarity_score_threshold > $score ) {
 					continue;
 				}
