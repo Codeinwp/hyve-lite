@@ -9,6 +9,13 @@ import { dispatch } from '@wordpress/data';
 
 const { createNotice } = dispatch( 'core/notices' );
 
+import { ReactComponent as ChatBubbleOvalLeftIcon } from '../../assets/icons/chat-bubble-oval-left.svg';
+import { ReactComponent as ChatBubbleBottomCenterTextIcon } from '../../assets/icons/chat-bubble-bottom-center-text.svg';
+import { ReactComponent as ChatBubbleBottomCenterIcon } from '../../assets/icons/chat-bubble-bottom-center.svg';
+import { ReactComponent as ChatBubbleLeftEllipsisIcon } from '../../assets/icons/chat-bubble-left-ellipsis.svg';
+import { ReactComponent as ChatBubbleLeftIcon } from '../../assets/icons/chat-bubble-left.svg';
+import { ReactComponent as ChatBubbleLeftRightIcon } from '../../assets/icons/chat-bubble-left-right.svg';
+
 export const moderationLabels = {
 	hate: {
 		label: __( 'Hate Speech', 'hyve-lite' ),
@@ -188,3 +195,36 @@ export const setUtm = ( urlAdress, linkArea ) => {
 	urlLink.searchParams.set( 'utm_campaign', linkArea );
 	return urlLink.toString();
 };
+
+export const getChatIcons = () => [
+	{
+		icon: ChatBubbleLeftEllipsisIcon,
+		label: __( 'Chat Bubble Left Ellipsis', 'hyve-lite' ),
+		value: 'default',
+	},
+	{
+		icon: ChatBubbleOvalLeftIcon,
+		label: __( 'Chat Bubble Oval Left', 'hyve-lite' ),
+		value: 'chat-bubble-oval-left',
+	},
+	{
+		icon: ChatBubbleBottomCenterTextIcon,
+		label: __( 'Chat Bubble Bottom Center Text', 'hyve-lite' ),
+		value: 'chat-bubble-bottom-center-text',
+	},
+	{
+		icon: ChatBubbleBottomCenterIcon,
+		label: __( 'Chat Bubble Bottom Center', 'hyve-lite' ),
+		value: 'chat-bubble-bottom-center',
+	},
+	{
+		icon: ChatBubbleLeftIcon,
+		label: __( 'Chat Bubble Left', 'hyve-lite' ),
+		value: 'chat-bubble-left',
+	},
+	{
+		icon: ChatBubbleLeftRightIcon,
+		label: __( 'Chat Bubble Left Right', 'hyve-lite' ),
+		value: 'chat-bubble-left-right',
+	},
+];
