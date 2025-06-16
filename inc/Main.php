@@ -594,11 +594,14 @@ class Main {
 	 */
 	public function get_survey_data() {
 
-		$options            = apply_filters( 'hyve_options_data', [] );
-		$days_since_install = round( ( time() - get_option( 'hyve_lite_install', time() ) ) / DAY_IN_SECONDS );
-		$license_status     = apply_filters( 'product_hyve_license_status', 'invalid' );
-		$settings           = self::get_settings();
+		$options           = apply_filters( 'hyve_options_data', [] );
+		$install_time_free = get_option( 'hyve_lite_install', time() );
+		$install_time_pro  = get_option( 'hyve_install', time() );
+		$settings          = self::get_settings();
 
+		$license_status     = apply_filters( 'product_hyve_license_status', 'invalid' );
+		$days_since_install = round( ( time() - min( $install_time_free, $install_time_pro ) ) / DAY_IN_SECONDS );
+		
 		$survey_data = [
 			'environmentId' => 'cmbtdc5s8s7pkuk014jwixs7n',
 			'attributes'    => [
