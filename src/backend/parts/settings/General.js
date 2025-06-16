@@ -97,6 +97,7 @@ const General = () => {
 				throw new Error( response.error );
 			}
 
+			window.tiTrk?.uploadEvents?.();
 			createNotice( 'success', __( 'Settings saved.', 'hyve-lite' ), {
 				type: 'snackbar',
 				isDismissible: true,

@@ -53,6 +53,8 @@ const Advanced = () => {
 				type: 'snackbar',
 				isDismissible: true,
 			} );
+
+			window.tiTrk?.uploadEvents?.();
 		} catch ( error ) {
 			createNotice( 'error', error, {
 				type: 'snackbar',
@@ -78,9 +80,14 @@ const Advanced = () => {
 							type="password"
 							value={ settings.api_key || '' }
 							disabled={ isSaving }
-							onChange={ ( newValue ) =>
-								setSetting( 'api_key', newValue )
-							}
+							onChange={ ( newValue ) => {
+								window.hyveTrk?.add( {
+									feature: 'openai',
+									featureComponent: 'api-key',
+									featureValue: 'added',
+								} );
+								setSetting( 'api_key', newValue );
+							} }
 						/>
 					</BaseControl>
 

@@ -91,6 +91,12 @@ const Qdrant = () => {
 					isDismissible: true,
 				}
 			);
+			window.hyveTrk?.add( {
+				feature: 'qdrant',
+				featureComponent: 'api-key',
+				featureValue: 'disconnected',
+			} );
+			window.tiTrk?.uploadEvents?.();
 		} catch ( error ) {
 			createNotice( 'error', error, {
 				type: 'snackbar',
@@ -123,6 +129,13 @@ const Qdrant = () => {
 				type: 'snackbar',
 				isDismissible: true,
 			} );
+
+			window.hyveTrk?.add( {
+				feature: 'qdrant',
+				featureComponent: 'api-key',
+				featureValue: 'connected',
+			} );
+			window.tiTrk?.uploadEvents?.();
 		} catch ( error ) {
 			createNotice( 'error', error, {
 				type: 'snackbar',

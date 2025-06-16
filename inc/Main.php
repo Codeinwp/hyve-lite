@@ -59,6 +59,7 @@ class Main {
 		add_action( 'save_post', [ $this, 'update_meta' ], 10, 3 );
 		add_action( 'delete_post', [ $this, 'delete_post' ] );
 		add_action( 'hyve_weekly_stats', [ $this, 'log_stats' ] );
+		add_filter( 'themeisle_sdk_enable_telemetry', '__return_true' );
 
 		add_filter( 'hyve_global_chat_enabled', [ $this, 'is_global_chat_enabled' ] );
 		add_filter( 'hyve_stats', [ $this, 'get_stats' ] );
