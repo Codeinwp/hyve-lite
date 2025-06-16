@@ -534,6 +534,14 @@
 	}
 }
 
+#hyve-menu-button {
+	visibility: hidden;
+
+	&.is-visible {
+		visibility: visible;
+	}
+}
+
 @media screen and (max-width: 396px) {
 	.hyve-bar-open,
 	.hyve-bar-close {

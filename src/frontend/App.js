@@ -25,9 +25,10 @@ class App {
 	}
 
 	async initialize() {
+		this.restoreStorage();
 		await this.renderUI();
 		this.setupListeners();
-		this.restoreStorage();
+		this.restoreMessages();
 	}
 
 	restoreStorage() {
@@ -52,7 +53,9 @@ class App {
 		this.threadID = storage.threadID;
 		this.recordID = storage.recordID;
 		this.isInitialToggle = false;
+	}
 
+	restoreMessages() {
 		this.messages.forEach( ( message ) => {
 			this.addMessage(
 				message.time,
@@ -335,6 +338,8 @@ class App {
 			messageDiv.classList.add( 'is-light' );
 		}
 
+		this.setMenuVisibility( 1 < this.messages.length );
+
 		if ( null !== id ) {
 			messageDiv.id = `hyve-message-${ id }`;
 		}
@@ -478,6 +483,7 @@ class App {
 
 		// Close menu
 		this.toggleMenu( false );
+		this.setMenuVisibility( false );
 
 		// Add welcome message if configured
 		if ( window.hyveClient.welcome && '' !== window.hyveClient.welcome ) {
@@ -673,7 +679,7 @@ class App {
 		} );
 
 		const menuContainer = this.createElement(
-			'dv',
+			'div',
 			{ className: 'hyve-menu-container' },
 			menuButtonElement,
 			menuDropdown
@@ -759,6 +765,12 @@ class App {
 
 	hasUserMessages() {
 		return this.messages?.some( ( { sender } ) => 'user' === sender );
+	}
+
+	setMenuVisibility( isVisible ) {
+		window.document
+			.getElementById( 'hyve-menu-button' )
+			?.classList.toggle( 'is-visible', isVisible );
 	}
 }
 

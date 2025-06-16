@@ -26,9 +26,6 @@ test.describe( 'Chat', () => {
 		await expect( page.locator( '#hyve-window' ) ).toBeVisible();
 		await expect( page.locator( '#hyve-message-box' ) ).toBeVisible();
 		await expect(
-			page.locator( '#hyve-window div' ).nth( 2 )
-		).toBeVisible();
-		await expect(
 			page.locator( '#hyve-send-button' ).getByRole( 'button' )
 		).toBeVisible();
 
