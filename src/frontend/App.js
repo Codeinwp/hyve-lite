@@ -386,7 +386,8 @@ class App {
 		if (
 			window.hyveClient.welcome &&
 			'' !== window.hyveClient.welcome &&
-			this.isInitialToggle
+			this.isInitialToggle &&
+			! this.hasUserMessages()
 		) {
 			this.isInitialToggle = false;
 			const welcomeMessage = window.hyveClient.welcome;
@@ -754,6 +755,10 @@ class App {
 		} finally {
 			return svgBody;
 		}
+	}
+
+	hasUserMessages() {
+		return this.messages?.some( ( { sender } ) => 'user' === sender );
 	}
 }
 
