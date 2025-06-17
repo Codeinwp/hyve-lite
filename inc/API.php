@@ -576,10 +576,10 @@ class API extends BaseAPI {
 	 * @return \WP_REST_Response
 	 */
 	public function delete_thread( $request ) {
-		$id   = $request->get_param( 'id' );
-		$post = get_post( $id );
+		$id        = $request->get_param( 'id' );
+		$post_type = get_post_type( $id );
 
-		if ( ! $post || 'hyve_threads' !== $post->post_type ) {
+		if ( ! $post_type || 'hyve_threads' !== $post_type ) {
 			return wp_send_json_error( __( 'Thread not found.', 'hyve-lite' ), 404 );
 		}
 		
