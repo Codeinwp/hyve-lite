@@ -7,6 +7,18 @@ interface HyveAssets {
 	images: string;
 }
 
+interface HyveChart {
+	legend: {
+		messagesLabel: string;
+		sessionsLabel: string;
+	};
+	data: {
+		messages: number[];
+		sessions: number[];
+	};
+	labels: string[];
+}
+
 interface HyveData {
 	api: string;
 	postTypes: PostType[];
@@ -18,6 +30,7 @@ interface HyveData {
 	docs: string;
 	qdrant_docs: string;
 	pro: string;
+	chart: HyveChart;
 }
 
 interface HyveAudio {

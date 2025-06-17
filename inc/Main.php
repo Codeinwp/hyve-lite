@@ -167,6 +167,7 @@ class Main {
 					'docs'           => 'https://docs.themeisle.com/article/2009-hyve-documentation',
 					'qdrant_docs'    => 'https://docs.themeisle.com/article/2066-integrate-hyve-with-qdrant',
 					'pro'            => 'https://themeisle.com/plugins/hyve/',
+					'chart'          => $this->get_chart_data(),
 				]
 			)
 		);
@@ -459,5 +460,37 @@ class Main {
 		$configs[ HYVE_PRODUCT_SLUG ] = $config;
 
 		return $configs;
+	}
+
+	/**
+	 * Get chart data.
+	 * 
+	 * @return array{legend: array{messagesLabel: string, sessionsLabel: string}, data: array{messages: array<int>, sessions: array<int>}, labels: array<string>} The chart data.
+	 */
+	public function get_chart_data() {
+		$data = Threads::get_chart_datasets();
+	
+		$labels = array_map(
+			function ( $date ) {
+				return date_i18n(
+				// translators: the date format for displaying the chart labels. The value associated with the label is the number of messages per day from users.
+					__( 'M j', 'hyve-lite' ),
+					strtotime( $date )
+				);
+			},
+			$data['labels']
+		);
+
+		return [
+			'legend' => [
+				'messagesLabel' => _x( 'User Messages per Day', 'chart legend label', 'hyve-lite' ),
+				'sessionsLabel' => _x( 'Active Sessions per Day', 'chart legend label', 'hyve-lite' ),
+			],
+			'data'   => [
+				'messages' => $data['messages'],
+				'sessions' => $data['sessions'],
+			],
+			'labels' => $labels,
+		];
 	}
 }

@@ -68,6 +68,7 @@
   },
   "dependencies": {
     "@wordpress/icons": "^10.13.0",
+    "chart.js": "^4.5.0",
     "classnames": "^2.5.1",
     "object-hash": "^3.0.0"
   }
