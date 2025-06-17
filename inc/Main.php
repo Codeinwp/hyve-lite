@@ -272,6 +272,9 @@ class Main {
 	 */
 	public static function get_settings() {
 		$settings = get_option( 'hyve_settings', [] );
+
+		$settings['telemetry_enabled'] = 'yes' === get_option( 'hyve_lite_logger_flag', 'no' );
+
 		return wp_parse_args( $settings, self::get_default_settings() );
 	}
 

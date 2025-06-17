@@ -375,6 +375,14 @@ class API extends BaseAPI {
 					},
 					'sanitize' => 'rest_sanitize_boolean',
 				],
+				'telemetry_enabled'          => [
+					'validate' => function ( $value ) {
+						return is_bool( $value );
+					},
+					'sanitize' => function ( $value ) {
+						return boolval( $value );
+					},
+				],
 			]
 		);
 
@@ -403,6 +411,10 @@ class API extends BaseAPI {
 				}
 
 				$settings['assistant_id'] = $valid_api;
+			}
+
+			if ( 'telemetry_enabled' === $key ) {
+				update_option( 'hyve_lite_logger_flag', boolval( $value ) ? 'yes' : 'no' );
 			}
 		}
 

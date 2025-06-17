@@ -4,6 +4,7 @@
 import domReady from '@wordpress/dom-ready';
 
 import { createRoot } from '@wordpress/element';
+import { addFilter } from '@wordpress/hooks';
 
 /**
  * Internal dependencies.
@@ -16,6 +17,7 @@ import PostModal from './parts/PostModal';
 import { addFilter } from '@wordpress/hooks';
 import { getChatIcons } from './utils';
 import { setUpTracking } from './tracking';
+import { OthersSection } from './parts/data/OthersSection';
 
 window.hyveComponents = {};
 
@@ -28,6 +30,19 @@ domReady( () => {
 		window.hyveTrk = window.tiTrk?.with( 'hyve' );
 	}
 	setUpTracking();
+
+	addFilter(
+		'hyve.others',
+		'hyve/others',
+		( el, isSaving, settings, setSetting, onSave ) => (
+			<OthersSection
+				isSaving={ isSaving }
+				settings={ settings }
+				setSetting={ setSetting }
+				onSave={ onSave }
+			/>
+		)
+	);
 
 	const root = createRoot( document.getElementById( 'hyve-options' ) );
 	root.render( <App /> );
