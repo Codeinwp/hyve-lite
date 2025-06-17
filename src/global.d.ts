@@ -1,4 +1,4 @@
-import type App from "./frontend/App";
+import type App from './frontend/App';
 
 interface PostType {
 	label: string;

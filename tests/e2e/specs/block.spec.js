@@ -22,7 +22,7 @@ test.describe( 'Block Editor', () => {
 			page
 				.locator( 'iframe[name="editor-canvas"]' )
 				.contentFrame()
-				.getByRole( 'link', { name: 'Click here to add content.' } )
+				.getByRole( 'button', { name: 'Click here to add content.' } )
 		).toBeVisible();
 	} );
 } );

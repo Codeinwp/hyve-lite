@@ -42,10 +42,14 @@ registerBlockType( metadata.name, {
 								<Button
 									variant="link"
 									style={ { paddingLeft: '3px' } }
-									target="_blank"
-									href={
-										window.hyveChatBlock.knowledgeBaseURL
-									}
+									onClick={ ( event ) => {
+										event.preventDefault();
+										window.open(
+											window.hyveChatBlock
+												.knowledgeBaseURL,
+											'_blank'
+										);
+									} }
 								>
 									{ __(
 										'Click here to add content.',
@@ -56,19 +60,31 @@ registerBlockType( metadata.name, {
 						</Notice>
 					) }
 					{ isBlockIgnored ? (
-						<>
+						<div
+							style={ {
+								display: 'flex',
+								flexDirection: 'column',
+								alignItems: 'flex-start',
+								gap: '1rem',
+							} }
+						>
 							{ __(
 								'The Hyve Chat is enabled on all pages, and it won’t appear here to avoid conflicts.',
 								'hyve-lite'
 							) }
 							<Button
-								href={ window.hyveChatBlock.dashboardURL }
-								target="_blank"
 								variant="secondary"
+								onClick={ ( event ) => {
+									event.preventDefault();
+									window.open(
+										window.hyveChatBlock.dashboardURL,
+										'_blank'
+									);
+								} }
 							>
 								{ __( 'Go to Dashboard', 'hyve-lite' ) }
 							</Button>
-						</>
+						</div>
 					) : (
 						__(
 							'Hyve Chatbot will appear here. No further action needed.',
