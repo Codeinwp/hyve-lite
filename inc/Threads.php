@@ -11,6 +11,9 @@ namespace ThemeIsle\HyveLite;
  * Class Threads
  */
 class Threads {
+
+	public const CHART_DATA_TRANSIENT = 'hyve_charts_data';
+
 	/**
 	 * Constructor.
 	 */
@@ -181,7 +184,16 @@ class Threads {
 
 		update_post_meta( $post_id, '_hyve_thread_data', $thread_data );
 		update_post_meta( $post_id, '_hyve_thread_count', count( $thread_data ) );
+		
+		wp_update_post(
+			[
+				'ID'                => $post_id,
+				'post_modified'     => current_time( 'mysql' ),
+				'post_modified_gmt' => current_time( 'mysql', 1 ),
+			]
+		);
 
+		delete_transient( self::CHART_DATA_TRANSIENT );
 		return $post_id;
 	}
 
@@ -216,5 +228,117 @@ class Threads {
 		}
 
 		return $messages;
+	}
+
+	/**
+	 * Get the datasets for charts.
+	 * 
+	 * @return  array{messages: int[], labels: string[], sessions: int[]} The datasets.
+	 */
+	public static function get_chart_datasets() {
+		$cached_data = get_transient( self::CHART_DATA_TRANSIENT );
+
+		if ( false !== $cached_data ) {
+			return $cached_data;
+		}
+	
+		$days                 = 90;
+		$current_timestamp    = time();
+		$start_date_timestamp = strtotime( "-{$days} days", $current_timestamp );
+		$start_date           = gmdate( 'Y-m-d', $start_date_timestamp );
+
+		$messages_per_day = [];
+		$sessions_per_day = [];
+		$paged            = 1;
+		$posts_per_page   = 30; // Process in batches.
+
+		do {
+			$args = [
+				'post_type'      => 'hyve_threads',
+				'posts_per_page' => $posts_per_page,
+				'paged'          => $paged,
+				'post_status'    => 'publish',
+				'orderby'        => 'modified',
+				'order'          => 'DESC',
+				'date_query'     => [
+					[
+						'column' => 'post_modified_gmt',
+						'after'  => $start_date,
+					],
+				],
+				'fields'         => 'ids',
+			];
+
+			$query = new \WP_Query( $args );
+
+			if ( $query->have_posts() ) {
+				foreach ( $query->posts as $post_id ) {
+					/**
+					 * The post id.
+					 *
+					 * @var int $post_id
+					 */
+
+					$thread_data = get_post_meta( $post_id, '_hyve_thread_data', true );
+					if ( ! is_array( $thread_data ) ) {
+						continue;
+					}
+
+					// Find the earliest message in this thread within the range.
+					$thread_dates = [];
+					foreach ( $thread_data as $message_entry ) {
+						if (
+							isset( $message_entry['sender'], $message_entry['time'] ) &&
+							'user' === $message_entry['sender'] &&
+							$message_entry['time'] >= $start_date_timestamp
+						) {
+							$message_date = gmdate( 'Y-m-d', $message_entry['time'] );
+							if ( ! isset( $messages_per_day[ $message_date ] ) ) {
+								$messages_per_day[ $message_date ] = 0;
+							}
+							++$messages_per_day[ $message_date ];
+
+							$thread_dates[ $message_date ] = true;
+						}
+					}
+					// Count this thread as a session for the earliest day it appears in the range.
+					if ( ! empty( $thread_dates ) ) {
+						$first_date = array_key_first( $thread_dates );
+						if ( ! isset( $sessions_per_day[ $first_date ] ) ) {
+							$sessions_per_day[ $first_date ] = 0;
+						}
+						++$sessions_per_day[ $first_date ];
+					}
+				}
+			}
+			++$paged;
+		} while ( $query->max_num_pages >= $paged );
+
+		wp_reset_postdata();
+
+		// Ensure all days in the range are present, even if with 0 messages/sessions.
+		$labels   = [];
+		$messages = [];
+		$sessions = [];
+		for ( $i = $days - 1; $i >= 0; $i-- ) {
+			$timestamp = strtotime( "-{$i} days", $current_timestamp );
+			if ( false === $timestamp ) {
+				continue;
+			}
+			$date_key   = gmdate( 'Y-m-d', $timestamp );
+			$labels[]   = $date_key;
+			$messages[] = isset( $messages_per_day[ $date_key ] ) ? $messages_per_day[ $date_key ] : 0;
+			$sessions[] = isset( $sessions_per_day[ $date_key ] ) ? $sessions_per_day[ $date_key ] : 0;
+		}
+
+		$output_data = [
+			'labels'   => $labels,
+			'messages' => $messages,
+			'sessions' => $sessions,
+		];
+
+		set_transient( self::CHART_DATA_TRANSIENT, $output_data, HOUR_IN_SECONDS );
+
+		return $output_data;
 	}
 }

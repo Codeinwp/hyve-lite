@@ -357,4 +357,64 @@ test.describe( 'Dashboard', () => {
 		).toBeHidden();
 		await expect( page.getByTestId( 'snackbar' ) ).toBeVisible();
 	} );
+
+	test( 'check chart rendering', async ( { page } ) => {
+		await page.evaluate( () => {
+			window.hyve = window.hyve || {};
+			window.hyve.chart = {
+				legend: {
+					messagesLabel: 'User messages',
+					sessionsLabel: 'Sessions',
+				},
+				data: {
+					messages: [ 0, 0, 0 ],
+					sessions: [ 1, 2, 3 ],
+				},
+				labels: [ 'Mar 20', 'Mar 21', 'Mar 22' ],
+			};
+		} );
+
+		await page
+			.getByRole( 'button', { name: 'Knowledge Base', exact: true } )
+			.click( { force: true } );
+		await page
+			.getByRole( 'button', { name: 'Dashboard' } )
+			.click( { force: true } );
+		await page.locator( '#messages-chart' ).scrollIntoViewIfNeeded();
+		await page.locator( '#sessions-chart' ).scrollIntoViewIfNeeded();
+
+		await expect( page.locator( '#messages-chart' ) ).toBeVisible();
+		await expect( page.locator( '#sessions-chart' ) ).toBeVisible();
+		await expect( page.getByText( 'Show data for' ) ).toBeVisible();
+		await expect( page.getByLabel( 'Show data for' ) ).toBeVisible();
+	} );
+
+	test( 'check chart hiding when the data is empty', async ( { page } ) => {
+		await page.evaluate( () => {
+			window.hyve = window.hyve || {};
+			window.hyve.chart = {
+				legend: {
+					messagesLabel: 'User messages',
+					sessionsLabel: 'Sessions',
+				},
+				data: {
+					messages: [],
+					sessions: [],
+				},
+				labels: [],
+			};
+		} );
+
+		await page
+			.getByRole( 'button', { name: 'Knowledge Base', exact: true } )
+			.click( { force: true } );
+		await page
+			.getByRole( 'button', { name: 'Dashboard' } )
+			.click( { force: true } );
+
+		await expect( page.locator( '#messages-chart' ) ).toBeHidden();
+		await expect( page.locator( '#sessions-chart' ) ).toBeHidden();
+		await expect( page.getByText( 'Show data for' ) ).toBeHidden();
+		await expect( page.getByLabel( 'Show data for' ) ).toBeHidden();
+	} );
 } );

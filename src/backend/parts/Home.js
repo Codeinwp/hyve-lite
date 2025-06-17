@@ -8,6 +8,7 @@ import { Button, Panel, PanelRow } from '@wordpress/components';
 import { dispatch, useDispatch, useSelect } from '@wordpress/data';
 
 import { archive, brush, help } from '@wordpress/icons';
+import { UsageCharts } from '../components/UsageChart';
 
 const { setRoute: changeRoute } = dispatch( 'hyve' );
 
@@ -152,6 +153,16 @@ const Dashboard = () => {
 					</div>
 				</PanelRow>
 			</Panel>
+			{ 0 < window.hyve?.chart?.data?.messages?.length && (
+				<>
+					<br />
+					<Panel header={ __( 'Chat Usage', 'hyve-lite' ) }>
+						<PanelRow>
+							<UsageCharts chart={ window.hyve.chart } />
+						</PanelRow>
+					</Panel>
+				</>
+			) }
 		</div>
 	);
 };
