@@ -43,10 +43,12 @@ export function setUpTracking() {
 
 			window.hyveTrk?.set( `hyve-${ key }`, {
 				feature: 'settings',
-				featureComponents: key,
+				featureComponent: key,
 				featureValue: value,
 			} );
 		} );
+
+		prevSettingsHash = settingsHash;
 	}, 'hyve' );
 
 	window.tiTrk?.uploadEvents?.();
