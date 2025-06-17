@@ -12,12 +12,22 @@
 				fill: #fff;
 			}
 		}
+		.open {
+			svg {
+				stroke: #fff;
+			}
+		}
 	}
 
 	&.is-light {
 		.close {
 			svg {
 				fill: #000;
+			}
+		}
+		.open {
+			svg {
+				stroke: #000;
 			}
 		}
 	}
