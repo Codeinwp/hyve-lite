@@ -13,6 +13,7 @@ import { applyFilters } from '@wordpress/hooks';
  * Internal dependencies.
  */
 import { KNOWLEDGE_BASE } from '../../route';
+import { KnowledgeBaseOptions } from '../../components/KnowledgeBaseOptions';
 
 const KnowledgeBase = () => {
 	const [ view, setView ] = useState( null );
@@ -81,6 +82,8 @@ const KnowledgeBase = () => {
 					</div>
 				</PanelRow>
 			</Panel>
+			<br />
+			<KnowledgeBaseOptions />
 		</div>
 	);
 };

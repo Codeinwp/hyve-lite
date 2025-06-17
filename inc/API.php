@@ -276,61 +276,61 @@ class API extends BaseAPI {
 		$validation = apply_filters(
 			'hyve_settings_validation',
 			[
-				'api_key'              => [
+				'api_key'                    => [
 					'validate' => function ( $value ) {
 						return is_string( $value );
 					},
 					'sanitize' => 'sanitize_text_field',
 				],
-				'qdrant_api_key'       => [
+				'qdrant_api_key'             => [
 					'validate' => function ( $value ) {
 						return is_string( $value );
 					},
 					'sanitize' => 'sanitize_text_field',
 				],
-				'qdrant_endpoint'      => [
+				'qdrant_endpoint'            => [
 					'validate' => function ( $value ) {
 						return is_string( $value );
 					},
 					'sanitize' => 'sanitize_url',
 				],
-				'chat_enabled'         => [
+				'chat_enabled'               => [
 					'validate' => function ( $value ) {
 						return is_bool( $value );
 					},
 					'sanitize' => 'rest_sanitize_boolean',
 				],
-				'welcome_message'      => [
+				'welcome_message'            => [
 					'validate' => function ( $value ) {
 						return is_string( $value );
 					},
 					'sanitize' => 'sanitize_text_field',
 				],
-				'default_message'      => [
+				'default_message'            => [
 					'validate' => function ( $value ) {
 						return is_string( $value );
 					},
 					'sanitize' => 'sanitize_text_field',
 				],
-				'chat_model'           => [
+				'chat_model'                 => [
 					'validate' => function ( $value ) {
 						return is_string( $value );
 					},
 					'sanitize' => 'sanitize_text_field',
 				],
-				'temperature'          => [
+				'temperature'                => [
 					'validate' => function ( $value ) {
 						return is_numeric( $value );
 					},
 					'sanitize' => 'floatval',
 				],
-				'top_p'                => [
+				'top_p'                      => [
 					'validate' => function ( $value ) {
 						return is_numeric( $value );
 					},
 					'sanitize' => 'floatval',
 				],
-				'moderation_threshold' => [
+				'moderation_threshold'       => [
 					'validate' => function ( $value ) {
 						return is_array( $value ) && array_reduce(
 							$value,
@@ -343,6 +343,12 @@ class API extends BaseAPI {
 					'sanitize' => function ( $value ) {
 						return array_map( 'intval', $value );
 					},
+				],
+				'similarity_score_threshold' => [
+					'validate' => function ( $value ) {
+						return is_numeric( $value );
+					},
+					'sanitize' => 'floatval',
 				],
 			]
 		);
@@ -946,7 +952,21 @@ class API extends BaseAPI {
 			return rest_ensure_response( [ 'error' => $this->get_error_message( $thread_id ) ] );
 		}
 
-		$article_context = $this->search_knowledge_base( $message_vector );
+		/**
+		 * Filters the similarity score threshold for knowledge base search.
+		 *
+		 * The similarity score threshold determines the minimum cosine similarity
+		 * required for an article to be considered relevant to the user's query.
+		 * A higher value means stricter matching, while a lower value allows for
+		 * broader results.
+		 *
+		 * @since 1.4.0
+		 *
+		 * @param float $similarity_score_threshold The similarity score threshold. Default 0.4.
+		 */
+		$similarity_score_threshold = apply_filters( 'hyve_similarity_score_threshold', 0.4 );
+
+		$article_context = $this->search_knowledge_base( $message_vector, $similarity_score_threshold );
 		$query_run       = $openai->create_run(
 			[
 				[

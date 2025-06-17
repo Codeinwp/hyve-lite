@@ -47,6 +47,14 @@ test.describe( 'Dashboard', () => {
 			.getByRole( 'button', { name: 'Knowledge Base', exact: true } )
 			.click( { force: true } );
 
+		await expect(
+			page.getByText( 'Cosine Similarity Threshold' )
+		).toBeVisible();
+
+		await expect(
+			page.getByRole( 'slider', { name: 'Cosine Similarity Threshold' } )
+		).toBeVisible();
+
 		await page
 			.getByRole( 'button', { name: 'WordPress → Import your' } )
 			.click( { force: true } );
