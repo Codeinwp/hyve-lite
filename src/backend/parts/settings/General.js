@@ -11,6 +11,10 @@ import {
 	Panel,
 	PanelRow,
 	TextControl,
+	// eslint-disable-next-line @wordpress/no-unsafe-wp-apis
+	__experimentalToggleGroupControl as ToggleGroupControl,
+	// eslint-disable-next-line @wordpress/no-unsafe-wp-apis
+	__experimentalToggleGroupControlOption as ToggleGroupControlOption,
 } from '@wordpress/components';
 
 import { useState } from '@wordpress/element';
@@ -110,31 +114,6 @@ const General = () => {
 	return (
 		<div className="col-span-6 xl:col-span-4">
 			<Panel header={ __( 'General Settings', 'hyve-lite' ) }>
-				<PanelRow>
-					<ToggleGroupControl
-						__nextHasNoMarginBottom
-						isBlock
-						label={ __( 'Enable Chat', 'hyve-lite' ) }
-						value={ Boolean( settings.chat_enabled ) }
-						onChange={ ( newValue ) =>
-							setSetting( 'chat_enabled', Boolean( newValue ) )
-						}
-					>
-						<ToggleGroupControlOption
-							aria-label={ __( 'Enable Chat', 'hyve-lite' ) }
-							label={ __( 'Enable', 'hyve-lite' ) }
-							showTooltip
-							value={ true }
-						/>
-						<ToggleGroupControlOption
-							aria-label={ __( 'Enable Chat', 'hyve-lite' ) }
-							label={ __( 'Disable', 'hyve-lite' ) }
-							showTooltip
-							value={ false }
-						/>
-					</ToggleGroupControl>
-				</PanelRow>
-
 				<PanelRow>
 					<ToggleGroupControl
 						__nextHasNoMarginBottom

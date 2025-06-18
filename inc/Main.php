@@ -68,14 +68,16 @@ class Main {
 		if ( Logger::has_consent() && ! wp_next_scheduled( 'hyve_weekly_stats' ) ) {
 			wp_schedule_event( time(), 'weekly', 'hyve_weekly_stats' );
 		}
-		
+
 		$settings = self::get_settings();
-		
-		if ( isset( $settings['post_row_addon_enabled'] ) && $settings['post_row_addon_enabled'] ) {
+
+		if ( isset( $settings['post_row_addon_enabled'] ) && $settings['post_row_addon_enabled'] && current_user_can( 'manage_options' ) ) {
 			add_action( 'hyve_register_post_type_row_action_knowledge_base', [ $this, 'register_row_action_filter_shortcut' ] );
 
 			do_action( 'hyve_register_post_type_row_action_knowledge_base', 'post' );
 			do_action( 'hyve_register_post_type_row_action_knowledge_base', 'page' );
+
+			add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_addons_assets' ] );
 		}
 
 		if (
