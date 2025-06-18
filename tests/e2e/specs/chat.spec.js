@@ -156,6 +156,7 @@ test.describe( 'Chat', () => {
 		const postId = await editor.publishPost();
 
 		await page.goto( `?p=${ postId }` );
+		await initializeChatApp( page );
 
 		await page.route(
 			/.*rest_route=%2Fhyve%2Fv1%2Fchat.*/,
