@@ -20,9 +20,45 @@ interface HyveData {
 	pro: string;
 }
 
+interface HyveAudio {
+	click: string;
+	ping: string;
+}
+
+interface HyveStrings {
+	reply: string;
+	suggestions: string;
+	tryAgain: string;
+	typing: string;
+	clearConversation: string;
+}
+
+interface HyveColors {
+	chat_background: boolean;
+	assistant_background: boolean;
+	user_background: boolean;
+	icon_background: boolean;
+}
+
+interface HyveClient {
+	api: string;
+	audio: HyveAudio;
+	welcome: string;
+	isEnabled: string;
+	strings: HyveStrings;
+	predefinedQuestions: string[];
+	colors: HyveColors;
+	icons: Record< string, string >;
+	chatIcon: {
+		type: string;
+		value: string;
+	};
+}
+
 declare global {
 	interface Window {
 		hyve: HyveData;
+		hyveClient: HyveClient;
 	}
 }
 
