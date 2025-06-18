@@ -73,6 +73,7 @@ class Main {
 
 		if ( isset( $settings['post_row_addon_enabled'] ) && $settings['post_row_addon_enabled'] ) {
 			add_filter( 'post_row_actions', [ $this, 'add_to_knowledge_base_row_action' ], 10, 2 );
+			add_filter( 'page_row_actions', [ $this, 'add_to_knowledge_base_row_action' ], 10, 2 );
 			add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_addons_assets' ] );
 		}
 
