@@ -151,7 +151,7 @@ const General = () => {
 							)
 						}
 						help={ __(
-							'When enabled, an “Add to Hyve” button will appear in the post row actions. Disable this to remove the option entirely from the posts list.',
+							'When enabled, an “Add to Hyve” button will appear in the post/page row actions. Disable this to remove the option entirely from the posts/pages list.',
 							'hyve-lite'
 						) }
 					>

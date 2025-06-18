@@ -70,11 +70,12 @@ class Main {
 		}
 		
 		$settings = self::get_settings();
-
+		
 		if ( isset( $settings['post_row_addon_enabled'] ) && $settings['post_row_addon_enabled'] ) {
-			add_filter( 'post_row_actions', [ $this, 'add_to_knowledge_base_row_action' ], 10, 2 );
-			add_filter( 'page_row_actions', [ $this, 'add_to_knowledge_base_row_action' ], 10, 2 );
-			add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_addons_assets' ] );
+			add_action( 'hyve_register_post_type_row_action_knowledge_base', [ $this, 'register_row_action_filter_shortcut' ] );
+
+			do_action( 'hyve_register_post_type_row_action_knowledge_base', 'post' );
+			do_action( 'hyve_register_post_type_row_action_knowledge_base', 'page' );
 		}
 
 		if (
@@ -404,6 +405,24 @@ class Main {
 			return;
 		}
 
+		$screen = get_current_screen();
+		if ( ! $screen ) {
+			return;
+		}
+
+		/**
+		 * Check if the row actions addon can be loaded for the current post type in `edit.php`.
+		 *
+		 * @since 1.4.0
+		 *
+		 * @param bool $registered Whether the post type has registered the row actions addon.
+		 */
+		$registered_post_type = apply_filters( 'hyve_register_row_action_for_' . $screen->post_type, false );
+
+		if ( ! $registered_post_type ) {
+			return;
+		}
+
 		// @phpstan-ignore include.fileNotFound
 		$asset_file = include HYVE_LITE_PATH . '/build/addons/index.asset.php';
 		wp_enqueue_script(
@@ -426,6 +445,22 @@ class Main {
 	}
 
 	/**
+	 * Register the Knowledge Base row action shortcuts for the given post type.
+	 * 
+	 * @param string|mixed $post_type The post type.
+	 * 
+	 * @return void
+	 */
+	public function register_row_action_filter_shortcut( $post_type ) {
+		if ( ! is_string( $post_type ) ) {
+			return;
+		}
+
+		add_filter( $post_type . '_row_actions', [ $this, 'add_to_knowledge_base_row_action' ], 10, 2 );
+		add_filter( 'hyve_register_row_action_for_' . $post_type, '__return_true' );
+	}
+
+	/**
 	 * Add shortcut via post row actions for adding/removing posts from the Knowledge Base
 	 * 
 	 * @param array<string, mixed> $actions The row actions.
@@ -434,7 +469,6 @@ class Main {
 	 * @return array<string, mixed>
 	 */
 	public function add_to_knowledge_base_row_action( $actions, $post ) {
-
 		if ( get_post_meta( $post->ID, '_hyve_post_processing', true ) ) {
 			$actions['hyve_knowledge_base_processing'] = __( 'Hyve is processing the post', 'hyve-lite' );
 			return $actions;
