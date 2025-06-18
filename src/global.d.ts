@@ -48,6 +48,11 @@ interface HyveClient {
 	strings: HyveStrings;
 	predefinedQuestions: string[];
 	colors: HyveColors;
+	icons: Record< string, string >;
+	chatIcon: {
+		type: string;
+		value: string;
+	};
 }
 
 declare global {

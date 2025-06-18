@@ -606,12 +606,14 @@ class App {
 		} );
 
 		let useDefaultIcon = true;
-		if ( 'svg' === window.hyve?.chatIcon?.type ) {
+		if ( 'svg' === window.hyveClient?.chatIcon?.type ) {
 			/**
 			 * NOTE: Download the SVG to that we can use the styling via CSS.
 			 */
 			const iconURL =
-				window.hyve?.icons?.[ window.hyve?.chatIcon?.value ];
+				window.hyveClient?.icons?.[
+					window.hyveClient?.chatIcon?.value
+				];
 			if ( iconURL ) {
 				const svg = await this.fetchSVG( iconURL );
 				chatOpenButton.innerHTML = svg;
