@@ -68,8 +68,13 @@ class Main {
 		if ( Logger::has_consent() && ! wp_next_scheduled( 'hyve_weekly_stats' ) ) {
 			wp_schedule_event( time(), 'weekly', 'hyve_weekly_stats' );
 		}
-
+		
 		$settings = self::get_settings();
+
+		if ( isset( $settings['post_row_addon_enabled'] ) && $settings['post_row_addon_enabled'] ) {
+			add_filter( 'post_row_actions', [ $this, 'add_to_knowledge_base_row_action' ], 10, 2 );
+			add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_addons_assets' ] );
+		}
 
 		if (
 			isset( $settings['api_key'] ) && isset( $settings['assistant_id'] ) &&
@@ -246,6 +251,7 @@ class Main {
 				'welcome_message'            => '',
 				'default_message'            => '',
 				'similarity_score_threshold' => 0.4,
+				'post_row_addon_enabled'     => true,
 			]
 		);
 	}
@@ -381,6 +387,71 @@ class Main {
 			'hyve-lite-scripts',
 			'document.addEventListener("DOMContentLoaded", function() { const c = document.createElement("div"); c.className = "hyve-credits"; c.innerHTML = "<a href=\"https://themeisle.com/plugins/hyve/\" target=\"_blank\">Powered by Hyve</a>"; document.querySelector( ".hyve-input-box" ).before( c ); });'
 		);
+	}
+
+	/**
+	 * Load assets for option page.
+	 * 
+	 * @param string $hook The name of the page hook.
+	 *
+	 * @since 1.4.0
+	 * 
+	 * @return void
+	 */
+	public function enqueue_addons_assets( $hook ) {
+		if ( 'edit.php' !== $hook ) {
+			return;
+		}
+
+		// @phpstan-ignore include.fileNotFound
+		$asset_file = include HYVE_LITE_PATH . '/build/addons/index.asset.php';
+		wp_enqueue_script(
+			'hyve-lite-addons',
+			HYVE_LITE_URL . 'build/addons/index.js',
+			$asset_file['dependencies'],
+			$asset_file['version'],
+			true
+		);
+
+		wp_set_script_translations( 'hyve-lite-addons', 'hyve-lite' );
+
+		wp_localize_script(
+			'hyve-lite-addons',
+			'hyveAddons',
+			[
+				'api' => $this->api->get_endpoint(),
+			]
+		);
+	}
+
+	/**
+	 * Add shortcut via post row actions for adding/removing posts from the Knowledge Base
+	 * 
+	 * @param array<string, mixed> $actions The row actions.
+	 * @param \WP_Post             $post The post object.
+	 * 
+	 * @return array<string, mixed>
+	 */
+	public function add_to_knowledge_base_row_action( $actions, $post ) {
+
+		if ( get_post_meta( $post->ID, '_hyve_post_processing', true ) ) {
+			$actions['hyve_knowledge_base_processing'] = __( 'Hyve is processing the post', 'hyve-lite' );
+			return $actions;
+		}
+		
+		$label  = __( 'Add to Hyve', 'hyve-lite' );
+		$action = 'add';
+		$class  = '';
+
+		if ( get_post_meta( $post->ID, '_hyve_added', true ) ) {
+			$label  = __( 'Remove from Hyve', 'hyve-lite' );
+			$action = 'delete';
+			$class  = 'button-link-delete';
+		}
+		
+		$actions['add_to_hyve_knowledge_base'] = '<button type="button" data-action="' . $action . '" data-post-id="' . $post->ID . '" class="hyve-row-action-btn button-link ' . $class . '" aria-expanded="false">' . $label . '</button>';
+
+		return $actions;
 	}
 
 	/**

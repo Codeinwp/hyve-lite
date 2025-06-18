@@ -461,15 +461,19 @@ class DB_Table {
 			'content' => apply_filters( 'the_content', get_post_field( 'post_content', $post_id ) ),
 		];
 
+		update_post_meta( $post_id, '_hyve_post_processing', 1 );
+
 		$data       = Tokenizer::tokenize( $data );
 		$chunks     = array_column( $data, 'post_content' );
 		$moderation = OpenAI::instance()->moderate_chunks( $chunks, $post_id );
 
 		if ( is_wp_error( $moderation ) ) {
+			delete_post_meta( $post_id, '_hyve_post_processing' );
 			return $moderation;
 		}
 
 		if ( true !== $moderation && 'override' !== $action ) {
+			delete_post_meta( $post_id, '_hyve_post_processing' );
 			update_post_meta( $post_id, '_hyve_moderation_failed', 1 );
 			update_post_meta( $post_id, '_hyve_moderation_review', $moderation );
 
@@ -489,6 +493,7 @@ class DB_Table {
 						throw new \Exception( __( 'Failed to delete point in Qdrant.', 'hyve-lite' ) );
 					}
 				} catch ( \Exception $e ) {
+					delete_post_meta( $post_id, '_hyve_post_processing' );
 					return new \WP_Error( 'qdrant_error', $e->getMessage() );
 				}
 			}
@@ -501,6 +506,7 @@ class DB_Table {
 			$this->process_post( $id );
 		}
 
+		delete_post_meta( $post_id, '_hyve_post_processing' );
 		update_post_meta( $post_id, '_hyve_added', 1 );
 		delete_post_meta( $post_id, '_hyve_moderation_failed' );
 		delete_post_meta( $post_id, '_hyve_moderation_review' );

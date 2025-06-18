@@ -88,21 +88,15 @@ interface HyveChatBlock {
 	};
 }
 
-interface HyveChatBlock {
-	globalChatEnabled: string;
-	dashboardURL: string;
-	knowledgeBaseURL: string;
-	stats: {
-		messages: string;
-		threads: 14;
-		totalChunks: 6;
-	};
+interface HyveAddons {
+	api: string;
 }
 
 declare global {
 	interface Window {
 		hyve: HyveData;
 		hyveClient: HyveClient;
+		hyveAddons: HyveAddons;
 		hyveChatBlock: HyveChatBlock;
 		hyveApp: App;
 	}
