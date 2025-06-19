@@ -10,5 +10,5 @@ import './style.scss';
 import App from './App';
 
 domReady( () => {
-	new App();
+	window.hyveApp = new App();
 } );

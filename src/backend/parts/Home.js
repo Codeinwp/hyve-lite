@@ -3,7 +3,16 @@
  */
 import { __ } from '@wordpress/i18n';
 
-import { Button, Panel, PanelRow } from '@wordpress/components';
+import {
+	Button,
+	Panel,
+	PanelRow, // eslint-disable-next-line @wordpress/no-unsafe-wp-apis
+	__experimentalToggleGroupControl as ToggleGroupControl,
+	// eslint-disable-next-line @wordpress/no-unsafe-wp-apis
+	__experimentalToggleGroupControlOption as ToggleGroupControlOption,
+} from '@wordpress/components';
+
+import apiFetch from '@wordpress/api-fetch';
 
 import { dispatch, useDispatch, useSelect } from '@wordpress/data';
 
@@ -11,6 +20,8 @@ import { archive, brush, help } from '@wordpress/icons';
 import { UsageCharts } from '../components/UsageChart';
 
 const { setRoute: changeRoute } = dispatch( 'hyve' );
+
+import { useState, useCallback, useEffect } from '@wordpress/element';
 
 const STATUS = [
 	{
@@ -47,6 +58,44 @@ const STATUS = [
 
 const Dashboard = () => {
 	const { setRoute } = useDispatch( 'hyve' );
+	const settings = useSelect( ( select ) => select( 'hyve' ).getSettings() );
+	const { setSetting } = useDispatch( 'hyve' );
+	const { createNotice } = useDispatch( 'core/notices' );
+
+	const [ autoUpdate, setAutoUpdate ] = useState( false );
+
+	const onSave = useCallback( async () => {
+		try {
+			const response = await apiFetch( {
+				path: `${ window.hyve.api }/settings`,
+				method: 'POST',
+				data: {
+					data: settings,
+				},
+			} );
+
+			if ( response.error ) {
+				throw new Error( response.error );
+			}
+
+			createNotice( 'success', __( 'Settings saved.', 'hyve-lite' ), {
+				type: 'snackbar',
+				isDismissible: true,
+			} );
+		} catch ( error ) {
+			createNotice( 'error', error, {
+				type: 'snackbar',
+				isDismissible: true,
+			} );
+		}
+	}, [ settings, createNotice ] );
+
+	useEffect( () => {
+		if ( autoUpdate ) {
+			onSave();
+			setAutoUpdate( false );
+		}
+	}, [ autoUpdate, onSave ] );
 
 	const ACTIONS = [
 		{
@@ -82,6 +131,70 @@ const Dashboard = () => {
 		<div className="col-span-6 xl:col-span-4">
 			<Panel header={ __( 'Dashboard', 'hyve-lite' ) }>
 				<PanelRow>
+					<ToggleGroupControl
+						__nextHasNoMarginBottom
+						isBlock
+						label={ __(
+							'Enable Chat on all the pages',
+							'hyve-lite'
+						) }
+						value={ Boolean( settings.chat_enabled ) }
+						onChange={ ( newValue ) => {
+							setSetting( 'chat_enabled', Boolean( newValue ) );
+							setAutoUpdate( true );
+						} }
+						help={
+							__(
+								'Display the Chat on all the pages.',
+								'hyve-lite'
+							) +
+							' ' +
+							__(
+								'For specific pages, use the Hyve Gutenberg Block.',
+								'hyve-lite'
+							)
+						}
+					>
+						<ToggleGroupControlOption
+							aria-label={ __( 'Enable Chat', 'hyve-lite' ) }
+							label={ __( 'Enable', 'hyve-lite' ) }
+							showTooltip
+							value={ true }
+						/>
+						<ToggleGroupControlOption
+							aria-label={ __( 'Enable Chat', 'hyve-lite' ) }
+							label={ __( 'Disable', 'hyve-lite' ) }
+							showTooltip
+							value={ false }
+						/>
+					</ToggleGroupControl>
+
+					{ 0 ===
+						Number( window.hyve?.stats?.totalChunks ?? '0' ) && (
+						<div className="my-4 p-4 bg-yellow-50 border-yellow-500 text-yellow-800 rounded-md">
+							<p className="mb-1">
+								{ __(
+									'Your Knowledge Base is currently empty.',
+									'hyve-lite'
+								) }{ ' ' }
+								{ __(
+									'The Chat won’t be able to respond to questions until sources are added.',
+									'hyve-lite'
+								) }{ ' ' }
+								<Button
+									variant="link"
+									onClick={ () => setRoute( 'data' ) }
+									className="!text-yellow-800 !hover:text-yellow-900 !focus:text-yellow-900 !underline !p-0 !shadow-none"
+								>
+									{ __(
+										'Click here to add content.',
+										'hyve-lite'
+									) }
+								</Button>
+							</p>
+						</div>
+					) }
+
 					<h2 className="text-xl py-2">
 						{ __( 'Overview', 'hyve-lite' ) }
 					</h2>

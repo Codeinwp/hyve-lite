@@ -1,6 +1,19 @@
 import { test, expect } from '@wordpress/e2e-test-utils-playwright';
 
 test.describe( 'Chat', () => {
+	/**
+	 * Initialize the Chat App.
+	 *
+	 * This bypass the knowledge base check.
+	 *
+	 * @param {import('@playwright/test').Page} page
+	 */
+	async function initializeChatApp( page ) {
+		await page.evaluate( () => {
+			window?.hyveApp?.initialize();
+		} );
+	}
+
 	test( 'chat bubble rendering on page', async ( {
 		page,
 		admin,
@@ -18,6 +31,7 @@ test.describe( 'Chat', () => {
 		const postId = await editor.publishPost();
 
 		await page.goto( `?p=${ postId }` );
+		await initializeChatApp( page );
 
 		// Open chat window
 		await page
@@ -50,6 +64,7 @@ test.describe( 'Chat', () => {
 		const postId = await editor.publishPost();
 
 		await page.goto( `?p=${ postId }` );
+		await initializeChatApp( page );
 
 		await page.route(
 			/.*rest_route=%2Fhyve%2Fv1%2Fchat.*/,
@@ -97,6 +112,7 @@ test.describe( 'Chat', () => {
 		const postId = await editor.publishPost();
 
 		await page.goto( `?p=${ postId }` );
+		await initializeChatApp( page );
 
 		await page.route(
 			/.*rest_route=%2Fhyve%2Fv1%2Fchat.*/,
@@ -140,6 +156,7 @@ test.describe( 'Chat', () => {
 		const postId = await editor.publishPost();
 
 		await page.goto( `?p=${ postId }` );
+		await initializeChatApp( page );
 
 		await page.route(
 			/.*rest_route=%2Fhyve%2Fv1%2Fchat.*/,
