@@ -99,6 +99,7 @@ const Dashboard = ( { isBlocked } ) => {
 
 	const ACTIONS = [
 		{
+			id: 'knowledge-base',
 			label: __( 'Knowledge Base', 'hyve-lite' ),
 			description: __(
 				"In Knowledge Base, view and remove any Posts/Pages added to Hyve from the chat's data source.",
@@ -108,6 +109,7 @@ const Dashboard = ( { isBlocked } ) => {
 			action: () => setRoute( 'data' ),
 		},
 		{
+			id: 'settings',
 			label: __( 'Personalize', 'hyve-lite' ),
 			description: __(
 				"Customize Hyve's behavior and appearance to better suit your website and brand.",
@@ -117,6 +119,7 @@ const Dashboard = ( { isBlocked } ) => {
 			action: () => setRoute( 'settings' ),
 		},
 		{
+			id: 'docs',
 			label: __( 'Need help?', 'hyve-lite' ),
 			description: __(
 				'Check out our documentation or contact support for assistance.',
@@ -241,11 +244,19 @@ const Dashboard = ( { isBlocked } ) => {
 
 					<div className="grid grid-cols-1 gap-5 sm:grid-cols-3 my-4">
 						{ ACTIONS.map(
-							( { label, description, icon, action } ) => (
+							( { id, label, description, icon, action } ) => (
 								<Button
-									key={ label }
+									key={ id }
 									className="bg-white h-auto text-left overflow-hidden shadow-sm border-[0.5px] border-gray-300 border-solid rounded-md cursor-pointer"
-									onClick={ action }
+									onClick={ () => {
+										action();
+										window.hyveTrk?.add?.( {
+											feature: 'dashboard',
+											featureComponent:
+												'get-started-shortcut',
+											featureValue: id,
+										} );
+									} }
 								>
 									<div className="px-4 py-5 sm:p-6">
 										<dl>

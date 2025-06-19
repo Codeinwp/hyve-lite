@@ -69,6 +69,11 @@ const PostModal = ( { action, post, onClose } ) => {
 			onSuccess: () => {
 				onClose( true );
 				setLoading( false );
+				window.hyveTrk?.add?.( {
+					feature: 'knowledge-base',
+					featureComponent: 'add-data',
+					featureValue: 'import-custom-data',
+				} );
 			},
 			onError: ( error ) => {
 				if (

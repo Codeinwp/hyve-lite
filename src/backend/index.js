@@ -14,7 +14,6 @@ import './store';
 import App from './App';
 import { PostsTable } from './parts/PostsTable';
 import PostModal from './parts/PostModal';
-import { addFilter } from '@wordpress/hooks';
 import { getChatIcons } from './utils';
 import { setUpTracking } from './tracking';
 import { OthersSection } from './parts/data/OthersSection';
@@ -26,9 +25,6 @@ window.hyveComponents.PostModal = PostModal;
 
 domReady( () => {
 	addFilter( 'hyve.appearance.chat-icons', 'hyve/data', getChatIcons );
-	if ( window?.tiTrk ) {
-		window.hyveTrk = window.tiTrk?.with( 'hyve' );
-	}
 	setUpTracking();
 
 	addFilter(

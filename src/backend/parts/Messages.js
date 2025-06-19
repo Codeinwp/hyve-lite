@@ -233,6 +233,12 @@ const Messages = () => {
 						type: 'snackbar',
 						isDismissible: true,
 					} );
+
+					window.hyveTrk?.add?.( {
+						feature: 'dashboard',
+						featureComponent: 'messages-tab',
+						featureValue: 'delete-thread',
+					} );
 				}
 			} catch ( error ) {
 				createNotice( 'error', error?.message, {

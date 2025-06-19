@@ -78,6 +78,11 @@ const AddData = ( { refresh, setAddPost } ) => {
 				);
 				setProcessedPosts( ( prev ) => [ ...prev, id ] );
 				refresh();
+				window.hyveTrk?.add?.( {
+					feature: 'knowledge-base',
+					featureComponent: 'add-data',
+					featureValue: 'import-wordpress-data',
+				} );
 			},
 			onError: ( error ) => {
 				if (

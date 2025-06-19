@@ -72,6 +72,15 @@ class Main {
 
 		$settings = self::get_settings();
 
+		add_filter(
+			'hyve_lite_logger_data',
+			function ( $value ) use ( $settings ) {
+				$value['settings'] = $settings;
+				$value['stats']    = $this->get_stats();
+				return $value;
+			}
+		);
+
 		if ( isset( $settings['post_row_addon_enabled'] ) && $settings['post_row_addon_enabled'] && current_user_can( 'manage_options' ) ) {
 			add_action( 'hyve_register_post_type_row_action_knowledge_base', [ $this, 'register_row_action_filter_shortcut' ] );
 

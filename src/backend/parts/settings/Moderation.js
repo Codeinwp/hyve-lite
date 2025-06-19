@@ -40,6 +40,11 @@ const Moderation = () => {
 				throw new Error( response.error );
 			}
 
+			window.hyveTrk?.add( {
+				feature: 'settings',
+				featureComponent: 'moderation',
+				featureValue: settings.moderation_threshold,
+			} );
 			createNotice( 'success', __( 'Settings saved.', 'hyve-lite' ), {
 				type: 'snackbar',
 				isDismissible: true,

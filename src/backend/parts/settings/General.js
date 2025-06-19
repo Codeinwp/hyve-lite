@@ -23,6 +23,11 @@ import { useDispatch, useSelect } from '@wordpress/data';
 
 import { applyFilters } from '@wordpress/hooks';
 
+/**
+ * Internal dependencies.
+ */
+import UpsellContainer from '../UpsellContainer';
+
 const SuggestedQuestions = () => {
 	return (
 		<UpsellContainer
@@ -68,11 +73,6 @@ const SuggestedQuestions = () => {
 	);
 };
 
-/**
- * Internal dependencies.
- */
-import UpsellContainer from '../UpsellContainer';
-
 const General = () => {
 	const settings = useSelect( ( select ) => select( 'hyve' ).getSettings() );
 	const { setSetting } = useDispatch( 'hyve' );
@@ -97,7 +97,13 @@ const General = () => {
 				throw new Error( response.error );
 			}
 
-			window.tiTrk?.uploadEvents?.();
+			if ( settings.predefined_questions ) {
+				window.hyveTrk?.add( {
+					feature: 'settings',
+					featureComponent: 'predefined',
+					featureValue: settings.predefined_questions,
+				} );
+			}
 			createNotice( 'success', __( 'Settings saved.', 'hyve-lite' ), {
 				type: 'snackbar',
 				isDismissible: true,
