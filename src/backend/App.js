@@ -17,6 +17,7 @@ import { applyFilters } from '@wordpress/hooks';
 import { ROUTE_TREE as ROUTE } from './route';
 import Sidebar from './parts/Sidebar';
 import Notices from './parts/Notices';
+import { ErrorSection } from './parts/ErrorSection';
 
 const App = () => {
 	const hasLoaded = useSelect( ( select ) => select( 'hyve' ).hasLoaded() );
@@ -80,6 +81,7 @@ const App = () => {
 
 			<div className="mx-auto max-w-screen-2xl p-4 md:p-6 2xl:p-10">
 				<div id="tsdk_banner"></div>
+				<ErrorSection />
 				<div className="mx-auto max-w-270">
 					<div className="grid grid-cols-6 gap-8">
 						<Sidebar />

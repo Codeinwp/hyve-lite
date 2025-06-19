@@ -431,4 +431,43 @@ test.describe( 'Dashboard', () => {
 			page.getByRole( 'button', { name: 'WordPress → Import your' } )
 		).toBeVisible();
 	} );
+
+	test( 'check service error rendering', async ( { page, admin } ) => {
+		await page.evaluate( () => {
+			window.hyve = window.hyve || {};
+			window.hyve.serviceErrors = [
+				{
+					code: 'invalid_api_key',
+					message:
+						'Incorrect API key provided: sk-IxcjM*******************************************test. You can find your API key at https://platform.openai.com/account/api-keys.',
+					date: '2025-06-05T15:01:01+00:00',
+					provider: 'OpenAI',
+				},
+				{
+					code: 403,
+					message:
+						'Invalid credentials. Please check your API key and endpoint URL.',
+					date: '2025-06-05T14:57:31+00:00',
+					provider: 'Qdrant',
+				},
+			];
+		} );
+
+		// Trigger the rendering via React tree refresh.
+		await page
+			.getByRole( 'button', { name: 'Integrations' } )
+			.click( { force: true } );
+
+		// Check that service errors are displayed.
+		await expect(
+			page.getByText(
+				'[OpenAI] Service Error: Incorrect API key provided'
+			)
+		).toBeVisible();
+		await expect(
+			page
+				.locator( '#hyve-options' )
+				.getByText( '[Qdrant] Service Error: Invalid credentials.' )
+		).toBeVisible();
+	} );
 } );

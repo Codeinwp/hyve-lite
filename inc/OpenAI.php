@@ -56,6 +56,13 @@ class OpenAI {
 	private static $instance = null;
 
 	/**
+	 * The service error option key for `wp_options`.
+	 * 
+	 * @var string
+	 */
+	public const ERROR_OPTION_KEY = 'hyve_open_ai_api_error';
+
+	/**
 	 * Ensures only one instance of the class is loaded.
 	 *
 	 * @return OpenAI An instance of the class.
@@ -581,14 +588,65 @@ class OpenAI {
 			$body = json_decode( $body );
 
 			if ( isset( $body->error ) ) {
+				if ( 'POST' === $method ) {
+					$this->check_and_save_error( (array) $body->error );
+				}
+
 				if ( isset( $body->error->message ) ) {
 					return new \WP_Error( isset( $body->error->code ) ? $body->error->code : 'unknown_error', $body->error->message );
 				}
-
 				return new \WP_Error( 'unknown_error', __( 'An error occurred while processing the request.', 'hyve-lite' ) );
 			}
-
+			
+			if ( 'POST' === $method ) {
+				delete_option( self::ERROR_OPTION_KEY );
+			}
 			return $body;
+		}
+	}
+
+	/**
+	 * Check the type of error returner by OpenAI and save if it is of interest.
+	 * 
+	 * Delete the old error if no error is longer present.
+	 * 
+	 * @param array<string, string> $error The error.
+	 * @return void
+	 */
+	private function check_and_save_error( $error ) {
+		if ( empty( $error['code'] ) ) {
+			
+			return;
+		}
+
+		$code = $error['code'];
+		
+		$errors_codes = [
+			// API Key Errors.
+			'invalid_api_key',
+			'insufficient_quota',
+			'invalid_authentication',
+			'account_deactivated',
+			'billing_not_active',
+			'organization_not_found',
+			'organization_deactivated',
+			'permission_denied',
+
+			// Rate Limiting Errors.
+			'rate_limit_exceeded',
+			'quota_exceeded ',
+		];
+		
+		if ( in_array( $code, $errors_codes, true ) ) {
+			update_option(
+				self::ERROR_OPTION_KEY,
+				[
+					'code'     => $code,
+					'message'  => ! empty( $error['message'] ) ? $error['message'] : '',
+					'date'     => wp_date( 'c' ),
+					'provider' => 'OpenAI',
+				] 
+			);
 		}
 	}
 }

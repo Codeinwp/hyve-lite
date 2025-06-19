@@ -33,6 +33,12 @@ interface HyveData {
 	qdrant_docs: string;
 	pro: string;
 	chart: HyveChart;
+	serviceErrors?: {
+		code: string;
+		message: string;
+		provider: string;
+		date: string;
+	}[]
 }
 
 interface HyveAudio {
