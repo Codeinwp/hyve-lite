@@ -7,11 +7,11 @@ import { __ } from '@wordpress/i18n';
 
 export const ErrorSection = () => {
 	const instructionMessage =
-		__( 'Please test the chat after solving the problem.', 'hyve-line' ) +
+		__( 'Please test the chat after solving the problem.', 'hyve-lite' ) +
 		' ' +
 		__(
 			'The error will disappear after a successful interaction with the chat.',
-			'hyve-line'
+			'hyve-lite'
 		);
 
 	return (
@@ -27,7 +27,7 @@ export const ErrorSection = () => {
 						>
 							<b>
 								[{ provider }]{ ' ' }
-								{ __( 'Service Error', 'hyve-line' ) }:
+								{ __( 'Service Error', 'hyve-lite' ) }:
 							</b>{ ' ' }
 							{ message } ({ code }) |{ ' ' }
 							{ new Date( date ).toLocaleString() }
