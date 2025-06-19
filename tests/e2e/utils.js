@@ -144,3 +144,34 @@ export async function mockConfirmDeleteThreadResponse( page ) {
 		}
 	);
 }
+
+/**
+ * Mock the response for the chat API.
+ *
+ * @param {import("@playwright/test").Page} page              The page.
+ * @param {Object}                          [options]
+ * @param {string}                          [options.message] The message to return in the response.
+ * @param {number}                          [options.delay]   Delay in ms before fulfilling the response.
+ * @param {string}                          [options.status]  The status to return in the response.
+ */
+export async function mockChatResponse(
+	page,
+	{
+		message = '<p>Hello! How can I assist you today?</p>',
+		delay = 0,
+		status = 'completed',
+	} = {}
+) {
+	await page.route( /.*rest_route=%2Fhyve%2Fv1%2Fchat.*/, async ( route ) => {
+		await new Promise( ( r ) => setTimeout( r, delay ) );
+		await route.fulfill( {
+			status: 200,
+			contentType: 'application/json',
+			body: JSON.stringify( {
+				status,
+				success: true,
+				message,
+			} ),
+		} );
+	} );
+}
