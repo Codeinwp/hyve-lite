@@ -62,8 +62,8 @@ class Main {
 
 		add_filter( 'hyve_global_chat_enabled', [ $this, 'is_global_chat_enabled' ] );
 		add_filter( 'hyve_stats', [ $this, 'get_stats' ] );
-
 		add_filter( 'hyve_options_data', [ $this, 'append_services_error' ] );
+		add_filter( 'hyve_similarity_score_threshold', [ $this, 'get_similarity_threshold_score' ] );
 
 		if ( Logger::has_consent() && ! wp_next_scheduled( 'hyve_weekly_stats' ) ) {
 			wp_schedule_event( time(), 'weekly', 'hyve_weekly_stats' );
@@ -223,14 +223,14 @@ class Main {
 		return apply_filters(
 			'hyve_default_settings',
 			[
-				'api_key'              => '',
-				'qdrant_api_key'       => '',
-				'qdrant_endpoint'      => '',
-				'chat_enabled'         => true,
-				'chat_model'           => 'gpt-4o-mini',
-				'temperature'          => 1,
-				'top_p'                => 1,
-				'moderation_threshold' => [
+				'api_key'                    => '',
+				'qdrant_api_key'             => '',
+				'qdrant_endpoint'            => '',
+				'chat_enabled'               => true,
+				'chat_model'                 => 'gpt-4o-mini',
+				'temperature'                => 1,
+				'top_p'                      => 1,
+				'moderation_threshold'       => [
 					'sexual'                 => 80,
 					'hate'                   => 70,
 					'harassment'             => 70,
@@ -243,8 +243,9 @@ class Main {
 					'harassment/threatening' => 60,
 					'violence'               => 70,
 				],
-				'welcome_message'      => '',
-				'default_message'      => '',
+				'welcome_message'            => '',
+				'default_message'            => '',
+				'similarity_score_threshold' => 0.4,
 			]
 		);
 	}
@@ -624,5 +625,20 @@ class Main {
 		}
 
 		return $survey_data;
+	}
+
+	/**
+	 * Get the similarity threshold score for Cosine Similarity.
+	 * 
+	 * @return float The threshold.
+	 */
+	public function get_similarity_threshold_score() {
+		$settings = self::get_settings();
+
+		if ( isset( $settings['similarity_score_threshold'] ) && is_numeric( $settings['similarity_score_threshold'] ) ) {
+			return floatval( $settings['similarity_score_threshold'] );
+		}
+
+		return 0.4;
 	}
 }
