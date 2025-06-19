@@ -163,6 +163,7 @@ class Main {
 					$data,
 					[
 						'api'            => $this->api->get_endpoint(),
+						'rest_url'       => rest_url( $this->api->get_endpoint() ),
 						'postTypes'      => $post_types_for_js,
 						'hasAPIKey'      => isset( $settings['api_key'] ) && ! empty( $settings['api_key'] ),
 						'chunksLimit'    => apply_filters( 'hyve_chunks_limit', 500 ),
@@ -175,6 +176,7 @@ class Main {
 						'qdrant_docs'    => 'https://docs.themeisle.com/article/2066-integrate-hyve-with-qdrant',
 						'pro'            => 'https://themeisle.com/plugins/hyve/',
 						'chart'          => $this->get_chart_data(),
+						'hasPro'         => apply_filters( 'product_hyve_license_status', false ),
 					]
 				);
 			},

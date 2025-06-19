@@ -32,6 +32,7 @@ import Appearance from './parts/settings/Appearance';
 import Assistant from './parts/settings/Assistant';
 import Moderation from './parts/settings/Moderation';
 import Advanced from './parts/settings/Advanced';
+import { ExternalSearch } from './parts/integrations/ExternalSearch';
 
 export const ROUTE_TREE = {
 	home: {
@@ -75,6 +76,11 @@ export const ROUTE_TREE = {
 			integrations: {
 				label: __( 'Qdrant', 'hyve-lite' ),
 				component: Qdrant,
+			},
+			search: {
+				label: __( 'Hyve Connect', 'hyve-lite' ),
+				component: ExternalSearch,
+				isPro: ! Boolean( window.hyve.hasPro ),
 			},
 		},
 	},
