@@ -77,6 +77,22 @@ class Main {
 		) {
 			add_action( 'wp_enqueue_scripts', [ $this, 'enqueue_assets' ] );
 		}
+
+		if ( ! defined( 'E2E_TESTING' ) ) {
+			add_filter(
+				'themeisle-sdk/survey/' . HYVE_PRODUCT_SLUG,
+				function ( $data, $page_slug ) {
+					if ( empty( $page_slug ) ) {
+						return $data;
+					}
+					return $this->get_survey_data();
+				},
+				10,
+				2
+			);
+		}
+
+		add_action( 'admin_init', [ $this, 'admin_init' ] );
 	}
 
 	/**
@@ -114,6 +130,50 @@ class Main {
 	}
 
 	/**
+	 * Init hooks on admin stage.
+	 * 
+	 * @return void
+	 */
+	public function admin_init() {
+		$settings = self::get_settings();
+
+		$post_types        = get_post_types( [ 'public' => true ], 'objects' );
+		$post_types_for_js = [];
+	
+		foreach ( $post_types as $post_type ) {
+			$post_types_for_js[] = [
+				'label' => $post_type->labels->name,
+				'value' => $post_type->name,
+			];
+		}
+
+		add_filter(
+			'hyve_options_data',
+			function ( $data ) use ( $settings, $post_types_for_js ) {
+				return array_merge(
+					$data,
+					[
+						'api'            => $this->api->get_endpoint(),
+						'postTypes'      => $post_types_for_js,
+						'hasAPIKey'      => isset( $settings['api_key'] ) && ! empty( $settings['api_key'] ),
+						'chunksLimit'    => apply_filters( 'hyve_chunks_limit', 500 ),
+						'isQdrantActive' => Qdrant_API::is_active(),
+						'assets'         => [
+							'images' => HYVE_LITE_URL . 'assets/images/',
+						],
+						'stats'          => $this->get_stats(),
+						'docs'           => 'https://docs.themeisle.com/article/2009-hyve-documentation',
+						'qdrant_docs'    => 'https://docs.themeisle.com/article/2066-integrate-hyve-with-qdrant',
+						'pro'            => 'https://themeisle.com/plugins/hyve/',
+						'chart'          => $this->get_chart_data(),
+					]
+				);
+			},
+			9
+		);
+	}
+
+	/**
 	 * Load assets for option page.
 	 *
 	 * @since 1.2.0
@@ -142,39 +202,10 @@ class Main {
 
 		wp_set_script_translations( 'hyve-lite-scripts', 'hyve-lite' );
 
-		$post_types        = get_post_types( [ 'public' => true ], 'objects' );
-		$post_types_for_js = [];
-	
-		foreach ( $post_types as $post_type ) {
-			$post_types_for_js[] = [
-				'label' => $post_type->labels->name,
-				'value' => $post_type->name,
-			];
-		}
-
-		$settings = self::get_settings();
-
 		wp_localize_script(
 			'hyve-lite-scripts',
 			'hyve',
-			apply_filters(
-				'hyve_options_data',
-				[
-					'api'            => $this->api->get_endpoint(),
-					'postTypes'      => $post_types_for_js,
-					'hasAPIKey'      => isset( $settings['api_key'] ) && ! empty( $settings['api_key'] ),
-					'chunksLimit'    => apply_filters( 'hyve_chunks_limit', 500 ),
-					'isQdrantActive' => Qdrant_API::is_active(),
-					'assets'         => [
-						'images' => HYVE_LITE_URL . 'assets/images/',
-					],
-					'stats'          => $this->get_stats(),
-					'docs'           => 'https://docs.themeisle.com/article/2009-hyve-documentation',
-					'qdrant_docs'    => 'https://docs.themeisle.com/article/2066-integrate-hyve-with-qdrant',
-					'pro'            => 'https://themeisle.com/plugins/hyve/',
-					'chart'          => $this->get_chart_data(),
-				]
-			)
+			apply_filters( 'hyve_options_data', [] )
 		);
 
 		add_filter( 'themeisle_sdk_blackfriday_data', [ $this, 'add_black_friday_data' ] );
@@ -554,5 +585,44 @@ class Main {
 		}
 
 		return $options;
+	}
+
+	/**
+	 * Get the data for Formbricks survey.
+	 * 
+	 * @return array<string, mixed> The survey data.
+	 */
+	public function get_survey_data() {
+
+		$options           = apply_filters( 'hyve_options_data', [] );
+		$install_time_free = get_option( 'hyve_lite_install', time() );
+		$install_time_pro  = get_option( 'hyve_install', time() );
+		$settings          = self::get_settings();
+
+		$license_status     = apply_filters( 'product_hyve_license_status', 'invalid' );
+		$days_since_install = round( ( time() - min( $install_time_free, $install_time_pro ) ) / DAY_IN_SECONDS );
+		
+		$survey_data = [
+			'environmentId' => 'cmbtdc5s8s7pkuk014jwixs7n',
+			'attributes'    => [
+				'free_version'              => HYVE_LITE_VERSION,
+				'pro_version'               => defined( 'HYVE_VERSION' ) ? HYVE_VERSION : '',
+				'install_days_number'       => $days_since_install,
+				'license_status'            => $license_status,
+				'is_openai_active'          => $options['hasAPIKey'],
+				'is_qdrant_active'          => $options['isQdrantActive'],
+				'stats_messages'            => $options['stats']['messages'],
+				'stats_threads'             => $options['stats']['threads'],
+				'stats_total_chunks'        => $options['stats']['totalChunks'],
+				'openai_chat_model'         => $settings['chat_model'],
+				'chat_on_all_pages_enabled' => $settings['chat_enabled'],
+			],
+		];
+
+		if ( 'valid' === $license_status ) {
+			$survey_data['attributes']['license_key'] = apply_filters( 'themeisle_sdk_secret_masking', apply_filters( 'product_hyve_license_key', '' ) );
+		}
+
+		return $survey_data;
 	}
 }
