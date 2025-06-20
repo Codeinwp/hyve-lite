@@ -47,5 +47,6 @@ function setUpTracking() {
 	if ( window?.tiTrk ) {
 		window.tiTrk.autoSendIntervalTime = 30 * 1000; // 30 seconds.
 		window.hyveTrk = window.tiTrk?.with( 'hyve' );
+		window.tiTrk?.start();
 	}
 }
