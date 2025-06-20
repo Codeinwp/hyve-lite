@@ -15,7 +15,6 @@ import App from './App';
 import { PostsTable } from './parts/PostsTable';
 import PostModal from './parts/PostModal';
 import { getChatIcons } from './utils';
-import { setUpTracking } from './tracking';
 import { OthersSection } from './parts/data/OthersSection';
 
 window.hyveComponents = {};
@@ -43,3 +42,10 @@ domReady( () => {
 	const root = createRoot( document.getElementById( 'hyve-options' ) );
 	root.render( <App /> );
 } );
+
+function setUpTracking() {
+	if ( window?.tiTrk ) {
+		window.tiTrk.autoSendIntervalTime = 30 * 1000; // 30 seconds.
+		window.hyveTrk = window.tiTrk?.with( 'hyve' );
+	}
+}
