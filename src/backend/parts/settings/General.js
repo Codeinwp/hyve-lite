@@ -97,13 +97,6 @@ const General = () => {
 				throw new Error( response.error );
 			}
 
-			if ( settings.predefined_questions ) {
-				window.hyveTrk?.add( {
-					feature: 'settings',
-					featureComponent: 'predefined',
-					featureValue: settings.predefined_questions,
-				} );
-			}
 			createNotice( 'success', __( 'Settings saved.', 'hyve-lite' ), {
 				type: 'snackbar',
 				isDismissible: true,
