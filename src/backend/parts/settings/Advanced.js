@@ -18,6 +18,8 @@ import { useState } from '@wordpress/element';
 
 import { useDispatch, useSelect } from '@wordpress/data';
 
+import { applyFilters } from '@wordpress/hooks';
+
 const Advanced = () => {
 	const settings = useSelect( ( select ) => select( 'hyve' ).getSettings() );
 
@@ -74,13 +76,18 @@ const Advanced = () => {
 						) }
 					>
 						<TextControl
-							label={ __( 'API Key', 'hyve-lite' ) }
+							label={ __( 'OpenAI API Key', 'hyve-lite' ) }
 							type="password"
 							value={ settings.api_key || '' }
 							disabled={ isSaving }
-							onChange={ ( newValue ) =>
-								setSetting( 'api_key', newValue )
-							}
+							onChange={ ( newValue ) => {
+								window.hyveTrk?.add( {
+									feature: 'openai',
+									featureComponent: 'api-key',
+									featureValue: 'added',
+								} );
+								setSetting( 'api_key', newValue );
+							} }
 						/>
 					</BaseControl>
 
@@ -102,6 +109,17 @@ const Advanced = () => {
 					</Button>
 				</PanelRow>
 			</Panel>
+			<br />
+			{ applyFilters(
+				'hyve.others',
+				() => (
+					<></>
+				),
+				isSaving,
+				settings,
+				setSetting,
+				onSave
+			) }
 		</div>
 	);
 };

@@ -91,6 +91,11 @@ const Qdrant = () => {
 					isDismissible: true,
 				}
 			);
+			window.hyveTrk?.add( {
+				feature: 'qdrant',
+				featureComponent: 'api-key',
+				featureValue: 'disconnected',
+			} );
 		} catch ( error ) {
 			createNotice( 'error', error, {
 				type: 'snackbar',
@@ -122,6 +127,12 @@ const Qdrant = () => {
 			createNotice( 'success', __( 'Settings saved.', 'hyve-lite' ), {
 				type: 'snackbar',
 				isDismissible: true,
+			} );
+
+			window.hyveTrk?.add( {
+				feature: 'qdrant',
+				featureComponent: 'api-key',
+				featureValue: 'connected',
 			} );
 		} catch ( error ) {
 			createNotice( 'error', error, {

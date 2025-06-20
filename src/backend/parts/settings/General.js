@@ -23,6 +23,11 @@ import { useDispatch, useSelect } from '@wordpress/data';
 
 import { applyFilters } from '@wordpress/hooks';
 
+/**
+ * Internal dependencies.
+ */
+import UpsellContainer from '../UpsellContainer';
+
 const SuggestedQuestions = () => {
 	return (
 		<UpsellContainer
@@ -67,11 +72,6 @@ const SuggestedQuestions = () => {
 		</UpsellContainer>
 	);
 };
-
-/**
- * Internal dependencies.
- */
-import UpsellContainer from '../UpsellContainer';
 
 const General = () => {
 	const settings = useSelect( ( select ) => select( 'hyve' ).getSettings() );
