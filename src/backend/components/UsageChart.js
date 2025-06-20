@@ -154,7 +154,14 @@ export const UsageCharts = ( { chart } ) => {
 						},
 					] }
 					value={ dateRange }
-					onChange={ ( value ) => setDateRange( value ) }
+					onChange={ ( value ) => {
+						setDateRange( value );
+						window.hyveTrk?.add?.( {
+							feature: 'charts',
+							featureComponent: 'days-filter',
+							featureValue: value,
+						} );
+					} }
 					labelPosition="side"
 				/>
 			</div>
