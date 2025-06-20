@@ -226,6 +226,7 @@ class DB_Table {
 
 		$this->delete_cache( 'entries' );
 		$this->delete_cache( 'entries_count' );
+		$this->delete_cache( 'cached_embeddings' );
 
 		return $wpdb->insert_id;
 	}
@@ -252,6 +253,7 @@ class DB_Table {
 
 		$this->delete_cache( 'entry_' . $id );
 		$this->delete_cache( 'entries_processed' );
+		$this->delete_cache( 'cached_embeddings' );
 
 		return $rows_affected;
 	}
@@ -273,6 +275,7 @@ class DB_Table {
 		$this->delete_cache( 'entries' );
 		$this->delete_cache( 'entries_processed' );
 		$this->delete_cache( 'entries_count' );
+		$this->delete_cache( 'cached_embeddings' );
 
 		return $rows_affected;
 	}
@@ -370,7 +373,14 @@ class DB_Table {
 			return [];
 		}
 
+		$cached_embeddings = $this->get_cache( 'cached_embeddings' );
+		if ( false === $cached_embeddings ) {
+			$cached_embeddings = [];
+		}
+		$cached_embeddings[] = $cache_key;
+
 		$this->set_cache( $cache_key, $posts );
+		$this->set_cache( 'cached_embeddings', $cached_embeddings );
 
 		return $posts;
 	}
@@ -417,6 +427,7 @@ class DB_Table {
 		$wpdb->update( $this->table_name, [ 'storage' => $to ], [ 'storage' => $from ], [ '%s' ], [ '%s' ] );
 		$this->delete_cache( 'entries' );
 		$this->delete_cache( 'entries_processed' );
+		$this->delete_cache( 'cached_embeddings' );
 		return $wpdb->rows_affected;
 	}
 
@@ -511,6 +522,7 @@ class DB_Table {
 		delete_post_meta( $post_id, '_hyve_moderation_failed' );
 		delete_post_meta( $post_id, '_hyve_moderation_review' );
 		delete_post_meta( $post_id, '_hyve_needs_update' );
+		$this->delete_cache( 'cached_embeddings' );
 
 		return true;
 	}
@@ -644,6 +656,10 @@ class DB_Table {
 			delete_post_meta( $id, '_hyve_moderation_review' );
 		}
 
+		if ( ! empty( $twenty ) ) {
+			$this->delete_cache( 'cached_embeddings' );
+		}
+
 		$has_more = count( $posts ) > 20;
 
 		if ( $has_more ) {
@@ -751,6 +767,13 @@ class DB_Table {
 	 * @return bool
 	 */
 	private function delete_cache( $key ) {
+		if ( 'cached_embeddings' === $key ) {
+			$cached_embeddings = $this->get_cache( $key );
+			foreach ( $cached_embeddings as $cached_embedding_key ) {
+				$this->delete_cache( $cached_embedding_key );
+			}
+		}
+
 		$key = $this->get_cache_key( $key );
 
 		if ( $this->get_cache_key( 'entries_processed' ) === $key ) {
