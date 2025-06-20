@@ -11,6 +11,10 @@ import {
 	Panel,
 	PanelRow,
 	TextControl,
+	// eslint-disable-next-line @wordpress/no-unsafe-wp-apis
+	__experimentalToggleGroupControl as ToggleGroupControl,
+	// eslint-disable-next-line @wordpress/no-unsafe-wp-apis
+	__experimentalToggleGroupControlOption as ToggleGroupControlOption,
 } from '@wordpress/components';
 
 import { useState } from '@wordpress/element';
@@ -110,6 +114,47 @@ const General = () => {
 	return (
 		<div className="col-span-6 xl:col-span-4">
 			<Panel header={ __( 'General Settings', 'hyve-lite' ) }>
+				<PanelRow>
+					<ToggleGroupControl
+						__nextHasNoMarginBottom
+						isBlock
+						label={ __(
+							'Enable “Add to Hyve” Post Action',
+							'hyve-lite'
+						) }
+						value={ Boolean( settings.post_row_addon_enabled ) }
+						onChange={ ( newValue ) =>
+							setSetting(
+								'post_row_addon_enabled',
+								Boolean( newValue )
+							)
+						}
+						help={ __(
+							'When enabled, an “Add to Hyve” button will appear in the post/page row actions. Disable this to remove the option entirely from the posts/pages list.',
+							'hyve-lite'
+						) }
+					>
+						<ToggleGroupControlOption
+							aria-label={ __(
+								'Enable “Add to Hyve” button',
+								'hyve-lite'
+							) }
+							label={ __( 'Enable', 'hyve-lite' ) }
+							showTooltip
+							value={ true }
+						/>
+						<ToggleGroupControlOption
+							aria-label={ __(
+								'Disable “Add to Hyve” button',
+								'hyve-lite'
+							) }
+							label={ __( 'Disable', 'hyve-lite' ) }
+							showTooltip
+							value={ false }
+						/>
+					</ToggleGroupControl>
+				</PanelRow>
+
 				<PanelRow>
 					<TextControl
 						label={ __( 'Welcome Message', 'hyve-lite' ) }

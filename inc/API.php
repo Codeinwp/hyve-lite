@@ -350,6 +350,12 @@ class API extends BaseAPI {
 					},
 					'sanitize' => 'floatval',
 				],
+				'post_row_addon_enabled'     => [
+					'validate' => function ( $value ) {
+							return is_bool( $value );
+					},
+					'sanitize' => 'rest_sanitize_boolean',
+				],
 			]
 		);
 
