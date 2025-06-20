@@ -9,11 +9,9 @@ namespace ThemeIsle\HyveLite;
 
 use ThemeIsle\HyveLite\DB_Table;
 use ThemeIsle\HyveLite\Block;
-use ThemeIsle\HyveLite\Cosine_Similarity;
 use ThemeIsle\HyveLite\Threads;
 use ThemeIsle\HyveLite\API;
 use ThemeIsle\HyveLite\Qdrant_API;
-use ThemeIsle\HyveLite\Logger;
 
 /**
  * Class Main
@@ -58,17 +56,12 @@ class Main {
 		add_action( 'admin_menu', [ $this, 'register_menu_page' ] );
 		add_action( 'save_post', [ $this, 'update_meta' ], 10, 3 );
 		add_action( 'delete_post', [ $this, 'delete_post' ] );
-		add_action( 'hyve_weekly_stats', [ $this, 'log_stats' ] );
 		add_filter( 'themeisle_sdk_enable_telemetry', '__return_true' );
 
 		add_filter( 'hyve_global_chat_enabled', [ $this, 'is_global_chat_enabled' ] );
 		add_filter( 'hyve_stats', [ $this, 'get_stats' ] );
 		add_filter( 'hyve_options_data', [ $this, 'append_services_error' ] );
 		add_filter( 'hyve_similarity_score_threshold', [ $this, 'get_similarity_threshold_score' ] );
-
-		if ( Logger::has_consent() && ! wp_next_scheduled( 'hyve_weekly_stats' ) ) {
-			wp_schedule_event( time(), 'weekly', 'hyve_weekly_stats' );
-		}
 
 		$settings = self::get_settings();
 
@@ -529,25 +522,6 @@ class Main {
 	}
 
 	/**
-	 * Log stats.
-	 * 
-	 * @since 1.3.0
-	 * 
-	 * @return void
-	 */
-	public function log_stats() {
-		Logger::track(
-			[
-				[
-					'feature'          => 'system',
-					'featureComponent' => 'stats',
-					'featureValue'     => $this->get_stats(),
-				],
-			]
-		);
-	}
-
-	/**
 	 * Update meta.
 	 * 
 	 * @param int      $post_id Post ID.
@@ -761,7 +735,7 @@ class Main {
 	/**
 	 * Get the plugin usage.
 	 * 
-	 * @param mixed $data The data
+	 * @param mixed $data The data.
 	 * 
 	 * @return mixed The plugin data.
 	 */
