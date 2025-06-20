@@ -256,6 +256,9 @@ class App {
 		try {
 			this.setLoading( true );
 
+			const preloaderId = 'hyve-preloader';
+			this.addPreloaderMessage( preloaderId );
+
 			const response = await apiFetch( {
 				path: this.addCacheProtection(
 					`${ window.hyveClient.api }/chat`
@@ -272,6 +275,8 @@ class App {
 				},
 				headers: this.getDefaultHeaders(),
 			} );
+
+			this.removeMessage( preloaderId );
 
 			if ( response.error ) {
 				this.add( strings.tryAgain, 'bot' );
@@ -293,6 +298,7 @@ class App {
 
 			await this.getResponse( message );
 		} catch ( error ) {
+			this.removeMessage( 'hyve-preloader' );
 			this.add( strings.tryAgain, 'bot' );
 			this.setLoading( false );
 		}
@@ -775,6 +781,25 @@ class App {
 		window.document
 			.getElementById( 'hyve-menu-button' )
 			?.classList.toggle( 'is-visible', isVisible );
+	}
+
+	addPreloaderMessage( id ) {
+		const chatMessageBox = document.getElementById( 'hyve-message-box' );
+		if ( ! chatMessageBox ) {
+			return;
+		}
+
+		const preloaderDiv = this.createElement( 'div', {
+			className: 'hyve-bot-message hyve-preloader',
+			id: `hyve-message-${ id }`,
+			innerHTML: `
+				<span class="hyve-preloader-dots">
+					<span>.</span><span>.</span><span>.</span>
+				</span>
+			`,
+		} );
+		chatMessageBox.appendChild( preloaderDiv );
+		chatMessageBox.scrollTop = chatMessageBox.scrollHeight;
 	}
 }
 

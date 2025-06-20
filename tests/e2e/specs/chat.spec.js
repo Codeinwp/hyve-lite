@@ -1,4 +1,5 @@
 import { test, expect } from '@wordpress/e2e-test-utils-playwright';
+import { mockChatResponse } from '../utils';
 
 test.describe( 'Chat', () => {
 	/**
@@ -66,20 +67,7 @@ test.describe( 'Chat', () => {
 		await page.goto( `?p=${ postId }` );
 		await initializeChatApp( page );
 
-		await page.route(
-			/.*rest_route=%2Fhyve%2Fv1%2Fchat.*/,
-			async ( route ) => {
-				await route.fulfill( {
-					status: 200,
-					contentType: 'application/json',
-					body: JSON.stringify( {
-						status: 'completed',
-						success: true,
-						message: '<p>Hello! How can I assist you today?</p>',
-					} ),
-				} );
-			}
-		);
+		await mockChatResponse( page );
 
 		await page
 			.getByRole( 'button', { name: '💬' } )
@@ -114,20 +102,7 @@ test.describe( 'Chat', () => {
 		await page.goto( `?p=${ postId }` );
 		await initializeChatApp( page );
 
-		await page.route(
-			/.*rest_route=%2Fhyve%2Fv1%2Fchat.*/,
-			async ( route ) => {
-				await route.fulfill( {
-					status: 200,
-					contentType: 'application/json',
-					body: JSON.stringify( {
-						status: 'completed',
-						success: true,
-						message: '<p>Hello! How can I assist you today?</p>',
-					} ),
-				} );
-			}
-		);
+		await mockChatResponse( page );
 
 		await page
 			.getByRole( 'textbox', { name: 'Write a reply…' } )
@@ -158,20 +133,7 @@ test.describe( 'Chat', () => {
 		await page.goto( `?p=${ postId }` );
 		await initializeChatApp( page );
 
-		await page.route(
-			/.*rest_route=%2Fhyve%2Fv1%2Fchat.*/,
-			async ( route ) => {
-				await route.fulfill( {
-					status: 200,
-					contentType: 'application/json',
-					body: JSON.stringify( {
-						status: 'completed',
-						success: true,
-						message: '<p>Hello! How can I assist you today?</p>',
-					} ),
-				} );
-			}
-		);
+		await mockChatResponse( page );
 
 		await page
 			.getByRole( 'button', { name: '💬' } )
@@ -195,5 +157,50 @@ test.describe( 'Chat', () => {
 			.getByRole( 'button', { name: 'Clear Conversation' } )
 			.click( { force: true } );
 		await expect( page.getByText( 'This message should be' ) ).toBeHidden();
+	} );
+
+	test( 'chat preloader', async ( { page, admin, editor } ) => {
+		await admin.createNewPost( { title: 'Dummy Post' } );
+
+		await editor.insertBlock( {
+			name: 'hyve/chat',
+			attributes: {
+				variant: 'floating',
+			},
+		} );
+
+		const postId = await editor.publishPost();
+
+		await page.goto( `?p=${ postId }` );
+		await initializeChatApp( page );
+
+		await mockChatResponse( page, {
+			message: '<p>Hello! How can I assist you today?</p>',
+			delay: 200,
+			status: 'completed',
+		} );
+
+		await page
+			.getByRole( 'button', { name: '💬' } )
+			.click( { force: true } );
+
+		await page.waitForSelector( '.hyve-bot-message' );
+
+		await page
+			.getByRole( 'textbox', { name: 'Write a reply…' } )
+			.fill( 'Hello' );
+		await page
+			.locator( '#hyve-send-button' )
+			.getByRole( 'button' )
+			.click( { force: true } );
+
+		await expect(
+			page.locator( '#hyve-message-hyve-preloader' )
+		).toBeVisible();
+
+		// The reply from endpoint should be visible.
+		await expect(
+			page.getByText( 'Hello! How can I assist you' )
+		).toBeVisible();
 	} );
 } );
