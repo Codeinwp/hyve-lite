@@ -45,6 +45,7 @@ class API extends BaseAPI {
 		parent::__construct();
 
 		$this->register_route();
+		$this->register_filters();
 	}
 
 	/**
@@ -54,6 +55,24 @@ class API extends BaseAPI {
 	 */
 	private function register_route() {
 		add_action( 'rest_api_init', [ $this, 'register_routes' ] );
+	}
+
+	/**
+	 * Register filters.
+	 *
+	 * @return void
+	 */
+	private function register_filters() {
+		add_filter(
+			'hyve_search_knowledge_base',
+			function ( $result, $message_vector, $similarity_score_threshold, $max_tokens ) {
+				$result = $this->search_knowledge_base( $message_vector, $similarity_score_threshold, $max_tokens );
+
+				return $result;
+			},
+			10,
+			4 
+		);
 	}
 
 	/**

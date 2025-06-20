@@ -39,6 +39,7 @@ interface HyveData {
 		provider: string;
 		date: string;
 	}[];
+	hasPro: boolean;
 }
 
 interface HyveAudio {
