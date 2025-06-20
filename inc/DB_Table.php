@@ -769,8 +769,10 @@ class DB_Table {
 	private function delete_cache( $key ) {
 		if ( 'cached_embeddings' === $key ) {
 			$cached_embeddings = $this->get_cache( $key );
-			foreach ( $cached_embeddings as $cached_embedding_key ) {
-				$this->delete_cache( $cached_embedding_key );
+			if ( is_array( $cached_embeddings ) ) {
+				foreach ( $cached_embeddings as $cached_embedding_key ) {
+					$this->delete_cache( $cached_embedding_key );
+				}
 			}
 		}
 
