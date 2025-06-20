@@ -826,8 +826,10 @@ class API extends BaseAPI {
 				continue;
 			}
 
-			if ( $current_token_count > $tokens_threshold ) {
-				break;
+			$tokens_count = intval( $point['token_count'] );
+
+			if ( $tokens_threshold <= ( $current_token_count + $tokens_count ) ) {
+				continue;
 			}
 
 			$articles_embedded_data .= "\n ===START POST=== " . $point['post_title'] . ' - ' . $point['post_content'] . ' ===END POST===';
