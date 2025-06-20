@@ -1009,6 +1009,9 @@ class API extends BaseAPI {
 			}
 		}
 
+		$hash = hash( 'md5', strtolower( $message ) );
+		set_transient( 'hyve_message_' . $hash, $message_vector, MINUTE_IN_SECONDS );
+
 		$record_id = apply_filters( 'hyve_chat_request', $thread_id, $record_id, $message );
 
 		return rest_ensure_response(
