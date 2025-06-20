@@ -45,8 +45,6 @@ const Assistant = () => {
 				type: 'snackbar',
 				isDismissible: true,
 			} );
-
-			window.tiTrk?.uploadEvents?.();
 		} catch ( error ) {
 			createNotice( 'error', error, {
 				type: 'snackbar',

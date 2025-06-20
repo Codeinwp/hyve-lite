@@ -96,7 +96,6 @@ const Qdrant = () => {
 				featureComponent: 'api-key',
 				featureValue: 'disconnected',
 			} );
-			window.tiTrk?.uploadEvents?.();
 		} catch ( error ) {
 			createNotice( 'error', error, {
 				type: 'snackbar',
@@ -135,7 +134,6 @@ const Qdrant = () => {
 				featureComponent: 'api-key',
 				featureValue: 'connected',
 			} );
-			window.tiTrk?.uploadEvents?.();
 		} catch ( error ) {
 			createNotice( 'error', error, {
 				type: 'snackbar',

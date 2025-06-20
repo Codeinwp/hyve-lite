@@ -72,14 +72,7 @@ class Main {
 
 		$settings = self::get_settings();
 
-		add_filter(
-			'hyve_lite_logger_data',
-			function ( $value ) use ( $settings ) {
-				$value['settings'] = $settings;
-				$value['stats']    = $this->get_stats();
-				return $value;
-			}
-		);
+		add_filter( 'hyve_lite_logger_data', [ $this, 'plugin_usage' ] );
 
 		if ( isset( $settings['post_row_addon_enabled'] ) && $settings['post_row_addon_enabled'] && current_user_can( 'manage_options' ) ) {
 			add_action( 'hyve_register_post_type_row_action_knowledge_base', [ $this, 'register_row_action_filter_shortcut' ] );
@@ -763,5 +756,33 @@ class Main {
 		}
 
 		return 0.4;
+	}
+	
+	/**
+	 * Get the plugin usage.
+	 * 
+	 * @param mixed $data The data
+	 * 
+	 * @return mixed The plugin data.
+	 */
+	public function plugin_usage( $data ) {
+
+		$settings = $this->get_settings();
+
+		$settings['api_key']        = ! empty( $settings['api_key'] ) ? 'yes' : 'no';
+		$settings['qdrant_api_key'] = ! empty( $settings['qdrant_api_key'] ) ? 'yes' : 'no';
+		
+		if ( isset( $settings['qdrant_endpoint'] ) ) {
+			unset( $settings['qdrant_endpoint'] );
+		}
+
+		if ( isset( $settings['assistant_id'] ) ) {
+			unset( $settings['assistant_id'] );
+		}
+
+		$data['settings'] = $settings;
+		$data['stats']    = $this->get_stats();
+		
+		return $data;
 	}
 }
