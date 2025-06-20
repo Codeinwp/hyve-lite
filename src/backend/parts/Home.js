@@ -56,7 +56,7 @@ const STATUS = [
 	},
 ];
 
-const Dashboard = () => {
+const Dashboard = ( { isBlocked } ) => {
 	const { setRoute } = useDispatch( 'hyve' );
 	const settings = useSelect( ( select ) => select( 'hyve' ).getSettings() );
 	const { setSetting } = useDispatch( 'hyve' );
@@ -266,7 +266,7 @@ const Dashboard = () => {
 					</div>
 				</PanelRow>
 			</Panel>
-			{ 0 < window.hyve?.chart?.data?.messages?.length && (
+			{ ! isBlocked && 0 < window.hyve?.chart?.data?.messages?.length && (
 				<>
 					<br />
 					<Panel header={ __( 'Chat Usage', 'hyve-lite' ) }>
@@ -288,7 +288,7 @@ const Home = () => {
 	if ( ! hasAPI ) {
 		return (
 			<div className="col-span-6 xl:col-span-4 relative">
-				<Dashboard />
+				<Dashboard isBlocked={ true } />
 
 				<div className="w-full h-full absolute bg-white/75 flex justify-center items-center top-0">
 					<div className="flex flex-col items-center max-w-lg gap-2 p-6 rounded-lg bg-white shadow-lg">
