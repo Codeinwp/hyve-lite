@@ -35,7 +35,7 @@ export const ExternalSearch = () => {
 					<p className="monospace bg-gray-100 p-2 rounded whitespace-pre">
 						{ [
 							'curl --request POST',
-							`  --url ${ window.hyve.rest_url }/search-knowledge-base`,
+							`  --url ${ window.hyve.rest_url }/knowledge-base/search`,
 							`  --header 'authorization: Bearer hyve_sk_MozAlDXXXXXXXXXXXXXXXX'`,
 							"  --header 'content-type: application/json'",
 							"  --data '{",
