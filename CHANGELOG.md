@@ -1,3 +1,37 @@
+#### [Version 1.3.0](https://github.com/Codeinwp/hyve-lite/compare/v1.2.4...v1.3.0) (2025-06-23)
+
+### New Features
+
+- External API support for knowledge base search **[PRO]**
+- Customizable similarity threshold
+- Option to export messages **[PRO]**
+- Option to delete threads
+- Show connectivity errors in the dashboard
+- NPS survey added
+- New chatbot icons **[PRO]**
+
+### Improvements
+
+- Compatibility with PHP 7.4 or higher (Previously 8.1+)
+- Add support for more OpenAI models
+- Dashboard charts for usage statistics
+- Optimize memory consumption for chat endpoint
+- Reduced payload size on data endpoint
+- Improved time to calculate the cosine similarity score
+- Consistent chat style options across themes
+- Quick actions for adding/removing posts to knowledge base
+- Better UX while waiting for bots response
+- Hide chat and show dashboard notice when knowledge base is empty
+- Better explanation for Enable Chat options (global vs. specific pages)
+- Lowered UI gaps in the messages page
+- License key notice redirects to activation page
+
+### Bug Fixes
+
+- Fixed handling of OpenAI status
+- Fixed warning on early translation function calls
+- Fixed missing embeddings in FAQ
+
 ##### [Version 1.2.4](https://github.com/Codeinwp/hyve-lite/compare/v1.2.3...v1.2.4) (2025-05-27)
 
 - Updated dependencies
