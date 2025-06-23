@@ -32,27 +32,15 @@ class BaseAPI {
 	/**
 	 * Instance of DB_Table class.
 	 *
-	 * @var object
+	 * @var \ThemeIsle\HyveLite\DB_Table
 	 */
 	protected $table;
-
-	/**
-	 * Error messages.
-	 * 
-	 * @var array
-	 */
-	private $errors = [];
 
 	/**
 	 * Constructor.
 	 */
 	public function __construct() {
 		$this->table = DB_Table::instance();
-
-		$this->errors = [
-			'invalid_api_key' => __( 'Incorrect API key provided.', 'hyve-lite' ),
-			'missing_scope'   => __( ' You have insufficient permissions for this operation.', 'hyve-lite' ),
-		];
 	}
 
 	/**
@@ -63,8 +51,12 @@ class BaseAPI {
 	 * @return string
 	 */
 	public function get_error_message( $error ) {
-		if ( isset( $this->errors[ $error->get_error_code() ] ) ) {
-			return $this->errors[ $error->get_error_code() ];
+		$errors = [
+			'invalid_api_key' => __( 'Incorrect API key provided.', 'hyve-lite' ),
+			'missing_scope'   => __( 'You have insufficient permissions for this operation.', 'hyve-lite' ),
+		];
+		if ( isset( $errors[ $error->get_error_code() ] ) ) {
+			return $errors[ $error->get_error_code() ];
 		}
 
 		return $error->get_error_message();

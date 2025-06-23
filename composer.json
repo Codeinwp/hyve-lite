@@ -29,17 +29,17 @@
 		"phpunit": "phpunit"
 	},
 	"require-dev": {
-		"phpstan/phpstan": "^1.10",
-		"szepeviktor/phpstan-wordpress": "^1.3",
-		"wp-coding-standards/wpcs": "^3.0",
+		"phpstan/phpstan": "^2",
+		"wp-coding-standards/wpcs": "^3.1",
 		"automattic/vipwpcs": "^3.0",
 		"phpcompatibility/php-compatibility": "^9.3",
         "phpunit/phpunit": "^9.6",
-        "yoast/phpunit-polyfills": "^3.0"
+        "yoast/phpunit-polyfills": "^4.0",
+        "szepeviktor/phpstan-wordpress": "^2.0"
 	},
 	"config": {
 		"platform": {
-			"php": "8.1"
+			"php": "7.4"
 		},
 		"allow-plugins": {
             "dealerdirect/phpcodesniffer-composer-installer": true,
@@ -48,9 +48,7 @@
 	},
     "require": {
         "codeinwp/themeisle-sdk": "^3.3",
-        "hkulekci/qdrant": "^0.5.7",
-        "symfony/http-client": "^6.4",
-        "nyholm/psr7": "^1.8",
-        "yethee/tiktoken": "^0.7.0"
+        "guttedgarden/tiktoken": "^1.2",
+        "your1/qdrant": "^0.5.3"
     }
 }

@@ -17,6 +17,7 @@ class Block {
 	public function __construct() {
 		add_action( 'init', [ $this, 'register_block' ] );
 		add_shortcode( 'hyve', [ $this, 'render_shortcode' ] );
+		add_action( 'enqueue_block_editor_assets', [ $this, 'enqueue_editor_assets' ], 99 );
 	}
 
 	/**
@@ -29,9 +30,40 @@ class Block {
 	}
 
 	/**
+	 * Enqueue editor assets.
+	 *
+	 * @return void
+	 */
+	public function enqueue_editor_assets() {
+
+		$dashboard_url = add_query_arg(
+			[
+				'page' => 'hyve',
+			],
+			admin_url( 'admin.php' ) 
+		);
+
+		wp_localize_script(
+			'hyve-chat-editor-script',
+			'hyveChatBlock',
+			[
+				'globalChatEnabled' => apply_filters( 'hyve_global_chat_enabled', false ),
+				'dashboardURL'      => $dashboard_url,
+				'knowledgeBaseURL'  => add_query_arg(
+					[
+						'nav' => 'data',
+					],
+					$dashboard_url
+				),
+				'stats'             => apply_filters( 'hyve_stats', [] ),
+			] 
+		);
+	}
+
+	/**
 	 * Render shortcode.
 	 * 
-	 * @param array $atts Shortcode attributes.
+	 * @param array<string, mixed> $atts Shortcode attributes.
 	 * 
 	 * @return string
 	 */

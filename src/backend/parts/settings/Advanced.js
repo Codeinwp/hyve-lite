@@ -11,39 +11,35 @@ import {
 	ExternalLink,
 	Panel,
 	PanelRow,
-	TextControl
+	TextControl,
 } from '@wordpress/components';
 
 import { useState } from '@wordpress/element';
 
-import {
-	useDispatch,
-	useSelect
-} from '@wordpress/data';
+import { useDispatch, useSelect } from '@wordpress/data';
+
+import { applyFilters } from '@wordpress/hooks';
 
 const Advanced = () => {
 	const settings = useSelect( ( select ) => select( 'hyve' ).getSettings() );
 
-	const {
-		setHasAPI,
-		setSetting
-	} = useDispatch( 'hyve' );
+	const { setHasAPI, setSetting } = useDispatch( 'hyve' );
 
 	const { createNotice } = useDispatch( 'core/notices' );
 
 	const [ isSaving, setIsSaving ] = useState( false );
 
-	const onSave = async() => {
+	const onSave = async () => {
 		setIsSaving( true );
 
 		try {
-			const response = await apiFetch({
+			const response = await apiFetch( {
 				path: `${ window.hyve.api }/settings`,
 				method: 'POST',
 				data: {
-					data: settings
-				}
-			});
+					data: settings,
+				},
+			} );
 
 			if ( response.error ) {
 				throw new Error( response.error );
@@ -55,21 +51,15 @@ const Advanced = () => {
 				setHasAPI( false );
 			}
 
-			createNotice(
-				'success',
-				__( 'Settings saved.', 'hyve-lite' ),
-				{
-					type: 'snackbar',
-					isDismissible: true
-				});
+			createNotice( 'success', __( 'Settings saved.', 'hyve-lite' ), {
+				type: 'snackbar',
+				isDismissible: true,
+			} );
 		} catch ( error ) {
-			createNotice(
-				'error',
-				error,
-				{
-					type: 'snackbar',
-					isDismissible: true
-				});
+			createNotice( 'error', error, {
+				type: 'snackbar',
+				isDismissible: true,
+			} );
 		}
 
 		setIsSaving( false );
@@ -77,23 +67,34 @@ const Advanced = () => {
 
 	return (
 		<div className="col-span-6 xl:col-span-4">
-			<Panel
-				header={ __( 'Advanced', 'hyve-lite' ) }
-			>
+			<Panel header={ __( 'Advanced', 'hyve-lite' ) }>
 				<PanelRow>
 					<BaseControl
-						help={ __( 'This plugin requires an OpenAI API key to function properly.', 'hyve-lite' ) }
+						help={ __(
+							'This plugin requires an OpenAI API key to function properly.',
+							'hyve-lite'
+						) }
 					>
 						<TextControl
-							label={ __( 'API Key', 'hyve-lite' ) }
+							label={ __( 'OpenAI API Key', 'hyve-lite' ) }
 							type="password"
 							value={ settings.api_key || '' }
 							disabled={ isSaving }
-							onChange={ ( newValue ) => setSetting( 'api_key', newValue ) }
+							onChange={ ( newValue ) => {
+								window.hyveTrk?.add( {
+									feature: 'openai',
+									featureComponent: 'api-key',
+									featureValue: 'added',
+								} );
+								setSetting( 'api_key', newValue );
+							} }
 						/>
 					</BaseControl>
 
-					<ExternalLink href="https://platform.openai.com/api-keys" className="flex mb-2 items-centertext-sm text-blue-600">
+					<ExternalLink
+						href="https://platform.openai.com/api-keys"
+						className="flex mb-2 items-centertext-sm text-blue-600"
+					>
 						{ __( 'Get an API key', 'hyve-lite' ) }
 					</ExternalLink>
 
@@ -108,6 +109,17 @@ const Advanced = () => {
 					</Button>
 				</PanelRow>
 			</Panel>
+			<br />
+			{ applyFilters(
+				'hyve.others',
+				() => (
+					<></>
+				),
+				isSaving,
+				settings,
+				setSetting,
+				onSave
+			) }
 		</div>
 	);
 };

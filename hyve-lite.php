@@ -4,16 +4,19 @@
  *
  * @package Codeinwp/hyve-lite
  *
- * Plugin Name:       Hyve Lite
- * Plugin URI:        https://themeisle.com/plugins/hyve/
- * Description:       Hyve is an AI-powered chatbot that transforms your WordPress content into engaging conversations.
- * Version:           1.2.4
- * Author:            ThemeIsle
- * Author URI:        https://themeisle.com
- * License:           GPL-3.0+
- * License URI:       http://www.gnu.org/licenses/gpl-3.0.txt
- * Text Domain:       hyve-lite
- * Domain Path:       /languages
+ * Plugin Name:         Hyve Lite
+ * Plugin URI:          https://themeisle.com/plugins/hyve/
+ * Description:         Hyve is an AI-powered chatbot that transforms your WordPress content into engaging conversations.
+ * Version:             1.2.4
+ * Author:              ThemeIsle
+ * Author URI:          https://themeisle.com
+ * License:             GPL-3.0+
+ * License URI:         http://www.gnu.org/licenses/gpl-3.0.txt
+ * Text Domain:         hyve-lite
+ * Domain Path:         /languages
+ * WordPress Available: yes
+ * Requires License:    no
+ * Pro Slug:            hyve
  */
 
 // If this file is called directly, abort.
@@ -21,13 +24,13 @@ if ( ! defined( 'WPINC' ) ) {
 	die;
 }
 
-if ( version_compare( PHP_VERSION, '8.1', '<' ) ) {
+if ( version_compare( PHP_VERSION, '7.4', '<' ) ) {
 	add_action(
 		'admin_notices',
 		function () {
 			?>
 			<div class="notice notice-error">
-				<p><?php esc_html_e( 'Hyve Lite requires PHP 8.1 or higher. Please upgrade your PHP version.', 'hyve-lite' ); ?></p>
+				<p><?php esc_html_e( 'Hyve Lite requires PHP 7.4 or higher. Please upgrade your PHP version.', 'hyve-lite' ); ?></p>
 			</div>
 			<?php
 		}

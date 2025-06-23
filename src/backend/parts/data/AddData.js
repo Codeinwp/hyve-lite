@@ -16,18 +16,12 @@ import {
 	Panel,
 	PanelRow,
 	SearchControl,
-	SelectControl
+	SelectControl,
 } from '@wordpress/components';
 
-import {
-	useDispatch,
-	useSelect
-} from '@wordpress/data';
+import { useDispatch, useSelect } from '@wordpress/data';
 
-import {
-	useEffect,
-	useState
-} from '@wordpress/element';
+import { useEffect, useState, useMemo } from '@wordpress/element';
 
 import { addQueryArgs } from '@wordpress/url';
 
@@ -36,99 +30,114 @@ import { addQueryArgs } from '@wordpress/url';
  */
 import { onProcessData } from '../../utils';
 
-import PostsTable from '../PostsTable';
+import { PostsTable } from '../PostsTable';
 
 import ModerationReview from '../ModerationReview';
 
 const excludeTypes = [ 'attachment' ];
 
-let postTypes = window.hyve.postTypes.filter( ( postType ) => ! excludeTypes.includes( postType.value ) );
+const postTypes = window.hyve.postTypes.filter(
+	( postType ) => ! excludeTypes.includes( postType.value )
+);
 
-postTypes.unshift({
+postTypes.unshift( {
 	label: __( 'All', 'hyve-lite' ),
-	value: 'any'
-});
+	value: 'any',
+} );
 
-const AddData = ({
-	refresh,
-	setAddPost
-}) => {
-	const [ posts, setPosts ] = useState({});
-	const [ processedPosts, setProcessedPosts ] = useState([]);
+const AddData = ( { refresh, setAddPost } ) => {
+	const [ posts, setPosts ] = useState( {} );
+	const [ processedPosts, setProcessedPosts ] = useState( [] );
 	const [ hasMore, setHasMore ] = useState( false );
 	const [ isLoading, setLoading ] = useState( true );
-	const [ isUpdating, setUpdating ] = useState([]);
+	const [ isUpdating, setUpdating ] = useState( [] );
 	const [ isModerationModalOpen, setModerationModalOpen ] = useState( false );
 	const [ post, setPost ] = useState( null );
+	const [ offset, setOffset ] = useState( 0 );
 
-	const [ query, setQuery ] = useState({
+	const [ query, setQuery ] = useState( {
 		type: 'any',
-		search: ''
-	});
+		search: '',
+	} );
+	const queryHash = useMemo( () => hash( query ), [ query ] );
 
 	const { setTotalChunks } = useDispatch( 'hyve' );
-	const hasReachedLimit = useSelect( ( select ) => select( 'hyve' ).hasReachedLimit() );
+	const hasReachedLimit = useSelect( ( select ) =>
+		select( 'hyve' ).hasReachedLimit()
+	);
 
-	const fetchData = async() => {
-		setLoading( true );
+	const onProcess = async ( id ) => {
+		setUpdating( ( prev ) => [ ...prev, id ] );
+		const currentPost = posts[ queryHash ].find( ( p ) => p.ID === id );
 
-		const queryHash = hash( query );
-
-		const response = await apiFetch({
-			path: addQueryArgs( `${ window.hyve.api }/data`, {
-				offset: posts[ queryHash ]?.length || 0,
-				...query
-			})
-		});
-
-		setLoading( false );
-
-		setPosts({
-			...posts,
-			[ queryHash ]: ( posts[ queryHash ] || []).concat( response.posts )
-		});
-
-		setHasMore( response.more );
-		setTotalChunks( response?.totalChunks );
-	};
-
-	const onProcess = async( id ) => {
-		setUpdating( prev => [ ...prev, id ]);
-		const post = posts[hash( query )].find( post => post.ID === id );
-
-		await onProcessData({
-			post,
+		await onProcessData( {
+			post: currentPost,
 			onSuccess: () => {
-				setUpdating( prev => prev.filter( postId => postId !== id ) );
-				setProcessedPosts( prev => [ ...prev, id ]);
+				setUpdating( ( prev ) =>
+					prev.filter( ( postId ) => postId !== id )
+				);
+				setProcessedPosts( ( prev ) => [ ...prev, id ] );
 				refresh();
+				window.hyveTrk?.add?.( {
+					feature: 'knowledge-base',
+					featureComponent: 'add-data',
+					featureValue: 'import-wordpress-data',
+				} );
 			},
 			onError: ( error ) => {
-				if ( 'content_failed_moderation' === error?.code && undefined !== error.review ) {
+				if (
+					'content_failed_moderation' === error?.code &&
+					undefined !== error.review
+				) {
 					const newPost = {
-						...post,
-						review: error.review
+						...currentPost,
+						review: error.review,
 					};
 
 					setPost( newPost );
 					setModerationModalOpen( true );
 				}
 
-				setUpdating( prev => prev.filter( postId => postId !== id ) );
-			}
-		});
+				setUpdating( ( prev ) =>
+					prev.filter( ( postId ) => postId !== id )
+				);
+			},
+		} );
 	};
 
 	useEffect( () => {
+		const fetchData = async () => {
+			setLoading( true );
+
+			const response = await apiFetch( {
+				path: addQueryArgs( `${ window.hyve.api }/data`, {
+					offset,
+					...query,
+				} ),
+			} );
+
+			setLoading( false );
+
+			setPosts( ( prev ) => ( {
+				...prev,
+				[ queryHash ]: ( prev[ queryHash ] || [] ).concat(
+					response.posts
+				),
+			} ) );
+
+			setHasMore( response.more );
+			setTotalChunks( response?.totalChunks );
+		};
+
 		const handler = setTimeout( () => fetchData(), 1000 );
 		return () => clearTimeout( handler );
-	}, [ query ]);
+	}, [ query, setTotalChunks, queryHash, offset ] );
 
 	const onChangeQuery = ( key, value ) => {
-		setQuery({
+		setQuery( {
 			...query,
-			[ key ]: value
-		});
+			[ key ]: value,
+		} );
 	};
 
 	return (
@@ -148,15 +157,20 @@ const AddData = ({
 
 					<PanelRow>
 						{ hasReachedLimit && (
-							<Notice
-								status="warning"
-								isDismissible={ false }
-							>
-								{ __( 'You have reached the limit of posts that can be added to the Knowledge Base. Please delete existing posts if you wish to add more.', 'hyve-lite' ) }
+							<Notice status="warning" isDismissible={ false }>
+								{ __(
+									'You have reached the limit of posts that can be added to the Knowledge Base. Please delete existing posts if you wish to add more.',
+									'hyve-lite'
+								) }
 							</Notice>
 						) }
 
-						<p className="py-4">{ __( 'Select posts that are informative, engaging, and relevant. These will be the building blocks that empower your chat assistant to deliver precise and helpful responses. Whether it is answering FAQs or diving into detailed explanations, the content you choose here will shape how effectively your assistant interacts with users.', 'hyve-lite' ) }</p>
+						<p className="py-4">
+							{ __(
+								'Select posts that are informative, engaging, and relevant. These will be the building blocks that empower your chat assistant to deliver precise and helpful responses. Whether it is answering FAQs or diving into detailed explanations, the content you choose here will shape how effectively your assistant interacts with users.',
+								'hyve-lite'
+							) }
+						</p>
 
 						<div className="relative pt-4 pb-8 overflow-x-auto">
 							<div className="flex gap-4 pb-2">
@@ -166,34 +180,48 @@ const AddData = ({
 										hideLabelFromVision={ true }
 										className="h-10"
 										options={ postTypes }
-										onChange={ e => onChangeQuery( 'type', e )}
+										onChange={ ( e ) =>
+											onChangeQuery( 'type', e )
+										}
 									/>
 								</div>
 
 								<div className="w-3/4">
 									<SearchControl
-										label={ __( 'Search for Posts', 'hyve-lite' ) }
+										label={ __(
+											'Search for Posts',
+											'hyve-lite'
+										) }
 										value={ query.search }
-										onChange={ e => onChangeQuery( 'search', e )}
+										onChange={ ( e ) =>
+											onChangeQuery( 'search', e )
+										}
 									/>
 								</div>
 							</div>
 
 							<PostsTable
-								posts={ posts[ hash( query ) ]?.filter( post => ! processedPosts.includes( post.ID ) ) || []}
+								posts={
+									posts[ hash( query ) ]?.filter(
+										( p ) =>
+											! processedPosts.includes( p.ID )
+									) || []
+								}
 								isLoading={ isLoading }
 								hasMore={ hasMore }
-								onFetch={ fetchData }
-								actions={
-									[
-										{
-											label: __( 'Add', 'hyve-lite' ),
-											isBusy: isUpdating,
-											onClick: onProcess,
-											isDisabled: hasReachedLimit
-										}
-									]
-								}
+								onFetch={ () => {
+									setOffset(
+										posts[ queryHash ]?.length ?? 0
+									);
+								} }
+								actions={ [
+									{
+										label: __( 'Add', 'hyve-lite' ),
+										isBusy: isUpdating,
+										onClick: onProcess,
+										isDisabled: hasReachedLimit,
+									},
+								] }
 							/>
 						</div>
 					</PanelRow>
@@ -205,12 +233,16 @@ const AddData = ({
 				isOpen={ isModerationModalOpen }
 				onClose={ () => {
 					setModerationModalOpen( false );
-					setUpdating( prev => prev.filter( postId => postId !== post.ID ) );
+					setUpdating( ( prev ) =>
+						prev.filter( ( postId ) => postId !== post.ID )
+					);
 				} }
 				onSuccess={ () => {
 					setModerationModalOpen( false );
-					setUpdating( prev => prev.filter( postId => postId !== post.ID ) );
-					setProcessedPosts( prev => [ ...prev, post.ID ]);
+					setUpdating( ( prev ) =>
+						prev.filter( ( postId ) => postId !== post.ID )
+					);
+					setProcessedPosts( ( prev ) => [ ...prev, post.ID ] );
 				} }
 			/>
 		</>

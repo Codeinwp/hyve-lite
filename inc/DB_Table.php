@@ -84,12 +84,15 @@ class DB_Table {
 
 	/**
 	 * Create the table.
+	 * 
+	 * @return void
 	 *
 	 * @since 1.2.0
 	 */
 	public function create_table() {
 		global $wpdb;
 
+		// @phpstan-ignore requireOnce.fileNotFound
 		require_once ABSPATH . 'wp-admin/includes/upgrade.php';
 
 		$sql = 'CREATE TABLE ' . $this->table_name . ' (
@@ -128,7 +131,7 @@ class DB_Table {
 	 *
 	 * @since 1.2.0
 	 *
-	 * @return array
+	 * @return array<string, string>
 	 */
 	public function get_columns() {
 		return [
@@ -149,7 +152,7 @@ class DB_Table {
 	 *
 	 * @since 1.2.0
 	 *
-	 * @return array
+	 * @return array<string, mixed>
 	 */
 	public function get_column_defaults() {
 		return [
@@ -172,7 +175,18 @@ class DB_Table {
 	 * 
 	 * @param int $id The row ID.
 	 * 
-	 * @return object
+	 * @return object{
+	 *     id: string,
+	 *     date: string,
+	 *     modified: string,
+	 *     post_id: string,
+	 *     post_title: string,
+	 *     post_content: string,
+	 *     embeddings: string,
+	 *     token_count: string,
+	 *     post_status: string,
+	 *     storage: string
+	 * }
 	 */
 	public function get( $id ) {
 		global $wpdb;
@@ -195,11 +209,11 @@ class DB_Table {
 	 *
 	 * @since 1.2.0
 	 *
-	 * @param array $data The data to insert.
+	 * @param array<string, mixed> $data The data to insert.
 	 *
 	 * @return int
 	 */
-	public function insert( $data ) {
+	public function insert( array $data ): int {
 		global $wpdb;
 
 		$column_formats  = $this->get_columns();
@@ -212,6 +226,7 @@ class DB_Table {
 
 		$this->delete_cache( 'entries' );
 		$this->delete_cache( 'entries_count' );
+		$this->delete_cache( 'cached_embeddings' );
 
 		return $wpdb->insert_id;
 	}
@@ -221,12 +236,12 @@ class DB_Table {
 	 *
 	 * @since 1.2.0
 	 *
-	 * @param int   $id The row ID.
-	 * @param array $data The data to update.
+	 * @param int                  $id The row ID.
+	 * @param array<string, mixed> $data The data to update.
 	 *
 	 * @return int
 	 */
-	public function update( $id, $data ) {
+	public function update( int $id, array $data ): int {
 		global $wpdb;
 
 		$column_formats  = $this->get_columns();
@@ -238,6 +253,7 @@ class DB_Table {
 
 		$this->delete_cache( 'entry_' . $id );
 		$this->delete_cache( 'entries_processed' );
+		$this->delete_cache( 'cached_embeddings' );
 
 		return $rows_affected;
 	}
@@ -259,6 +275,7 @@ class DB_Table {
 		$this->delete_cache( 'entries' );
 		$this->delete_cache( 'entries_processed' );
 		$this->delete_cache( 'entries_count' );
+		$this->delete_cache( 'cached_embeddings' );
 
 		return $rows_affected;
 	}
@@ -271,14 +288,25 @@ class DB_Table {
 	 * @param string $status The status.
 	 * @param int    $limit The limit.
 	 *
-	 * @return array
+	 * @return array<object{
+	 *     id: string,
+	 *     date: string,
+	 *     modified: string,
+	 *     post_id: string,
+	 *     post_title: string,
+	 *     post_content: string,
+	 *     embeddings: string,
+	 *     token_count: string,
+	 *     post_status: string,
+	 *     storage: string
+	 * }>
 	 */
-	public function get_by_status( $status, $limit = 500 ) {
+	public function get_by_status( string $status, int $limit = 500 ): array {
 		global $wpdb;
 
 		$cache = $this->get_cache( 'entries_' . $status );
 
-		if ( is_array( $cache ) && false !== $cache ) {
+		if ( is_array( $cache ) ) {
 			return $cache;
 		}
 
@@ -293,18 +321,95 @@ class DB_Table {
 
 	/**
 	 * Get all rows by storage.
-	 * 
-	 * @since 1.3.0
-	 * 
+	 *
+	 * @since 1.2.0
+	 *
 	 * @param string $storage The storage.
 	 * @param int    $limit The limit.
-	 * 
-	 * @return array
+	 *
+	 * @return array<object{
+	 *     id: string,
+	 *     date: string,
+	 *     modified: string,
+	 *     post_id: string,
+	 *     post_title: string,
+	 *     post_content: string,
+	 *     embeddings: string,
+	 *     token_count: string,
+	 *     post_status: string,
+	 *     storage: string
+	 * }>
 	 */
-	public function get_by_storage( $storage, $limit = 100 ) {
+	public function get_by_storage( string $storage, int $limit = 100 ): array {
 		global $wpdb;
 		$results = $wpdb->get_results( $wpdb->prepare( 'SELECT * FROM %i WHERE storage = %s LIMIT %d', $this->table_name, $storage, $limit ) );
 		return $results;
+	}
+
+	/**
+	 * Get embeddings with pagination.
+	 * 
+	 * @param int $offset The offset for pagination.
+	 * @param int $limit  The limit of results to return.
+	 * 
+	 * @return array<object{
+	 *     id: string,
+	 *     embeddings: string,
+	 *     token_count: string
+	 * }>
+	 */
+	public function get_embeddings( $offset, $limit = 50 ) {
+		$cache_key = 'hyve_embeddings_' . $offset . '_' . $limit;
+		$cache     = $this->get_cache( $cache_key );
+
+		if ( false !== $cache ) {
+			return $cache;
+		}
+
+		global $wpdb;
+		$posts = $wpdb->get_results( $wpdb->prepare( 'SELECT id, embeddings, token_count FROM %i WHERE post_status = %s LIMIT %d OFFSET %d', $this->table_name, 'processed', $limit, $offset ) );
+		
+		if ( empty( $posts ) ) {
+			return [];
+		}
+
+		$cached_embeddings = $this->get_cache( 'cached_embeddings' );
+		if ( false === $cached_embeddings ) {
+			$cached_embeddings = [];
+		}
+		$cached_embeddings[] = $cache_key;
+
+		$this->set_cache( $cache_key, $posts );
+		$this->set_cache( 'cached_embeddings', $cached_embeddings );
+
+		return $posts;
+	}
+
+	/**
+	 * Get post data by ID.
+	 * 
+	 * @param int $id The row ID.
+	 * 
+	 * @return array{post_title: string, post_content: string}|null
+	 */
+	public function get_post_data( $id ) {
+		$cache_key = 'hyve_post_data_' . $id;
+		$cache     = $this->get_cache( $cache_key );
+
+		if ( false !== $cache ) {
+			return $cache;
+		}
+
+		global $wpdb;
+		$post = $wpdb->get_row( $wpdb->prepare( 'SELECT post_title, post_content FROM %i WHERE id = %d', $this->table_name, $id ), ARRAY_A );
+		
+		if ( empty( $post ) ) {
+			return null;
+		}
+
+		$this->set_cache( $cache_key, $post );
+
+		return $post;
 	}
 
 	/**
@@ -322,6 +427,7 @@ class DB_Table {
 		$wpdb->update( $this->table_name, [ 'storage' => $to ], [ 'storage' => $from ], [ '%s' ], [ '%s' ] );
 		$this->delete_cache( 'entries' );
 		$this->delete_cache( 'entries_processed' );
+		$this->delete_cache( 'cached_embeddings' );
 		return $wpdb->rows_affected;
 	}
 
@@ -330,7 +436,7 @@ class DB_Table {
 	 * 
 	 * @since 1.3.0
 	 * 
-	 * @return array
+	 * @return array<integer>
 	 */
 	public function get_posts_over_limit() {
 		$limit = apply_filters( 'hyve_chunks_limit', 500 );
@@ -366,15 +472,19 @@ class DB_Table {
 			'content' => apply_filters( 'the_content', get_post_field( 'post_content', $post_id ) ),
 		];
 
+		update_post_meta( $post_id, '_hyve_post_processing', 1 );
+
 		$data       = Tokenizer::tokenize( $data );
 		$chunks     = array_column( $data, 'post_content' );
 		$moderation = OpenAI::instance()->moderate_chunks( $chunks, $post_id );
 
 		if ( is_wp_error( $moderation ) ) {
+			delete_post_meta( $post_id, '_hyve_post_processing' );
 			return $moderation;
 		}
 
 		if ( true !== $moderation && 'override' !== $action ) {
+			delete_post_meta( $post_id, '_hyve_post_processing' );
 			update_post_meta( $post_id, '_hyve_moderation_failed', 1 );
 			update_post_meta( $post_id, '_hyve_moderation_review', $moderation );
 
@@ -394,6 +504,7 @@ class DB_Table {
 						throw new \Exception( __( 'Failed to delete point in Qdrant.', 'hyve-lite' ) );
 					}
 				} catch ( \Exception $e ) {
+					delete_post_meta( $post_id, '_hyve_post_processing' );
 					return new \WP_Error( 'qdrant_error', $e->getMessage() );
 				}
 			}
@@ -406,10 +517,12 @@ class DB_Table {
 			$this->process_post( $id );
 		}
 
+		delete_post_meta( $post_id, '_hyve_post_processing' );
 		update_post_meta( $post_id, '_hyve_added', 1 );
 		delete_post_meta( $post_id, '_hyve_moderation_failed' );
 		delete_post_meta( $post_id, '_hyve_moderation_review' );
 		delete_post_meta( $post_id, '_hyve_needs_update' );
+		$this->delete_cache( 'cached_embeddings' );
 
 		return true;
 	}
@@ -511,6 +624,11 @@ class DB_Table {
 		$posts = $query->posts;
 
 		foreach ( $posts as $post_id ) {
+			/**
+			 * The post id.
+			 * 
+			 * @var int $post_id
+			 */
 			$this->add_post( $post_id, 'update' );
 		}
 
@@ -522,11 +640,11 @@ class DB_Table {
 	 * 
 	 * @since 1.3.0
 	 * 
-	 * @param array $posts The posts.
+	 * @param array<int> $posts The posts.
 	 * 
 	 * @return void
 	 */
-	public function delete_posts( $posts = [] ) {
+	public function delete_posts( array $posts ): void {
 		$twenty = array_slice( $posts, 0, 20 );
 
 		foreach ( $twenty as $id ) {
@@ -536,6 +654,10 @@ class DB_Table {
 			delete_post_meta( $id, '_hyve_needs_update' );
 			delete_post_meta( $id, '_hyve_moderation_failed' );
 			delete_post_meta( $id, '_hyve_moderation_review' );
+		}
+
+		if ( ! empty( $twenty ) ) {
+			$this->delete_cache( 'cached_embeddings' );
 		}
 
 		$has_more = count( $posts ) > 20;
@@ -645,6 +767,15 @@ class DB_Table {
 	 * @return bool
 	 */
 	private function delete_cache( $key ) {
+		if ( 'cached_embeddings' === $key ) {
+			$cached_embeddings = $this->get_cache( $key );
+			if ( is_array( $cached_embeddings ) ) {
+				foreach ( $cached_embeddings as $cached_embedding_key ) {
+					$this->delete_cache( $cached_embedding_key );
+				}
+			}
+		}
+
 		$key = $this->get_cache_key( $key );
 
 		if ( $this->get_cache_key( 'entries_processed' ) === $key ) {

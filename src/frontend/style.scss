@@ -12,12 +12,22 @@
 				fill: #fff;
 			}
 		}
+		.open {
+			svg {
+				stroke: #fff;
+			}
+		}
 	}
 
 	&.is-light {
 		.close {
 			svg {
 				fill: #000;
+			}
+		}
+		.open {
+			svg {
+				stroke: #000;
 			}
 		}
 	}
@@ -72,13 +82,124 @@
 	border-radius: 10px;
 	background-color: var( --chat_background, #ffffff );
 	padding: 16px;
+	padding-top: 5px;
 	z-index: 9999999;
 	position: fixed;
 	bottom: 120px;
 	right: 54px;
 	box-shadow: rgb(0 0 0 / 10%) 0px 1px 6px, rgb(0 0 0 / 20%) 0px 2px 24px;
 
+	.hyve-header {
+		position: relative;
+		padding: 0 0 10px 0;
+
+		.hyve-menu-container {
+			position: relative;
+			display: flex;
+			justify-content: flex-end;
+
+			#hyve-menu-button {
+				margin-right: -13px;
+			}
+
+			.hyve-menu-button {
+				background: none;
+				border: none;
+				cursor: pointer;
+				border-radius: 4px;
+				display: flex;
+				align-items: center;
+				justify-content: center;
+				transition: background-color 0.2s ease;
+
+				&:hover {
+					background-color: rgba(0, 0, 0, 0.05);
+				}
+
+				.hyve-menu-icon {
+					width: 20px;
+					height: 20px;
+					stroke: #666;
+				}
+			}
+
+			.hyve-menu-dropdown {
+				position: absolute;
+				top: 100%;
+				right: 0;
+				background: white;
+				border: 1px solid #e0e0e0;
+				border-radius: 6px;
+				box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+				display: none;
+				z-index: 1000;
+				min-width: 180px;
+				margin-top: 4px;
+
+				.hyve-menu-item {
+					width: 100%;
+					padding: 12px 16px;
+					border: none;
+					background: none;
+					text-align: left;
+					cursor: pointer;
+					font-size: 14px;
+					display: flex;
+					align-items: center;
+					gap: 8px;
+					color: #333;
+					transition: background-color 0.2s ease;
+
+					&:hover {
+						background-color: #f5f5f5;
+					}
+
+					&:first-child {
+						border-radius: 6px 6px 0 0;
+					}
+
+					&:last-child {
+						border-radius: 0 0 6px 6px;
+					}
+
+					&:only-child {
+						border-radius: 6px;
+					}
+				}
+			}
+		}
+	}
+
 	&.is-dark {
+		.hyve-header {
+			border-bottom-color: #444;
+
+			.hyve-menu-container {
+				.hyve-menu-button {
+					&:hover {
+						background-color: rgba(255, 255, 255, 0.1);
+					}
+
+					.hyve-menu-icon {
+						stroke: #e5e5e5;
+					}
+				}
+
+				.hyve-menu-dropdown {
+					background: #2a2a2a;
+					border-color: #444;
+
+					.hyve-menu-item {
+						color: #e5e5e5;
+
+						&:hover {
+							background-color: rgba(255, 255, 255, 0.1);
+						}
+					}
+				}
+			}
+		}
+
 		.hyve-credits {
 			color: #e5e5e5;
 	
@@ -184,6 +305,7 @@
 				padding: 0;
 				height: 24px;
 				color: #202020;
+				width: 100%;
 
 				&::placeholder {
 					color: #808080;
@@ -226,7 +348,7 @@
 }
 
 .hyve-message-box {
-	height: 380px;
+	height: 350px;
 	width: 100%;
 	padding-right: 5px;
 	overflow: auto;
@@ -403,8 +525,47 @@
 			padding: 6px 8px;
 			border-radius: 8px;
 			cursor: pointer;
+			font-size: 13px;
+			text-transform: none;
+			font-weight: 500;
+			text-align: left;
+			line-height: 1.5;
+			white-space: normal;
 		}
 	}
+
+	.hyve-preloader-dots {
+		display: inline-block;
+		color: var( --user_background, #ecf1fb );
+
+		span {
+			animation: hyve-bounce 1.4s infinite both;
+			display: inline-block;
+			font-size: 2.5em;
+			line-height: 0;
+
+			&:nth-child(2) {
+				animation-delay: 0.2s;
+			}
+
+			&:nth-child(3) {
+				animation-delay: 0.4s;
+			}
+		}
+	}
+}
+
+#hyve-menu-button {
+	visibility: hidden;
+
+	&.is-visible {
+		visibility: visible;
+	}
+}
+
+@keyframes hyve-bounce {
+    0%, 80%, 100% { transform: scale(1); opacity: 0.5; }
+    40% { transform: scale(1.3); opacity: 1; }
 }
 
 @media screen and (max-width: 396px) {
