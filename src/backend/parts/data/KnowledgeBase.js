@@ -47,7 +47,7 @@ const KnowledgeBase = () => {
 							return (
 								<Button
 									key={ label }
-									className="bg-white h-auto text-left overflow-hidden shadow-sm border-[0.5px] border-gray-300 border-solid rounded-md cursor-pointer flex items-start p-2"
+									className="bg-white h-auto text-left overflow-hidden shadow-sm border-[0.5px] border-gray-300 border-solid rounded-md cursor-pointer flex items-start"
 									onClick={ () => {
 										setView( key );
 										window.hyveTrk?.add( {
