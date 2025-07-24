@@ -247,7 +247,7 @@ const Dashboard = ( { isBlocked } ) => {
 							( { id, label, description, icon, action } ) => (
 								<Button
 									key={ id }
-									className="bg-white h-auto text-left overflow-hidden shadow-sm border-[0.5px] border-gray-300 border-solid rounded-md cursor-pointer"
+									className="bg-white h-auto text-left overflow-hidden shadow-sm border-[0.5px] border-gray-300 border-solid rounded-md cursor-pointer flex items-start p-2"
 									onClick={ () => {
 										action();
 										window.hyveTrk?.add?.( {
