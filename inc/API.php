@@ -682,8 +682,8 @@ class API extends BaseAPI {
 		}
 
 		$posts = [
-			'posts' => $posts_data,
-			'total'  => $query->found_posts,
+			'posts'       => $posts_data,
+			'total'       => $query->found_posts,
 			'postPerPage' => $pages,
 		];
 
