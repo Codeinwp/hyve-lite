@@ -159,153 +159,90 @@ const MessageListItem = ( { post, onClick, isSelected, isFirst } ) => (
 	</Button>
 );
 
-const SimplePagination = ( {
+const Pagination = ( {
 	currentPage,
 	onPageChange,
 	postsPerPage,
 	totalPosts,
 	setUpsellOpen,
-	currentPosts,
 } ) => {
 	const totalPages = Math.ceil( totalPosts / postsPerPage );
 	const hasNext = currentPage < totalPages;
 	const hasPrev = currentPage > 1;
 	const isFreePlan = ! window.hyve.hasPro;
 
-	const actualPostsOnPage = currentPosts?.length || 0;
+	const handlePageChange = ( page ) => {
+		if ( isFreePlan ) {
+			setUpsellOpen( true );
+			return;
+		}
 
-	const startIndex = totalPosts - ( currentPage - 1 ) * postsPerPage;
-	const endIndex = Math.max( startIndex - actualPostsOnPage + 1, 1 );
+		if ( page >= 1 && page <= totalPages ) {
+			onPageChange( page );
+		}
+	};
 
 	return (
-		<div className="flex items-center justify-between py-4 px-2">
-			<div className="flex items-center gap-3">
-				<span className="text-sm text-gray-600">
-					{ startIndex }-{ endIndex } { __( 'of', 'hyve-lite' ) } {  }
-					{ totalPosts } { __( 'rows', 'hyve-lite' ) }
-				</span>
+		<div className="flex items-center justify-between py-2 px-4">
+			<div className="text-[#50575e] text-[14px] font-medium flex-1 text-end px-5">
+				{ totalPosts } { __( 'items', 'hyve-lite' ) }
 			</div>
 			<div className="flex items-center">
-				<Button
-					onClick={
-						isFreePlan
-							? () => setUpsellOpen( true )
-							: () => onPageChange( currentPage - 1 )
-					}
-					disabled={ ! hasPrev }
-					variant="tertiary"
-					className="text-blue-600 hover:text-blue-800 disabled:text-gray-400 px-3 py-1"
+				<button
+					onClick={ () => handlePageChange( 1 ) }
+					disabled={ ! hasPrev && ! isFreePlan }
+					className={ `flex items-center justify-center w-8 h-8 border border-[#c3c4c7] ${
+						! hasPrev && ! isFreePlan
+							? 'bg-[#f0f0f1] text-[#a7aaad] cursor-default'
+							: 'bg-white text-[#2271b1] hover:bg-[#f6f7f7] hover:border-[#8c8f94]'
+					} rounded-sm focus:outline-none mr-1` }
+					aria-label={ __( 'Go to the first page', 'hyve-lite' ) }
 				>
-					{ __( 'Previous', 'hyve-lite' ) }
-				</Button>
+					<span className="text-lg">«</span>
+				</button>
 
-				<div className="flex items-center gap-1">
-					{ totalPages > 1 && (
-						<>
-							{ currentPage !== 1 && (
-								<Button
-									onClick={
-										isFreePlan
-											? () => setUpsellOpen( true )
-											: () => onPageChange( 1 )
-									}
-									variant="tertiary"
-									className="min-w-[32px] h-8 text-gray-600 hover:bg-gray-100"
-								>
-									{ totalPages }
-								</Button>
-							) }
+				<button
+					onClick={ () => handlePageChange( currentPage - 1 ) }
+					disabled={ ! hasPrev && ! isFreePlan }
+					className={ `flex items-center justify-center w-8 h-8 border border-[#c3c4c7] ${
+						! hasPrev && ! isFreePlan
+							? 'bg-[#f0f0f1] text-[#a7aaad] cursor-default'
+							: 'bg-white text-[#2271b1] hover:bg-[#f6f7f7] hover:border-[#8c8f94]'
+					} rounded-sm focus:outline-none mr-3` }
+					aria-label={ __( 'Go to the previous page', 'hyve-lite' ) }
+				>
+					<span className="text-lg">‹</span>
+				</button>
 
-							{ currentPage > 3 && (
-								<span className="px-1 text-gray-400">...</span>
-							) }
-
-							{ currentPage > 2 && (
-								<Button
-									onClick={
-										isFreePlan
-											? () => setUpsellOpen( true )
-											: () =>
-													onPageChange(
-														currentPage - 1
-													)
-									}
-									variant="tertiary"
-									className="min-w-[32px] h-8 text-gray-600 hover:bg-gray-100"
-								>
-									{ totalPages - currentPage + 2 }
-								</Button>
-							) }
-
-							<Button
-								onClick={
-									isFreePlan
-										? () => setUpsellOpen( true )
-										: () => onPageChange( currentPage )
-								}
-								variant="primary"
-								className="min-w-[32px] h-8 bg-blue-600 text-white hover:bg-blue-700"
-							>
-								{ totalPages - currentPage + 1 }
-							</Button>
-
-							{ currentPage < totalPages - 1 && (
-								<Button
-									onClick={
-										isFreePlan
-											? () => setUpsellOpen( true )
-											: () =>
-													onPageChange(
-														currentPage + 1
-													)
-									}
-									variant="tertiary"
-									className="min-w-[32px] h-8 text-gray-600 hover:bg-gray-100"
-								>
-									{ totalPages - currentPage }
-								</Button>
-							) }
-
-							{ currentPage < totalPages - 2 && (
-								<span className="px-1 text-gray-400">...</span>
-							) }
-
-							{ currentPage !== totalPages && (
-								<Button
-									onClick={
-										isFreePlan
-											? () => setUpsellOpen( true )
-											: () => onPageChange( totalPages )
-									}
-									variant="tertiary"
-									className="min-w-[32px] h-8 text-gray-600 hover:bg-gray-100"
-								>
-									1
-								</Button>
-							) }
-						</>
-					) }
-
-					{ totalPages === 1 && (
-						<span className="text-sm text-gray-600 px-2">
-							{ __( 'Page', 'hyve-lite' ) } 1 {  }
-							{ __( 'of', 'hyve-lite' ) } 1
-						</span>
-					) }
+				<div className="inline-flex items-center justify-center px-3 text-[14px] text-[#50575e] font-medium">
+					{ currentPage } { __( 'of', 'hyve-lite' ) } { totalPages }
 				</div>
 
-				<Button
-					onClick={
-						isFreePlan
-							? () => setUpsellOpen( true )
-							: () => onPageChange( currentPage + 1 )
-					}
+				<button
+					onClick={ () => handlePageChange( currentPage + 1 ) }
 					disabled={ ! hasNext && ! isFreePlan }
-					variant="tertiary"
-					className="text-blue-600 hover:text-blue-800 disabled:text-gray-400 px-3 py-1"
+					className={ `flex items-center justify-center w-8 h-8 border border-[#c3c4c7] ${
+						! hasNext && ! isFreePlan
+							? 'bg-[#f0f0f1] text-[#a7aaad] cursor-default'
+							: 'bg-white text-[#2271b1] hover:bg-[#f6f7f7] hover:border-[#8c8f94]'
+					} rounded-sm focus:outline-none ml-3 mr-1` }
+					aria-label={ __( 'Go to the next page', 'hyve-lite' ) }
 				>
-					{ __( 'Next', 'hyve-lite' ) }
-				</Button>
+					<span className="text-lg">›</span>
+				</button>
+
+				<button
+					onClick={ () => handlePageChange( totalPages ) }
+					disabled={ ! hasNext && ! isFreePlan }
+					className={ `flex items-center justify-center w-8 h-8 border border-[#c3c4c7] ${
+						! hasNext && ! isFreePlan
+							? 'bg-[#f0f0f1] text-[#a7aaad] cursor-default'
+							: 'bg-white text-[#2271b1] hover:bg-[#f6f7f7] hover:border-[#8c8f94]'
+					} rounded-sm focus:outline-none` }
+					aria-label={ __( 'Go to the last page', 'hyve-lite' ) }
+				>
+					<span className="text-lg">»</span>
+				</button>
 			</div>
 		</div>
 	);
@@ -461,7 +398,7 @@ const Messages = () => {
 							'hyve-lite'
 						) }
 					</p>
-					<SimplePagination
+					<Pagination
 						currentPage={ currentPage }
 						onPageChange={ handlePageChange }
 						postsPerPage={ postsPerPage }
@@ -505,7 +442,7 @@ const Messages = () => {
 									/>
 								</div>
 							</div>
-							<SimplePagination
+							<Pagination
 								currentPage={ currentPage }
 								onPageChange={ handlePageChange }
 								postsPerPage={ postsPerPage }
