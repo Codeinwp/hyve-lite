@@ -34,17 +34,6 @@ import UpsellContainer from './UpsellContainer';
 
 import { formatDate } from '../utils';
 
-const LoadMore = ( { onClick } ) => (
-	<Button
-		onClick={ onClick }
-		className="flex items-center justify-center p-4 h-auto w-full text-base font-normal text-gray-900 hover:text-gray-900 hover:bg-gray-100 border-t-gray-300 border-t-[0.5px] border-solid"
-	>
-		<div className="flex flex-row gap-1">
-			{ __( 'Load more', 'hyve-lite' ) }
-		</div>
-	</Button>
-);
-
 const UpsellModalComponent = ( { isOpen, onRequestClose } ) => {
 	if ( ! isOpen ) {
 		return null;
@@ -170,14 +159,161 @@ const MessageListItem = ( { post, onClick, isSelected, isFirst } ) => (
 	</Button>
 );
 
-const MessageList = ( {
-	posts,
-	selectedPost,
-	onPostSelect,
-	loadMoreButton,
+const SimplePagination = ( {
+	currentPage,
+	onPageChange,
+	postsPerPage,
+	totalPosts,
+	setUpsellOpen,
+	currentPosts,
 } ) => {
+	const totalPages = Math.ceil( totalPosts / postsPerPage );
+	const hasNext = currentPage < totalPages;
+	const hasPrev = currentPage > 1;
+	const isFreePlan = ! window.hyve.hasPro;
+
+	const actualPostsOnPage = currentPosts?.length || 0;
+
+	const startIndex = totalPosts - ( currentPage - 1 ) * postsPerPage;
+	const endIndex = Math.max( startIndex - actualPostsOnPage + 1, 1 );
+
 	return (
-		<div className="col-span-6 xl:col-span-2 border-r-gray-300 border-r-[0.5px] border-solid max-h-[672px] overflow-scroll">
+		<div className="flex items-center justify-between py-4 px-2">
+			<div className="flex items-center gap-3">
+				<span className="text-sm text-gray-600">
+					{ startIndex }-{ endIndex } { __( 'of', 'hyve-lite' ) } {  }
+					{ totalPosts } { __( 'rows', 'hyve-lite' ) }
+				</span>
+			</div>
+			<div className="flex items-center">
+				<Button
+					onClick={
+						isFreePlan
+							? () => setUpsellOpen( true )
+							: () => onPageChange( currentPage - 1 )
+					}
+					disabled={ ! hasPrev }
+					variant="tertiary"
+					className="text-blue-600 hover:text-blue-800 disabled:text-gray-400 px-3 py-1"
+				>
+					{ __( 'Previous', 'hyve-lite' ) }
+				</Button>
+
+				<div className="flex items-center gap-1">
+					{ totalPages > 1 && (
+						<>
+							{ currentPage !== 1 && (
+								<Button
+									onClick={
+										isFreePlan
+											? () => setUpsellOpen( true )
+											: () => onPageChange( 1 )
+									}
+									variant="tertiary"
+									className="min-w-[32px] h-8 text-gray-600 hover:bg-gray-100"
+								>
+									{ totalPages }
+								</Button>
+							) }
+
+							{ currentPage > 3 && (
+								<span className="px-1 text-gray-400">...</span>
+							) }
+
+							{ currentPage > 2 && (
+								<Button
+									onClick={
+										isFreePlan
+											? () => setUpsellOpen( true )
+											: () =>
+													onPageChange(
+														currentPage - 1
+													)
+									}
+									variant="tertiary"
+									className="min-w-[32px] h-8 text-gray-600 hover:bg-gray-100"
+								>
+									{ totalPages - currentPage + 2 }
+								</Button>
+							) }
+
+							<Button
+								onClick={
+									isFreePlan
+										? () => setUpsellOpen( true )
+										: () => onPageChange( currentPage )
+								}
+								variant="primary"
+								className="min-w-[32px] h-8 bg-blue-600 text-white hover:bg-blue-700"
+							>
+								{ totalPages - currentPage + 1 }
+							</Button>
+
+							{ currentPage < totalPages - 1 && (
+								<Button
+									onClick={
+										isFreePlan
+											? () => setUpsellOpen( true )
+											: () =>
+													onPageChange(
+														currentPage + 1
+													)
+									}
+									variant="tertiary"
+									className="min-w-[32px] h-8 text-gray-600 hover:bg-gray-100"
+								>
+									{ totalPages - currentPage }
+								</Button>
+							) }
+
+							{ currentPage < totalPages - 2 && (
+								<span className="px-1 text-gray-400">...</span>
+							) }
+
+							{ currentPage !== totalPages && (
+								<Button
+									onClick={
+										isFreePlan
+											? () => setUpsellOpen( true )
+											: () => onPageChange( totalPages )
+									}
+									variant="tertiary"
+									className="min-w-[32px] h-8 text-gray-600 hover:bg-gray-100"
+								>
+									1
+								</Button>
+							) }
+						</>
+					) }
+
+					{ totalPages === 1 && (
+						<span className="text-sm text-gray-600 px-2">
+							{ __( 'Page', 'hyve-lite' ) } 1 {  }
+							{ __( 'of', 'hyve-lite' ) } 1
+						</span>
+					) }
+				</div>
+
+				<Button
+					onClick={
+						isFreePlan
+							? () => setUpsellOpen( true )
+							: () => onPageChange( currentPage + 1 )
+					}
+					disabled={ ! hasNext && ! isFreePlan }
+					variant="tertiary"
+					className="text-blue-600 hover:text-blue-800 disabled:text-gray-400 px-3 py-1"
+				>
+					{ __( 'Next', 'hyve-lite' ) }
+				</Button>
+			</div>
+		</div>
+	);
+};
+
+const MessageList = ( { posts, selectedPost, onPostSelect } ) => {
+	return (
+		<div className="col-span-6 xl:col-span-2 border-r-gray-300 border-r-[0.5px] border-solid">
 			{ posts?.map( ( post, index ) => (
 				<MessageListItem
 					key={ post.ID }
@@ -187,7 +323,6 @@ const MessageList = ( {
 					isFirst={ index === 0 }
 				/>
 			) ) }
-			{ loadMoreButton }
 		</div>
 	);
 };
@@ -205,14 +340,52 @@ const ExportMessagesAction = ( { onClick } ) => {
 };
 
 const Messages = () => {
-	const [ posts, setPosts ] = useState( [] );
+	const [ cachedPages, setCachedPages ] = useState( {} );
 	const [ selectedPost, setSelectedPost ] = useState( null );
-	const [ hasMore, setHasMore ] = useState( false );
 	const [ isUpsellOpen, setUpsellOpen ] = useState( false );
 	const [ isLoading, setLoading ] = useState( true );
-	const [ offset, setOffset ] = useState( 0 );
+	const [ currentPage, setCurrentPage ] = useState( 1 );
+	const [ totalPosts, setTotalPosts ] = useState( 0 );
+	const [ postsPerPage, setPostsPerPage ] = useState( 1 );
 
 	const { createNotice } = useDispatch( 'core/notices' );
+
+	const currentPosts = cachedPages[ currentPage ] || [];
+
+	const fetchPage = useCallback(
+		async ( page ) => {
+			if ( cachedPages[ page ] ) {
+				return;
+			}
+
+			setLoading( true );
+
+			try {
+				const offset = ( page - 1 ) * postsPerPage;
+				const response = await apiFetch( {
+					path: addQueryArgs( `${ window.hyve.api }/threads`, {
+						offset,
+						per_page: postsPerPage,
+					} ),
+				} );
+
+				setCachedPages( ( prev ) => ( {
+					...prev,
+					[ page ]: response.posts || [],
+				} ) );
+				setTotalPosts( response.total || 0 );
+				setPostsPerPage( response.postPerPage || 3 );
+			} catch ( error ) {
+				createNotice( 'error', error?.message, {
+					type: 'snackbar',
+					isDismissible: true,
+				} );
+			} finally {
+				setLoading( false );
+			}
+		},
+		[ createNotice, cachedPages, postsPerPage ]
+	);
 
 	const deleteConversation = useCallback(
 		async ( threadId ) => {
@@ -225,10 +398,23 @@ const Messages = () => {
 				} );
 
 				if ( response.data ) {
-					setPosts( ( prev ) =>
-						prev.filter( ( post ) => post.ID !== threadId )
-					);
+					setCachedPages( ( prev ) => ( {
+						...prev,
+						[ currentPage ]:
+							prev[ currentPage ]?.filter(
+								( post ) => post.ID !== threadId
+							) || [],
+					} ) );
 					setSelectedPost( null );
+					setTotalPosts( totalPosts - 1 || 0 );
+
+					const newTotalPages = Math.ceil(
+						( totalPosts - 1 ) / postsPerPage
+					);
+					if ( currentPage > newTotalPages && newTotalPages > 0 ) {
+						setCurrentPage( newTotalPages );
+					}
+
 					createNotice( 'success', response.data, {
 						type: 'snackbar',
 						isDismissible: true,
@@ -247,37 +433,18 @@ const Messages = () => {
 				} );
 			}
 		},
-		[ createNotice ]
+		[ createNotice, currentPage, postsPerPage, totalPosts ]
 	);
 
 	useEffect( () => {
-		const fetchPosts = async () => {
-			setLoading( true );
+		fetchPage( currentPage );
+	}, [ fetchPage, currentPage ] );
 
-			const response = await apiFetch( {
-				path: addQueryArgs( `${ window.hyve.api }/threads`, {
-					offset,
-				} ),
-			} );
-
-			setLoading( false );
-			setPosts( ( prev ) => [ ...prev, ...response.posts ] );
-			setHasMore( response.more );
-		};
-
-		fetchPosts();
-	}, [ offset ] );
-
-	const loadMoreButton = hasMore
-		? applyFilters(
-				'hyve.messages.load-more',
-				<LoadMore onClick={ () => setUpsellOpen( true ) } />,
-				isLoading,
-				() => {
-					setOffset( posts.length );
-				}
-		  )
-		: null;
+	const handlePageChange = ( page ) => {
+		setCurrentPage( page );
+		setSelectedPost( null );
+		fetchPage( page );
+	};
 
 	return (
 		<div className="col-span-6 xl:col-span-4">
@@ -288,20 +455,28 @@ const Messages = () => {
 
 			<Panel header={ __( 'Messages', 'hyve-lite' ) }>
 				<PanelRow>
-					<p className="py-4">
+					<p>
 						{ __(
 							'Here you can see an history of all the messages between Hyve and your users.',
 							'hyve-lite'
 						) }
 					</p>
+					<SimplePagination
+						currentPage={ currentPage }
+						onPageChange={ handlePageChange }
+						postsPerPage={ postsPerPage }
+						totalPosts={ totalPosts }
+						setUpsellOpen={ setUpsellOpen }
+						currentPosts={ currentPosts }
+					/>
 
-					{ isLoading && ! posts?.length && (
+					{ isLoading && ! totalPosts && (
 						<div className="flex justify-center items-center h-52 border-[0.5px] border-gray-300 border-solid">
 							<Spinner />
 						</div>
 					) }
 
-					{ ! isLoading && ! posts?.length && (
+					{ ! isLoading && ! totalPosts && (
 						<div className="flex justify-center items-center h-52 border-[0.5px] border-gray-300 border-solid">
 							<p className="text-xs">
 								{ __(
@@ -312,28 +487,33 @@ const Messages = () => {
 						</div>
 					) }
 
-					{ ( ( ! isLoading && posts && 0 < posts.length ) ||
-						( posts && 0 < posts.length ) ) && (
+					{ ( ( ! isLoading &&
+						currentPosts &&
+						0 < currentPosts.length ) ||
+						( currentPosts && 0 < currentPosts.length ) ) && (
 						<>
 							<div className="grid grid-cols-6 relative border-[0.5px] border-gray-300 border-solid">
-								{ ( ! isLoading ||
-									( posts && 0 < posts.length ) ) && (
-									<MessageList
-										posts={ posts }
-										selectedPost={ selectedPost }
-										onPostSelect={ setSelectedPost }
-										loadMoreButton={ loadMoreButton }
-									/>
-								) }
-
-								<div className="flex flex-col col-span-6 xl:col-span-4 max-h-[672px]">
+								<MessageList
+									posts={ currentPosts }
+									selectedPost={ selectedPost }
+									onPostSelect={ setSelectedPost }
+								/>
+								<div className="flex flex-col col-span-6 xl:col-span-4">
 									<MessageThreadView
 										selectedPost={ selectedPost }
 										onDelete={ deleteConversation }
 									/>
 								</div>
 							</div>
-							<div className="flex justify-end mt-1">
+							<SimplePagination
+								currentPage={ currentPage }
+								onPageChange={ handlePageChange }
+								postsPerPage={ postsPerPage }
+								totalPosts={ totalPosts }
+								setUpsellOpen={ setUpsellOpen }
+								currentPosts={ currentPosts }
+							/>
+							<div className="flex justify-end">
 								<ExportMessagesAction
 									onClick={ () => setUpsellOpen( true ) }
 								/>
