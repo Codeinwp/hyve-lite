@@ -170,6 +170,30 @@ const Pagination = ( {
 	const hasNext = currentPage < totalPages;
 	const hasPrev = currentPage > 1;
 	const isFreePlan = ! window.hyve.hasPro;
+	const PaginationButton = ( {
+		onClick,
+		disabled = false,
+		ariaLabel,
+		children,
+		className = '',
+	} ) => {
+		const buttonClasses = `flex items-center justify-center w-8 h-8 border border-[#c3c4c7] rounded-sm focus:outline-none mr-1 ${
+			disabled
+				? 'bg-[#f0f0f1] text-[#a7aaad] cursor-default'
+				: 'bg-white text-[#2271b1] hover:bg-[#f6f7f7] hover:border-[#8c8f94]'
+		} ${ className }`;
+
+		return (
+			<button
+				onClick={ onClick }
+				disabled={ disabled }
+				className={ buttonClasses }
+				aria-label={ ariaLabel }
+			>
+				{ children }
+			</button>
+		);
+	};
 
 	const handlePageChange = ( page ) => {
 		if ( isFreePlan ) {
@@ -188,61 +212,41 @@ const Pagination = ( {
 				{ totalPosts } { __( 'items', 'hyve-lite' ) }
 			</div>
 			<div className="flex items-center">
-				<button
+				<PaginationButton
 					onClick={ () => handlePageChange( 1 ) }
-					disabled={ ! hasPrev && ! isFreePlan }
-					className={ `flex items-center justify-center w-8 h-8 border border-[#c3c4c7] ${
-						! hasPrev && ! isFreePlan
-							? 'bg-[#f0f0f1] text-[#a7aaad] cursor-default'
-							: 'bg-white text-[#2271b1] hover:bg-[#f6f7f7] hover:border-[#8c8f94]'
-					} rounded-sm focus:outline-none mr-1` }
-					aria-label={ __( 'Go to the first page', 'hyve-lite' ) }
+					disabled={ ! hasPrev }
+					ariaLabel={ __( 'Go to the first page', 'hyve-lite' ) }
 				>
-					<span className="text-lg">«</span>
-				</button>
+					«
+				</PaginationButton>
 
-				<button
+				<PaginationButton
 					onClick={ () => handlePageChange( currentPage - 1 ) }
-					disabled={ ! hasPrev && ! isFreePlan }
-					className={ `flex items-center justify-center w-8 h-8 border border-[#c3c4c7] ${
-						! hasPrev && ! isFreePlan
-							? 'bg-[#f0f0f1] text-[#a7aaad] cursor-default'
-							: 'bg-white text-[#2271b1] hover:bg-[#f6f7f7] hover:border-[#8c8f94]'
-					} rounded-sm focus:outline-none mr-3` }
-					aria-label={ __( 'Go to the previous page', 'hyve-lite' ) }
+					disabled={ ! hasPrev }
+					ariaLabel={ __( 'Go to the previous page', 'hyve-lite' ) }
 				>
-					<span className="text-lg">‹</span>
-				</button>
+					‹
+				</PaginationButton>
 
 				<div className="inline-flex items-center justify-center px-3 text-[14px] text-[#50575e] font-medium">
 					{ currentPage } { __( 'of', 'hyve-lite' ) } { totalPages }
 				</div>
 
-				<button
+				<PaginationButton
 					onClick={ () => handlePageChange( currentPage + 1 ) }
 					disabled={ ! hasNext && ! isFreePlan }
-					className={ `flex items-center justify-center w-8 h-8 border border-[#c3c4c7] ${
-						! hasNext && ! isFreePlan
-							? 'bg-[#f0f0f1] text-[#a7aaad] cursor-default'
-							: 'bg-white text-[#2271b1] hover:bg-[#f6f7f7] hover:border-[#8c8f94]'
-					} rounded-sm focus:outline-none ml-3 mr-1` }
-					aria-label={ __( 'Go to the next page', 'hyve-lite' ) }
+					ariaLabel={ __( 'Go to the next page', 'hyve-lite' ) }
 				>
-					<span className="text-lg">›</span>
-				</button>
+					›
+				</PaginationButton>
 
-				<button
+				<PaginationButton
 					onClick={ () => handlePageChange( totalPages ) }
 					disabled={ ! hasNext && ! isFreePlan }
-					className={ `flex items-center justify-center w-8 h-8 border border-[#c3c4c7] ${
-						! hasNext && ! isFreePlan
-							? 'bg-[#f0f0f1] text-[#a7aaad] cursor-default'
-							: 'bg-white text-[#2271b1] hover:bg-[#f6f7f7] hover:border-[#8c8f94]'
-					} rounded-sm focus:outline-none` }
-					aria-label={ __( 'Go to the last page', 'hyve-lite' ) }
+					ariaLabel={ __( 'Go to the last page', 'hyve-lite' ) }
 				>
-					<span className="text-lg">»</span>
-				</button>
+					»
+				</PaginationButton>
 			</div>
 		</div>
 	);
@@ -277,7 +281,7 @@ const ExportMessagesAction = ( { onClick } ) => {
 };
 
 const Messages = () => {
-	const [ cachedPages, setCachedPages ] = useState( {} );
+	const [ currentPosts, setCurrentPosts ] = useState( [] );
 	const [ selectedPost, setSelectedPost ] = useState( null );
 	const [ isUpsellOpen, setUpsellOpen ] = useState( false );
 	const [ isLoading, setLoading ] = useState( true );
@@ -287,14 +291,8 @@ const Messages = () => {
 
 	const { createNotice } = useDispatch( 'core/notices' );
 
-	const currentPosts = cachedPages[ currentPage ] || [];
-
 	const fetchPage = useCallback(
 		async ( page ) => {
-			if ( cachedPages[ page ] ) {
-				return;
-			}
-
 			setLoading( true );
 
 			try {
@@ -306,10 +304,7 @@ const Messages = () => {
 					} ),
 				} );
 
-				setCachedPages( ( prev ) => ( {
-					...prev,
-					[ page ]: response.posts || [],
-				} ) );
+				setCurrentPosts( response.posts || [] );
 				setTotalPosts( response.total || 0 );
 				setPostsPerPage( response.postPerPage || 3 );
 			} catch ( error ) {
@@ -321,7 +316,7 @@ const Messages = () => {
 				setLoading( false );
 			}
 		},
-		[ createNotice, cachedPages, postsPerPage ]
+		[ createNotice, postsPerPage ]
 	);
 
 	const deleteConversation = useCallback(
@@ -335,13 +330,11 @@ const Messages = () => {
 				} );
 
 				if ( response.data ) {
-					setCachedPages( ( prev ) => ( {
-						...prev,
-						[ currentPage ]:
-							prev[ currentPage ]?.filter(
-								( post ) => post.ID !== threadId
-							) || [],
-					} ) );
+					setCurrentPosts(
+						( prev ) =>
+							prev.filter( ( post ) => post.ID !== threadId ) ||
+							[]
+					);
 					setSelectedPost( null );
 					setTotalPosts( totalPosts - 1 || 0 );
 
@@ -350,6 +343,8 @@ const Messages = () => {
 					);
 					if ( currentPage > newTotalPages && newTotalPages > 0 ) {
 						setCurrentPage( newTotalPages );
+					} else {
+						fetchPage( currentPage );
 					}
 
 					createNotice( 'success', response.data, {
@@ -370,7 +365,7 @@ const Messages = () => {
 				} );
 			}
 		},
-		[ createNotice, currentPage, postsPerPage, totalPosts ]
+		[ createNotice, currentPage, postsPerPage, totalPosts, fetchPage ]
 	);
 
 	useEffect( () => {
@@ -380,7 +375,6 @@ const Messages = () => {
 	const handlePageChange = ( page ) => {
 		setCurrentPage( page );
 		setSelectedPost( null );
-		fetchPage( page );
 	};
 
 	return (
@@ -404,7 +398,6 @@ const Messages = () => {
 						postsPerPage={ postsPerPage }
 						totalPosts={ totalPosts }
 						setUpsellOpen={ setUpsellOpen }
-						currentPosts={ currentPosts }
 					/>
 
 					{ isLoading && ! totalPosts && (
