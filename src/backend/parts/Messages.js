@@ -33,7 +33,6 @@ import { useDispatch } from '@wordpress/data';
 import UpsellContainer from './UpsellContainer';
 
 import { formatDate } from '../utils';
-import classNames from 'classnames';
 
 const UpsellModalComponent = ( { isOpen, onRequestClose } ) => {
 	if ( ! isOpen ) {
@@ -252,7 +251,7 @@ const PaginationButton = ( {
 	children,
 	className = '',
 } ) => {
-	const buttonClasses = classNames(
+	const buttonClasses = classnames(
 		'flex items-center justify-center w-8 h-8 border border-[#c3c4c7] rounded-sm focus:outline-none mr-1',
 		{
 			'bg-[#f0f0f1] text-[#a7aaad] cursor-default': disabled,
