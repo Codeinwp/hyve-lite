@@ -348,8 +348,6 @@ const Messages = () => {
 					);
 					if ( currentPage > newTotalPages && newTotalPages > 0 ) {
 						setCurrentPage( newTotalPages );
-					} else {
-						fetchPage( currentPage );
 					}
 
 					createNotice( 'success', response.data, {
@@ -370,7 +368,7 @@ const Messages = () => {
 				} );
 			}
 		},
-		[ createNotice, currentPage, postsPerPage, totalPosts, fetchPage ]
+		[ createNotice, currentPage, postsPerPage, totalPosts ]
 	);
 
 	useEffect( () => {
@@ -397,13 +395,19 @@ const Messages = () => {
 							'hyve-lite'
 						) }
 					</p>
-					<Pagination
-						currentPage={ currentPage }
-						onPageChange={ handlePageChange }
-						postsPerPage={ postsPerPage }
-						totalPosts={ totalPosts }
-						setUpsellOpen={ setUpsellOpen }
-					/>
+					{ ( ( ! isLoading &&
+						currentPosts &&
+						0 < currentPosts.length ) ||
+						( currentPosts && 0 < currentPosts.length ) ) && (
+						<Pagination
+							currentPage={ currentPage }
+							onPageChange={ handlePageChange }
+							postsPerPage={ postsPerPage }
+							totalPosts={ totalPosts }
+							setUpsellOpen={ setUpsellOpen }
+							currentPosts={ currentPosts }
+						/>
+					) }
 
 					{ isLoading && ! totalPosts && (
 						<div className="flex justify-center items-center h-52 border-[0.5px] border-gray-300 border-solid">
