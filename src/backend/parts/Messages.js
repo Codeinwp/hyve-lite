@@ -33,6 +33,7 @@ import { useDispatch } from '@wordpress/data';
 import UpsellContainer from './UpsellContainer';
 
 import { formatDate } from '../utils';
+import classNames from 'classnames';
 
 const UpsellModalComponent = ( { isOpen, onRequestClose } ) => {
 	if ( ! isOpen ) {
@@ -170,30 +171,6 @@ const Pagination = ( {
 	const hasNext = currentPage < totalPages;
 	const hasPrev = currentPage > 1;
 	const isFreePlan = ! window.hyve.hasPro;
-	const PaginationButton = ( {
-		onClick,
-		disabled = false,
-		ariaLabel,
-		children,
-		className = '',
-	} ) => {
-		const buttonClasses = `flex items-center justify-center w-8 h-8 border border-[#c3c4c7] rounded-sm focus:outline-none mr-1 ${
-			disabled
-				? 'bg-[#f0f0f1] text-[#a7aaad] cursor-default'
-				: 'bg-white text-[#2271b1] hover:bg-[#f6f7f7] hover:border-[#8c8f94]'
-		} ${ className }`;
-
-		return (
-			<button
-				onClick={ onClick }
-				disabled={ disabled }
-				className={ buttonClasses }
-				aria-label={ ariaLabel }
-			>
-				{ children }
-			</button>
-		);
-	};
 
 	const handlePageChange = ( page ) => {
 		if ( isFreePlan ) {
@@ -265,6 +242,35 @@ const MessageList = ( { posts, selectedPost, onPostSelect } ) => {
 				/>
 			) ) }
 		</div>
+	);
+};
+
+const PaginationButton = ( {
+	onClick,
+	disabled = false,
+	ariaLabel,
+	children,
+	className = '',
+} ) => {
+	const buttonClasses = classNames(
+		'flex items-center justify-center w-8 h-8 border border-[#c3c4c7] rounded-sm focus:outline-none mr-1',
+		{
+			'bg-[#f0f0f1] text-[#a7aaad] cursor-default': disabled,
+			'bg-white text-[#2271b1] hover:bg-[#f6f7f7] hover:border-[#8c8f94]':
+				! disabled,
+		},
+		className
+	);
+
+	return (
+		<button
+			onClick={ onClick }
+			disabled={ disabled }
+			className={ buttonClasses }
+			aria-label={ ariaLabel }
+		>
+			{ children }
+		</button>
 	);
 };
 
