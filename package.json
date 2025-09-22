@@ -45,13 +45,13 @@
   },
   "homepage": "https://github.com/Codeinwp/hyve-lite#readme",
   "devDependencies": {
-    "@playwright/test": "^1.52.0",
+    "@playwright/test": "^1.53.2",
     "@semantic-release/changelog": "^6.0.3",
     "@semantic-release/exec": "^6.0.3",
     "@semantic-release/git": "^10.0.1",
     "@tailwindcss/postcss": "^4.1.8",
     "@wordpress/env": "^10.24.0",
-    "@wordpress/eslint-plugin": "^22.10.0",
+    "@wordpress/eslint-plugin": "^22.12.0",
     "@wordpress/scripts": "^27.9.0",
     "conventional-changelog-simple-preset": "^1.0.24",
     "cssnano": "^7.0.7",
@@ -66,7 +66,7 @@
     "semantic-release": "^19.0.5",
     "semantic-release-slack-bot": "^4.0.2",
     "simple-git-hooks": "^2.9.0",
-    "tailwindcss": "^4.1.8"
+    "tailwindcss": "^4.1.11"
   },
   "dependencies": {
     "@wordpress/icons": "^10.13.0",
