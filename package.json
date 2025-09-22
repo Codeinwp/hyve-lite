@@ -65,7 +65,7 @@
     "replace-in-file": "^7.1.0",
     "semantic-release": "^19.0.5",
     "semantic-release-slack-bot": "^4.0.2",
-    "simple-git-hooks": "^2.9.0",
+    "simple-git-hooks": "^2.13.1",
     "tailwindcss": "^4.1.11"
   },
   "dependencies": {
