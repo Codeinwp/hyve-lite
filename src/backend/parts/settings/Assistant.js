@@ -127,7 +127,7 @@ const Assistant = () => {
 					<RangeControl
 						label={ __( 'Temperature', 'hyve-lite' ) }
 						help={ __(
-							'What sampling temperature to use, between 0 and 2. Higher values like 0.8 will make the output more random, while lower values like 0.2 will make it more focused and deterministic. We generally recommend altering this or temperature but not both.',
+							'What sampling temperature to use, between 0 and 2. Higher values like 0.8 will make the output more random, while lower values like 0.2 will make it more focused and deterministic. We generally recommend altering this or top_p but not both.',
 							'hyve-lite'
 						) }
 						initialPosition={ settings.temperature || 1 }
@@ -146,7 +146,7 @@ const Assistant = () => {
 					<RangeControl
 						label={ __( 'Top P', 'hyve-lite' ) }
 						help={ __(
-							'What sampling temperature to use, between 0 and 2. Higher values like 0.8 will make the output more random, while lower values like 0.2 will make it more focused and deterministic.',
+							'An alternative to sampling with temperature, called nucleus sampling, where the model considers the results of the tokens with top_p probability mass. We generally recommend altering this or temperature but not both.',
 							'hyve-lite'
 						) }
 						initialPosition={ settings.top_p || 1 }
