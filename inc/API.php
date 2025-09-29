@@ -188,35 +188,6 @@ class API extends BaseAPI {
 			],
 			'chat'     => [
 				[
-					'methods'             => \WP_REST_Server::READABLE,
-					'args'                => [
-						'run_id'    => [
-							'required' => true,
-							'type'     => 'string',
-						],
-						'thread_id' => [
-							'required' => true,
-							'type'     => 'string',
-						],
-						'record_id' => [
-							'required' => true,
-							'type'     => [
-								'string',
-								'integer',
-							],
-						],
-						'message'   => [
-							'required' => false,
-							'type'     => 'string',
-						],
-					],
-					'callback'            => [ $this, 'get_chat' ],
-					'permission_callback' => function ( $request ) {
-						$nonce = $request->get_header( 'x_wp_nonce' );
-						return wp_verify_nonce( $nonce, 'wp_rest' );
-					},
-				],
-				[
 					'methods'             => \WP_REST_Server::CREATABLE,
 					'args'                => [
 						'message'   => [
@@ -229,13 +200,10 @@ class API extends BaseAPI {
 						],
 						'record_id' => [
 							'required' => false,
-							'type'     => [
-								'string',
-								'integer',
-							],
+							'type'     => 'string',
 						],
 					],
-					'callback'            => [ $this, 'send_chat' ],
+					'callback'            => [ $this, 'stream_chat' ],
 					'permission_callback' => function ( $request ) {
 						$nonce = $request->get_header( 'x_wp_nonce' );
 						return wp_verify_nonce( $nonce, 'wp_rest' );
@@ -404,13 +372,11 @@ class API extends BaseAPI {
 
 			if ( 'api_key' === $key && ! empty( $value ) ) {
 				$openai    = new OpenAI( $value );
-				$valid_api = $openai->setup_assistant();
+				$valid_api = $openai->moderate( 'This is a test message.' );
 
 				if ( is_wp_error( $valid_api ) ) {
 					return rest_ensure_response( [ 'error' => $this->get_error_message( $valid_api ) ] );
 				}
-
-				$settings['assistant_id'] = $valid_api;
 			}
 
 			if ( 'telemetry_enabled' === $key ) {
@@ -543,6 +509,119 @@ class API extends BaseAPI {
 		];
 
 		return rest_ensure_response( $posts );
+	}
+
+	/**
+	 * Stream chat response using Server-Sent Events.
+	 *
+	 * @param \WP_REST_Request $request Request object.
+	 * @return void
+	 */
+	public function stream_chat( $request ) {
+		header( 'Content-Type: text/event-stream' );
+		header( 'Cache-Control: no-cache' );
+		header( 'Connection: keep-alive' );
+		
+		if ( ob_get_level() ) {
+			ob_end_clean();
+		}
+		
+		$message    = $request->get_param( 'message' );
+		$moderation = OpenAI::instance()->moderate_chunks( $message );
+
+		if ( true !== $moderation ) {
+			$this->send_sse_message( 'error', [ 'error' => __( 'Message was flagged.', 'hyve-lite' ) ] );
+			exit;
+		}
+
+		$openai         = OpenAI::instance();
+		$message_vector = $openai->create_embeddings( $message );
+		$message_vector = reset( $message_vector );
+		$message_vector = $message_vector->embedding;
+
+		if ( is_wp_error( $message_vector ) ) {
+			$this->send_sse_message( 'error', [ 'error' => __( 'No embeddings found.', 'hyve-lite' ) ] );
+			exit;
+		}
+
+		if ( $request->get_param( 'thread_id' ) ) {
+			$thread_id = $request->get_param( 'thread_id' );
+		} else {
+			$thread_id = $openai->create_conversation();
+		}
+
+		if ( is_wp_error( $thread_id ) ) {
+			$this->send_sse_message( 'error', [ 'error' => $this->get_error_message( $thread_id ) ] );
+			exit;
+		}
+
+		$similarity_score_threshold = apply_filters( 'hyve_similarity_score_threshold', 0.4 );
+		$article_context            = $this->search_knowledge_base( $message_vector, $similarity_score_threshold );
+
+		$this->send_sse_message(
+			'init',
+			[ 
+				'thread_id' => $thread_id,
+				'message'   => 'Starting response...', 
+			] 
+		);
+
+		$messages = [];
+		
+		if ( ! empty( $article_context ) ) {
+			$messages[] = [
+				'type'    => 'message',
+				'role'    => 'user',
+				'content' => 'START CONTEXT: ' . $article_context . ' :END CONTEXT',
+			];
+		} else {
+			$messages[] = [
+				'type'    => 'message',
+				'role'    => 'user',
+				'content' => 'START CONTEXT: No specific documentation context found. Please provide a general helpful response if possible. :END CONTEXT',
+			];
+		}
+
+		$messages[] = [
+			'type'    => 'message',
+			'role'    => 'user',
+			'content' => 'START QUESTION: ' . $message . ' :END QUESTION',
+		];
+
+		try {
+			$openai->create_response(
+				$messages,
+				$thread_id
+			);
+		} catch ( Exception $e ) {
+			$this->send_sse_message(
+				'error',
+				[ 
+					'error'   => 'Failed to generate response. Please try again.',
+					'details' => $e->getMessage(), 
+				] 
+			);
+		}
+
+		exit;
+	}
+
+	/**
+	 * Send Server-Sent Events message.
+	 *
+	 * @param string $type Event type.
+	 * @param mixed  $data Event data.
+	 */
+	private function send_sse_message( $type, $data ) {
+		echo 'event: ' . esc_html( $type ) . "\n";
+		echo 'data: ' . wp_json_encode( $data ) . "\n\n";
+		
+		if ( function_exists( 'fastcgi_finish_request' ) ) {
+			fastcgi_finish_request();
+		} else {
+			ob_flush();
+			flush();
+		}
 	}
 
 	/**
@@ -741,68 +820,6 @@ class API extends BaseAPI {
 	}
 
 	/**
-	 * Get chat.
-	 *
-	 * @param \WP_REST_Request<array<string, mixed>> $request Request object.
-	 *
-	 * @return \WP_REST_Response
-	 */
-	public function get_chat( $request ) {
-		$run_id    = $request->get_param( 'run_id' );
-		$thread_id = $request->get_param( 'thread_id' );
-		$query     = $request->get_param( 'message' );
-		$record_id = $request->get_param( 'record_id' );
-
-		$openai = OpenAI::instance();
-
-		$status = $openai->get_status( $run_id, $thread_id );
-
-		if ( is_wp_error( $status ) ) {
-			return rest_ensure_response( [ 'error' => $this->get_error_message( $status ) ] );
-		}
-
-		if ( 'completed' !== $status ) {
-			return rest_ensure_response( [ 'status' => $status ] );
-		}
-
-		$messages = $openai->get_messages( $thread_id );
-
-		if ( is_wp_error( $messages ) ) {
-			return rest_ensure_response( [ 'error' => $this->get_error_message( $messages ) ] );
-		}
-
-		$messages = array_filter(
-			$messages,
-			function ( $message ) use ( $run_id ) {
-				return $message->run_id === $run_id;
-			}
-		);
-
-		$message = reset( $messages )->content[0]->text->value;
-
-		$message = json_decode( $message, true );
-
-		if ( json_last_error() !== JSON_ERROR_NONE ) {
-			return rest_ensure_response( [ 'error' => __( 'No messages found.', 'hyve-lite' ) ] );
-		}
-
-		Main::add_labels_to_default_settings();
-		$settings = Main::get_settings();
-
-		$response = ( isset( $message['success'] ) && true === $message['success'] && isset( $message['response'] ) ) ? $message['response'] : esc_html( $settings['default_message'] );
-
-		do_action( 'hyve_chat_response', $run_id, $thread_id, $query, $record_id, $message, $response );
-
-		return rest_ensure_response(
-			[
-				'status'  => $status,
-				'success' => isset( $message['success'] ) ? $message['success'] : false,
-				'message' => $response,
-			]
-		);
-	}
-
-	/**
 	 * Search knowledge base using Qdrant vector database.
 	 *
 	 * @param array<int, float> $message_vector The embedding vector for the user's message.
@@ -954,112 +971,5 @@ class API extends BaseAPI {
 		}
 
 		return $this->search_knowledge_base_wp( $message_vector, $similarity_score_threshold, $tokens_threshold );
-	}
-
-	/**
-	 * Send chat.
-	 *
-	 * @param \WP_REST_Request<array<string, mixed>> $request Request object.
-	 *
-	 * @return \WP_REST_Response
-	 */
-	public function send_chat( $request ) {
-		$message    = $request->get_param( 'message' );
-		$record_id  = $request->get_param( 'record_id' );
-		$moderation = OpenAI::instance()->moderate_chunks( $message );
-
-		if ( true !== $moderation ) {
-			return rest_ensure_response( [ 'error' => __( 'Message was flagged.', 'hyve-lite' ) ] );
-		}
-
-		$openai         = OpenAI::instance();
-		$message_vector = $openai->create_embeddings( $message );
-		$message_vector = reset( $message_vector );
-		$message_vector = $message_vector->embedding;
-
-		if ( is_wp_error( $message_vector ) ) {
-			return rest_ensure_response( [ 'error' => __( 'No embeddings found.', 'hyve-lite' ) ] );
-		}
-
-		if ( $request->get_param( 'thread_id' ) ) {
-			$thread_id = $request->get_param( 'thread_id' );
-		} else {
-			$thread_id = $openai->create_thread();
-		}
-
-		if ( is_wp_error( $thread_id ) ) {
-			return rest_ensure_response( [ 'error' => $this->get_error_message( $thread_id ) ] );
-		}
-
-		/**
-		 * Filters the similarity score threshold for knowledge base search.
-		 *
-		 * The similarity score threshold determines the minimum cosine similarity
-		 * required for an article to be considered relevant to the user's query.
-		 * A higher value means stricter matching, while a lower value allows for
-		 * broader results.
-		 *
-		 * @since 1.4.0
-		 *
-		 * @param float $similarity_score_threshold The similarity score threshold. Default 0.4.
-		 */
-		$similarity_score_threshold = apply_filters( 'hyve_similarity_score_threshold', 0.4 );
-
-		$article_context = $this->search_knowledge_base( $message_vector, $similarity_score_threshold );
-		$query_run       = $openai->create_run(
-			[
-				[
-					'role'    => 'user',
-					'content' => 'START QUESTION: ' . $message . ' :END QUESTION',
-				],
-				[
-					'role'    => 'user',
-					'content' => 'START CONTEXT: ' . $article_context . ' :END CONTEXT',
-				],
-			],
-			$thread_id
-		);
-
-		if ( is_wp_error( $query_run ) ) {
-			if ( strpos( $this->get_error_message( $query_run ), 'No thread found with id' ) !== false ) {
-				$thread_id = $openai->create_thread();
-
-				if ( is_wp_error( $thread_id ) ) {
-					return rest_ensure_response( [ 'error' => $this->get_error_message( $thread_id ) ] );
-				}
-
-				$query_run = $openai->create_run(
-					[
-						[
-							'role'    => 'user',
-							'content' => 'Question: ' . $message,
-						],
-						[
-							'role'    => 'user',
-							'content' => 'Context: ' . $article_context,
-						],
-					],
-					$thread_id
-				);
-
-				if ( is_wp_error( $query_run ) ) {
-					return rest_ensure_response( [ 'error' => $this->get_error_message( $query_run ) ] );
-				}
-			}
-		}
-
-		$hash = hash( 'md5', strtolower( $message ) );
-		set_transient( 'hyve_message_' . $hash, $message_vector, MINUTE_IN_SECONDS );
-
-		$record_id = apply_filters( 'hyve_chat_request', $thread_id, $record_id, $message );
-
-		return rest_ensure_response(
-			[
-				'thread_id' => $thread_id,
-				'query_run' => $query_run,
-				'record_id' => $record_id ? $record_id : null,
-				'content'   => $article_context,
-			]
-		);
 	}
 }
