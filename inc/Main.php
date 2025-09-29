@@ -77,8 +77,7 @@ class Main {
 		}
 
 		if (
-			isset( $settings['api_key'] ) && isset( $settings['assistant_id'] ) &&
-			! empty( $settings['api_key'] ) && ! empty( $settings['assistant_id'] )
+			isset( $settings['api_key'] ) && ! empty( $settings['api_key'] )
 		) {
 			add_action( 'wp_enqueue_scripts', [ $this, 'enqueue_assets' ] );
 		}
@@ -750,6 +749,8 @@ class Main {
 			unset( $settings['qdrant_endpoint'] );
 		}
 
+		// We no longer use assistant_id but in case the setting exists,
+		// it is private and we omit it from the usage data.
 		if ( isset( $settings['assistant_id'] ) ) {
 			unset( $settings['assistant_id'] );
 		}

@@ -404,13 +404,11 @@ class API extends BaseAPI {
 
 			if ( 'api_key' === $key && ! empty( $value ) ) {
 				$openai    = new OpenAI( $value );
-				$valid_api = $openai->setup_assistant();
+				$valid_api = $openai->moderate( 'This is a test message.' );
 
 				if ( is_wp_error( $valid_api ) ) {
 					return rest_ensure_response( [ 'error' => $this->get_error_message( $valid_api ) ] );
 				}
-
-				$settings['assistant_id'] = $valid_api;
 			}
 
 			if ( 'telemetry_enabled' === $key ) {
@@ -755,39 +753,47 @@ class API extends BaseAPI {
 
 		$openai = OpenAI::instance();
 
-		$status = $openai->get_status( $run_id, $thread_id );
+		$response = $openai->get_response( $run_id );
 
-		if ( is_wp_error( $status ) ) {
-			return rest_ensure_response( [ 'error' => $this->get_error_message( $status ) ] );
+		if ( is_wp_error( $response ) ) {
+			return rest_ensure_response( [ 'error' => $this->get_error_message( $response ) ] );
 		}
 
-		if ( 'completed' !== $status ) {
-			return rest_ensure_response( [ 'status' => $status ] );
+		if ( 'completed' !== $response->status ) {
+			return rest_ensure_response( [ 'status' => $response->status ] );
 		}
 
-		$messages = $openai->get_messages( $thread_id );
+		$status = $response->status;
 
-		if ( is_wp_error( $messages ) ) {
-			return rest_ensure_response( [ 'error' => $this->get_error_message( $messages ) ] );
-		}
-
-		$messages = array_filter(
-			$messages,
-			function ( $message ) use ( $run_id ) {
-				return $message->run_id === $run_id;
+		$message = array_filter(
+			$response->output,
+			function ( $message ) {
+				return (
+					isset( $message->type, $message->status, $message->role ) &&
+					'message' === $message->type &&
+					'completed' === $message->status &&
+					'assistant' === $message->role
+				);
 			}
 		);
 
-		$message = reset( $messages )->content[0]->text->value;
+		if ( empty( $message ) ) {
+			return rest_ensure_response( [ 'error' => __( 'No messages found.', 'hyve-lite' ) ] );
+		}
 
+		$message = reset( $message )->content[0]->text;
 		$message = json_decode( $message, true );
 
 		if ( json_last_error() !== JSON_ERROR_NONE ) {
 			return rest_ensure_response( [ 'error' => __( 'No messages found.', 'hyve-lite' ) ] );
 		}
-
+		
 		Main::add_labels_to_default_settings();
 		$settings = Main::get_settings();
+
+		if ( isset( $message['properties'] ) ) {
+			$message = $message['properties'];
+		}
 
 		$response = ( isset( $message['success'] ) && true === $message['success'] && isset( $message['response'] ) ) ? $message['response'] : esc_html( $settings['default_message'] );
 
@@ -984,7 +990,7 @@ class API extends BaseAPI {
 		if ( $request->get_param( 'thread_id' ) ) {
 			$thread_id = $request->get_param( 'thread_id' );
 		} else {
-			$thread_id = $openai->create_thread();
+			$thread_id = $openai->create_conversation();
 		}
 
 		if ( is_wp_error( $thread_id ) ) {
@@ -1006,37 +1012,42 @@ class API extends BaseAPI {
 		$similarity_score_threshold = apply_filters( 'hyve_similarity_score_threshold', 0.4 );
 
 		$article_context = $this->search_knowledge_base( $message_vector, $similarity_score_threshold );
-		$query_run       = $openai->create_run(
+
+		$query_run = $openai->create_response(
 			[
 				[
-					'role'    => 'user',
-					'content' => 'START QUESTION: ' . $message . ' :END QUESTION',
-				],
-				[
+					'type'    => 'message',
 					'role'    => 'user',
 					'content' => 'START CONTEXT: ' . $article_context . ' :END CONTEXT',
+				],
+				[
+					'type'    => 'message',
+					'role'    => 'user',
+					'content' => 'START QUESTION: ' . $message . ' :END QUESTION',
 				],
 			],
 			$thread_id
 		);
 
 		if ( is_wp_error( $query_run ) ) {
-			if ( strpos( $this->get_error_message( $query_run ), 'No thread found with id' ) !== false ) {
-				$thread_id = $openai->create_thread();
+			if ( strpos( $this->get_error_message( $query_run ), 'Conversation with id' ) !== false ) {
+				$thread_id = $openai->create_conversation();
 
 				if ( is_wp_error( $thread_id ) ) {
 					return rest_ensure_response( [ 'error' => $this->get_error_message( $thread_id ) ] );
 				}
 
-				$query_run = $openai->create_run(
+				$query_run = $openai->create_response(
 					[
 						[
+							'type'    => 'message',
 							'role'    => 'user',
-							'content' => 'Question: ' . $message,
+							'content' => 'START CONTEXT: ' . $article_context . ' :END CONTEXT',
 						],
 						[
+							'type'    => 'message',
 							'role'    => 'user',
-							'content' => 'Context: ' . $article_context,
+							'content' => 'START QUESTION: ' . $message . ' :END QUESTION',
 						],
 					],
 					$thread_id
