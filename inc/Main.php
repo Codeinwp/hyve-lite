@@ -348,7 +348,8 @@ class Main {
 			apply_filters(
 				'hyve_frontend_data',
 				[
-					'api'       => $this->api->get_endpoint(),
+					'api'       => rest_url( $this->api->get_endpoint() . '/chat' ),
+					'nonce'     => wp_create_nonce( 'wp_rest' ),
 					'audio'     => [
 						'click' => HYVE_LITE_URL . 'assets/audio/click.mp3',
 						'ping'  => HYVE_LITE_URL . 'assets/audio/ping.mp3',
