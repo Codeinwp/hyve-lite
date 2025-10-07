@@ -34,17 +34,6 @@ import UpsellContainer from './UpsellContainer';
 
 import { formatDate } from '../utils';
 
-const LoadMore = ( { onClick } ) => (
-	<Button
-		onClick={ onClick }
-		className="flex items-center justify-center p-4 h-auto w-full text-base font-normal text-gray-900 hover:text-gray-900 hover:bg-gray-100 border-t-gray-300 border-t-[0.5px] border-solid"
-	>
-		<div className="flex flex-row gap-1">
-			{ __( 'Load more', 'hyve-lite' ) }
-		</div>
-	</Button>
-);
-
 const UpsellModalComponent = ( { isOpen, onRequestClose } ) => {
 	if ( ! isOpen ) {
 		return null;
@@ -170,14 +159,78 @@ const MessageListItem = ( { post, onClick, isSelected, isFirst } ) => (
 	</Button>
 );
 
-const MessageList = ( {
-	posts,
-	selectedPost,
-	onPostSelect,
-	loadMoreButton,
+const Pagination = ( {
+	currentPage,
+	onPageChange,
+	postsPerPage,
+	totalPosts,
+	setUpsellOpen,
 } ) => {
+	const totalPages = Math.ceil( totalPosts / postsPerPage );
+	const hasNext = currentPage < totalPages;
+	const hasPrev = currentPage > 1;
+	const isFreePlan = ! window.hyve.hasPro;
+
+	const handlePageChange = ( page ) => {
+		if ( isFreePlan ) {
+			setUpsellOpen( true );
+			return;
+		}
+
+		if ( page >= 1 && page <= totalPages ) {
+			onPageChange( page );
+		}
+	};
+
 	return (
-		<div className="col-span-6 xl:col-span-2 border-r-gray-300 border-r-[0.5px] border-solid max-h-[672px] overflow-scroll">
+		<div className="flex items-center justify-between py-2 px-4">
+			<div className="text-[#50575e] text-[14px] font-medium flex-1 text-end px-5">
+				{ totalPosts } { __( 'items', 'hyve-lite' ) }
+			</div>
+			<div className="flex items-center">
+				<PaginationButton
+					onClick={ () => handlePageChange( 1 ) }
+					disabled={ ! hasPrev }
+					ariaLabel={ __( 'Go to the first page', 'hyve-lite' ) }
+				>
+					«
+				</PaginationButton>
+
+				<PaginationButton
+					onClick={ () => handlePageChange( currentPage - 1 ) }
+					disabled={ ! hasPrev }
+					ariaLabel={ __( 'Go to the previous page', 'hyve-lite' ) }
+				>
+					‹
+				</PaginationButton>
+
+				<div className="inline-flex items-center justify-center px-3 text-[14px] text-[#50575e] font-medium">
+					{ currentPage } { __( 'of', 'hyve-lite' ) } { totalPages }
+				</div>
+
+				<PaginationButton
+					onClick={ () => handlePageChange( currentPage + 1 ) }
+					disabled={ ! hasNext && ! isFreePlan }
+					ariaLabel={ __( 'Go to the next page', 'hyve-lite' ) }
+				>
+					›
+				</PaginationButton>
+
+				<PaginationButton
+					onClick={ () => handlePageChange( totalPages ) }
+					disabled={ ! hasNext && ! isFreePlan }
+					ariaLabel={ __( 'Go to the last page', 'hyve-lite' ) }
+				>
+					»
+				</PaginationButton>
+			</div>
+		</div>
+	);
+};
+
+const MessageList = ( { posts, selectedPost, onPostSelect } ) => {
+	return (
+		<div className="col-span-6 xl:col-span-2 border-r-gray-300 border-r-[0.5px] border-solid">
 			{ posts?.map( ( post, index ) => (
 				<MessageListItem
 					key={ post.ID }
@@ -187,8 +240,36 @@ const MessageList = ( {
 					isFirst={ index === 0 }
 				/>
 			) ) }
-			{ loadMoreButton }
 		</div>
+	);
+};
+
+const PaginationButton = ( {
+	onClick,
+	disabled = false,
+	ariaLabel,
+	children,
+	className = '',
+} ) => {
+	const buttonClasses = classnames(
+		'flex items-center justify-center w-8 h-8 border border-[#c3c4c7] rounded-sm focus:outline-none mr-1',
+		{
+			'bg-[#f0f0f1] text-[#a7aaad] cursor-default': disabled,
+			'bg-white text-[#2271b1] hover:bg-[#f6f7f7] hover:border-[#8c8f94]':
+				! disabled,
+		},
+		className
+	);
+
+	return (
+		<button
+			onClick={ onClick }
+			disabled={ disabled }
+			className={ buttonClasses }
+			aria-label={ ariaLabel }
+		>
+			{ children }
+		</button>
 	);
 };
 
@@ -205,14 +286,43 @@ const ExportMessagesAction = ( { onClick } ) => {
 };
 
 const Messages = () => {
-	const [ posts, setPosts ] = useState( [] );
+	const [ currentPosts, setCurrentPosts ] = useState( [] );
 	const [ selectedPost, setSelectedPost ] = useState( null );
-	const [ hasMore, setHasMore ] = useState( false );
 	const [ isUpsellOpen, setUpsellOpen ] = useState( false );
 	const [ isLoading, setLoading ] = useState( true );
-	const [ offset, setOffset ] = useState( 0 );
+	const [ currentPage, setCurrentPage ] = useState( 1 );
+	const [ totalPosts, setTotalPosts ] = useState( 0 );
+	const [ postsPerPage, setPostsPerPage ] = useState( 1 );
 
 	const { createNotice } = useDispatch( 'core/notices' );
+
+	const fetchPage = useCallback(
+		async ( page ) => {
+			setLoading( true );
+
+			try {
+				const offset = ( page - 1 ) * postsPerPage;
+				const response = await apiFetch( {
+					path: addQueryArgs( `${ window.hyve.api }/threads`, {
+						offset,
+						per_page: postsPerPage,
+					} ),
+				} );
+
+				setCurrentPosts( response.posts || [] );
+				setTotalPosts( response.total || 0 );
+				setPostsPerPage( response.postPerPage || 3 );
+			} catch ( error ) {
+				createNotice( 'error', error?.message, {
+					type: 'snackbar',
+					isDismissible: true,
+				} );
+			} finally {
+				setLoading( false );
+			}
+		},
+		[ createNotice, postsPerPage ]
+	);
 
 	const deleteConversation = useCallback(
 		async ( threadId ) => {
@@ -225,10 +335,21 @@ const Messages = () => {
 				} );
 
 				if ( response.data ) {
-					setPosts( ( prev ) =>
-						prev.filter( ( post ) => post.ID !== threadId )
+					setCurrentPosts(
+						( prev ) =>
+							prev.filter( ( post ) => post.ID !== threadId ) ||
+							[]
 					);
 					setSelectedPost( null );
+					setTotalPosts( totalPosts - 1 || 0 );
+
+					const newTotalPages = Math.ceil(
+						( totalPosts - 1 ) / postsPerPage
+					);
+					if ( currentPage > newTotalPages && newTotalPages > 0 ) {
+						setCurrentPage( newTotalPages );
+					}
+
 					createNotice( 'success', response.data, {
 						type: 'snackbar',
 						isDismissible: true,
@@ -247,37 +368,17 @@ const Messages = () => {
 				} );
 			}
 		},
-		[ createNotice ]
+		[ createNotice, currentPage, postsPerPage, totalPosts ]
 	);
 
 	useEffect( () => {
-		const fetchPosts = async () => {
-			setLoading( true );
+		fetchPage( currentPage );
+	}, [ fetchPage, currentPage ] );
 
-			const response = await apiFetch( {
-				path: addQueryArgs( `${ window.hyve.api }/threads`, {
-					offset,
-				} ),
-			} );
-
-			setLoading( false );
-			setPosts( ( prev ) => [ ...prev, ...response.posts ] );
-			setHasMore( response.more );
-		};
-
-		fetchPosts();
-	}, [ offset ] );
-
-	const loadMoreButton = hasMore
-		? applyFilters(
-				'hyve.messages.load-more',
-				<LoadMore onClick={ () => setUpsellOpen( true ) } />,
-				isLoading,
-				() => {
-					setOffset( posts.length );
-				}
-		  )
-		: null;
+	const handlePageChange = ( page ) => {
+		setCurrentPage( page );
+		setSelectedPost( null );
+	};
 
 	return (
 		<div className="col-span-6 xl:col-span-4">
@@ -288,20 +389,33 @@ const Messages = () => {
 
 			<Panel header={ __( 'Messages', 'hyve-lite' ) }>
 				<PanelRow>
-					<p className="py-4">
+					<p>
 						{ __(
 							'Here you can see an history of all the messages between Hyve and your users.',
 							'hyve-lite'
 						) }
 					</p>
+					{ ( ( ! isLoading &&
+						currentPosts &&
+						0 < currentPosts.length ) ||
+						( currentPosts && 0 < currentPosts.length ) ) && (
+						<Pagination
+							currentPage={ currentPage }
+							onPageChange={ handlePageChange }
+							postsPerPage={ postsPerPage }
+							totalPosts={ totalPosts }
+							setUpsellOpen={ setUpsellOpen }
+							currentPosts={ currentPosts }
+						/>
+					) }
 
-					{ isLoading && ! posts?.length && (
+					{ isLoading && ! totalPosts && (
 						<div className="flex justify-center items-center h-52 border-[0.5px] border-gray-300 border-solid">
 							<Spinner />
 						</div>
 					) }
 
-					{ ! isLoading && ! posts?.length && (
+					{ ! isLoading && ! totalPosts && (
 						<div className="flex justify-center items-center h-52 border-[0.5px] border-gray-300 border-solid">
 							<p className="text-xs">
 								{ __(
@@ -312,28 +426,33 @@ const Messages = () => {
 						</div>
 					) }
 
-					{ ( ( ! isLoading && posts && 0 < posts.length ) ||
-						( posts && 0 < posts.length ) ) && (
+					{ ( ( ! isLoading &&
+						currentPosts &&
+						0 < currentPosts.length ) ||
+						( currentPosts && 0 < currentPosts.length ) ) && (
 						<>
 							<div className="grid grid-cols-6 relative border-[0.5px] border-gray-300 border-solid">
-								{ ( ! isLoading ||
-									( posts && 0 < posts.length ) ) && (
-									<MessageList
-										posts={ posts }
-										selectedPost={ selectedPost }
-										onPostSelect={ setSelectedPost }
-										loadMoreButton={ loadMoreButton }
-									/>
-								) }
-
-								<div className="flex flex-col col-span-6 xl:col-span-4 max-h-[672px]">
+								<MessageList
+									posts={ currentPosts }
+									selectedPost={ selectedPost }
+									onPostSelect={ setSelectedPost }
+								/>
+								<div className="flex flex-col col-span-6 xl:col-span-4">
 									<MessageThreadView
 										selectedPost={ selectedPost }
 										onDelete={ deleteConversation }
 									/>
 								</div>
 							</div>
-							<div className="flex justify-end mt-1">
+							<Pagination
+								currentPage={ currentPage }
+								onPageChange={ handlePageChange }
+								postsPerPage={ postsPerPage }
+								totalPosts={ totalPosts }
+								setUpsellOpen={ setUpsellOpen }
+								currentPosts={ currentPosts }
+							/>
+							<div className="flex justify-end">
 								<ExportMessagesAction
 									onClick={ () => setUpsellOpen( true ) }
 								/>

@@ -680,8 +680,9 @@ class API extends BaseAPI {
 		}
 
 		$posts = [
-			'posts' => $posts_data,
-			'more'  => $query->found_posts > $pages,
+			'posts'       => $posts_data,
+			'total'       => $query->found_posts,
+			'postPerPage' => $pages,
 		];
 
 		return rest_ensure_response( $posts );
