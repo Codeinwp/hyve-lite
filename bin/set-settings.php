@@ -3,7 +3,6 @@ require_once ABSPATH . 'wp-load.php';
 
 $settings = [
 	'api_key'              => 'sk_XXXXXXXXX', // Dummy license key.
-	'assistant_id'         => 'asst_TtalCGxTygMEqb7g3vNy6q8h', // Dummy assistant key.
 	'qdrant_api_key'       => '',
 	'qdrant_endpoint'      => '',
 	'chat_enabled'         => false,
