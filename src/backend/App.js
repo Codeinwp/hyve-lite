@@ -80,7 +80,13 @@ const App = () => {
 			) }
 
 			<div className="mx-auto max-w-screen-2xl p-4 md:p-6 2xl:p-10">
-				<div id="tsdk_banner"></div>
+				<div
+					className={ `mx-auto max-w-270 ${
+						window.hyve.hasPro === 'valid' ? 'hidden' : ''
+					}` }
+					id="tsdk_banner"
+				></div>
+
 				<ErrorSection />
 				<div className="mx-auto max-w-270">
 					<div className="grid grid-cols-6 gap-8">
