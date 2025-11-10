@@ -592,15 +592,14 @@ class Main {
 		$message_template = __( 'Our biggest sale of the year: %1$sup to %2$s OFF%3$s on %4$s. Don\'t miss this limited-time offer.', 'hyve-lite' );
 		$product_label    = 'Hyve';
 		$discount         = '70%';
-	
+
 		$product_label = sprintf( '<strong>%s</strong>', $product_label );
-		$url_params    = [
-			'utm_term' => 'free',
-		];
 		
 		$config['message']  = sprintf( $message_template, '<strong>', $discount, '</strong>', $product_label );
 		$config['sale_url'] = add_query_arg(
-			$url_params,
+			[
+				'utm_term' => 'free',
+			],
 			tsdk_translate_link( tsdk_utmify( 'https://themeisle.link/hyve-bf', 'bfcm', 'hyve' ) )
 		);
 
