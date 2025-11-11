@@ -1,3 +1,8 @@
+##### [Version 1.3.2](https://github.com/Codeinwp/hyve-lite/compare/v1.3.1...v1.3.2) (2025-11-11)
+
+- Updated dependencies.
+- Migrated to OpenAI Response API format.
+
 ##### [Version 1.3.1](https://github.com/Codeinwp/hyve-lite/compare/v1.3.0...v1.3.1) (2025-09-22)
 
 - Fixed the text alignment in the grid components
