@@ -77,8 +77,7 @@ class Main {
 		}
 
 		if (
-			isset( $settings['api_key'] ) && isset( $settings['assistant_id'] ) &&
-			! empty( $settings['api_key'] ) && ! empty( $settings['assistant_id'] )
+			isset( $settings['api_key'] ) && ! empty( $settings['api_key'] )
 		) {
 			add_action( 'wp_enqueue_scripts', [ $this, 'enqueue_assets' ] );
 		}
@@ -579,33 +578,28 @@ class Main {
 	 * @return array<string, mixed>
 	 */
 	public function add_black_friday_data( $configs ) {
+		$plan   = apply_filters( 'product_hyve_license_plan', 0 );
+		$is_pro = 0 < $plan;
+
+		// NOTE: Currently, only lifetime plan is available for Hyve Pro.
+		if ( $is_pro ) {
+			return $configs;
+		}
+
 		$config = $configs['default'];
 
 		// translators: %1$s - HTML tag, %2$s - discount, %3$s - HTML tag, %4$s - product name.
 		$message_template = __( 'Our biggest sale of the year: %1$sup to %2$s OFF%3$s on %4$s. Don\'t miss this limited-time offer.', 'hyve-lite' );
 		$product_label    = 'Hyve';
 		$discount         = '70%';
-		
-		$plan    = apply_filters( 'product_hyve_license_plan', 0 );
-		$license = apply_filters( 'product_hyve_license_key', false );
-		$is_pro  = 0 < $plan;
 
-		if ( $is_pro ) {
-			// translators: %1$s - HTML tag, %2$s - discount, %3$s - HTML tag, %4$s - product name.
-			$message_template = __( 'Get %1$sup to %2$s off%3$s when you upgrade your %4$s plan or renew early.', 'hyve-lite' );
-			$product_label    = 'Hyve Pro';
-			$discount         = '30%';
-		}
-		
 		$product_label = sprintf( '<strong>%s</strong>', $product_label );
-		$url_params    = [
-			'utm_term' => $is_pro ? 'plan-' . $plan : 'free',
-			'lkey'     => ! empty( $license ) ? $license : false,
-		];
 		
 		$config['message']  = sprintf( $message_template, '<strong>', $discount, '</strong>', $product_label );
 		$config['sale_url'] = add_query_arg(
-			$url_params,
+			[
+				'utm_term' => 'free',
+			],
 			tsdk_translate_link( tsdk_utmify( 'https://themeisle.link/hyve-bf', 'bfcm', 'hyve' ) )
 		);
 
@@ -750,6 +744,8 @@ class Main {
 			unset( $settings['qdrant_endpoint'] );
 		}
 
+		// We no longer use assistant_id but in case the setting exists,
+		// it is private and we omit it from the usage data.
 		if ( isset( $settings['assistant_id'] ) ) {
 			unset( $settings['assistant_id'] );
 		}
