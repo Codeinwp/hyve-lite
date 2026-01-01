@@ -52,7 +52,7 @@
     "@tailwindcss/postcss": "^4.1.17",
     "@wordpress/env": "^10.32.0",
     "@wordpress/eslint-plugin": "^22.20.0",
-    "@wordpress/scripts": "^27.9.0",
+    "@wordpress/scripts": "^31.2.0",
     "conventional-changelog-simple-preset": "^1.0.24",
     "cssnano": "^7.1.1",
     "eslint-config-wordpress": "^2.0.0",
