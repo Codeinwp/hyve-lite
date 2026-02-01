@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "2e446c5d147699bcb595b4c696ba4f3a",
+    "content-hash": "24efb89a5c7a992478f35e37acb6fd80",
     "packages": [
         {
             "name": "codeinwp/themeisle-sdk",
@@ -1595,11 +1595,11 @@
         },
         {
             "name": "phpstan/phpstan",
-            "version": "2.1.31",
+            "version": "2.1.38",
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/phpstan/phpstan/zipball/ead89849d879fe203ce9292c6ef5e7e76f867b96",
-                "reference": "ead89849d879fe203ce9292c6ef5e7e76f867b96",
+                "url": "https://api.github.com/repos/phpstan/phpstan/zipball/dfaf1f530e1663aa167bc3e52197adb221582629",
+                "reference": "dfaf1f530e1663aa167bc3e52197adb221582629",
                 "shasum": ""
             },
             "require": {
@@ -1644,7 +1644,7 @@
                     "type": "github"
                 }
             ],
-            "time": "2025-10-10T14:14:11+00:00"
+            "time": "2026-01-30T17:12:46+00:00"
         },
         {
             "name": "phpunit/php-code-coverage",
