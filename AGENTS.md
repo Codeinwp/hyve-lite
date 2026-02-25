@@ -60,7 +60,7 @@ composer run phpunit
 
 All PHP classes live in `inc/` under the `ThemeIsle\HyveLite` namespace (PSR-4 autoloaded).
 
-- **Main.php** — Singleton entry point, registered on `plugins_loaded`. Instantiates all other classes, registers admin menu, manages plugin settings (`hyve_settings` option).
+- **Main.php** — Main plugin entry point, registered on `plugins_loaded`. Instantiates all other classes, registers admin menu, manages plugin settings (`hyve_settings` option).
 - **API.php** / **BaseAPI.php** — REST API endpoints for chat, settings, and knowledge base operations. BaseAPI is the abstract base class.
 - **OpenAI.php** — Client for OpenAI embeddings, chat completions, and content moderation.
 - **Qdrant_API.php** — Optional vector database integration for similarity search (alternative to local DB).
