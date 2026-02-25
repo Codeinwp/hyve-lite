@@ -86,7 +86,7 @@ Posts are indexed into the knowledge base by generating OpenAI embeddings and st
 
 ## Coding Standards
 
-- **PHP**: WordPress-VIP-Go + WordPress-Core standards. Text domain: `hyve-lite`. PHPStan level 10 compliance. Always add `// translators:` comments for `sprintf` contexts.
+- **PHP**: WordPress-VIP-Go + WordPress-Core standards. Text domain: `hyve-lite`. PHPStan level 8 compliance. Always add `// translators:` comments for `sprintf` contexts.
 - **JavaScript**: WordPress ESLint preset. Use `@wordpress/element` (not React directly) for components. Use `@wordpress/data` for shared state. Use `@wordpress/i18n` with text domain `hyve-lite`.
 - **Indentation**: Tabs (size 4). YAML uses spaces (size 2).
 
