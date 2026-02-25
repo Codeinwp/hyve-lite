@@ -35,3 +35,4 @@ tailwind.config.js
 /phpunit.xml
 /dist
 /artifact
+AGENTS.md
