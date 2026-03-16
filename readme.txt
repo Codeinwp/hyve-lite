@@ -70,3 +70,9 @@ No, Hyve Lite is designed for users without coding skills. You can manage everyt
 = How does Hyve Lite use the OpenAI API? =
 
 Hyve Lite uses the OpenAI API for language processing tasks like text generation. Data is sent to OpenAI’s servers for processing during these tasks.
+
+= How to report a security issue? =
+ 
+Plugin security is a core priority for us. If you identify a potential vulnerability, we ask that you disclose it responsibly.
+
+Please follow the reporting protocols outlined on our [Security Page](https://themeisle.com/security/).
