@@ -588,15 +588,11 @@ class Main {
 
 		$config = $configs['default'];
 
-		// translators: %1$s - HTML tag, %2$s - discount, %3$s - HTML tag, %4$s - product name.
-		$message_template = __( 'Our biggest sale of the year: %1$sup to %2$s OFF%3$s on %4$s. Don\'t miss this limited-time offer.', 'hyve-lite' );
-		$product_label    = 'Hyve';
-		$discount         = '70%';
-
-		$product_label = sprintf( '<strong>%s</strong>', $product_label );
-		
-		$config['message']  = sprintf( $message_template, '<strong>', $discount, '</strong>', $product_label );
-		$config['sale_url'] = add_query_arg(
+		// translators: %s - discount.  
+		$config['title']     = sprintf( __( 'Hyve Pro: %s off this week', 'hyve-lite' ), '60%' );
+		$config['cta_label'] = __( 'Get Hyve Pro', 'hyve-lite' );
+		$config['message']   = __( 'Chat history, missed question tracking, appearance customization. Make your chatbot actually useful. Exclusively for existing Hyve users.', 'hyve-lite' );
+		$config['sale_url']  = add_query_arg(
 			[
 				'utm_term' => 'free',
 			],
