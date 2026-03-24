@@ -361,6 +361,9 @@ class Main {
 						'tryAgain'          => __( 'Sorry, I am not able to process your request at the moment. Please try again.', 'hyve-lite' ),
 						'typing'            => __( 'Typing…', 'hyve-lite' ),
 						'clearConversation' => __( 'Clear Conversation', 'hyve-lite' ),
+						'openChat'          => __( 'Open chat', 'hyve-lite' ),
+						'closeChat'         => __( 'Close chat', 'hyve-lite' ),
+						'sendMessage'       => __( 'Send message', 'hyve-lite' ),
 					],
 					'icons'     => [
 						'chat-bubble-oval-left'          => esc_url( HYVE_LITE_URL . 'assets/icons/chat-bubble-oval-left.svg' ),
