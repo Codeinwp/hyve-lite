@@ -114,6 +114,8 @@ export async function mockGetThreadsResponse( page ) {
 						},
 					],
 					more: false,
+					total: 4,
+					postPerPage: 10,
 				} ),
 			} );
 		}
