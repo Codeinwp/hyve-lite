@@ -96,6 +96,7 @@ class Main {
 			);
 		}
 
+		add_filter( 'themeisle_sdk_blackfriday_data', [ $this, 'add_black_friday_data' ] );
 		add_action( 'admin_init', [ $this, 'admin_init' ] );
 	}
 
@@ -103,7 +104,7 @@ class Main {
 	 * Register menu page.
 	 *
 	 * @since 1.2.0
-	 * 
+	 *
 	 * @return void
 	 */
 	public function register_menu_page() {
@@ -124,7 +125,7 @@ class Main {
 	 * Menu page.
 	 *
 	 * @since 1.2.0
-	 * 
+	 *
 	 * @return void
 	 */
 	public function menu_page() {
@@ -135,7 +136,7 @@ class Main {
 
 	/**
 	 * Init hooks on admin stage.
-	 * 
+	 *
 	 * @return void
 	 */
 	public function admin_init() {
@@ -143,7 +144,7 @@ class Main {
 
 		$post_types        = get_post_types( [ 'public' => true ], 'objects' );
 		$post_types_for_js = [];
-	
+
 		foreach ( $post_types as $post_type ) {
 			$post_types_for_js[] = [
 				'label' => $post_type->labels->name,
@@ -183,7 +184,7 @@ class Main {
 	 * Load assets for option page.
 	 *
 	 * @since 1.2.0
-	 * 
+	 *
 	 * @return void
 	 */
 	public function enqueue_options_assets() {
@@ -214,15 +215,14 @@ class Main {
 			apply_filters( 'hyve_options_data', [] )
 		);
 
-		add_filter( 'themeisle_sdk_blackfriday_data', [ $this, 'add_black_friday_data' ] );
 		do_action( 'themeisle_internal_page', HYVE_PRODUCT_SLUG, 'dashboard' );
 	}
 
 	/**
 	 * Get Default Settings.
-	 * 
+	 *
 	 * @since 1.1.0
-	 * 
+	 *
 	 * @return array<string, mixed>
 	 */
 	public static function get_default_settings() {
@@ -259,9 +259,9 @@ class Main {
 
 	/**
 	 * Get Settings.
-	 * 
+	 *
 	 * @since 1.1.0
-	 * 
+	 *
 	 * @return array<string, mixed>
 	 */
 	public static function get_settings() {
@@ -274,11 +274,11 @@ class Main {
 
 	/**
 	 * Add the translatable label to the default value.
-	 * 
+	 *
 	 * Use this in a context where translations are correctly loaded.
-	 * 
+	 *
 	 * @since 1.2
-	 * 
+	 *
 	 * @return void
 	 */
 	public static function add_labels_to_default_settings() {
@@ -301,7 +301,7 @@ class Main {
 	 * Enqueue assets.
 	 *
 	 * @since 1.2.0
-	 * 
+	 *
 	 * @return void
 	 */
 	public function enqueue_assets() {
@@ -332,7 +332,7 @@ class Main {
 		self::add_labels_to_default_settings();
 		$settings = self::get_settings();
 		$stats    = $this->get_stats();
-		
+
 		/**
 		 * Filters whether the chat should be displayed.
 		 *
@@ -395,11 +395,11 @@ class Main {
 
 	/**
 	 * Load assets for option page.
-	 * 
+	 *
 	 * @param string $hook The name of the page hook.
 	 *
 	 * @since 1.4.0
-	 * 
+	 *
 	 * @return void
 	 */
 	public function enqueue_addons_assets( $hook ) {
@@ -448,9 +448,9 @@ class Main {
 
 	/**
 	 * Register the Knowledge Base row action shortcuts for the given post type.
-	 * 
+	 *
 	 * @param string|mixed $post_type The post type.
-	 * 
+	 *
 	 * @return void
 	 */
 	public function register_row_action_filter_shortcut( $post_type ) {
@@ -464,10 +464,10 @@ class Main {
 
 	/**
 	 * Add shortcut via post row actions for adding/removing posts from the Knowledge Base
-	 * 
+	 *
 	 * @param array<string, mixed> $actions The row actions.
 	 * @param \WP_Post             $post The post object.
-	 * 
+	 *
 	 * @return array<string, mixed>
 	 */
 	public function add_to_knowledge_base_row_action( $actions, $post ) {
@@ -475,7 +475,7 @@ class Main {
 			$actions['hyve_knowledge_base_processing'] = __( 'Hyve is processing the post', 'hyve-lite' );
 			return $actions;
 		}
-		
+
 		$label  = __( 'Add to Hyve', 'hyve-lite' );
 		$action = 'add';
 		$class  = '';
@@ -485,7 +485,7 @@ class Main {
 			$action = 'delete';
 			$class  = 'button-link-delete';
 		}
-		
+
 		$actions['add_to_hyve_knowledge_base'] = '<button type="button" data-action="' . $action . '" data-post-id="' . $post->ID . '" class="hyve-row-action-btn button-link ' . $class . '" aria-expanded="false">' . $label . '</button>';
 
 		return $actions;
@@ -495,7 +495,7 @@ class Main {
 	 * Get stats.
 	 *
 	 * @since 1.3.0
-	 * 
+	 *
 	 * @return array<string, mixed>
 	 */
 	public function get_stats() {
@@ -508,7 +508,7 @@ class Main {
 
 	/**
 	 * Check if the Chat is enabled globally on all the pages.
-	 * 
+	 *
 	 * @return boolean True if the chat is enabled.
 	 */
 	public function is_global_chat_enabled() {
@@ -522,13 +522,13 @@ class Main {
 
 	/**
 	 * Update meta.
-	 * 
+	 *
 	 * @param int      $post_id Post ID.
 	 * @param \WP_Post $post Post object.
 	 * @param bool     $update Whether this is an existing post being updated.
 	 *
 	 * @since 1.2.0
-	 * 
+	 *
 	 * @return void
 	 */
 	public function update_meta( $post_id, $post, $update ) {
@@ -555,11 +555,11 @@ class Main {
 
 	/**
 	 * Delete post.
-	 * 
+	 *
 	 * @param int $post_id Post ID.
 	 *
 	 * @since 1.2.0
-	 * 
+	 *
 	 * @return void
 	 */
 	public function delete_post( $post_id ) {
@@ -588,15 +588,13 @@ class Main {
 
 		$config = $configs['default'];
 
-		// translators: %1$s - HTML tag, %2$s - discount, %3$s - HTML tag, %4$s - product name.
-		$message_template = __( 'Our biggest sale of the year: %1$sup to %2$s OFF%3$s on %4$s. Don\'t miss this limited-time offer.', 'hyve-lite' );
-		$product_label    = 'Hyve';
-		$discount         = '70%';
-
-		$product_label = sprintf( '<strong>%s</strong>', $product_label );
-		
-		$config['message']  = sprintf( $message_template, '<strong>', $discount, '</strong>', $product_label );
-		$config['sale_url'] = add_query_arg(
+		// translators: %s - discount.
+		$config['title']     = sprintf( __( 'Hyve Pro: %s off this week', 'hyve-lite' ), '60%' );
+		$config['cta_label'] = __( 'Get Hyve Pro', 'hyve-lite' );
+		$config['message']   = __( 'Chat history, missed question tracking, appearance customization. Make your chatbot actually useful. Exclusively for existing Hyve users.', 'hyve-lite' );
+		// translators: %s is the discount percentage.
+		$config['plugin_meta_message'] = sprintf( __( 'Black Friday Sale - %s off', 'hyve-lite' ), '60%' );
+		$config['sale_url']            = add_query_arg(
 			[
 				'utm_term' => 'free',
 			],
@@ -610,12 +608,12 @@ class Main {
 
 	/**
 	 * Get chart data.
-	 * 
+	 *
 	 * @return array{legend: array{messagesLabel: string, sessionsLabel: string}, data: array{messages: array<int>, sessions: array<int>}, labels: array<string>} The chart data.
 	 */
 	public function get_chart_data() {
 		$data = Threads::get_chart_datasets();
-	
+
 		$labels = array_map(
 			function ( $date ) {
 				return date_i18n(
@@ -642,9 +640,9 @@ class Main {
 
 	/**
 	 * Append services errors if they exists.
-	 * 
+	 *
 	 * @param mixed|array<string, mixed> $options The dashboard options.
-	 * 
+	 *
 	 * @return mixed|array<string, mixed>
 	 */
 	public function append_services_error( $options ) {
@@ -674,7 +672,7 @@ class Main {
 
 	/**
 	 * Get the data for Formbricks survey.
-	 * 
+	 *
 	 * @return array<string, mixed> The survey data.
 	 */
 	public function get_survey_data() {
@@ -686,7 +684,7 @@ class Main {
 
 		$license_status     = apply_filters( 'product_hyve_license_status', 'invalid' );
 		$days_since_install = round( ( time() - min( $install_time_free, $install_time_pro ) ) / DAY_IN_SECONDS );
-		
+
 		$survey_data = [
 			'environmentId' => 'cmbtdc5s8s7pkuk014jwixs7n',
 			'attributes'    => [
@@ -713,7 +711,7 @@ class Main {
 
 	/**
 	 * Get the similarity threshold score for Cosine Similarity.
-	 * 
+	 *
 	 * @return float The threshold.
 	 */
 	public function get_similarity_threshold_score() {
@@ -725,12 +723,12 @@ class Main {
 
 		return 0.4;
 	}
-	
+
 	/**
 	 * Get the plugin usage.
-	 * 
+	 *
 	 * @param mixed $data The data.
-	 * 
+	 *
 	 * @return mixed The plugin data.
 	 */
 	public function plugin_usage( $data ) {
@@ -739,7 +737,7 @@ class Main {
 
 		$settings['api_key']        = ! empty( $settings['api_key'] ) ? 'yes' : 'no';
 		$settings['qdrant_api_key'] = ! empty( $settings['qdrant_api_key'] ) ? 'yes' : 'no';
-		
+
 		if ( isset( $settings['qdrant_endpoint'] ) ) {
 			unset( $settings['qdrant_endpoint'] );
 		}
@@ -752,7 +750,7 @@ class Main {
 
 		$data['settings'] = $settings;
 		$data['stats']    = $this->get_stats();
-		
+
 		return $data;
 	}
 }
