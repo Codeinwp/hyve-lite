@@ -1,6 +1,6 @@
-=== Hyve Lite — Conversational AI Chatbot ===
+=== Hyve Lite – AI Chatbot, ChatGPT-Powered Conversational Support ===
 Contributors: themeisle, hardeepasrani
-Tags: automation, support, chat, ai, openai
+Tags: ai chatbot, conversational ai, chatgpt, customer support, openai
 Requires at least: 6.2
 Tested up to: 6.9
 Requires PHP: 7.4
@@ -8,7 +8,7 @@ Stable tag: 1.3.2
 License: GPLv3
 License URI: https://www.gnu.org/licenses/gpl-3.0.en.html
 
-Hyve is an AI-powered chatbot that transforms your WordPress content into engaging conversations.
+Hyve is an AI-powered WordPress chatbot that transforms your content into engaging conversations. Powered by ChatGPT, with custom knowledge base.
 
 == Description ==
 
