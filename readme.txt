@@ -1,6 +1,6 @@
 === Hyve Lite – AI Chatbot, ChatGPT-Powered Conversational Support ===
 Contributors: themeisle, hardeepasrani
-Tags: ai chatbot, conversational ai, chatgpt, customer support, openai
+Tags: ai chatbot, conversational ai, chatgpt, customer support, connector
 Requires at least: 6.2
 Tested up to: 7.0
 Requires PHP: 7.4
