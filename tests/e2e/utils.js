@@ -3,10 +3,21 @@
  *
  * @param {import("@playwright/test").Page} page The page.
  */
+const HYVE_THREADS_API_ROUTE_PATTERN =
+	/.*(?:rest_route=%2Fhyve%2Fv1%2Fthreads|\/wp-json\/hyve\/v1\/threads).*/;
+const HYVE_CHAT_API_ROUTE_PATTERN =
+	/.*(?:rest_route=%2Fhyve%2Fv1%2Fchat|\/wp-json\/hyve\/v1\/chat).*/;
+
+export const HYVE_DATA_API_ROUTE_PATTERN =
+	/.*(?:rest_route=%2Fhyve%2Fv1%2Fdata|\/wp-json\/hyve\/v1\/data).*/;
+
 export async function mockGetThreadsResponse( page ) {
-	await page.route(
-		/.*rest_route=%2Fhyve%2Fv1%2Fthreads.*offset=0.*/,
-		async ( route ) => {
+	await page.route( HYVE_THREADS_API_ROUTE_PATTERN, async ( route ) => {
+		if ( ! route.request().url().includes( 'offset=0' ) ) {
+			await route.continue();
+			return;
+		}
+
 			await route.fulfill( {
 				status: 200,
 				contentType: 'application/json',
@@ -116,15 +127,17 @@ export async function mockGetThreadsResponse( page ) {
 					more: false,
 				} ),
 			} );
-		}
-	);
+	} );
 }
 
 export async function mockConfirmDeleteThreadResponse( page ) {
-	await page.route(
-		/.*rest_route=%2Fhyve%2Fv1%2Fthreads.*id=\d+.*/,
-		async ( route ) => {
+	await page.route( HYVE_THREADS_API_ROUTE_PATTERN, async ( route ) => {
 			const request = route.request();
+			if ( ! /[?&]id=\d+/.test( request.url() ) ) {
+				await route.continue();
+				return;
+			}
+
 			// Check if this is a DELETE request (via POST with method override)
 			if (
 				request.method() === 'POST' &&
@@ -141,8 +154,7 @@ export async function mockConfirmDeleteThreadResponse( page ) {
 			} else {
 				await route.continue();
 			}
-		}
-	);
+	} );
 }
 
 /**
@@ -162,7 +174,7 @@ export async function mockChatResponse(
 		status = 'completed',
 	} = {}
 ) {
-	await page.route( /.*rest_route=%2Fhyve%2Fv1%2Fchat.*/, async ( route ) => {
+	await page.route( HYVE_CHAT_API_ROUTE_PATTERN, async ( route ) => {
 		await new Promise( ( r ) => setTimeout( r, delay ) );
 		await route.fulfill( {
 			status: 200,
