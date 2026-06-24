@@ -159,30 +159,29 @@ test.describe( 'Dashboard', () => {
 				await route.continue();
 				return;
 			}
-
-				await route.fulfill( {
-					status: 200,
-					contentType: 'application/json',
-					body: JSON.stringify( {
-						posts: [
-							{ ID: 121, title: 'Shop', content: '' },
-							{
-								ID: 123,
-								title: 'Checkout',
-							},
-							{
-								ID: 94,
-								title: 'Portofolio',
-							},
-							{
-								ID: 1,
-								title: 'Hello world!',
-							},
-						],
-						more: false,
-						totalChunks: '4',
-					} ),
-				} );
+			await route.fulfill( {
+				status: 200,
+				contentType: 'application/json',
+				body: JSON.stringify( {
+					posts: [
+						{ ID: 121, title: 'Shop', content: '' },
+						{
+							ID: 123,
+							title: 'Checkout',
+						},
+						{
+							ID: 94,
+							title: 'Portofolio',
+						},
+						{
+							ID: 1,
+							title: 'Hello world!',
+						},
+					],
+					more: false,
+					totalChunks: '4',
+				} ),
+			} );
 		} );
 
 		await page
@@ -235,49 +234,48 @@ test.describe( 'Dashboard', () => {
 				await route.continue();
 				return;
 			}
-
-				await route.fulfill( {
-					status: 200,
-					contentType: 'application/json',
-					body: JSON.stringify( {
-						posts: [
-							{
-								ID: 121,
-								title: 'Shop',
-								content: '',
-								review: {
-									hate: 0.5,
-								},
+			await route.fulfill( {
+				status: 200,
+				contentType: 'application/json',
+				body: JSON.stringify( {
+					posts: [
+						{
+							ID: 121,
+							title: 'Shop',
+							content: '',
+							review: {
+								hate: 0.5,
 							},
-							{
-								ID: 123,
-								title: 'Checkout',
-								content: 'Test checkout content',
-								review: {
-									hate: 0.5,
-								},
+						},
+						{
+							ID: 123,
+							title: 'Checkout',
+							content: 'Test checkout content',
+							review: {
+								hate: 0.5,
 							},
-							{
-								ID: 94,
-								title: 'Portofolio',
-								content: 'Test portfolio content',
-								review: {
-									hate: 0.5,
-								},
+						},
+						{
+							ID: 94,
+							title: 'Portofolio',
+							content: 'Test portfolio content',
+							review: {
+								hate: 0.5,
 							},
-							{
-								ID: 1,
-								title: 'Hello world!',
-								content: 'Test hello world content',
-								review: {
-									hate: 0.5,
-								},
+						},
+						{
+							ID: 1,
+							title: 'Hello world!',
+							content: 'Test hello world content',
+							review: {
+								hate: 0.5,
 							},
-						],
-						more: false,
-						totalChunks: '4',
-					} ),
-				} );
+						},
+					],
+					more: false,
+					totalChunks: '4',
+				} ),
+			} );
 		} );
 
 		await page
