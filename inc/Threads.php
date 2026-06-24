@@ -321,7 +321,7 @@ class Threads {
 		$messages = [];
 		$sessions = [];
 		for ( $i = $days - 1; $i >= 0; $i-- ) {
-			$timestamp = strtotime( "-{$i} days", $current_timestamp );
+			$timestamp  = strtotime( "-{$i} days", $current_timestamp );
 			$date_key   = gmdate( 'Y-m-d', $timestamp );
 			$labels[]   = $date_key;
 			$messages[] = isset( $messages_per_day[ $date_key ] ) ? $messages_per_day[ $date_key ] : 0;
