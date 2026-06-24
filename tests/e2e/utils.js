@@ -5,7 +5,7 @@
  */
 export async function mockGetThreadsResponse( page ) {
 	await page.route(
-		/.*rest_route=%2Fhyve%2Fv1%2Fthreads.*offset=0.*/,
+		/.*(?:rest_route=%2Fhyve%2Fv1%2Fthreads|wp-json\/hyve\/v1\/threads).*(?:offset=0).*/,
 		async ( route ) => {
 			await route.fulfill( {
 				status: 200,
@@ -122,7 +122,7 @@ export async function mockGetThreadsResponse( page ) {
 
 export async function mockConfirmDeleteThreadResponse( page ) {
 	await page.route(
-		/.*rest_route=%2Fhyve%2Fv1%2Fthreads.*id=\d+.*/,
+		/.*(?:rest_route=%2Fhyve%2Fv1%2Fthreads|wp-json\/hyve\/v1\/threads).*(?:id=\d+).*/,
 		async ( route ) => {
 			const request = route.request();
 			// Check if this is a DELETE request (via POST with method override)
@@ -162,16 +162,19 @@ export async function mockChatResponse(
 		status = 'completed',
 	} = {}
 ) {
-	await page.route( /.*rest_route=%2Fhyve%2Fv1%2Fchat.*/, async ( route ) => {
-		await new Promise( ( r ) => setTimeout( r, delay ) );
-		await route.fulfill( {
-			status: 200,
-			contentType: 'application/json',
-			body: JSON.stringify( {
-				status,
-				success: true,
-				message,
-			} ),
-		} );
-	} );
+	await page.route(
+		/.*(?:rest_route=%2Fhyve%2Fv1%2Fchat|wp-json\/hyve\/v1\/chat).*/,
+		async ( route ) => {
+			await new Promise( ( r ) => setTimeout( r, delay ) );
+			await route.fulfill( {
+				status: 200,
+				contentType: 'application/json',
+				body: JSON.stringify( {
+					status,
+					success: true,
+					message,
+				} ),
+			} );
+		}
+	);
 }

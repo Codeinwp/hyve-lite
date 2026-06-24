@@ -153,7 +153,7 @@ test.describe( 'Dashboard', () => {
 		page,
 	} ) => {
 		await page.route(
-			/.*rest_route=%2Fhyve%2Fv1%2Fdata.*offset=0.*status=included.*/,
+			/.*(?:rest_route=%2Fhyve%2Fv1%2Fdata|wp-json\/hyve\/v1\/data).*(?:offset=0).*(?:status=included).*/,
 			async ( route ) => {
 				await route.fulfill( {
 					status: 200,
@@ -223,7 +223,7 @@ test.describe( 'Dashboard', () => {
 		page,
 	} ) => {
 		await page.route(
-			/.*rest_route=%2Fhyve%2Fv1%2Fdata.*offset=0.*status=moderation.*/,
+			/.*(?:rest_route=%2Fhyve%2Fv1%2Fdata|wp-json\/hyve\/v1\/data).*(?:offset=0).*(?:status=moderation).*/,
 			async ( route ) => {
 				await route.fulfill( {
 					status: 200,
