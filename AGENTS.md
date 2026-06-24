@@ -50,7 +50,11 @@ npm run test:playwright:ui      # Interactive UI mode
 # PHP unit tests in wp-env
 npm run env:test:unit
 
-# Standalone PHPUnit
+# Standalone PHPUnit — requires MySQL + the WordPress test suite. Install it once:
+bash bin/install-wp-tests.sh wordpress_test root root 127.0.0.1
+# On macOS the suite installs under $TMPDIR; export WP_TESTS_DIR so the bootstrap
+# finds it (it otherwise defaults to /tmp/wordpress-tests-lib):
+#   export WP_TESTS_DIR="${TMPDIR}wordpress-tests-lib"
 composer run phpunit
 ```
 
