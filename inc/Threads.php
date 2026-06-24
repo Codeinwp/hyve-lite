@@ -189,7 +189,7 @@ class Threads {
 			[
 				'ID'                => $post_id,
 				'post_modified'     => current_time( 'mysql' ),
-				'post_modified_gmt' => current_time( 'mysql', 1 ),
+				'post_modified_gmt' => current_time( 'mysql', true ),
 			]
 		);
 
