@@ -82,6 +82,9 @@ class API extends BaseAPI {
 	 */
 	public function register_routes() {
 		$namespace = $this->get_endpoint();
+		if ( '' === $namespace || '0' === $namespace ) {
+			return;
+		}
 
 		$routes = [
 			'settings' => [

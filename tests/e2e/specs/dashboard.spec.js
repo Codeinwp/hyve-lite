@@ -1,5 +1,6 @@
 import { test, expect } from '@wordpress/e2e-test-utils-playwright';
 import {
+	HYVE_DATA_API_ROUTE_PATTERN,
 	mockConfirmDeleteThreadResponse,
 	mockGetThreadsResponse,
 } from '../utils';
@@ -152,34 +153,36 @@ test.describe( 'Dashboard', () => {
 	test( 'check posts list rendering on Knowledge Base > WordPress Import', async ( {
 		page,
 	} ) => {
-		await page.route(
-			/.*rest_route=%2Fhyve%2Fv1%2Fdata.*offset=0.*status=included.*/,
-			async ( route ) => {
-				await route.fulfill( {
-					status: 200,
-					contentType: 'application/json',
-					body: JSON.stringify( {
-						posts: [
-							{ ID: 121, title: 'Shop', content: '' },
-							{
-								ID: 123,
-								title: 'Checkout',
-							},
-							{
-								ID: 94,
-								title: 'Portofolio',
-							},
-							{
-								ID: 1,
-								title: 'Hello world!',
-							},
-						],
-						more: false,
-						totalChunks: '4',
-					} ),
-				} );
+		await page.route( HYVE_DATA_API_ROUTE_PATTERN, async ( route ) => {
+			const url = route.request().url();
+			if ( ! url.includes( 'offset=0' ) || ! url.includes( 'status=included' ) ) {
+				await route.continue();
+				return;
 			}
-		);
+			await route.fulfill( {
+				status: 200,
+				contentType: 'application/json',
+				body: JSON.stringify( {
+					posts: [
+						{ ID: 121, title: 'Shop', content: '' },
+						{
+							ID: 123,
+							title: 'Checkout',
+						},
+						{
+							ID: 94,
+							title: 'Portofolio',
+						},
+						{
+							ID: 1,
+							title: 'Hello world!',
+						},
+					],
+					more: false,
+					totalChunks: '4',
+				} ),
+			} );
+		} );
 
 		await page
 			.getByRole( 'button', { name: 'Knowledge Base', exact: true } )
@@ -222,53 +225,58 @@ test.describe( 'Dashboard', () => {
 	test( 'check posts list rendering on Knowledge Base > Failed Moderation', async ( {
 		page,
 	} ) => {
-		await page.route(
-			/.*rest_route=%2Fhyve%2Fv1%2Fdata.*offset=0.*status=moderation.*/,
-			async ( route ) => {
-				await route.fulfill( {
-					status: 200,
-					contentType: 'application/json',
-					body: JSON.stringify( {
-						posts: [
-							{
-								ID: 121,
-								title: 'Shop',
-								content: '',
-								review: {
-									hate: 0.5,
-								},
-							},
-							{
-								ID: 123,
-								title: 'Checkout',
-								content: 'Test checkout content',
-								review: {
-									hate: 0.5,
-								},
-							},
-							{
-								ID: 94,
-								title: 'Portofolio',
-								content: 'Test portfolio content',
-								review: {
-									hate: 0.5,
-								},
-							},
-							{
-								ID: 1,
-								title: 'Hello world!',
-								content: 'Test hello world content',
-								review: {
-									hate: 0.5,
-								},
-							},
-						],
-						more: false,
-						totalChunks: '4',
-					} ),
-				} );
+		await page.route( HYVE_DATA_API_ROUTE_PATTERN, async ( route ) => {
+			const url = route.request().url();
+			if (
+				! url.includes( 'offset=0' ) ||
+				! url.includes( 'status=moderation' )
+			) {
+				await route.continue();
+				return;
 			}
-		);
+			await route.fulfill( {
+				status: 200,
+				contentType: 'application/json',
+				body: JSON.stringify( {
+					posts: [
+						{
+							ID: 121,
+							title: 'Shop',
+							content: '',
+							review: {
+								hate: 0.5,
+							},
+						},
+						{
+							ID: 123,
+							title: 'Checkout',
+							content: 'Test checkout content',
+							review: {
+								hate: 0.5,
+							},
+						},
+						{
+							ID: 94,
+							title: 'Portofolio',
+							content: 'Test portfolio content',
+							review: {
+								hate: 0.5,
+							},
+						},
+						{
+							ID: 1,
+							title: 'Hello world!',
+							content: 'Test hello world content',
+							review: {
+								hate: 0.5,
+							},
+						},
+					],
+					more: false,
+					totalChunks: '4',
+				} ),
+			} );
+		} );
 
 		await page
 			.getByRole( 'button', { name: 'Knowledge Base', exact: true } )

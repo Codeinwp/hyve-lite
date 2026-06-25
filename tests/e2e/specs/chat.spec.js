@@ -36,7 +36,8 @@ test.describe( 'Chat', () => {
 
 		// Open chat window
 		await page
-			.getByRole( 'button', { name: '💬' } )
+			.locator( '#hyve-open' )
+			.getByRole( 'button' )
 			.click( { force: true } );
 		await expect( page.locator( '#hyve-window' ) ).toBeVisible();
 		await expect( page.locator( '#hyve-message-box' ) ).toBeVisible();
@@ -70,7 +71,8 @@ test.describe( 'Chat', () => {
 		await mockChatResponse( page );
 
 		await page
-			.getByRole( 'button', { name: '💬' } )
+			.locator( '#hyve-open' )
+			.getByRole( 'button' )
 			.click( { force: true } );
 
 		await page.waitForSelector( '.hyve-bot-message' );
@@ -136,7 +138,8 @@ test.describe( 'Chat', () => {
 		await mockChatResponse( page );
 
 		await page
-			.getByRole( 'button', { name: '💬' } )
+			.locator( '#hyve-open' )
+			.getByRole( 'button' )
 			.click( { force: true } );
 
 		await page.waitForSelector( '.hyve-bot-message' );
@@ -181,7 +184,8 @@ test.describe( 'Chat', () => {
 		} );
 
 		await page
-			.getByRole( 'button', { name: '💬' } )
+			.locator( '#hyve-open' )
+			.getByRole( 'button' )
 			.click( { force: true } );
 
 		await page.waitForSelector( '.hyve-bot-message' );

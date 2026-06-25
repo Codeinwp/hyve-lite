@@ -92,7 +92,6 @@ class DB_Table {
 	public function create_table() {
 		global $wpdb;
 
-		// @phpstan-ignore requireOnce.fileNotFound
 		require_once ABSPATH . 'wp-admin/includes/upgrade.php';
 
 		$sql = 'CREATE TABLE ' . $this->table_name . ' (

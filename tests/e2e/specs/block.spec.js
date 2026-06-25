@@ -24,5 +24,14 @@ test.describe( 'Block Editor', () => {
 				.contentFrame()
 				.getByRole( 'button', { name: 'Click here to add content.' } )
 		).toBeVisible();
+
+		await expect(
+			page
+				.locator( 'iframe[name="editor-canvas"]' )
+				.contentFrame()
+				.getByText(
+					'Hyve Chatbot bubble will appear on this page. No further action needed.'
+				)
+		).toBeVisible();
 	} );
 } );
