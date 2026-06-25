@@ -15,7 +15,7 @@ import { Placeholder, Button, Notice } from '@wordpress/components';
 import metadata from './block.json';
 
 registerBlockType( metadata.name, {
-	edit: () => {
+	edit: ( { attributes } ) => {
 		// eslint-disable-next-line react-hooks/rules-of-hooks
 		const blockProps = useBlockProps();
 
@@ -24,6 +24,18 @@ registerBlockType( metadata.name, {
 		const isBlockIgnored = Boolean(
 			window.hyveChatBlock?.globalChatEnabled
 		);
+		const isFloatingVariant = 'floating' === attributes?.variant;
+		let placeholderText = __(
+			'Hyve Chatbot will appear here. No further action needed.',
+			'hyve-lite'
+		);
+
+		if ( isFloatingVariant ) {
+			placeholderText = __(
+				'Hyve Chatbot bubble will appear on this page. No further action needed.',
+				'hyve-lite'
+			);
+		}
 
 		return (
 			<div { ...blockProps }>
@@ -86,10 +98,7 @@ registerBlockType( metadata.name, {
 							</Button>
 						</div>
 					) : (
-						__(
-							'Hyve Chatbot will appear here. No further action needed.',
-							'hyve-lite'
-						)
+						placeholderText
 					) }
 				</Placeholder>
 			</div>
