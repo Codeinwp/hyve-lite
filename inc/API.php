@@ -520,7 +520,7 @@ class API extends BaseAPI {
 				 */
 				$post_data = [
 					'ID'    => $post_id,
-					'title' => get_the_title( $post_id ),
+					'title' => html_entity_decode( get_the_title( $post_id ), ENT_QUOTES, 'UTF-8' ),
 				];
 
 				if ( 'moderation' === $status ) {
@@ -672,7 +672,7 @@ class API extends BaseAPI {
 
 				$post_data = [
 					'ID'        => $post_id,
-					'title'     => get_the_title( $post_id ),
+					'title'     => html_entity_decode( get_the_title( $post_id ), ENT_QUOTES, 'UTF-8' ),
 					'date'      => get_the_date( 'c', $post_id ),
 					'thread'    => get_post_meta( $post_id, '_hyve_thread_data', true ),
 					'thread_id' => get_post_meta( $post_id, '_hyve_thread_id', true ),
