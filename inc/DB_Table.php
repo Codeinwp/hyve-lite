@@ -73,9 +73,7 @@ class DB_Table {
 		add_action( 'hyve_delete_posts', [ $this, 'delete_posts' ], 10, 1 );
 		add_action( 'hyve_update_posts', [ $this, 'update_posts' ] );
 
-		if ( ! wp_next_scheduled( 'hyve_update_posts' ) ) {
-			wp_schedule_event( time(), 'hourly', 'hyve_update_posts' );
-		}
+		Scheduler::ensure_recurring( 'hyve_update_posts', HOUR_IN_SECONDS, 'hourly' );
 
 		if ( ! $this->table_exists() || version_compare( $this->version, get_option( $this->table_name . '_db_version' ), '>' ) ) {
 			$this->create_table();
@@ -543,7 +541,7 @@ class DB_Table {
 		$embeddings = $openai->create_embeddings( $stripped );
 
 		if ( is_wp_error( $embeddings ) || ! $embeddings ) {
-			wp_schedule_single_event( time() + 60, 'hyve_process_post', [ $id ] );
+			Scheduler::schedule_single( time() + 60, 'hyve_process_post', [ $id ] );
 			return;
 		}
 
@@ -570,7 +568,7 @@ class DB_Table {
 			}
 
 			if ( is_wp_error( $success ) ) {
-				wp_schedule_single_event( time() + 60, 'hyve_process_post', [ $id ] );
+				Scheduler::schedule_single( time() + 60, 'hyve_process_post', [ $id ] );
 				return;
 			}
 		}
@@ -631,7 +629,7 @@ class DB_Table {
 			$this->add_post( $post_id, 'update' );
 		}
 
-		wp_schedule_single_event( time() + 60, 'hyve_update_posts' );
+		Scheduler::schedule_single( time() + 60, 'hyve_update_posts' );
 	}
 
 	/**
@@ -662,7 +660,7 @@ class DB_Table {
 		$has_more = count( $posts ) > 20;
 
 		if ( $has_more ) {
-			wp_schedule_single_event( time() + 10, 'hyve_delete_posts', [ array_slice( $posts, 20 ) ] );
+			Scheduler::schedule_single( time() + 10, 'hyve_delete_posts', [ array_slice( $posts, 20 ) ] );
 		}
 	}
 

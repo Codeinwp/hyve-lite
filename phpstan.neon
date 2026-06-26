@@ -4,5 +4,6 @@ parameters:
 		- %currentWorkingDirectory%/inc
 	bootstrapFiles:
 		- %currentWorkingDirectory%/tests/php/static-analysis-stubs/hyve-lite.php
+		- %currentWorkingDirectory%/tests/php/static-analysis-stubs/action-scheduler.stubs.php
 includes:
 	- %currentWorkingDirectory%/vendor/szepeviktor/phpstan-wordpress/extension.neon

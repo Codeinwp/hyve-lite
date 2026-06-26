@@ -553,7 +553,7 @@ class Main {
 		delete_post_meta( $post_id, '_hyve_moderation_failed' );
 		delete_post_meta( $post_id, '_hyve_moderation_review' );
 
-		wp_schedule_single_event( time(), 'hyve_update_posts' );
+		Scheduler::enqueue_async( 'hyve_update_posts' );
 	}
 
 	/**
