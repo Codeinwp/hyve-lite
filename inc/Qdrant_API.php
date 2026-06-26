@@ -123,7 +123,7 @@ class Qdrant_API {
 				] 
 			);
 
-			wp_schedule_single_event( time(), 'hyve_lite_migrate_data' );
+			Scheduler::enqueue_async( 'hyve_lite_migrate_data' );
 		}
 
 		return true;
@@ -425,7 +425,7 @@ class Qdrant_API {
 		update_option( 'hyve_qdrant_migration', $migration_status );
 
 		if ( $has_more ) {
-			wp_schedule_single_event( time() + 10, 'hyve_lite_migrate_data' );
+			Scheduler::schedule_single( time() + 10, 'hyve_lite_migrate_data' );
 		}
 	}
 

@@ -726,7 +726,7 @@ class API extends BaseAPI {
 		$over_limit = $this->table->get_posts_over_limit();
 
 		if ( ! empty( $over_limit ) ) {
-			wp_schedule_single_event( time(), 'hyve_delete_posts', [ $over_limit ] );
+			Scheduler::enqueue_async( 'hyve_delete_posts', [ $over_limit ] );
 		}
 
 		$this->table->update_storage( 'WordPress', 'Qdrant' );
