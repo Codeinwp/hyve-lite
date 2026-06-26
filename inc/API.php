@@ -212,6 +212,10 @@ class API extends BaseAPI {
 							'required' => false,
 							'type'     => 'string',
 						],
+						'is_test'   => [
+							'required' => false,
+							'type'     => 'boolean',
+						],
 					],
 					'callback'            => [ $this, 'get_chat' ],
 					'permission_callback' => function ( $request ) {
@@ -236,6 +240,10 @@ class API extends BaseAPI {
 								'string',
 								'integer',
 							],
+						],
+						'is_test'   => [
+							'required' => false,
+							'type'     => 'boolean',
 						],
 					],
 					'callback'            => [ $this, 'send_chat' ],
@@ -377,6 +385,24 @@ class API extends BaseAPI {
 							return is_bool( $value );
 					},
 					'sanitize' => 'rest_sanitize_boolean',
+				],
+				'sound_enabled'              => [
+					'validate' => function ( $value ) {
+						return is_bool( $value );
+					},
+					'sanitize' => 'rest_sanitize_boolean',
+				],
+				'show_timestamp'             => [
+					'validate' => function ( $value ) {
+						return is_bool( $value );
+					},
+					'sanitize' => 'rest_sanitize_boolean',
+				],
+				'chat_position'              => [
+					'validate' => function ( $value ) {
+						return in_array( $value, [ 'left', 'right' ], true );
+					},
+					'sanitize' => 'sanitize_text_field',
 				],
 				'telemetry_enabled'          => [
 					'validate' => function ( $value ) {
@@ -800,7 +826,10 @@ class API extends BaseAPI {
 
 		$response = ( isset( $message['success'] ) && true === $message['success'] && isset( $message['response'] ) ) ? $message['response'] : esc_html( $settings['default_message'] );
 
-		do_action( 'hyve_chat_response', $run_id, $thread_id, $query, $record_id, $message, $response );
+		// Skip recording for admin live-preview test chats (see send_chat).
+		if ( ! $request->get_param( 'is_test' ) ) {
+			do_action( 'hyve_chat_response', $run_id, $thread_id, $query, $record_id, $message, $response );
+		}
 
 		return rest_ensure_response(
 			[
@@ -1065,7 +1094,13 @@ class API extends BaseAPI {
 		$hash = hash( 'md5', strtolower( $message ) );
 		set_transient( 'hyve_message_' . $hash, $message_vector, MINUTE_IN_SECONDS );
 
-		$record_id = apply_filters( 'hyve_chat_request', $thread_id, $record_id, $message );
+		// Test chats from the admin live preview are not recorded as threads, so
+		// they never pollute the conversation history or the analytics charts.
+		if ( $request->get_param( 'is_test' ) ) {
+			$record_id = null;
+		} else {
+			$record_id = apply_filters( 'hyve_chat_request', $thread_id, $record_id, $message );
+		}
 
 		return rest_ensure_response(
 			[
