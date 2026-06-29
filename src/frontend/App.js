@@ -281,12 +281,368 @@ class App {
 	}
 
 	async sendRequest( message ) {
+		this.setLoading( true );
+		this.addPreloaderMessage( 'hyve-preloader' );
+
+		// Try real streaming first; fall back to the poll flow when the host
+		// buffers the response or streaming isn't available.
+		if ( this.canStream() ) {
+			const handled = await this.streamRequest( message );
+
+			if ( handled ) {
+				return;
+			}
+		}
+
+		await this.backgroundRequest( message );
+	}
+
+	/**
+	 * Whether progressive streaming should be attempted.
+	 *
+	 * @return {boolean} True when streaming can be attempted.
+	 */
+	canStream() {
+		return (
+			Boolean( window.hyveClient?.ajaxUrl ) &&
+			Boolean( window.hyveClient?.streamNonce ) &&
+			'function' === typeof window.fetch &&
+			'undefined' !== typeof window.AbortController &&
+			'undefined' !== typeof window.TextDecoder &&
+			! this.streamRecentlyUnsupported()
+		);
+	}
+
+	/**
+	 * Whether streaming was marked unsupported within the last 24h.
+	 *
+	 * The flag is time-bounded so a one-off slow start or transient blip can't
+	 * permanently disable streaming for the visitor — it is re-probed after a day.
+	 *
+	 * @return {boolean} True if streaming should be skipped for now.
+	 */
+	streamRecentlyUnsupported() {
 		try {
-			this.setLoading( true );
+			const value = window.localStorage.getItem(
+				'hyve-stream-unsupported'
+			);
 
-			const preloaderId = 'hyve-preloader';
-			this.addPreloaderMessage( preloaderId );
+			if ( ! value ) {
+				return false;
+			}
 
+			const ts = parseInt( value, 10 );
+			const DAY = 24 * 60 * 60 * 1000;
+
+			if ( isNaN( ts ) || Date.now() - ts > DAY ) {
+				window.localStorage.removeItem( 'hyve-stream-unsupported' );
+				return false;
+			}
+
+			return true;
+		} catch ( error ) {
+			return false;
+		}
+	}
+
+	/**
+	 * Remember (with a timestamp) that streaming is unavailable on this host so
+	 * later messages skip straight to the poll flow, re-probing after 24h.
+	 */
+	markStreamUnsupported() {
+		try {
+			window.localStorage.setItem(
+				'hyve-stream-unsupported',
+				String( Date.now() )
+			);
+		} catch ( error ) {}
+	}
+
+	/**
+	 * Parse a single SSE event block into its event name and JSON payload.
+	 *
+	 * @param {string} raw The raw event block (lines between blank lines).
+	 * @return {{event:string,data:any}} Parsed event.
+	 */
+	parseSSE( raw ) {
+		let event = '';
+		const dataLines = [];
+
+		raw.split( '\n' ).forEach( ( line ) => {
+			if ( line.startsWith( 'event:' ) ) {
+				event = line.slice( 6 ).trim();
+			} else if ( line.startsWith( 'data:' ) ) {
+				dataLines.push( line.slice( 5 ).replace( /^ /, '' ) );
+			}
+		} );
+
+		let data = null;
+
+		if ( dataLines.length ) {
+			try {
+				data = JSON.parse( dataLines.join( '\n' ) );
+			} catch ( error ) {
+				data = null;
+			}
+		}
+
+		return { event, data };
+	}
+
+	/**
+	 * Attempt a streamed reply.
+	 *
+	 * @param {string} message The user's message.
+	 * @return {Promise<boolean>} True if the reply was handled (shown or a real
+	 *                            error surfaced); false to fall back to polling.
+	 */
+	async streamRequest( message ) {
+		let token;
+
+		try {
+			const setup = await apiFetch( {
+				path: this.addCacheProtection(
+					`${ window.hyveClient.api }/chat`
+				),
+				method: 'POST',
+				data: {
+					message,
+					mode: 'stream',
+					...( null !== this.threadID
+						? { thread_id: this.threadID }
+						: {} ),
+					...( null !== this.recordID
+						? { record_id: this.recordID }
+						: {} ),
+					...( this.isPreview() ? { is_test: true } : {} ),
+				},
+				headers: this.getDefaultHeaders(),
+			} );
+
+			if ( setup.error ) {
+				// A real content/server error (e.g. flagged) — not a transport
+				// problem, so surface it instead of falling back.
+				this.removeMessage( 'hyve-preloader' );
+				this.add( strings.tryAgain, 'bot' );
+				this.setLoading( false );
+				return true;
+			}
+
+			if ( ! setup.stream_token ) {
+				return false;
+			}
+
+			token = setup.stream_token;
+
+			if ( setup.thread_id && setup.thread_id !== this.threadID ) {
+				this.setThreadID( setup.thread_id );
+			}
+
+			if (
+				undefined !== setup.record_id &&
+				setup.record_id !== this.recordID
+			) {
+				this.setRecordID( setup.record_id );
+			}
+		} catch ( error ) {
+			return false;
+		}
+
+		const url = addQueryArgs( window.hyveClient.ajaxUrl, {
+			action: 'hyve_stream',
+			token,
+			nonce: window.hyveClient.streamNonce,
+		} );
+
+		const controller = new AbortController();
+		const bubbleId = 'hyve-stream';
+
+		let firstEvent = false;
+		let timedOut = false;
+		let started = false;
+		let streamedText = '';
+
+		// Fall back if no real SSE event (delta/done/error) arrives in time. The
+		// ': connected' comment is deliberately NOT counted as content, so a proxy
+		// that forwards the comment but buffers the body is still detected. 8s is
+		// lenient enough for a slow first token; a false trip self-heals after 24h.
+		const watchdog = setTimeout( () => {
+			if ( ! firstEvent ) {
+				timedOut = true;
+				controller.abort();
+			}
+		}, 8000 );
+
+		const renderInto = ( html ) => {
+			const node = document.getElementById(
+				`hyve-message-${ bubbleId }`
+			);
+
+			if ( ! node ) {
+				return;
+			}
+
+			const inner = node.querySelector( 'div' );
+
+			if ( inner ) {
+				inner.innerHTML = html;
+			}
+
+			const box = document.getElementById( 'hyve-message-box' );
+
+			if ( box ) {
+				box.scrollTop = box.scrollHeight;
+			}
+		};
+
+		const ensureBubble = () => {
+			if ( started ) {
+				return;
+			}
+
+			this.removeMessage( 'hyve-preloader' );
+			this.addMessage( new Date(), '', 'bot', bubbleId, false );
+			started = true;
+		};
+
+		try {
+			const response = await fetch( url, {
+				headers: { Accept: 'text/event-stream' },
+				credentials: 'same-origin',
+				signal: controller.signal,
+			} );
+
+			if ( ! response.ok || ! response.body ) {
+				clearTimeout( watchdog );
+				return false;
+			}
+
+			const reader = response.body.getReader();
+			const decoder = new TextDecoder();
+
+			let buffer = '';
+			let finished = false;
+			let reading = true;
+
+			while ( reading ) {
+				const { value, done } = await reader.read();
+
+				if ( done ) {
+					break;
+				}
+
+				buffer += decoder.decode( value, { stream: true } );
+
+				let sep = buffer.indexOf( '\n\n' );
+
+				while ( -1 !== sep ) {
+					const rawEvent = buffer.slice( 0, sep );
+					buffer = buffer.slice( sep + 2 );
+					sep = buffer.indexOf( '\n\n' );
+
+					const { event, data } = this.parseSSE( rawEvent );
+
+					if ( ! event ) {
+						continue;
+					}
+
+					// First real content event: the pipe is flushing, cancel the
+					// fallback watchdog.
+					if ( ! firstEvent ) {
+						firstEvent = true;
+						clearTimeout( watchdog );
+					}
+
+					if ( 'delta' === event ) {
+						ensureBubble();
+						streamedText += data?.text || '';
+						renderInto( streamedText );
+					} else if ( 'done' === event ) {
+						this.finalizeStream( bubbleId, data );
+						finished = true;
+						reading = false;
+						break;
+					} else if ( 'error' === event ) {
+						// Generation failed and the server recorded nothing.
+						// Discard any partial and fall back to the poll flow for a
+						// complete, recorded-once answer.
+						clearTimeout( watchdog );
+						this.removeMessage( bubbleId );
+						this.removeMessage( 'hyve-preloader' );
+						this.addPreloaderMessage( 'hyve-preloader' );
+						return false;
+					}
+				}
+			}
+
+			clearTimeout( watchdog );
+
+			if ( finished ) {
+				return true;
+			}
+
+			// Stream ended without a terminal event.
+			if ( started ) {
+				this.finalizeStream( bubbleId, {
+					success: true,
+					message: streamedText,
+				} );
+				return true;
+			}
+
+			return false;
+		} catch ( error ) {
+			clearTimeout( watchdog );
+
+			if ( started ) {
+				this.finalizeStream( bubbleId, {
+					success: true,
+					message: streamedText,
+				} );
+				return true;
+			}
+
+			if ( timedOut ) {
+				this.markStreamUnsupported();
+			}
+
+			return false;
+		}
+	}
+
+	/**
+	 * Replace the streaming placeholder with the final, authoritative reply.
+	 *
+	 * @param {string} bubbleId The temporary streaming bubble id.
+	 * @param {any}    data     The `done` payload ({ success, message }).
+	 */
+	finalizeStream( bubbleId, data ) {
+		this.removeMessage( 'hyve-preloader' );
+		this.removeMessage( bubbleId );
+
+		// The streamed turn is recorded server-side only once the reply lands,
+		// so adopt the returned record id to keep follow-ups on the same thread.
+		if (
+			undefined !== data?.record_id &&
+			null !== data?.record_id &&
+			data.record_id !== this.recordID
+		) {
+			this.setRecordID( data.record_id );
+		}
+
+		const message = data?.message ?? strings.tryAgain;
+		this.add( message, 'bot' );
+		this.setLoading( false );
+	}
+
+	/**
+	 * Background reply flow: create a run and poll for the answer. This is the
+	 * original, proven path, used as the fallback when streaming is unavailable.
+	 *
+	 * @param {string} message The user's message.
+	 */
+	async backgroundRequest( message ) {
+		try {
 			const response = await apiFetch( {
 				path: this.addCacheProtection(
 					`${ window.hyveClient.api }/chat`
@@ -305,7 +661,7 @@ class App {
 				headers: this.getDefaultHeaders(),
 			} );
 
-			this.removeMessage( preloaderId );
+			this.removeMessage( 'hyve-preloader' );
 
 			if ( response.error ) {
 				this.add( strings.tryAgain, 'bot' );
