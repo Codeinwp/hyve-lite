@@ -158,21 +158,22 @@ class Main {
 				return array_merge(
 					$data,
 					[
-						'api'            => $this->api->get_endpoint(),
-						'rest_url'       => rest_url( $this->api->get_endpoint() ),
-						'postTypes'      => $post_types_for_js,
-						'hasAPIKey'      => isset( $settings['api_key'] ) && ! empty( $settings['api_key'] ),
-						'chunksLimit'    => apply_filters( 'hyve_chunks_limit', 500 ),
-						'isQdrantActive' => Qdrant_API::is_active(),
-						'assets'         => [
+						'api'               => $this->api->get_endpoint(),
+						'rest_url'          => rest_url( $this->api->get_endpoint() ),
+						'postTypes'         => $post_types_for_js,
+						'hasAPIKey'         => isset( $settings['api_key'] ) && ! empty( $settings['api_key'] ),
+						'isApiKeyConnected' => self::is_api_key_connected( $settings ),
+						'chunksLimit'       => apply_filters( 'hyve_chunks_limit', 500 ),
+						'isQdrantActive'    => Qdrant_API::is_active(),
+						'assets'            => [
 							'images' => HYVE_LITE_URL . 'assets/images/',
 						],
-						'stats'          => $this->get_stats(),
-						'docs'           => 'https://docs.themeisle.com/article/2009-hyve-documentation',
-						'qdrant_docs'    => 'https://docs.themeisle.com/article/2066-integrate-hyve-with-qdrant',
-						'pro'            => 'https://themeisle.com/plugins/hyve/',
-						'chart'          => $this->get_chart_data(),
-						'hasPro'         => apply_filters( 'product_hyve_license_status', false ),
+						'stats'             => $this->get_stats(),
+						'docs'              => 'https://docs.themeisle.com/article/2009-hyve-documentation',
+						'qdrant_docs'       => 'https://docs.themeisle.com/article/2066-integrate-hyve-with-qdrant',
+						'pro'               => 'https://themeisle.com/plugins/hyve/',
+						'chart'             => $this->get_chart_data(),
+						'hasPro'            => apply_filters( 'product_hyve_license_status', false ),
 					]
 				);
 			},
@@ -639,6 +640,43 @@ class Main {
 			],
 			'labels' => $labels,
 		];
+	}
+
+	/**
+	 * Determine whether the saved OpenAI API key is connected.
+	 *
+	 * The key is validated against OpenAI whenever it is saved, and any
+	 * key-related failure during use is stored in the error option. The key is
+	 * considered connected when it is set and the last stored error (if any) is
+	 * not one that invalidates the key itself.
+	 *
+	 * @param array<string, mixed> $settings Plugin settings.
+	 *
+	 * @return bool
+	 */
+	public static function is_api_key_connected( $settings ) {
+		if ( empty( $settings['api_key'] ) ) {
+			return false;
+		}
+
+		$last_error = get_option( OpenAI::ERROR_OPTION_KEY, false );
+
+		if ( ! is_array( $last_error ) || empty( $last_error['code'] ) ) {
+			return true;
+		}
+
+		$key_error_codes = [
+			'invalid_api_key',
+			'invalid_authentication',
+			'account_deactivated',
+			'billing_not_active',
+			'organization_not_found',
+			'organization_deactivated',
+			'permission_denied',
+			'insufficient_quota',
+		];
+
+		return ! in_array( $last_error['code'], $key_error_codes, true );
 	}
 
 	/**
