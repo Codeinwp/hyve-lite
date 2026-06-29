@@ -76,7 +76,27 @@ class OpenAI {
 	public function __construct( $api_key = '' ) {
 		$settings         = Main::get_settings();
 		$this->api_key    = ! empty( $api_key ) ? $api_key : ( isset( $settings['api_key'] ) ? $settings['api_key'] : '' );
-		$this->chat_model = isset( $settings['chat_model'] ) ? $settings['chat_model'] : $this->chat_model;
+		$this->chat_model = self::resolve_chat_model( isset( $settings['chat_model'] ) ? $settings['chat_model'] : $this->chat_model );
+	}
+
+	/**
+	 * Resolve the effective chat model.
+	 *
+	 * GPT-3.5 models don't support the structured-output (`json_schema`) response
+	 * format Hyve requires, so they always error. Any stored GPT-3.5 model (no
+	 * longer offered in the UI) falls back to the default so existing sites keep
+	 * working without manual intervention.
+	 *
+	 * @param mixed $model The stored chat model.
+	 *
+	 * @return string The model to use for requests.
+	 */
+	public static function resolve_chat_model( $model ) {
+		if ( ! is_string( $model ) || '' === $model || 0 === strpos( $model, 'gpt-3.5' ) ) {
+			return 'gpt-4o-mini';
+		}
+
+		return $model;
 	}
 
 	/**

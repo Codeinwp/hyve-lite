@@ -347,12 +347,9 @@ test.describe( 'Dashboard', () => {
 			.getByRole( 'button', { name: 'Assistant' } )
 			.click( { force: true } );
 
-		await page
-			.getByRole( 'radio', { name: 'GPT-4.1 nano' } )
-			.click( { force: true } );
-		await expect(
-			page.getByRole( 'radio', { name: 'GPT-4.1 nano' } )
-		).toBeChecked();
+		const modelSelect = page.getByRole( 'combobox', { name: 'Model' } );
+		await modelSelect.selectOption( 'gpt-5.4' );
+		await expect( modelSelect ).toHaveValue( 'gpt-5.4' );
 	} );
 
 	test( 'delete conversation/thread', async ( { page } ) => {
