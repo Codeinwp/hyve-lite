@@ -95,8 +95,6 @@ export const ROUTE_TREE = {
 			appearance: {
 				label: __( 'Appearance', 'hyve-lite' ),
 				component: Appearance,
-				disabled: true,
-				isPro: true,
 			},
 			assistant: {
 				label: __( 'Assistant', 'hyve-lite' ),

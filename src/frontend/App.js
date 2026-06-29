@@ -7,9 +7,12 @@ import apiFetch from '@wordpress/api-fetch';
 
 import { addQueryArgs } from '@wordpress/url';
 
-const clickAudio = new Audio( window.hyveClient.audio.click );
 const pingAudio = new Audio( window.hyveClient.audio.ping );
 const { strings } = window.hyveClient;
+
+// Default assistant avatar, reused by the header and the live preview refresh.
+const ROBOT_AVATAR_SVG =
+	'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 2a2 2 0 0 1 2 2v1h3a3 3 0 0 1 3 3v6a3 3 0 0 1-3 3h-3l-4 3v-3H7a3 3 0 0 1-3-3V8a3 3 0 0 1 3-3h3V4a2 2 0 0 1 2-2Z"/><circle cx="9.5" cy="11.5" r="1" fill="currentColor" stroke="none"/><circle cx="14.5" cy="11.5" r="1" fill="currentColor" stroke="none"/></svg>';
 
 class App {
 	constructor() {
@@ -20,20 +23,33 @@ class App {
 		this.runID = null;
 		this.recordID = null;
 		this.isMenuOpen = false;
+		this.isInline = false;
 
 		if ( Boolean( window.hyveClient?.canShow ) ) {
 			this.initialize();
 		}
 	}
 
-	async initialize() {
+	initialize() {
 		this.restoreStorage();
-		await this.renderUI();
+		this.renderUI();
 		this.setupListeners();
 		this.restoreMessages();
+
+		// The inline block is always visible, so there's no open action to
+		// trigger the greeting — show it on load instead.
+		if ( this.isInline ) {
+			this.maybeShowWelcome();
+		}
 	}
 
 	restoreStorage() {
+		// In the admin live preview we keep the test conversation ephemeral so it
+		// never mixes with the visitor's real saved chat on the same origin.
+		if ( this.isPreview() ) {
+			return;
+		}
+
 		const storageData = window.localStorage.getItem( 'hyve-chat' );
 
 		if ( null === storageData ) {
@@ -94,6 +110,10 @@ class App {
 	}
 
 	updateStorage() {
+		if ( this.isPreview() ) {
+			return;
+		}
+
 		const messages = this.messages
 			.filter( ( message ) => null === message.id )
 			.slice( -20 );
@@ -109,7 +129,7 @@ class App {
 		);
 	}
 
-	add( message, sender, id = null ) {
+	add( message, sender, id = null, sound = true ) {
 		const time = new Date();
 
 		if ( 'user' === sender ) {
@@ -119,7 +139,7 @@ class App {
 		message = this.addTargetBlank( message );
 
 		this.messages.push( { time, message, sender, id } );
-		this.addMessage( time, message, sender, id );
+		this.addMessage( time, message, sender, id, sound );
 
 		this.updateStorage();
 
@@ -206,14 +226,22 @@ class App {
 
 	async getResponse( message ) {
 		try {
+			const query = {
+				thread_id: this.threadID,
+				run_id: this.runID,
+				// In preview there is no thread record, so send 0 to satisfy the
+				// required param; the server skips recording for test chats.
+				record_id: this.recordID ?? 0,
+				message,
+			};
+
+			if ( this.isPreview() ) {
+				query.is_test = 1;
+			}
+
 			const response = await apiFetch( {
 				path: this.addCacheProtection(
-					addQueryArgs( `${ window.hyveClient.api }/chat`, {
-						thread_id: this.threadID,
-						run_id: this.runID,
-						record_id: this.recordID,
-						message,
-					} )
+					addQueryArgs( `${ window.hyveClient.api }/chat`, query )
 				),
 				headers: this.getDefaultHeaders(),
 			} );
@@ -272,6 +300,7 @@ class App {
 					...( null !== this.recordID
 						? { record_id: this.recordID }
 						: {} ),
+					...( this.isPreview() ? { is_test: true } : {} ),
 				},
 				headers: this.getDefaultHeaders(),
 			} );
@@ -294,7 +323,9 @@ class App {
 
 			this.setRunID( response.query_run );
 
-			this.add( strings.typing, 'bot', response.query_run );
+			// Keep the animated typing indicator (not a plain "Typing…" text)
+			// visible while we poll for the answer.
+			this.addPreloaderMessage( response.query_run );
 
 			await this.getResponse( message );
 		} catch ( error ) {
@@ -305,7 +336,101 @@ class App {
 	}
 
 	addAudioPlayback( audioElement ) {
+		if ( ! this.isSoundEnabled() ) {
+			return;
+		}
+
 		audioElement.play();
+	}
+
+	/**
+	 * Whether the visitor has muted the chat sound in this browser.
+	 *
+	 * @return {boolean} True if muted.
+	 */
+	isMuted() {
+		return 'true' === window.localStorage.getItem( 'hyve-sound-muted' );
+	}
+
+	/**
+	 * Whether sound is enabled globally (by the site admin).
+	 *
+	 * `wp_localize_script` casts booleans to strings ('1' for true, '' for
+	 * false), so we treat an empty string or explicit false as disabled and a
+	 * missing value as enabled.
+	 *
+	 * @return {boolean} True if sound is allowed site-wide.
+	 */
+	isGlobalSoundEnabled() {
+		const value = window.hyveClient?.soundEnabled;
+		return false !== value && '' !== value;
+	}
+
+	/**
+	 * Whether sound should play — enabled globally and not muted by the visitor.
+	 *
+	 * @return {boolean} True if sound should play.
+	 */
+	isSoundEnabled() {
+		if ( ! this.isGlobalSoundEnabled() ) {
+			return false;
+		}
+
+		return ! this.isMuted();
+	}
+
+	/**
+	 * Whether message timestamps should be shown.
+	 *
+	 * `wp_localize_script` casts booleans to strings ('1' / ''), so an empty
+	 * string or explicit false hides the timestamp; a missing value shows it.
+	 *
+	 * @return {boolean} True if timestamps should render.
+	 */
+	isTimestampVisible() {
+		const value = window.hyveClient?.showTimestamp;
+		return false !== value && '' !== value;
+	}
+
+	/**
+	 * Whether the widget is running inside the admin Appearance live preview.
+	 *
+	 * @return {boolean} True in preview mode.
+	 */
+	isPreview() {
+		return Boolean( window.hyveClient?.isPreview );
+	}
+
+	/**
+	 * Markup (icon + label) for the sound toggle menu item, reflecting state.
+	 *
+	 * @return {string} The inner HTML for the toggle button.
+	 */
+	soundMenuInner() {
+		const icon = this.isMuted()
+			? '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="16"><path stroke-linecap="round" stroke-linejoin="round" d="M17.25 9.75 19.5 12m0 0 2.25 2.25M19.5 12l2.25-2.25M19.5 12l-2.25 2.25M6.75 8.25l4.72-4.72a.75.75 0 0 1 1.28.53v15.88a.75.75 0 0 1-1.28.53l-4.72-4.72H4.51c-.88 0-1.704-.507-1.938-1.354A9.009 9.009 0 0 1 2.25 12c0-.83.112-1.633.322-2.396C2.806 8.756 3.63 8.25 4.51 8.25H6.75Z" /></svg>'
+			: '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="16"><path stroke-linecap="round" stroke-linejoin="round" d="M19.114 5.636a9 9 0 0 1 0 12.728M16.463 8.288a5.25 5.25 0 0 1 0 7.424M6.75 8.25l4.72-4.72a.75.75 0 0 1 1.28.53v15.88a.75.75 0 0 1-1.28.53l-4.72-4.72H4.51c-.88 0-1.704-.507-1.938-1.354A9.009 9.009 0 0 1 2.25 12c0-.83.112-1.633.322-2.396C2.806 8.756 3.63 8.25 4.51 8.25H6.75Z" /></svg>';
+
+		const label = this.isMuted() ? strings.unmuteSound : strings.muteSound;
+
+		return `${ icon } ${ label }`;
+	}
+
+	/**
+	 * Toggle the per-visitor sound preference and refresh the menu item.
+	 *
+	 * @return {void}
+	 */
+	toggleSound() {
+		window.localStorage.setItem(
+			'hyve-sound-muted',
+			this.isMuted() ? 'false' : 'true'
+		);
+
+		const soundButton = document.getElementById( 'hyve-toggle-sound' );
+		if ( soundButton ) {
+			soundButton.innerHTML = this.soundMenuInner();
+		}
 	}
 
 	addMessage( time, message, sender, id, sound = true ) {
@@ -318,7 +443,7 @@ class App {
 
 		let messageHTML = `<div>${ message }</div>`;
 
-		if ( null === id ) {
+		if ( null === id && this.isTimestampVisible() ) {
 			messageHTML += `<time datetime="${ time }">${ date }</time>`;
 		}
 
@@ -381,7 +506,12 @@ class App {
 		if ( isOpen ) {
 			openButton.style.display = 'none';
 			closeButton.style.display = 'block';
-			chatWindow.style.display = 'block';
+			chatWindow.style.display = 'flex';
+
+			// Trigger the entrance animation on the next frame.
+			window.requestAnimationFrame( () => {
+				chatWindow.classList.add( 'is-open' );
+			} );
 
 			const chatMessageBox =
 				document.getElementById( 'hyve-message-box' );
@@ -392,10 +522,19 @@ class App {
 			openButton.style.display = 'block';
 			closeButton.style.display = 'none';
 			chatWindow.style.display = 'none';
+			chatWindow.classList.remove( 'is-open' );
 		}
 
-		this.addAudioPlayback( clickAudio );
+		this.maybeShowWelcome();
+	}
 
+	/**
+	 * Show the welcome message and suggested questions once, when the chat is
+	 * first shown with no prior conversation.
+	 *
+	 * @return {void}
+	 */
+	maybeShowWelcome() {
 		if (
 			window.hyveClient.welcome &&
 			'' !== window.hyveClient.welcome &&
@@ -551,6 +690,13 @@ class App {
 			} );
 		}
 
+		const soundButton = document.getElementById( 'hyve-toggle-sound' );
+		if ( soundButton ) {
+			soundButton.addEventListener( 'click', () => {
+				this.toggleSound();
+			} );
+		}
+
 		// Close menu when clicking outside
 		document.addEventListener( 'click', ( event ) => {
 			const menu = document.querySelector( '.hyve-menu-dropdown' );
@@ -608,31 +754,48 @@ class App {
 		};
 	}
 
-	async renderUI() {
+	renderUI() {
+		// Whether the widget is anchored to the left side of the screen.
+		const isLeft = 'left' === window.hyveClient?.chatPosition;
+
 		const chatOpenButton = this.createElement( 'button', {
 			className: 'collapsible open',
 			ariaLabel: strings.openChat,
 			ariaExpanded: 'true',
 		} );
 
+		const chatIcon = window.hyveClient?.chatIcon;
 		let useDefaultIcon = true;
-		if ( 'svg' === window.hyveClient?.chatIcon?.type ) {
-			/**
-			 * NOTE: Download the SVG to that we can use the styling via CSS.
-			 */
-			const iconURL =
-				window.hyveClient?.icons?.[
-					window.hyveClient?.chatIcon?.value
-				];
-			if ( iconURL ) {
-				const svg = await this.fetchSVG( iconURL );
-				chatOpenButton.innerHTML = svg;
+
+		if ( 'media' === chatIcon?.type && chatIcon?.url ) {
+			chatOpenButton.appendChild(
+				this.createElement( 'img', {
+					className: 'hyve-icon-img',
+					src: chatIcon.url,
+					alt: '',
+				} )
+			);
+			useDefaultIcon = false;
+		} else if ( 'svg' === chatIcon?.type ) {
+			// SVG markup is inlined server-side so it renders instantly (no fetch).
+			const iconMarkup = window.hyveClient?.icons?.[ chatIcon?.value ];
+			if ( iconMarkup ) {
+				chatOpenButton.innerHTML = iconMarkup;
 				useDefaultIcon = false;
 			}
 		}
 
 		if ( useDefaultIcon ) {
-			chatOpenButton.appendChild( document.createTextNode( '💬' ) );
+			// Default icon: the bundled chat-bubble SVG (matches the option
+			// shown as the default in the admin). Emoji is a last-resort fallback.
+			const defaultIcon =
+				window.hyveClient?.icons?.[ 'chat-bubble-left-ellipsis' ];
+
+			if ( defaultIcon ) {
+				chatOpenButton.innerHTML = defaultIcon;
+			} else {
+				chatOpenButton.appendChild( document.createTextNode( '💬' ) );
+			}
 		}
 
 		const chatOpen = this.createElement(
@@ -640,6 +803,22 @@ class App {
 			{ className: 'hyve-bar-open', id: 'hyve-open' },
 			chatOpenButton
 		);
+
+		if ( isLeft ) {
+			chatOpen.classList.add( 'is-left' );
+		}
+
+		// Adapt the open icon color to the icon background, like the close icon.
+		if ( window.hyveClient.colors?.icon_background ) {
+			chatOpen.classList.add( 'is-dark' );
+		}
+
+		if (
+			! window.hyveClient.colors?.icon_background &&
+			undefined !== window.hyveClient.colors?.icon_background
+		) {
+			chatOpen.classList.add( 'is-light' );
+		}
 
 		const chatCloseButton = this.createElement( 'button', {
 			className: 'collapsible close',
@@ -654,6 +833,10 @@ class App {
 			{ className: 'hyve-bar-close', id: 'hyve-close' },
 			chatCloseButton
 		);
+
+		if ( isLeft ) {
+			chatClose.classList.add( 'is-left' );
+		}
 
 		if ( window.hyveClient.colors?.icon_background ) {
 			chatClose.classList.add( 'is-dark' );
@@ -671,14 +854,56 @@ class App {
 			id: 'hyve-window',
 		} );
 
+		if ( isLeft ) {
+			chatWindow.classList.add( 'is-left' );
+		}
+
 		if ( window.hyveClient.colors?.chat_background ) {
 			chatWindow.classList.add( 'is-dark' );
 		}
 
-		// Create header with menu
+		// Create header with assistant info and menu
 		const chatHeader = this.createElement( 'div', {
 			className: 'hyve-header',
 		} );
+
+		const headerAvatar = this.createElement( 'div', {
+			className: 'hyve-avatar',
+		} );
+
+		if ( 'media' === chatIcon?.type && chatIcon?.url ) {
+			headerAvatar.appendChild(
+				this.createElement( 'img', {
+					className: 'hyve-avatar-img',
+					src: chatIcon.url,
+					alt: '',
+				} )
+			);
+		} else {
+			headerAvatar.innerHTML = ROBOT_AVATAR_SVG;
+		}
+
+		const headerTitle = window.hyveClient.chatName?.trim()
+			? window.hyveClient.chatName.trim()
+			: strings.title ?? '';
+
+		const headerText = this.createElement( 'div', {
+			className: 'hyve-header-text',
+			innerHTML: `<span class="hyve-title">${ this.sanitize(
+				headerTitle
+			) }</span><span class="hyve-status"><span class="hyve-status-dot"></span>${
+				strings.status ?? ''
+			}</span>`,
+		} );
+
+		const headerInfo = this.createElement(
+			'div',
+			{ className: 'hyve-header-info' },
+			headerAvatar,
+			headerText
+		);
+
+		chatHeader.appendChild( headerInfo );
 
 		const menuButtonElement = this.createElement( 'button', {
 			className: 'hyve-menu-button',
@@ -687,9 +912,16 @@ class App {
 				'<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="hyve-menu-icon"><path stroke-linecap="round" stroke-linejoin="round" d="M6.75 12a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0ZM12.75 12a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0ZM18.75 12a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0Z" /></svg>',
 		} );
 
+		const clearItem = `<button id="hyve-clear-conversation" class="hyve-menu-item"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="16"><path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" /></svg> ${ strings.clearConversation }</button>`;
+
+		// Per-visitor sound toggle — only offered when sound is globally enabled.
+		const soundItem = this.isGlobalSoundEnabled()
+			? `<button id="hyve-toggle-sound" class="hyve-menu-item">${ this.soundMenuInner() }</button>`
+			: '';
+
 		const menuDropdown = this.createElement( 'div', {
 			className: 'hyve-menu-dropdown',
-			innerHTML: `<button id="hyve-clear-conversation" class="hyve-menu-item"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="16"><path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" /></svg> ${ strings.clearConversation }</button>`,
+			innerHTML: soundItem + clearItem,
 		} );
 
 		const menuContainer = this.createElement(
@@ -735,6 +967,20 @@ class App {
 		);
 
 		chatWindow.appendChild( chatHeader );
+
+		// In the dashboard test preview, make it obvious this chat is for trying
+		// the assistant and isn't a live/recorded conversation.
+		if ( this.isPreview() && strings.previewNotice ) {
+			const previewNotice = this.createElement( 'div', {
+				className: 'hyve-preview-notice',
+				innerHTML: `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="15" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 0 1 1.063.852l-.708 2.836a.75.75 0 0 0 1.063.853l.041-.021M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9-3.75h.008v.008H12V8.25Z" /></svg><span>${ this.sanitize(
+					strings.previewNotice
+				) }</span>`,
+			} );
+
+			chatWindow.appendChild( previewNotice );
+		}
+
 		chatWindow.appendChild( chatMessageBox );
 		chatWrite.appendChild( chatInputText );
 		chatInputBox.appendChild( chatWrite );
@@ -761,20 +1007,8 @@ class App {
 		const inlineChat = document.querySelector( '#hyve-inline-chat' );
 
 		if ( inlineChat ) {
+			this.isInline = true;
 			inlineChat.appendChild( chatWindow );
-		}
-	}
-
-	async fetchSVG( url ) {
-		let svgBody = '';
-		try {
-			const response = await fetch( url );
-			if ( 200 === response.status ) {
-				svgBody = await response.text();
-			}
-		} catch ( e ) {
-		} finally {
-			return svgBody;
 		}
 	}
 
@@ -803,8 +1037,196 @@ class App {
 				</span>
 			`,
 		} );
+
+		// Match the bot message contrast so the dots stay visible on a dark
+		// assistant background.
+		if ( window.hyveClient.colors?.assistant_background ) {
+			preloaderDiv.classList.add( 'is-dark' );
+		}
+
 		chatMessageBox.appendChild( preloaderDiv );
 		chatMessageBox.scrollTop = chatMessageBox.scrollHeight;
+	}
+
+	/**
+	 * Live-update the widget's appearance from the admin Appearance panel,
+	 * without tearing down the current conversation. Only used in preview mode.
+	 *
+	 * @param {Object}  config                 Appearance values.
+	 * @param {string}  [config.chatName]      Header title.
+	 * @param {Object}  [config.colors]        Hex color values keyed by slug.
+	 * @param {Object}  [config.colorsDark]    is-dark booleans keyed by slug.
+	 * @param {Object}  [config.chatIcon]      Icon descriptor: { type, value, url }.
+	 * @param {string}  [config.chatPosition]  Screen side: 'left' or 'right'.
+	 * @param {boolean} [config.showTimestamp] Whether message timestamps show.
+	 *
+	 * @return {void}
+	 */
+	applyPreviewAppearance( config = {} ) {
+		const {
+			chatName,
+			colors,
+			colorsDark,
+			chatIcon,
+			chatPosition,
+			showTimestamp,
+		} = config;
+
+		// Hex values drive the CSS custom properties the stylesheet reads.
+		if ( colors ) {
+			Object.entries( colors ).forEach( ( [ key, value ] ) => {
+				if ( value ) {
+					document.body.style.setProperty( `--${ key }`, value );
+				}
+			} );
+		}
+
+		// Booleans drive the is-dark/is-light contrast classes.
+		if ( colorsDark ) {
+			window.hyveClient.colors = { ...colorsDark };
+			this.refreshColorClasses();
+		}
+
+		if ( undefined !== chatName ) {
+			window.hyveClient.chatName = chatName;
+			const title = document.querySelector( '#hyve-window .hyve-title' );
+			if ( title ) {
+				title.textContent = chatName.trim()
+					? chatName.trim()
+					: strings.title ?? '';
+			}
+		}
+
+		if ( chatIcon ) {
+			window.hyveClient.chatIcon = chatIcon;
+			this.refreshIcons();
+		}
+
+		if ( undefined !== chatPosition ) {
+			window.hyveClient.chatPosition = chatPosition;
+			const isLeft = 'left' === chatPosition;
+			[ 'hyve-window', 'hyve-open', 'hyve-close' ].forEach( ( id ) => {
+				document
+					.getElementById( id )
+					?.classList.toggle( 'is-left', isLeft );
+			} );
+		}
+
+		if ( undefined !== showTimestamp ) {
+			window.hyveClient.showTimestamp = showTimestamp;
+			// Toggle any already-rendered timestamps; new messages read the flag.
+			document
+				.querySelectorAll( '#hyve-window time' )
+				.forEach( ( element ) => {
+					element.style.display = showTimestamp ? '' : 'none';
+				} );
+		}
+	}
+
+	/**
+	 * Re-apply the is-dark/is-light contrast classes to the rendered widget
+	 * from the cached color booleans. Mirrors the logic in renderUI/addMessage.
+	 *
+	 * @return {void}
+	 */
+	refreshColorClasses() {
+		const colors = window.hyveClient.colors || {};
+
+		const setClasses = ( element, isDark, useLight ) => {
+			if ( ! element ) {
+				return;
+			}
+			element.classList.toggle( 'is-dark', Boolean( isDark ) );
+			if ( useLight ) {
+				element.classList.toggle( 'is-light', ! isDark );
+			}
+		};
+
+		setClasses(
+			document.getElementById( 'hyve-window' ),
+			colors.chat_background,
+			false
+		);
+
+		document
+			.querySelectorAll( '.hyve-bot-message' )
+			.forEach( ( element ) =>
+				setClasses( element, colors.assistant_background, false )
+			);
+
+		document
+			.querySelectorAll( '.hyve-user-message, .hyve-suggestions' )
+			.forEach( ( element ) =>
+				setClasses( element, colors.user_background, true )
+			);
+
+		setClasses(
+			document.getElementById( 'hyve-open' ),
+			colors.icon_background,
+			true
+		);
+		setClasses(
+			document.getElementById( 'hyve-close' ),
+			colors.icon_background,
+			true
+		);
+	}
+
+	/**
+	 * Rebuild the launcher icon and header avatar from the current chat icon.
+	 * Mirrors the icon precedence used in renderUI.
+	 *
+	 * @return {void}
+	 */
+	refreshIcons() {
+		const chatIcon = window.hyveClient?.chatIcon || {};
+		const isMedia = 'media' === chatIcon.type && chatIcon.url;
+
+		const renderInto = ( element, mediaClass, fallback ) => {
+			if ( ! element ) {
+				return;
+			}
+
+			if ( isMedia ) {
+				element.innerHTML = '';
+				element.appendChild(
+					this.createElement( 'img', {
+						className: mediaClass,
+						src: chatIcon.url,
+						alt: '',
+					} )
+				);
+				return;
+			}
+
+			element.innerHTML = fallback();
+		};
+
+		// Launcher button: custom image, selected built-in SVG, or the default.
+		renderInto(
+			document.querySelector( '#hyve-open .collapsible.open' ),
+			'hyve-icon-img',
+			() => {
+				if (
+					'svg' === chatIcon.type &&
+					window.hyveClient?.icons?.[ chatIcon.value ]
+				) {
+					return window.hyveClient.icons[ chatIcon.value ];
+				}
+
+				return (
+					window.hyveClient?.icons?.[ 'chat-bubble-left-ellipsis' ] ||
+					'💬'
+				);
+			}
+		);
+
+		// Header avatar: custom image or the default robot.
+		renderInto(
+			document.querySelector( '#hyve-window .hyve-avatar' ),
+			'hyve-avatar-img',
+			() => ROBOT_AVATAR_SVG
+		);
 	}
 }
 

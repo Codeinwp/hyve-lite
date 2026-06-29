@@ -1,58 +1,110 @@
+/**
+ * Hyve chat widget — frontend styles.
+ *
+ * Theming is driven by CSS custom properties set on <body> by the plugin:
+ *   --icon_background, --chat_background, --user_background, --assistant_background
+ */
+
+$hyve-font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen-Sans,
+	Ubuntu, Cantarell, "Helvetica Neue", sans-serif;
+$hyve-radius: 16px;
+$hyve-bubble-radius: 18px;
+$hyve-shadow: 0 12px 32px rgba(15, 23, 42, 0.16), 0 2px 8px rgba(15, 23, 42, 0.08);
+$hyve-z: 999999;
+
+// Launcher (floating open / close buttons).
 .hyve-bar-open,
 .hyve-bar-close {
 	text-align: center;
 	position: fixed;
-	bottom: 40px;
-	right: 50px;
-	z-index: 9999999;
+	bottom: 24px;
+	right: 24px;
+	z-index: $hyve-z;
 
-	&.is-dark {
-		.close {
-			svg {
-				fill: #fff;
-			}
-		}
-		.open {
-			svg {
-				stroke: #fff;
-			}
-		}
-	}
-
-	&.is-light {
-		.close {
-			svg {
-				fill: #000;
-			}
-		}
-		.open {
-			svg {
-				stroke: #000;
-			}
-		}
+	// Left-anchored variant.
+	&.is-left {
+		right: auto;
+		left: 24px;
 	}
 
 	.open,
 	.close {
+		display: flex;
+		align-items: center;
+		justify-content: center;
 		background-color: var( --icon_background, #1155cc );
-		font-size: 24px;
-		width: 70px;
+		font-size: 26px;
+		line-height: 1;
+		width: 60px;
+		height: 60px;
+		padding: 0;
 		cursor: pointer;
-		height: 70px;
-		padding: 15px;
 		border-radius: 50%;
-		border-style: none;
-		vertical-align: middle;
-		box-shadow: rgb(0 0 0 / 10%) 0px 1px 6px, rgb(0 0 0 / 20%) 0px 2px 24px;
+		border: none;
+		box-shadow: 0 6px 18px rgba(15, 23, 42, 0.22);
+		transition: transform 0.2s ease, box-shadow 0.2s ease;
+		-webkit-appearance: none;
+		appearance: none;
+
+		&:hover {
+			transform: translateY(-2px) scale(1.04);
+			box-shadow: 0 10px 24px rgba(15, 23, 42, 0.28);
+		}
+
+		&:active {
+			transform: scale(0.96);
+		}
+
+		&:focus-visible {
+			outline: 3px solid rgba(17, 85, 204, 0.4);
+			outline-offset: 2px;
+		}
+
+		// The chat-bubble icons are outline (stroke) icons — color the stroke,
+		// not the fill, or the shape floods solid and the inner details vanish.
+		// stroke-width is set here because some bundled SVGs use the JSX-cased
+		// `strokeWidth` attribute, which raw inline SVG ignores.
+		svg {
+			width: 28px;
+			height: 28px;
+			fill: none;
+			stroke: #fff;
+			stroke-width: 1.5;
+		}
+
+		.hyve-icon-img {
+			width: 100%;
+			height: 100%;
+			object-fit: cover;
+			border-radius: 50%;
+		}
 	}
 
-	.close {
-		display: flex;
-		justify-content: center;
-		align-items: center;
+	.close svg {
+		fill: #fff;
+		stroke: none;
+	}
 
-		svg {
+	// Color-scheme overrides for the icon, keyed off the chosen icon background.
+	&.is-dark {
+		.close svg {
 			fill: #fff;
+		}
+
+		.open svg {
+			fill: none;
+			stroke: #fff;
+		}
+	}
+
+	&.is-light {
+		.close svg {
+			fill: #1f2933;
+		}
+
+		.open svg {
+			fill: none;
+			stroke: #1f2933;
 		}
 	}
 }
@@ -61,118 +113,348 @@
 	display: none;
 }
 
+// Inline (shortcode/block) placement: render in-flow, no floating/animation.
 #hyve-inline-chat {
 	.hyve-window {
-		display: block;
+		display: flex;
 		position: relative;
 		bottom: 0;
 		right: 0;
+		width: 100%;
+		max-width: 100%;
+		height: 600px;
+		max-height: none;
+		opacity: 1;
+		transform: none;
 		box-shadow: none;
-		border: 1px solid lightgray;
-		width: auto;
+		border: 1px solid #e5e7eb;
 		z-index: 0;
 	}
 }
 
+// Chat window.
 .hyve-window {
 	display: none;
+	flex-direction: column;
 	box-sizing: border-box;
-	width: 350px;
-	height: 480px;
-	border-radius: 10px;
+	width: 384px;
+	height: min(620px, calc(100vh - 110px));
+	border-radius: $hyve-radius;
 	background-color: var( --chat_background, #ffffff );
-	padding: 16px;
-	padding-top: 5px;
-	z-index: 9999999;
+	overflow: hidden;
+	z-index: $hyve-z;
 	position: fixed;
-	bottom: 120px;
-	right: 54px;
-	box-shadow: rgb(0 0 0 / 10%) 0px 1px 6px, rgb(0 0 0 / 20%) 0px 2px 24px;
+	bottom: 100px;
+	right: 24px;
+	box-shadow: $hyve-shadow;
+	font-family: $hyve-font;
+	-webkit-font-smoothing: antialiased;
 
+	// Left-anchored variant.
+	&.is-left {
+		right: auto;
+		left: 24px;
+	}
+
+	// Entrance animation (floating mode only — toggled via `.is-open`).
+	opacity: 0;
+	transform: translateY(16px) scale(0.98);
+	transform-origin: bottom right;
+	transition: opacity 0.22s ease, transform 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+
+	&.is-open {
+		opacity: 1;
+		transform: translateY(0) scale(1);
+	}
+
+	* {
+		box-sizing: border-box;
+	}
+
+	// ---- Header ----
 	.hyve-header {
-		position: relative;
-		padding: 0 0 10px 0;
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 12px;
+		flex-shrink: 0;
+		padding: 14px 16px;
+		border-bottom: 1px solid rgba(15, 23, 42, 0.08);
+
+		.hyve-header-info {
+			display: flex;
+			align-items: center;
+			gap: 10px;
+			min-width: 0;
+		}
+
+		.hyve-avatar {
+			display: flex;
+			align-items: center;
+			justify-content: center;
+			flex-shrink: 0;
+			width: 38px;
+			height: 38px;
+			border-radius: 50%;
+			background-color: var( --icon_background, #1155cc );
+			color: #fff;
+			overflow: hidden;
+
+			svg {
+				width: 22px;
+				height: 22px;
+			}
+
+			.hyve-avatar-img {
+				width: 100%;
+				height: 100%;
+				object-fit: cover;
+			}
+		}
+
+		.hyve-header-text {
+			display: flex;
+			flex-direction: column;
+			min-width: 0;
+			line-height: 1.3;
+		}
+
+		.hyve-title {
+			font-size: 15px;
+			font-weight: 600;
+			color: #111827;
+			white-space: nowrap;
+			overflow: hidden;
+			text-overflow: ellipsis;
+		}
+
+		.hyve-status {
+			display: flex;
+			align-items: center;
+			gap: 6px;
+			font-size: 12px;
+			color: #6b7280;
+		}
+
+		.hyve-status-dot {
+			width: 8px;
+			height: 8px;
+			border-radius: 50%;
+			background-color: #22c55e;
+			box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.18);
+		}
 
 		.hyve-menu-container {
 			position: relative;
 			display: flex;
-			justify-content: flex-end;
-
-			#hyve-menu-button {
-				margin-right: -13px;
-			}
+			flex-shrink: 0;
 
 			.hyve-menu-button {
 				background: none;
 				border: none;
 				cursor: pointer;
-				border-radius: 4px;
+				border-radius: 8px;
+				width: 34px;
+				height: 34px;
 				display: flex;
 				align-items: center;
 				justify-content: center;
 				transition: background-color 0.2s ease;
 
 				&:hover {
-					background-color: rgba(0, 0, 0, 0.05);
+					background-color: rgba(15, 23, 42, 0.06);
 				}
 
 				.hyve-menu-icon {
-					width: 20px;
-					height: 20px;
-					stroke: #666;
+					width: 22px;
+					height: 22px;
+					stroke: #6b7280;
 				}
 			}
 
 			.hyve-menu-dropdown {
 				position: absolute;
-				top: 100%;
+				top: calc(100% + 6px);
 				right: 0;
-				background: white;
-				border: 1px solid #e0e0e0;
-				border-radius: 6px;
-				box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+				background: var( --chat_background, #ffffff );
+				border: 1px solid rgba(15, 23, 42, 0.12);
+				border-radius: 12px;
+				box-shadow: 0 10px 28px rgba(15, 23, 42, 0.16);
 				display: none;
-				z-index: 1000;
-				min-width: 180px;
-				margin-top: 4px;
+				z-index: 10;
+				min-width: 190px;
+				padding: 6px;
+				overflow: hidden;
 
 				.hyve-menu-item {
 					width: 100%;
-					padding: 12px 16px;
+					padding: 10px 12px;
 					border: none;
 					background: none;
 					text-align: left;
 					cursor: pointer;
 					font-size: 14px;
+					font-family: inherit;
+					border-radius: 8px;
 					display: flex;
 					align-items: center;
-					gap: 8px;
-					color: #333;
-					transition: background-color 0.2s ease;
+					gap: 10px;
+					color: #374151;
+					transition: background-color 0.15s ease;
 
 					&:hover {
-						background-color: #f5f5f5;
+						background-color: rgba(15, 23, 42, 0.06);
 					}
 
-					&:first-child {
-						border-radius: 6px 6px 0 0;
-					}
-
-					&:last-child {
-						border-radius: 0 0 6px 6px;
-					}
-
-					&:only-child {
-						border-radius: 6px;
+					svg {
+						flex-shrink: 0;
+						stroke: currentColor;
+						opacity: 0.7;
 					}
 				}
 			}
 		}
 	}
 
+	// ---- Footer / input ----
+	.hyve-credits {
+		flex-shrink: 0;
+		text-align: center;
+		font-size: 11px;
+		color: #9ca3af;
+		line-height: 1;
+		padding: 0 16px 4px;
+
+		a {
+			text-decoration: none;
+			color: #9ca3af;
+
+			&:hover {
+				color: #6b7280;
+			}
+		}
+	}
+
+	.hyve-input-box {
+		display: flex;
+		align-items: center;
+		flex-shrink: 0;
+		gap: 8px;
+		padding: 12px 16px 16px;
+
+		.hyve-write {
+			flex-grow: 1;
+			display: flex;
+			align-items: center;
+			background-color: rgba(15, 23, 42, 0.05);
+			border: 1px solid transparent;
+			border-radius: 999px;
+			padding: 0 16px;
+			height: 44px;
+			transition: border-color 0.2s ease, background-color 0.2s ease;
+
+			&:focus-within {
+				background-color: var( --chat_background, #ffffff );
+				border-color: var( --icon_background, #1155cc );
+			}
+
+			input[type="text"] {
+				background: transparent;
+				color: #111827;
+				border: none;
+				outline: none;
+				box-shadow: none;
+				font-size: 14px;
+				font-family: inherit;
+				padding: 0;
+				margin: 0;
+				height: 100%;
+				width: 100%;
+
+				&::placeholder {
+					color: #9ca3af;
+				}
+			}
+		}
+
+		.hyve-send-button {
+			flex-shrink: 0;
+
+			button {
+				display: flex;
+				align-items: center;
+				justify-content: center;
+				width: 44px;
+				height: 44px;
+				border: none;
+				border-radius: 50%;
+				background-color: var( --icon_background, #1155cc );
+				cursor: pointer;
+				outline: none;
+				padding: 0;
+				transition: transform 0.15s ease, opacity 0.15s ease, filter 0.15s ease;
+
+				&:hover:not(:disabled) {
+					filter: brightness(1.08);
+					transform: scale(1.05);
+				}
+
+				&:active:not(:disabled) {
+					transform: scale(0.94);
+				}
+
+				&:disabled {
+					opacity: 0.45;
+					cursor: default;
+				}
+
+				svg {
+					fill: #fff;
+					width: 18px;
+					height: 18px;
+					margin-left: 2px;
+				}
+			}
+		}
+	}
+
+	// ---- Preview / test-mode notice ----
+	.hyve-preview-notice {
+		display: flex;
+		align-items: flex-start;
+		gap: 8px;
+		flex-shrink: 0;
+		padding: 9px 16px;
+		font-size: 12px;
+		line-height: 1.4;
+		color: #92400e;
+		background-color: #fef3c7;
+		border-bottom: 1px solid rgba(146, 64, 14, 0.15);
+
+		svg {
+			flex-shrink: 0;
+			margin-top: 1px;
+		}
+	}
+
+	// ---- Dark color-scheme (dark chat background) ----
 	&.is-dark {
+		.hyve-preview-notice {
+			color: #fde68a;
+			background-color: rgba(251, 191, 36, 0.12);
+			border-bottom-color: rgba(251, 191, 36, 0.2);
+		}
+
 		.hyve-header {
-			border-bottom-color: #444;
+			border-bottom-color: rgba(255, 255, 255, 0.1);
+
+			.hyve-title {
+				color: #f9fafb;
+			}
+
+			.hyve-status {
+				color: #cbd5e1;
+			}
 
 			.hyve-menu-container {
 				.hyve-menu-button {
@@ -181,277 +463,187 @@
 					}
 
 					.hyve-menu-icon {
-						stroke: #e5e5e5;
+						stroke: #cbd5e1;
 					}
 				}
 
 				.hyve-menu-dropdown {
-					background: #2a2a2a;
-					border-color: #444;
+					border-color: rgba(255, 255, 255, 0.12);
 
 					.hyve-menu-item {
-						color: #e5e5e5;
+						color: #e5e7eb;
 
 						&:hover {
-							background-color: rgba(255, 255, 255, 0.1);
+							background-color: rgba(255, 255, 255, 0.08);
 						}
 					}
 				}
 			}
 		}
 
-		.hyve-credits {
-			color: #e5e5e5;
-	
-			a {
-				color: #e5e5e5;
-			}
-		}
-
-		.hyve-message-box {
-			.hyve-bot-message,
-			.hyve-user-message {
-				time {
-					color: #e5e5e5;
-				}
-			}
+		.hyve-credits,
+		.hyve-credits a {
+			color: #94a3b8;
 		}
 
 		.hyve-input-box {
 			.hyve-write {
+				background-color: rgba(255, 255, 255, 0.08);
+
 				input[type="text"] {
-					color: #ffffff;
-	
+					color: #f9fafb;
+
 					&::placeholder {
-						color: #e5e5e5;
-					}
-				}
-			}
-
-			.hyve-send-button {
-				button {
-					&:hover,
-					&:focus {
-						svg {
-							fill: #e5e5e5;
-						}
-					}
-
-					&:disabled {
-						fill: #ffffff;
-					}
-
-					svg {
-						fill: #ffffff;
+						color: #94a3b8;
 					}
 				}
 			}
 		}
 
 		.hyve-message-box {
-			.hyve-suggestions {
-				span {
-					color: #ffffff;
-				}
+			.hyve-bot-message time,
+			.hyve-user-message time {
+				color: #94a3b8;
 			}
-		}
-	}
 
-	&.is-light {
-		.hyve-message-box {
-			.hyve-suggestions {
-				span {
-					color: #202020;
-				}
-			}
-		}
-	}
-
-	.hyve-credits {
-		text-align: center;
-		font-size: 10px;
-		color: #202020;
-		line-height: 1;
-
-		a {
-			text-decoration: none;
-			color: #202020;
-		}
-	}
-
-	.hyve-input-box {
-		display: flex;
-		justify-content: space-between;
-		gap: 1rem;
-		position: absolute;
-		font-size: 12px;
-		bottom: 0;
-		left: 0;
-		right: 0;
-		padding: 18px 30px;
-		border-top: 1px solid lightgray;
-
-		.hyve-write {
-			float: left;
-			flex-grow: 100;
-
-			input[type="text"] {
-				background-color: var( --chat_background, #ffffff );
-				color: #202020;
-				border: none;
-				outline: none;
-				box-shadow: none;
-				font-size: 14px;
-				padding: 0;
-				height: 24px;
-				color: #202020;
-				width: 100%;
-
-				&::placeholder {
-					color: #808080;
-				}
-			}
-		}
-
-		.hyve-send-button {
-			float: right;
-			border: none;
-			outline: none;
-
-			button {
-				border: none;
-				background-color: transparent;
-				cursor: pointer;
-				outline: none;
-				padding: 0;
-
-				&:hover,
-				&:focus {
-					svg {
-						fill: #5B5B66;
-					}
-				}
-
-				&:disabled {
-					fill: #808080;
-					cursor: default;
-				}
-
-				svg {
-					fill: #808080;
-					width: 24px;
-					height: 24px;
-				}
+			.hyve-suggestions span {
+				color: #e5e7eb;
 			}
 		}
 	}
 }
 
+// ---- Message list ----
 .hyve-message-box {
-	height: 350px;
+	flex: 1 1 auto;
 	width: 100%;
-	padding-right: 5px;
-	overflow: auto;
+	min-height: 0;
+	padding: 18px 16px 8px;
+	overflow-y: auto;
+	overflow-x: hidden;
 	display: flex;
 	flex-direction: column;
-	position: relative;
+	gap: 12px;
+	scroll-behavior: smooth;
+
+	// Slim, unobtrusive scrollbar.
+	scrollbar-width: thin;
+	scrollbar-color: rgba(15, 23, 42, 0.2) transparent;
+
+	&::-webkit-scrollbar {
+		width: 6px;
+	}
+
+	&::-webkit-scrollbar-thumb {
+		background-color: rgba(15, 23, 42, 0.18);
+		border-radius: 999px;
+	}
+
+	&::-webkit-scrollbar-track {
+		background: transparent;
+	}
 
 	.hyve-user-message,
 	.hyve-bot-message {
 		display: flex;
 		flex-direction: column;
+		max-width: 82%;
+		word-break: break-word;
+		animation: hyve-message-in 0.28s cubic-bezier(0.16, 1, 0.3, 1);
 
-		div {
-			font-size: 13px;
-			padding: 10px;
-			border-radius: 5px;
-			width: 100%;
+		> div {
+			font-size: 14px;
+			line-height: 1.55;
+			padding: 11px 14px;
+			border-radius: $hyve-bubble-radius;
+			width: fit-content;
+			max-width: 100%;
 			overflow-wrap: break-word;
 			margin: 0;
 		}
 
 		p {
-			font-size: 13px;
+			font-size: 14px;
+			line-height: 1.55;
 		}
 
 		h1, h2, h3, h4, h5, h6 {
-			font-size: 13px;
-			margin-bottom: 12px;
+			font-size: 14px;
+			margin-bottom: 10px;
 		}
 
 		ol, ul {
-			padding-left: 12px;
+			padding-left: 18px;
+			margin: 6px 0;
+		}
+
+		a {
+			text-decoration: underline;
 		}
 
 		time {
 			font-size: 10px;
-			padding: 4px;
-			color: #000;
+			padding: 5px 4px 0;
+			color: #9ca3af;
 		}
 	}
 
 	.hyve-user-message {
 		margin-left: auto;
-		max-width: 75%;
-		min-width: 50%;
-		word-break: break-word;
-		margin-top: 14px;
-		margin-bottom: 14px;
-		color: white;
 		align-items: flex-end;
-
-		&.is-dark {
-			color: #ffffff;
-		}
+		color: #fff;
 
 		&.is-light {
-			color: #000000;
+			color: #111827;
 		}
 
-		div {
+		> div {
 			background-color: var( --user_background, #1155cc );
-			justify-content: flex-end;
+			border-bottom-right-radius: 6px;
+		}
+
+		time {
+			text-align: right;
 		}
 	}
 
 	.hyve-bot-message {
 		margin-right: auto;
-		color: #000;
-		max-width: 75%;
-		min-width: 50%;
-		word-break: break-word;
-		margin-top: 14px;
-		margin-bottom: 14px;
-		border-radius: 5px;
 		align-items: flex-start;
+		color: #111827;
 
 		&.is-dark {
-			color: #ffffff;
+			color: #f9fafb;
 		}
 
-		div {
-			background-color: var( --assistant_background, #ecf1fb );
-			justify-content: flex-start;
+		> div {
+			background-color: var( --assistant_background, #eef2ff );
+			border-bottom-left-radius: 6px;
 
 			p {
-				margin: 0px;
-				padding: 0px;
+				margin: 0;
+				padding: 0;
+
+				& + p {
+					margin-top: 8px;
+				}
 			}
 
 			pre {
-				background-color: #282c34;
-				color: #abb2bf;
-				padding: 1em;
-				border-radius: 0;
-				font-family: monospace;
+				background-color: #1e2330;
+				color: #e5e7eb;
+				padding: 12px 14px;
+				border-radius: 10px;
+				font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+				font-size: 12.5px;
 				line-height: 1.5;
 				overflow-x: auto;
 				white-space: pre;
 				word-spacing: normal;
-				margin: 20px -10px;
+				margin: 12px 0;
 
 				* {
-					color: #abb2bf;
+					color: #e5e7eb;
 					word-break: normal;
 					word-wrap: normal;
 				}
@@ -459,90 +651,108 @@
 				::selection {
 					background-color: #3e4451;
 				}
-
-				::before {
-					content: attr(data-content);
-				}
-
-				::before:has(+ :matches(function, const, return, let, var)) {
-					color: #c678dd;
-				}
 			}
 
 			img {
 				max-width: 100%;
 				height: auto;
-				border-radius: 5px;
+				border-radius: 10px;
 				cursor: pointer;
+				margin-top: 6px;
 			}
 
 			code {
-				background: #d0effb;
+				background: rgba(15, 23, 42, 0.08);
 				border-radius: 5px;
 				border: none;
-				padding: 0 3px;
-				color: #333;
+				padding: 1px 5px;
+				font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+				font-size: 12.5px;
+				color: inherit;
+			}
+
+			pre code {
+				background: transparent;
+				padding: 0;
 			}
 		}
 	}
 
+	// Predefined-question chips, shown after the welcome message.
 	.hyve-suggestions {
 		display: flex;
 		flex-wrap: wrap;
-		justify-content: right;
-		position: absolute;
-		bottom: 0;
-		right: 0;
-		padding: 20px 0;
-		gap: 4px;
-
-		&.is-dark {
-			button {
-				background-color: var( --user_background, #1155cc);
-				color: #ffffff;
-			}
-		}
-
-		&.is-light {
-			button {
-				background-color: var( --user_background, #1155cc);
-				color: #202020;
-			}
-		}
+		gap: 8px;
+		margin-top: 2px;
 
 		span {
 			font-size: 12px;
 			font-weight: 500;
 			flex: 0 0 100%;
-			text-align: right;
-			color: #202020;
+			color: #6b7280;
+			margin-bottom: 2px;
 		}
 
+		// Filled with the user color so the label always contrasts with its own
+		// chip background (an outline chip can vanish when the user and chat
+		// colors are similar).
 		button {
-			background: #ecf1fb99;
+			background: var( --user_background, #1155cc );
 			box-shadow: none;
-			border: 0.5px solid rgb(145, 145, 145);
-			padding: 6px 8px;
-			border-radius: 8px;
+			border: 1px solid transparent;
+			color: #fff;
+			padding: 8px 14px;
+			border-radius: 999px;
 			cursor: pointer;
 			font-size: 13px;
+			font-family: inherit;
 			text-transform: none;
 			font-weight: 500;
 			text-align: left;
-			line-height: 1.5;
+			line-height: 1.4;
 			white-space: normal;
+			transition: filter 0.15s ease, transform 0.1s ease;
+
+			&:hover {
+				filter: brightness(1.08);
+			}
+
+			&:active {
+				transform: scale(0.97);
+			}
+		}
+
+		// Light user color → dark label (and a hairline to define the chip).
+		&.is-light button {
+			color: #111827;
+			border-color: rgba(15, 23, 42, 0.12);
 		}
 	}
 
-	.hyve-preloader-dots {
-		display: inline-block;
-		color: var( --user_background, #ecf1fb );
+	// Typing indicator.
+	.hyve-preloader {
+		.hyve-preloader-dots {
+			background-color: var( --assistant_background, #eef2ff );
+			border-radius: $hyve-bubble-radius;
+			border-bottom-left-radius: 6px;
+			padding: 14px 16px;
+			display: inline-flex;
+			align-items: center;
+			gap: 5px;
+			width: fit-content;
+		}
 
-		span {
-			animation: hyve-bounce 1.4s infinite both;
-			display: inline-block;
-			font-size: 2.5em;
+		// Dots inherit the bot-message text color (which flips for a dark
+		// assistant background), so they always contrast with the bubble.
+		.hyve-preloader-dots span {
+			width: 7px;
+			height: 7px;
+			border-radius: 50%;
+			background-color: currentColor;
+			opacity: 0.5;
+			font-size: 0;
 			line-height: 0;
+			animation: hyve-bounce 1.4s infinite both;
 
 			&:nth-child(2) {
 				animation-delay: 0.2s;
@@ -564,25 +774,48 @@
 }
 
 @keyframes hyve-bounce {
-    0%, 80%, 100% { transform: scale(1); opacity: 0.5; }
-    40% { transform: scale(1.3); opacity: 1; }
+	0%, 80%, 100% { transform: translateY(0); opacity: 0.4; }
+	40% { transform: translateY(-5px); opacity: 1; }
 }
 
-@media screen and (max-width: 396px) {
+@keyframes hyve-message-in {
+	from { opacity: 0; transform: translateY(8px); }
+	to { opacity: 1; transform: translateY(0); }
+}
+
+// Respect users who prefer reduced motion.
+@media (prefers-reduced-motion: reduce) {
+	.hyve-window,
+	.hyve-window.is-open,
+	.hyve-message-box .hyve-user-message,
+	.hyve-message-box .hyve-bot-message,
+	.hyve-bar-open .open,
+	.hyve-bar-close .close {
+		transition: none;
+		animation: none;
+		transform: none;
+	}
+}
+
+@media screen and (max-width: 480px) {
 	.hyve-bar-open,
 	.hyve-bar-close {
-		bottom: 20px;
-		right: 21px;
+		bottom: 18px;
+		right: 18px;
 
-		&.hyve-bar-close {
-			bottom: 21px;
-			right: 25px;
+		&.is-left {
+			right: auto;
+			left: 18px;
 		}
 	}
 
-	.hyve-window {
-		right: 14px;
-		bottom: 87px;
-		width: 80%
+	// Full-width on small screens regardless of the chosen side.
+	.hyve-window,
+	.hyve-window.is-left {
+		right: 12px;
+		left: 12px;
+		bottom: 90px;
+		width: auto;
+		height: min(70vh, calc(100vh - 110px));
 	}
 }
