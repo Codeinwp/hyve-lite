@@ -12,6 +12,7 @@ use ThemeIsle\HyveLite\Block;
 use ThemeIsle\HyveLite\Threads;
 use ThemeIsle\HyveLite\API;
 use ThemeIsle\HyveLite\Qdrant_API;
+use ThemeIsle\HyveLite\Stream;
 
 /**
  * Class Main
@@ -52,6 +53,7 @@ class Main {
 
 		new Block();
 		new Threads();
+		new Stream();
 
 		add_action( 'admin_menu', [ $this, 'register_menu_page' ] );
 		add_action( 'save_post', [ $this, 'update_meta' ], 10, 3 );
@@ -447,6 +449,8 @@ class Main {
 			'hyve_frontend_data',
 			[
 				'api'           => $this->api->get_endpoint(),
+				'ajaxUrl'       => admin_url( 'admin-ajax.php' ),
+				'streamNonce'   => wp_create_nonce( Stream::NONCE_ACTION ),
 				'audio'         => [
 					'ping' => HYVE_LITE_URL . 'assets/audio/ping.mp3',
 				],
