@@ -1,7 +1,7 @@
 /**
  * WordPress dependencies.
  */
-import { __ } from '@wordpress/i18n';
+import { __, sprintf } from '@wordpress/i18n';
 
 import { Button, Spinner } from '@wordpress/components';
 
@@ -38,6 +38,19 @@ export const PostsTable = ( {
 								<span className="max-w-full text-ellipsis overflow-hidden">
 									{ post.title }
 								</span>
+
+								{ post.error && (
+									<span className="block mt-1 text-xs text-yellow-800">
+										{ sprintf(
+											// translators: %s: the reason indexing failed, including whether it will be retried.
+											__(
+												'Indexing failed: %s',
+												'hyve-lite'
+											),
+											post.error
+										) }
+									</span>
+								) }
 							</div>
 
 							<div className="text-center flex gap-4">

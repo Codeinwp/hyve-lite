@@ -656,12 +656,20 @@ class Main {
 		$errors = [];
 
 		$open_ai_last_error = get_option( OpenAI::ERROR_OPTION_KEY, false );
-		if ( is_array( $open_ai_last_error ) ) {
+		if ( is_array( $open_ai_last_error ) && $this->is_recent_error( $open_ai_last_error ) ) {
+			if ( ! empty( $open_ai_last_error['code'] ) ) {
+				$friendly_message = OpenAI::get_error_message_for_code( $open_ai_last_error['code'] );
+
+				if ( null !== $friendly_message ) {
+					$open_ai_last_error['message'] = $friendly_message;
+				}
+			}
+
 			$errors[] = $open_ai_last_error;
 		}
 
 		$qdrant_last_error = get_option( Qdrant_API::ERROR_OPTION_KEY, false );
-		if ( is_array( $qdrant_last_error ) ) {
+		if ( is_array( $qdrant_last_error ) && $this->is_recent_error( $qdrant_last_error ) ) {
 			$qdrant_last_error['message'] = __( 'Invalid credentials.', 'hyve-lite' ) . ' ' . __( 'Please check your API key and endpoint URL.', 'hyve-lite' );
 			$errors[]                     = $qdrant_last_error;
 		}
@@ -671,6 +679,31 @@ class Main {
 		}
 
 		return $options;
+	}
+
+	/**
+	 * Whether a saved service error is recent enough to surface to the admin.
+	 *
+	 * A successful request already clears the saved error, so this only guards
+	 * against a stale failure lingering on a site with no traffic since: we only
+	 * show errors from the last 24 hours that still have no subsequent success.
+	 *
+	 * @param array<string, mixed> $error The saved error.
+	 *
+	 * @return bool
+	 */
+	private function is_recent_error( $error ) {
+		if ( empty( $error['date'] ) ) {
+			return false;
+		}
+
+		$timestamp = strtotime( $error['date'] );
+
+		if ( false === $timestamp ) {
+			return false;
+		}
+
+		return $timestamp >= ( time() - DAY_IN_SECONDS );
 	}
 
 	/**

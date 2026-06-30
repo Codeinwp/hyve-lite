@@ -41,6 +41,14 @@ class DB_Table {
 	const CACHE_PREFIX = 'hyve-';
 
 	/**
+	 * Maximum number of times a chunk is retried after a transient failure
+	 * before it is marked failed. See Codeinwp/hyve#199.
+	 *
+	 * @var int
+	 */
+	const MAX_PROCESS_ATTEMPTS = 5;
+
+	/**
 	 * The single instance of the class.
 	 *
 	 * @var DB_Table
@@ -543,7 +551,11 @@ class DB_Table {
 		$embeddings = $openai->create_embeddings( $stripped );
 
 		if ( is_wp_error( $embeddings ) || ! $embeddings ) {
-			wp_schedule_single_event( time() + 60, 'hyve_process_post', [ $id ] );
+			$error = is_wp_error( $embeddings )
+				? $embeddings
+				: new \WP_Error( 'unknown_error', __( 'An unexpected error occurred while indexing this content.', 'hyve-lite' ) );
+
+			$this->handle_processing_failure( $id, (int) $post->post_id, $error );
 			return;
 		}
 
@@ -570,7 +582,7 @@ class DB_Table {
 			}
 
 			if ( is_wp_error( $success ) ) {
-				wp_schedule_single_event( time() + 60, 'hyve_process_post', [ $id ] );
+				$this->handle_processing_failure( $id, (int) $post->post_id, $success );
 				return;
 			}
 		}
@@ -583,8 +595,80 @@ class DB_Table {
 				'embeddings'  => $embeddings,
 				'post_status' => 'processed',
 				'storage'     => $storage,
-			] 
+			]
 		);
+
+		// Processing succeeded; clear any error and retry counter from a previous attempt.
+		delete_post_meta( (int) $post->post_id, '_hyve_processing_error' );
+		delete_transient( self::CACHE_PREFIX . 'process_attempts_' . $id );
+	}
+
+	/**
+	 * Handle a failed processing attempt.
+	 *
+	 * Fatal errors (bad key, no credits, billing) will not resolve by retrying,
+	 * so they stop immediately and the entry is marked failed. Transient errors
+	 * (rate limits, network blips) are retried with a linear backoff up to
+	 * MAX_PROCESS_ATTEMPTS, then also marked failed. Either way the reason is
+	 * recorded for the Knowledge Base UI. See Codeinwp/hyve#199.
+	 *
+	 * @since 1.4.0
+	 *
+	 * @param int       $id      The chunk row ID.
+	 * @param int       $post_id The source post ID.
+	 * @param \WP_Error $error   The error encountered while processing.
+	 *
+	 * @return void
+	 */
+	private function handle_processing_failure( $id, $post_id, $error ) {
+		$transient  = self::CACHE_PREFIX . 'process_attempts_' . $id;
+		$attempts   = (int) get_transient( $transient ) + 1;
+		$is_fatal   = OpenAI::is_fatal_error_code( $error->get_error_code() );
+		$will_retry = ! $is_fatal && $attempts < self::MAX_PROCESS_ATTEMPTS;
+
+		$this->record_processing_error( $post_id, $error, $will_retry );
+
+		if ( $will_retry ) {
+			set_transient( $transient, $attempts, DAY_IN_SECONDS );
+			wp_schedule_single_event( time() + ( MINUTE_IN_SECONDS * $attempts ), 'hyve_process_post', [ $id ] );
+			return;
+		}
+
+		// Terminal: stop retrying and mark the chunk failed.
+		delete_transient( $transient );
+		$this->update( $id, [ 'post_status' => 'failed' ] );
+	}
+
+	/**
+	 * Record a processing error against the source post so it can be surfaced
+	 * in the Knowledge Base UI instead of failing silently. The stored message
+	 * includes whether the entry will be retried or needs the admin to act.
+	 * See Codeinwp/hyve#199.
+	 *
+	 * @since 1.4.0
+	 *
+	 * @param int       $post_id    The source post ID.
+	 * @param \WP_Error $error      The error encountered while processing.
+	 * @param bool      $will_retry Whether another attempt is scheduled.
+	 *
+	 * @return void
+	 */
+	private function record_processing_error( $post_id, $error, $will_retry ) {
+		if ( empty( $post_id ) ) {
+			return;
+		}
+
+		$message = OpenAI::get_error_message_for_code( $error->get_error_code() );
+
+		if ( null === $message ) {
+			$message = $error->get_error_message();
+		}
+
+		$suffix = $will_retry
+			? __( 'It will be retried automatically.', 'hyve-lite' )
+			: __( 'Please fix the problem and re-add this content.', 'hyve-lite' );
+
+		update_post_meta( $post_id, '_hyve_processing_error', $message . ' ' . $suffix );
 	}
 
 	/**

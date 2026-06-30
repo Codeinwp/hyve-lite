@@ -51,10 +51,17 @@ const Advanced = () => {
 				setHasAPI( false );
 			}
 
-			createNotice( 'success', __( 'Settings saved.', 'hyve-lite' ), {
-				type: 'snackbar',
-				isDismissible: true,
-			} );
+			if ( response.warning ) {
+				createNotice( 'warning', response.warning, {
+					type: 'snackbar',
+					isDismissible: true,
+				} );
+			} else {
+				createNotice( 'success', __( 'Settings saved.', 'hyve-lite' ), {
+					type: 'snackbar',
+					isDismissible: true,
+				} );
+			}
 		} catch ( error ) {
 			createNotice( 'error', error, {
 				type: 'snackbar',
