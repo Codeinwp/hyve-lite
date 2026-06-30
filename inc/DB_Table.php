@@ -401,7 +401,7 @@ class DB_Table {
 
 		global $wpdb;
 		$post = $wpdb->get_row( $wpdb->prepare( 'SELECT post_title, post_content FROM %i WHERE id = %d', $this->table_name, $id ), ARRAY_A );
-		
+
 		if ( empty( $post ) ) {
 			return null;
 		}
@@ -409,6 +409,21 @@ class DB_Table {
 		$this->set_cache( $cache_key, $post );
 
 		return $post;
+	}
+
+	/**
+	 * Get the source post ID for a chunk row.
+	 *
+	 * @since 1.4.2
+	 *
+	 * @param int $id Row ID in the table.
+	 *
+	 * @return string|null Source post ID, or null if the row does not exist.
+	 */
+	public function get_post_id( $id ) {
+		global $wpdb;
+
+		return $wpdb->get_var( $wpdb->prepare( 'SELECT post_id FROM %i WHERE id = %d', $this->table_name, $id ) );
 	}
 
 	/**
