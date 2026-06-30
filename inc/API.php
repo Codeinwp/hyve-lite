@@ -434,6 +434,29 @@ class API extends BaseAPI {
 	}
 
 	/**
+	 * Get the visibility of a post for the Knowledge Base UI.
+	 *
+	 * Content added to the Knowledge Base is surfaced to any chat visitor
+	 * regardless of the post's original visibility, so the admin UI flags
+	 * restricted content.
+	 *
+	 * @param int $post_id Post ID.
+	 *
+	 * @return string One of 'public', 'private' or 'password'.
+	 */
+	private function get_post_visibility( $post_id ) {
+		if ( 'private' === get_post_status( $post_id ) ) {
+			return 'private';
+		}
+
+		if ( '' !== get_post_field( 'post_password', $post_id ) ) {
+			return 'password';
+		}
+
+		return 'public';
+	}
+
+	/**
 	 * Get data.
 	 *
 	 * @param \WP_REST_Request<array<string, mixed>> $request Request object.
@@ -443,7 +466,7 @@ class API extends BaseAPI {
 	public function get_data( $request ) {
 		$args = [
 			'post_type'      => $request->get_param( 'type' ),
-			'post_status'    => 'publish',
+			'post_status'    => [ 'publish', 'private' ],
 			'posts_per_page' => 20,
 			'fields'         => 'ids',
 			'offset'         => $request->get_param( 'offset' ),
@@ -519,8 +542,9 @@ class API extends BaseAPI {
 				 * @var int $post_id
 				 */
 				$post_data = [
-					'ID'    => $post_id,
-					'title' => get_the_title( $post_id ),
+					'ID'         => $post_id,
+					'title'      => get_the_title( $post_id ),
+					'visibility' => $this->get_post_visibility( $post_id ),
 				];
 
 				if ( 'moderation' === $status ) {
