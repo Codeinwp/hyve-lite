@@ -26,6 +26,15 @@ class API extends BaseAPI {
 	private static $instance = null;
 
 	/**
+	 * Post ID of the top-scoring source from the last knowledge base search.
+	 *
+	 * Used to optionally append a source link to the chat response.
+	 *
+	 * @var int|string|null
+	 */
+	private $source_post_id = null;
+
+	/**
 	 * Ensures only one instance of the class is loaded.
 	 *
 	 * @return API An instance of the class.
@@ -375,6 +384,12 @@ class API extends BaseAPI {
 				'post_row_addon_enabled'     => [
 					'validate' => function ( $value ) {
 							return is_bool( $value );
+					},
+					'sanitize' => 'rest_sanitize_boolean',
+				],
+				'show_source_link'           => [
+					'validate' => function ( $value ) {
+						return is_bool( $value );
 					},
 					'sanitize' => 'rest_sanitize_boolean',
 				],
@@ -824,6 +839,10 @@ class API extends BaseAPI {
 
 		$response = ( isset( $message['success'] ) && true === $message['success'] && isset( $message['response'] ) ) ? $message['response'] : esc_html( $settings['default_message'] );
 
+		if ( isset( $message['success'] ) && true === $message['success'] && ! empty( $settings['show_source_link'] ) ) {
+			$response = $this->append_source_link( $response, $run_id );
+		}
+
 		do_action( 'hyve_chat_response', $run_id, $thread_id, $query, $record_id, $message, $response );
 
 		return rest_ensure_response(
@@ -854,6 +873,8 @@ class API extends BaseAPI {
 			return $articles_embedded_data;
 		}
 
+		$top_score = -1.0;
+
 		foreach ( $knowledge_points as $point ) {
 			if ( empty( $point['post_title'] ) || empty( $point['post_content'] ) || empty( $point['token_count'] ) ) {
 				continue;
@@ -863,6 +884,11 @@ class API extends BaseAPI {
 
 			if ( $tokens_threshold <= ( $current_token_count + $tokens_count ) ) {
 				continue;
+			}
+
+			if ( isset( $point['post_id'], $point['score'] ) && $point['score'] > $top_score ) {
+				$top_score            = $point['score'];
+				$this->source_post_id = $point['post_id'];
 			}
 
 			$articles_embedded_data .= "\n ===START POST=== " . $point['post_title'] . ' - ' . $point['post_content'] . ' ===END POST===';
@@ -960,13 +986,25 @@ class API extends BaseAPI {
 			return $articles_embedded_data;
 		}
 
+		$top_score   = -1.0;
+		$top_row_id  = null;
+
 		foreach ( $matched_articles as $article ) {
 			$article_data = $this->table->get_post_data( $article['id'] );
 			if ( empty( $article_data ) ) {
 				continue;
 			}
 
+			if ( $article['score'] > $top_score ) {
+				$top_score  = $article['score'];
+				$top_row_id = $article['id'];
+			}
+
 			$articles_embedded_data .= "\n ===START POST=== " . $article_data['post_title'] . ' - ' . $article_data['post_content'] . ' ===END POST===';
+		}
+
+		if ( null !== $top_row_id ) {
+			$this->source_post_id = $this->table->get_post_id( $top_row_id );
 		}
 
 		return $articles_embedded_data;
@@ -982,11 +1020,99 @@ class API extends BaseAPI {
 	 * @return string The articles blob data that match the given message vector.
 	 */
 	public function search_knowledge_base( $message_vector, $similarity_score_threshold = 0.4, $tokens_threshold = 2000 ) {
+		$this->source_post_id = null;
+
 		if ( Qdrant_API::is_active() ) {
 			return $this->search_knowledge_base_qdrant( $message_vector, $similarity_score_threshold, $tokens_threshold );
 		}
 
 		return $this->search_knowledge_base_wp( $message_vector, $similarity_score_threshold, $tokens_threshold );
+	}
+
+	/**
+	 * Resolve a public source link for a knowledge base source post.
+	 *
+	 * Returns a link only for publicly accessible content. Regular WordPress
+	 * posts are linked when their visibility is public; other source types
+	 * (e.g. the pro plugin's website links or custom data) are handled through
+	 * the `hyve_chat_source_link` filter.
+	 *
+	 * @since 1.4.2
+	 *
+	 * @param int|string $post_id Source post ID.
+	 *
+	 * @return string Public URL, or empty string when no link should be shown.
+	 */
+	private function resolve_source_link( $post_id ) {
+		$default = '';
+
+		if (
+			'public' === $this->get_post_visibility( $post_id ) &&
+			is_post_type_viewable( get_post_type( $post_id ) )
+		) {
+			$permalink = get_permalink( $post_id );
+			$default   = $permalink ? $permalink : '';
+		}
+
+		/**
+		 * Filters the public source link appended to a chat answer.
+		 *
+		 * Return an empty string to omit the link (for content that is not
+		 * publicly accessible, such as custom data). The pro plugin uses this
+		 * to resolve website-URL sources and to suppress links for custom data.
+		 *
+		 * @since 1.4.2
+		 *
+		 * @param string     $default The default resolved URL (empty for non-public content).
+		 * @param int|string $post_id The source post ID.
+		 */
+		$url = apply_filters( 'hyve_chat_source_link', $default, $post_id );
+
+		return ! empty( $url ) ? esc_url_raw( $url ) : '';
+	}
+
+	/**
+	 * Append a "Answer provided based on" source link to a chat response.
+	 *
+	 * @since 1.4.2
+	 *
+	 * @param string $response The chat response HTML.
+	 * @param string $run_id   The run ID used to look up the stored source.
+	 *
+	 * @return string The response, with the source link appended when available.
+	 */
+	private function append_source_link( $response, $run_id ) {
+		$transient_key = 'hyve_source_' . $run_id;
+		$post_id       = get_transient( $transient_key );
+		delete_transient( $transient_key );
+
+		if ( empty( $post_id ) ) {
+			return $response;
+		}
+
+		$url = $this->resolve_source_link( $post_id );
+
+		if ( empty( $url ) ) {
+			return $response;
+		}
+
+		$title = get_the_title( $post_id );
+		$title = ! empty( $title ) ? $title : $url;
+
+		$icon = '<svg class="hyve-source__icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>';
+
+		/* translators: %s is the source page title. */
+		$label = sprintf( __( 'Answer provided based on: %s', 'hyve-lite' ), $title );
+
+		$link = sprintf(
+			'<a class="hyve-source__link" href="%1$s" target="_blank" rel="noopener noreferrer" aria-label="%2$s">%3$s<span class="hyve-source__label">%4$s</span></a>',
+			esc_url( $url ),
+			esc_attr( $label ),
+			$icon,
+			esc_html( $label )
+		);
+
+		return $response . '<div class="hyve-source">' . $link . '</div>';
 	}
 
 	/**
@@ -1088,6 +1214,10 @@ class API extends BaseAPI {
 
 		$hash = hash( 'md5', strtolower( $message ) );
 		set_transient( 'hyve_message_' . $hash, $message_vector, MINUTE_IN_SECONDS );
+
+		if ( ! empty( $this->source_post_id ) && is_string( $query_run ) ) {
+			set_transient( 'hyve_source_' . $query_run, $this->source_post_id, HOUR_IN_SECONDS );
+		}
 
 		$record_id = apply_filters( 'hyve_chat_request', $thread_id, $record_id, $message );
 

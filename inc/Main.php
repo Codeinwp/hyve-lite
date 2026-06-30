@@ -253,6 +253,7 @@ class Main {
 				'default_message'            => '',
 				'similarity_score_threshold' => 0.4,
 				'post_row_addon_enabled'     => true,
+				'show_source_link'           => false,
 			]
 		);
 	}
