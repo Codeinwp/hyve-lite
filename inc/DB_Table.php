@@ -41,6 +41,14 @@ class DB_Table {
 	const CACHE_PREFIX = 'hyve-';
 
 	/**
+	 * Maximum number of times a chunk is retried after a transient failure
+	 * before it is marked failed. See Codeinwp/hyve#199.
+	 *
+	 * @var int
+	 */
+	const MAX_PROCESS_ATTEMPTS = 5;
+
+	/**
 	 * The single instance of the class.
 	 *
 	 * @var DB_Table
@@ -69,7 +77,15 @@ class DB_Table {
 		global $wpdb;
 		$this->table_name = $wpdb->prefix . 'hyve';
 
-		add_action( 'hyve_process_post', [ $this, 'process_post' ], 10, 1 );
+		add_action(
+			'hyve_process_post',
+			function ( $id ) {
+				// Discard the return value: a cron/action callback must not return anything.
+				$this->process_post( $id );
+			},
+			10,
+			1
+		);
 		add_action( 'hyve_delete_posts', [ $this, 'delete_posts' ], 10, 1 );
 		add_action( 'hyve_update_posts', [ $this, 'update_posts' ] );
 
@@ -465,27 +481,96 @@ class DB_Table {
 	 * @throws \Exception If Qdrant API fails.
 	 */
 	public function add_post( $post_id, $action = 'add' ) {
-		$data = [
-			'ID'      => $post_id,
-			'title'   => get_the_title( $post_id ),
-			'content' => apply_filters( 'the_content', get_post_field( 'post_content', $post_id ) ),
-		];
-
 		update_post_meta( $post_id, '_hyve_post_processing', 1 );
 
-		$data       = Tokenizer::tokenize( $data );
-		$chunks     = array_column( $data, 'post_content' );
-		$moderation = OpenAI::instance()->moderate_chunks( $chunks, $post_id );
+		$result = $this->ingest_document(
+			[
+				'title'   => get_the_title( $post_id ),
+				'content' => apply_filters( 'the_content', get_post_field( 'post_content', $post_id ) ),
+			],
+			[
+				'action'             => 'update' === $action ? 'update' : 'add',
+				'override'           => 'override' === $action,
+				'post_id'            => $post_id,
+				'create'             => false,
+				'persist_moderation' => true,
+				'retry_async'        => 'update' === $action,
+			]
+		);
+
+		delete_post_meta( $post_id, '_hyve_post_processing' );
+
+		return $result;
+	}
+
+	/**
+	 * Ingest a document into the knowledge base.
+	 *
+	 * Shared pipeline for every data source (posts, custom data, links and
+	 * sitemap entries): tokenize -> moderate -> (replace old chunks on update)
+	 * -> insert chunk rows -> embed. The only things that vary between sources
+	 * are how the owning post is resolved and what extra meta it carries, both
+	 * expressed through `$args`.
+	 *
+	 * @since 1.4.0
+	 *
+	 * @param array<string, mixed> $doc  The document, with `title` and `content` keys.
+	 * @param array<string, mixed> $args {
+	 *     Optional. Ingestion options.
+	 *
+	 *     @type string               $action             'add' or 'update'. Default 'add'.
+	 *     @type bool                 $override           Skip the moderation gate. Default false.
+	 *     @type int|null             $post_id            Existing post to attach chunks to. Required
+	 *                                                    for the posts source and for any update.
+	 *     @type bool                 $create             Create (add) or update a managed `hyve_docs`
+	 *                                                    post. False for the posts source, where the
+	 *                                                    WP post already exists and is left untouched.
+	 *                                                    Default false.
+	 *     @type string               $post_type          Post type to create when `create` is true.
+	 *                                                    Default 'hyve_docs'.
+	 *     @type array<string, mixed> $meta               Extra post meta to set on success.
+	 *     @type bool                 $persist_moderation Store/clear `_hyve_moderation_*` meta on
+	 *                                                    `post_id`. Default false.
+	 *     @type bool                 $retry_async        Retry a failed embedding in the background
+	 *                                                    via cron. When false, failures are terminal
+	 *                                                    and recorded for immediate, synchronous
+	 *                                                    surfacing to the caller. Default true.
+	 * }
+	 *
+	 * @return true|\WP_Error
+	 * @throws \Exception If Qdrant API fails.
+	 */
+	public function ingest_document( $doc, $args = [] ) {
+		$action             = $args['action'] ?? 'add';
+		$override           = ! empty( $args['override'] );
+		$create             = ! empty( $args['create'] );
+		$post_id            = $args['post_id'] ?? null;
+		$post_type          = $args['post_type'] ?? 'hyve_docs';
+		$extra_meta         = $args['meta'] ?? [];
+		$persist_moderation = ! empty( $args['persist_moderation'] );
+		$allow_retry        = $args['retry_async'] ?? true;
+
+		$data   = Tokenizer::tokenize(
+			[
+				'ID'      => $post_id,
+				'title'   => $doc['title'],
+				'content' => $doc['content'],
+			]
+		);
+		$chunks = array_column( $data, 'post_content' );
+		// Only reuse the per-post moderation cache for an existing WP post
+		// (the posts source). Freshly submitted content is always re-moderated.
+		$moderation = OpenAI::instance()->moderate_chunks( $chunks, $persist_moderation ? $post_id : null );
 
 		if ( is_wp_error( $moderation ) ) {
-			delete_post_meta( $post_id, '_hyve_post_processing' );
 			return $moderation;
 		}
 
-		if ( true !== $moderation && 'override' !== $action ) {
-			delete_post_meta( $post_id, '_hyve_post_processing' );
-			update_post_meta( $post_id, '_hyve_moderation_failed', 1 );
-			update_post_meta( $post_id, '_hyve_moderation_review', $moderation );
+		if ( true !== $moderation && ! $override ) {
+			if ( $persist_moderation && $post_id ) {
+				update_post_meta( $post_id, '_hyve_moderation_failed', 1 );
+				update_post_meta( $post_id, '_hyve_moderation_review', $moderation );
+			}
 
 			return new \WP_Error(
 				'content_failed_moderation',
@@ -494,6 +579,8 @@ class DB_Table {
 			);
 		}
 
+		// Resolve the owning post. Moderation has passed, so creating/updating a
+		// managed post here cannot leave an orphan behind on rejection.
 		if ( 'update' === $action ) {
 			if ( Qdrant_API::is_active() ) {
 				try {
@@ -503,25 +590,72 @@ class DB_Table {
 						throw new \Exception( __( 'Failed to delete point in Qdrant.', 'hyve-lite' ) );
 					}
 				} catch ( \Exception $e ) {
-					delete_post_meta( $post_id, '_hyve_post_processing' );
 					return new \WP_Error( 'qdrant_error', $e->getMessage() );
 				}
 			}
 
 			$this->delete_by_post_id( $post_id );
+
+			if ( $create ) {
+				$updated = wp_update_post(
+					[
+						'ID'           => $post_id,
+						'post_title'   => $doc['title'],
+						'post_content' => $doc['content'],
+					]
+				);
+
+				if ( ! $updated ) {
+					return new \WP_Error( 'failed_update_post', __( 'Failed to update post.', 'hyve-lite' ) );
+				}
+			}
+		} elseif ( $create ) {
+			$post_id = wp_insert_post(
+				[
+					'post_title'   => $doc['title'],
+					'post_content' => $doc['content'],
+					'post_status'  => 'publish',
+					'post_type'    => $post_type,
+				]
+			);
+
+			if ( ! $post_id ) {
+				return new \WP_Error( 'failed_insert_post', __( 'Failed to insert post.', 'hyve-lite' ) );
+			}
 		}
+
+		$processing_error = null;
 
 		foreach ( $data as $datum ) {
-			$id = $this->insert( $datum );
-			$this->process_post( $id );
+			$datum['post_id'] = $post_id;
+
+			$id     = $this->insert( $datum );
+			$result = $this->process_post( $id, $allow_retry );
+
+			if ( is_wp_error( $result ) && null === $processing_error ) {
+				$processing_error = $result;
+			}
 		}
 
-		delete_post_meta( $post_id, '_hyve_post_processing' );
 		update_post_meta( $post_id, '_hyve_added', 1 );
-		delete_post_meta( $post_id, '_hyve_moderation_failed' );
-		delete_post_meta( $post_id, '_hyve_moderation_review' );
-		delete_post_meta( $post_id, '_hyve_needs_update' );
-		$this->delete_cache( 'cached_embeddings' );
+
+		foreach ( $extra_meta as $meta_key => $meta_value ) {
+			update_post_meta( $post_id, $meta_key, $meta_value );
+		}
+
+		// When retries are disabled a chunk failure is terminal, so record the
+		// reason against the post. This also restores the error if a later
+		// chunk's success cleared it mid-loop, keeping the surfaced reason honest.
+		if ( ! $allow_retry && null !== $processing_error ) {
+			$this->record_processing_error( $post_id, $processing_error, false );
+		}
+
+		if ( $persist_moderation ) {
+			delete_post_meta( $post_id, '_hyve_moderation_failed' );
+			delete_post_meta( $post_id, '_hyve_moderation_review' );
+			delete_post_meta( $post_id, '_hyve_needs_update' );
+			$this->delete_cache( 'cached_embeddings' );
+		}
 
 		return true;
 	}
@@ -531,11 +665,16 @@ class DB_Table {
 	 * 
 	 * @since 1.2.0
 	 * 
-	 * @param int $id The post ID.
-	 * 
-	 * @return void
+	 * @param int  $id          The post ID.
+	 * @param bool $allow_retry Whether a transient failure may be retried
+	 *                          asynchronously via the hyve_process_post cron.
+	 *                          When false, a failure is terminal and returned to
+	 *                          the caller for immediate, synchronous handling.
+	 *                          Default true.
+	 *
+	 * @return true|\WP_Error True on success, or the error encountered.
 	 */
-	public function process_post( $id ) {
+	public function process_post( $id, $allow_retry = true ) {
 		$post       = $this->get( $id );
 		$content    = $post->post_content;
 		$openai     = OpenAI::instance();
@@ -543,8 +682,12 @@ class DB_Table {
 		$embeddings = $openai->create_embeddings( $stripped );
 
 		if ( is_wp_error( $embeddings ) || ! $embeddings ) {
-			wp_schedule_single_event( time() + 60, 'hyve_process_post', [ $id ] );
-			return;
+			$error = is_wp_error( $embeddings )
+				? $embeddings
+				: new \WP_Error( 'unknown_error', __( 'An unexpected error occurred while indexing this content.', 'hyve-lite' ) );
+
+			$this->handle_processing_failure( $id, (int) $post->post_id, $error, $allow_retry );
+			return $error;
 		}
 
 		$embeddings = reset( $embeddings );
@@ -570,8 +713,8 @@ class DB_Table {
 			}
 
 			if ( is_wp_error( $success ) ) {
-				wp_schedule_single_event( time() + 60, 'hyve_process_post', [ $id ] );
-				return;
+				$this->handle_processing_failure( $id, (int) $post->post_id, $success, $allow_retry );
+				return $success;
 			}
 		}
 
@@ -583,8 +726,84 @@ class DB_Table {
 				'embeddings'  => $embeddings,
 				'post_status' => 'processed',
 				'storage'     => $storage,
-			] 
+			]
 		);
+
+		// Processing succeeded; clear any error and retry counter from a previous attempt.
+		delete_post_meta( (int) $post->post_id, '_hyve_processing_error' );
+		delete_transient( self::CACHE_PREFIX . 'process_attempts_' . $id );
+
+		return true;
+	}
+
+	/**
+	 * Handle a failed processing attempt.
+	 *
+	 * Fatal errors (bad key, no credits, billing) will not resolve by retrying,
+	 * so they stop immediately and the entry is marked failed. Transient errors
+	 * (rate limits, network blips) are retried with a linear backoff up to
+	 * MAX_PROCESS_ATTEMPTS, then also marked failed. Either way the reason is
+	 * recorded for the Knowledge Base UI. See Codeinwp/hyve#199.
+	 *
+	 * @since 1.4.0
+	 *
+	 * @param int       $id          The chunk row ID.
+	 * @param int       $post_id     The source post ID.
+	 * @param \WP_Error $error       The error encountered while processing.
+	 * @param bool      $allow_retry Whether an async retry may be scheduled. When
+	 *                               false the failure is terminal. Default true.
+	 *
+	 * @return void
+	 */
+	private function handle_processing_failure( $id, $post_id, $error, $allow_retry = true ) {
+		$transient  = self::CACHE_PREFIX . 'process_attempts_' . $id;
+		$attempts   = (int) get_transient( $transient ) + 1;
+		$is_fatal   = OpenAI::is_fatal_error_code( $error->get_error_code() );
+		$will_retry = $allow_retry && ! $is_fatal && $attempts < self::MAX_PROCESS_ATTEMPTS;
+
+		$this->record_processing_error( $post_id, $error, $will_retry );
+
+		if ( $will_retry ) {
+			set_transient( $transient, $attempts, DAY_IN_SECONDS );
+			wp_schedule_single_event( time() + ( MINUTE_IN_SECONDS * $attempts ), 'hyve_process_post', [ $id ] );
+			return;
+		}
+
+		// Terminal: stop retrying and mark the chunk failed.
+		delete_transient( $transient );
+		$this->update( $id, [ 'post_status' => 'failed' ] );
+	}
+
+	/**
+	 * Record a processing error against the source post so it can be surfaced
+	 * in the Knowledge Base UI instead of failing silently. The stored message
+	 * includes whether the entry will be retried or needs the admin to act.
+	 * See Codeinwp/hyve#199.
+	 *
+	 * @since 1.4.0
+	 *
+	 * @param int       $post_id    The source post ID.
+	 * @param \WP_Error $error      The error encountered while processing.
+	 * @param bool      $will_retry Whether another attempt is scheduled.
+	 *
+	 * @return void
+	 */
+	private function record_processing_error( $post_id, $error, $will_retry ) {
+		if ( empty( $post_id ) ) {
+			return;
+		}
+
+		$message = OpenAI::get_error_message_for_code( $error->get_error_code() );
+
+		if ( null === $message ) {
+			$message = $error->get_error_message();
+		}
+
+		$suffix = $will_retry
+			? __( 'It will be retried automatically.', 'hyve-lite' )
+			: __( 'Please fix the problem and re-add this content.', 'hyve-lite' );
+
+		update_post_meta( $post_id, '_hyve_processing_error', $message . ' ' . $suffix );
 	}
 
 	/**

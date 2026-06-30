@@ -51,12 +51,10 @@ class BaseAPI {
 	 * @return string
 	 */
 	public function get_error_message( $error ) {
-		$errors = [
-			'invalid_api_key' => __( 'Incorrect API key provided.', 'hyve-lite' ),
-			'missing_scope'   => __( 'You have insufficient permissions for this operation.', 'hyve-lite' ),
-		];
-		if ( isset( $errors[ $error->get_error_code() ] ) ) {
-			return $errors[ $error->get_error_code() ];
+		$message = OpenAI::get_error_message_for_code( $error->get_error_code() );
+
+		if ( null !== $message ) {
+			return $message;
 		}
 
 		return $error->get_error_message();
