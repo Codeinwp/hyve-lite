@@ -536,10 +536,16 @@ class DB_Table {
 	 * @return void
 	 */
 	public function process_post( $id ) {
-		$post       = $this->get( $id );
-		$content    = $post->post_content;
-		$openai     = OpenAI::instance();
-		$stripped   = wp_strip_all_tags( $content );
+		$post     = $this->get( $id );
+		$content  = $post->post_content;
+		$openai   = OpenAI::instance();
+		$stripped = wp_strip_all_tags( $content );
+
+		// Prepend the title to the text sent for embedding so it contributes to the vector.
+		if ( ! empty( $post->post_title ) ) {
+			$stripped = $post->post_title . ' ' . $stripped;
+		}
+
 		$embeddings = $openai->create_embeddings( $stripped );
 
 		if ( is_wp_error( $embeddings ) || ! $embeddings ) {
