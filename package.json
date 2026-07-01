@@ -50,7 +50,7 @@
     "@semantic-release/exec": "^6.0.3",
     "@semantic-release/git": "^10.0.1",
     "@tailwindcss/postcss": "^4.1.17",
-    "@wordpress/env": "^11.9.0",
+    "@wordpress/env": "^11.10.0",
     "@wordpress/scripts": "^32.5.0",
     "conventional-changelog-simple-preset": "^1.0.24",
     "cssnano": "^8.0.2",
