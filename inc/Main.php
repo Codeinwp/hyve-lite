@@ -670,7 +670,13 @@ class Main {
 
 		$qdrant_last_error = get_option( Qdrant_API::ERROR_OPTION_KEY, false );
 		if ( is_array( $qdrant_last_error ) && $this->is_recent_error( $qdrant_last_error ) ) {
-			$qdrant_last_error['message'] = __( 'Invalid credentials.', 'hyve-lite' ) . ' ' . __( 'Please check your API key and endpoint URL.', 'hyve-lite' );
+			$friendly_message = ! empty( $qdrant_last_error['code'] ) ? Qdrant_API::get_error_message_for_code( $qdrant_last_error['code'] ) : null;
+
+			if ( null === $friendly_message ) {
+				$friendly_message = __( 'Hyve could not connect to Qdrant.', 'hyve-lite' ) . ' ' . __( 'Please check your API key and endpoint URL in the Integrations settings.', 'hyve-lite' );
+			}
+
+			$qdrant_last_error['message'] = $friendly_message;
 			$errors[]                     = $qdrant_last_error;
 		}
 

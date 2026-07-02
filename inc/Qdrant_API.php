@@ -152,19 +152,7 @@ class Qdrant_API {
 
 			return false;
 		} catch ( \Exception $e ) {
-			if ( 403 === $e->getCode() ) {
-				update_option( 'hyve_qdrant_status', 'inactive' );
-				update_option(
-					self::ERROR_OPTION_KEY,
-					[
-						'code'     => $e->getCode(),
-						'date'     => wp_date( 'c' ),
-						'provider' => 'Qdrant',
-					] 
-				);
-			}
-
-			return new \WP_Error( 'collection_error', $e->getMessage() );
+			return $this->handle_exception( $e );
 		}
 	}
 
@@ -182,19 +170,7 @@ class Qdrant_API {
 
 			return $response['result'];
 		} catch ( \Exception $e ) {
-			if ( 403 === $e->getCode() ) {
-				update_option( 'hyve_qdrant_status', 'inactive' );
-				update_option(
-					self::ERROR_OPTION_KEY,
-					[
-						'code'     => $e->getCode(),
-						'date'     => wp_date( 'c' ),
-						'provider' => 'Qdrant',
-					] 
-				);
-			}
-
-			return new \WP_Error( 'collection_error', $e->getMessage() );
+			return $this->handle_exception( $e );
 		}
 	}
 
@@ -222,11 +198,7 @@ class Qdrant_API {
 
 			return 'completed' === $response['result']['status'];
 		} catch ( \Exception $e ) {
-			if ( 403 === $e->getCode() ) {
-				update_option( 'hyve_qdrant_status', 'inactive' );
-			}
-
-			return new \WP_Error( 'collection_error', $e->getMessage() );
+			return $this->handle_exception( $e );
 		}
 	}
 
@@ -256,11 +228,7 @@ class Qdrant_API {
 
 			return 'completed' === $response['result']['status'];
 		} catch ( \Exception $e ) {
-			if ( 403 === $e->getCode() ) {
-				update_option( 'hyve_qdrant_status', 'inactive' );
-			}
-
-			return new \WP_Error( 'collection_error', $e->getMessage() );
+			return $this->handle_exception( $e );
 		}
 	}
 
@@ -281,11 +249,7 @@ class Qdrant_API {
 
 			return 'acknowledged' === $response['result']['status'];
 		} catch ( \Exception $e ) {
-			if ( 403 === $e->getCode() ) {
-				update_option( 'hyve_qdrant_status', 'inactive' );
-			}
-
-			return new \WP_Error( 'collection_error', $e->getMessage() );
+			return $this->handle_exception( $e );
 		}
 	}
 
@@ -328,19 +292,7 @@ class Qdrant_API {
 
 			return $payload;
 		} catch ( \Exception $e ) {
-			if ( 403 === $e->getCode() ) {
-				update_option( 'hyve_qdrant_status', 'inactive' );
-				update_option(
-					self::ERROR_OPTION_KEY,
-					[
-						'code'     => $e->getCode(),
-						'date'     => wp_date( 'c' ),
-						'provider' => 'Qdrant',
-					] 
-				);
-			}
-
-			return new \WP_Error( 'collection_error', $e->getMessage() );
+			return $this->handle_exception( $e );
 		}
 	}
 
@@ -430,10 +382,65 @@ class Qdrant_API {
 	}
 
 	/**
+	 * Persist a Qdrant service error and reconcile the connection status.
+	 *
+	 * Surfaces the failure in the dashboard notice and, for errors that mean
+	 * the integration is no longer usable (revoked key, or a missing collection
+	 * or cluster), marks the connection inactive so the UI stops reporting a
+	 * connection that no longer works.
+	 *
+	 * @since 1.4.2
+	 *
+	 * @param \Exception $e The caught exception.
+	 *
+	 * @return \WP_Error
+	 */
+	private function handle_exception( $e ) {
+		$code = $e->getCode();
+
+		update_option(
+			self::ERROR_OPTION_KEY,
+			[
+				'code'     => $code,
+				'message'  => $e->getMessage(),
+				'date'     => wp_date( 'c' ),
+				'provider' => 'Qdrant',
+			]
+		);
+
+		if ( in_array( $code, [ 401, 403, 404 ], true ) ) {
+			update_option( 'hyve_qdrant_status', 'inactive' );
+		}
+
+		return new \WP_Error( 'collection_error', $e->getMessage() );
+	}
+
+	/**
+	 * Get an actionable message for a Qdrant error code.
+	 *
+	 * @since 1.4.2
+	 *
+	 * @param int|string $code The error code.
+	 *
+	 * @return string|null The message, or null when the code is unmapped.
+	 */
+	public static function get_error_message_for_code( $code ) {
+		$credentials = __( 'Hyve could not authenticate with Qdrant. Please check your API key and endpoint URL in the Integrations settings.', 'hyve-lite' );
+
+		$messages = [
+			401 => $credentials,
+			403 => $credentials,
+			404 => __( 'Your Qdrant collection or cluster could not be reached. It may have been deleted or paused. Please check your Qdrant instance and reconnect.', 'hyve-lite' ),
+		];
+
+		return isset( $messages[ $code ] ) ? $messages[ $code ] : null;
+	}
+
+	/**
 	 * Qdrant Status.
-	 * 
+	 *
 	 * @since 1.3.0
-	 * 
+	 *
 	 * @return bool
 	 */
 	public static function is_active() {
