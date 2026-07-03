@@ -26,13 +26,14 @@ class API extends BaseAPI {
 	private static $instance = null;
 
 	/**
-	 * Post ID of the top-scoring source from the last knowledge base search.
+	 * Source post IDs from the last knowledge base search, ordered by relevance
+	 * (highest score first) and de-duplicated per source.
 	 *
-	 * Used to optionally append a source link to the chat response.
+	 * Used to optionally append source links to the chat response.
 	 *
-	 * @var int|string|null
+	 * @var array<int, int|string>
 	 */
-	private $source_post_id = null;
+	private $source_post_ids = [];
 
 	/**
 	 * Ensures only one instance of the class is loaded.
@@ -932,7 +933,7 @@ class API extends BaseAPI {
 			return $articles_embedded_data;
 		}
 
-		$top_score = -1.0;
+		$source_scores = [];
 
 		foreach ( $knowledge_points as $point ) {
 			if ( empty( $point['post_title'] ) || empty( $point['post_content'] ) || empty( $point['token_count'] ) ) {
@@ -945,14 +946,19 @@ class API extends BaseAPI {
 				continue;
 			}
 
-			if ( isset( $point['post_id'], $point['score'] ) && $point['score'] > $top_score ) {
-				$top_score            = $point['score'];
-				$this->source_post_id = $point['post_id'];
+			if ( isset( $point['post_id'], $point['score'] ) ) {
+				$post_id = (string) $point['post_id'];
+
+				if ( ! isset( $source_scores[ $post_id ] ) || $point['score'] > $source_scores[ $post_id ] ) {
+					$source_scores[ $post_id ] = $point['score'];
+				}
 			}
 
 			$articles_embedded_data .= "\n ===START POST=== " . $point['post_title'] . ' - ' . $point['post_content'] . ' ===END POST===';
 			$current_token_count    += intval( $point['token_count'] );
 		}
+
+		$this->source_post_ids = $this->rank_sources( $source_scores );
 
 		return $articles_embedded_data;
 	}
@@ -1045,8 +1051,7 @@ class API extends BaseAPI {
 			return $articles_embedded_data;
 		}
 
-		$top_score  = -1.0;
-		$top_row_id = null;
+		$source_scores = [];
 
 		foreach ( $matched_articles as $article ) {
 			$article_data = $this->table->get_post_data( $article['id'] );
@@ -1054,19 +1059,65 @@ class API extends BaseAPI {
 				continue;
 			}
 
-			if ( $article['score'] > $top_score ) {
-				$top_score  = $article['score'];
-				$top_row_id = $article['id'];
+			$post_id = $this->table->get_post_id( $article['id'] );
+
+			if ( ! empty( $post_id ) && ( ! isset( $source_scores[ $post_id ] ) || $article['score'] > $source_scores[ $post_id ] ) ) {
+				$source_scores[ $post_id ] = $article['score'];
 			}
 
 			$articles_embedded_data .= "\n ===START POST=== " . $article_data['post_title'] . ' - ' . $article_data['post_content'] . ' ===END POST===';
 		}
 
-		if ( null !== $top_row_id ) {
-			$this->source_post_id = $this->table->get_post_id( $top_row_id );
-		}
+		$this->source_post_ids = $this->rank_sources( $source_scores );
 
 		return $articles_embedded_data;
+	}
+
+	/**
+	 * Order de-duplicated sources by relevance, drop weak matches and return
+	 * their post IDs.
+	 *
+	 * A single fixed score cutoff does not travel well — the score of a genuinely
+	 * relevant match varies a lot between queries — so sources are kept relative
+	 * to the best match: anything scoring within a ratio of the top result is
+	 * kept, and the low-scoring stragglers that merely cleared the context
+	 * threshold are dropped. The strongest source is always retained.
+	 *
+	 * @since 1.4.2
+	 *
+	 * @param array<int|string, float> $source_scores Map of source post ID to its best score.
+	 *
+	 * @return array<int, int|string> Post IDs ordered by score, highest first.
+	 */
+	private function rank_sources( $source_scores ) {
+		if ( empty( $source_scores ) ) {
+			return [];
+		}
+
+		arsort( $source_scores );
+
+		$top_score = reset( $source_scores );
+
+		/**
+		 * Filters how close to the best match a source must score to be shown as
+		 * a source link, as a ratio of the top score (0–1). A higher value keeps
+		 * only near-equal matches; 0 keeps everything above the context threshold.
+		 *
+		 * @since 1.4.2
+		 *
+		 * @param float $ratio The minimum score ratio relative to the best match. Default 0.8.
+		 */
+		$ratio     = (float) apply_filters( 'hyve_source_link_score_ratio', 0.8 );
+		$threshold = $top_score * $ratio;
+
+		$source_scores = array_filter(
+			$source_scores,
+			function ( $score ) use ( $threshold ) {
+				return $score >= $threshold;
+			}
+		);
+
+		return array_keys( $source_scores );
 	}
 
 	/**
@@ -1079,7 +1130,7 @@ class API extends BaseAPI {
 	 * @return string The articles blob data that match the given message vector.
 	 */
 	public function search_knowledge_base( $message_vector, $similarity_score_threshold = 0.4, $tokens_threshold = 2000 ) {
-		$this->source_post_id = null;
+		$this->source_post_ids = [];
 
 		if ( Qdrant_API::is_active() ) {
 			return $this->search_knowledge_base_qdrant( $message_vector, $similarity_score_threshold, $tokens_threshold );
@@ -1103,13 +1154,16 @@ class API extends BaseAPI {
 	 * @return string Public URL, or empty string when no link should be shown.
 	 */
 	private function resolve_source_link( $post_id ) {
-		$default = '';
+		$default   = '';
+		$source_id = (int) $post_id;
+		$post_type = get_post_type( $source_id );
 
 		if (
-			'public' === $this->get_post_visibility( $post_id ) &&
-			is_post_type_viewable( get_post_type( $post_id ) )
+			$post_type &&
+			'public' === $this->get_post_visibility( $source_id ) &&
+			is_post_type_viewable( $post_type )
 		) {
-			$permalink = get_permalink( $post_id );
+			$permalink = get_permalink( $source_id );
 			$default   = $permalink ? $permalink : '';
 		}
 
@@ -1142,50 +1196,105 @@ class API extends BaseAPI {
 	 */
 	private function append_source_link( $response, $run_id ) {
 		$transient_key = 'hyve_source_' . $run_id;
-		$post_id       = get_transient( $transient_key );
+		$post_ids      = get_transient( $transient_key );
 		delete_transient( $transient_key );
 
-		return $this->maybe_append_source_link( $response, $post_id );
+		return $this->maybe_append_source_link( $response, $post_ids );
 	}
 
 	/**
-	 * Append a source link to a chat response when a public source is available.
+	 * Append source links to a chat response for the publicly accessible sources.
+	 *
+	 * Renders up to a filterable number of links (default 3), keeping the highest
+	 * scoring public sources and skipping any that have no public URL.
 	 *
 	 * @since 1.4.2
 	 *
-	 * @param string     $response The chat response HTML.
-	 * @param int|string $post_id  The source post ID.
+	 * @param string                            $response The chat response HTML.
+	 * @param array<int, int|string>|int|string $post_ids Source post IDs, ordered by relevance. A single ID is accepted for convenience.
 	 *
 	 * @return string
 	 */
-	public function maybe_append_source_link( $response, $post_id ) {
-		if ( empty( $post_id ) ) {
+	public function maybe_append_source_link( $response, $post_ids ) {
+		if ( empty( $post_ids ) ) {
 			return $response;
+		}
+
+		$post_ids = is_array( $post_ids ) ? $post_ids : [ $post_ids ];
+
+		/**
+		 * Filters the maximum number of source links appended to a chat answer.
+		 *
+		 * @since 1.4.2
+		 *
+		 * @param int $limit The maximum number of source links. Default 3.
+		 */
+		$limit = (int) apply_filters( 'hyve_source_link_limit', 3 );
+
+		if ( $limit < 1 ) {
+			return $response;
+		}
+
+		$links = [];
+
+		foreach ( $post_ids as $post_id ) {
+			$link = $this->build_source_link( $post_id, count( $links ) + 1 );
+
+			if ( '' === $link ) {
+				continue;
+			}
+
+			$links[] = $link;
+
+			if ( count( $links ) >= $limit ) {
+				break;
+			}
+		}
+
+		if ( empty( $links ) ) {
+			return $response;
+		}
+
+		$intro = '<span class="hyve-source__intro">' . esc_html__( 'Sources', 'hyve-lite' ) . '</span>';
+
+		return $response . '<div class="hyve-source">' . $intro . implode( '', $links ) . '</div>';
+	}
+
+	/**
+	 * Build the markup for a single numbered source link, or an empty string
+	 * when the source is not publicly accessible.
+	 *
+	 * @since 1.4.2
+	 *
+	 * @param int|string $post_id The source post ID.
+	 * @param int        $number  The 1-based position shown on the citation chip.
+	 *
+	 * @return string
+	 */
+	private function build_source_link( $post_id, $number ) {
+		if ( empty( $post_id ) ) {
+			return '';
 		}
 
 		$url = $this->resolve_source_link( $post_id );
 
 		if ( empty( $url ) ) {
-			return $response;
+			return '';
 		}
 
-		$title = get_the_title( $post_id );
+		$title = get_the_title( (int) $post_id );
 		$title = ! empty( $title ) ? $title : $url;
 
-		$icon = '<svg class="hyve-source__icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>';
+		/* translators: 1: citation number, 2: source page title. */
+		$label = sprintf( __( 'Source %1$d: %2$s', 'hyve-lite' ), $number, $title );
 
-		/* translators: %s is the source page title. */
-		$label = sprintf( __( 'Answer provided based on: %s', 'hyve-lite' ), $title );
-
-		$link = sprintf(
-			'<a class="hyve-source__link" href="%1$s" target="_blank" rel="noopener noreferrer" aria-label="%2$s">%3$s<span class="hyve-source__label">%4$s</span></a>',
+		return sprintf(
+			'<a class="hyve-source__link" href="%1$s" target="_blank" rel="noopener noreferrer" aria-label="%2$s">%3$d<span class="hyve-source__label">%4$s</span></a>',
 			esc_url( $url ),
 			esc_attr( $label ),
-			$icon,
-			esc_html( $label )
+			(int) $number,
+			esc_html( $title )
 		);
-
-		return $response . '<div class="hyve-source">' . $link . '</div>';
 	}
 
 	/**
@@ -1215,12 +1324,12 @@ class API extends BaseAPI {
 			set_transient(
 				'hyve_stream_job_' . $token,
 				[
-					'thread_id'      => $prepared['thread_id'],
-					'record_id'      => $request_record,
-					'message'        => $prepared['message'],
-					'context'        => $prepared['context'],
-					'is_test'        => $is_test,
-					'source_post_id' => $this->source_post_id,
+					'thread_id'       => $prepared['thread_id'],
+					'record_id'       => $request_record,
+					'message'         => $prepared['message'],
+					'context'         => $prepared['context'],
+					'is_test'         => $is_test,
+					'source_post_ids' => $this->source_post_ids,
 				],
 				5 * MINUTE_IN_SECONDS
 			);
@@ -1362,8 +1471,8 @@ class API extends BaseAPI {
 			$query_run = $openai->create_response( $items, $thread_id );
 		}
 
-		if ( ! empty( $this->source_post_id ) && is_string( $query_run ) ) {
-			set_transient( 'hyve_source_' . $query_run, $this->source_post_id, HOUR_IN_SECONDS );
+		if ( ! empty( $this->source_post_ids ) && is_string( $query_run ) ) {
+			set_transient( 'hyve_source_' . $query_run, $this->source_post_ids, HOUR_IN_SECONDS );
 		}
 		return $query_run;
 	}
