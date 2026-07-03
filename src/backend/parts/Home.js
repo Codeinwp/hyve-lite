@@ -6,10 +6,9 @@ import { __ } from '@wordpress/i18n';
 import {
 	Button,
 	Panel,
-	PanelRow, // eslint-disable-next-line @wordpress/no-unsafe-wp-apis
-	__experimentalToggleGroupControl as ToggleGroupControl,
-	// eslint-disable-next-line @wordpress/no-unsafe-wp-apis
-	__experimentalToggleGroupControlOption as ToggleGroupControlOption,
+	PanelRow,
+	SelectControl,
+	TextControl,
 } from '@wordpress/components';
 
 import apiFetch from '@wordpress/api-fetch';
@@ -21,7 +20,20 @@ import { UsageCharts } from '../components/UsageChart';
 
 const { setRoute: changeRoute } = dispatch( 'hyve' );
 
-import { useState, useCallback, useEffect } from '@wordpress/element';
+import { useState, useCallback } from '@wordpress/element';
+
+const DISPLAY_MODE_OPTIONS = [
+	{ label: __( 'Show on all pages', 'hyve-lite' ), value: 'all' },
+	{
+		label: __( 'Show only on selected content', 'hyve-lite' ),
+		value: 'include',
+	},
+	{
+		label: __( 'Show everywhere except selected content', 'hyve-lite' ),
+		value: 'exclude',
+	},
+	{ label: __( "Don't show automatically", 'hyve-lite' ), value: 'manual' },
+];
 
 const STATUS = [
 	{
@@ -62,9 +74,44 @@ const Dashboard = ( { isBlocked } ) => {
 	const { setSetting } = useDispatch( 'hyve' );
 	const { createNotice } = useDispatch( 'core/notices' );
 
-	const [ autoUpdate, setAutoUpdate ] = useState( false );
+	const [ isSavingVisibility, setSavingVisibility ] = useState( false );
+	const [ visibilitySaved, setVisibilitySaved ] = useState( false );
 
-	const onSave = useCallback( async () => {
+	const displayMode = settings.display_mode ?? 'all';
+	const displayRules = settings.display_rules ?? [];
+
+	const updateVisibility = ( key, value ) => {
+		setVisibilitySaved( false );
+		setSetting( key, value );
+	};
+
+	const updateRule = ( index, key, value ) => {
+		updateVisibility(
+			'display_rules',
+			displayRules.map( ( rule, i ) =>
+				i === index ? { ...rule, [ key ]: value } : rule
+			)
+		);
+	};
+
+	const addRule = () => {
+		updateVisibility( 'display_rules', [
+			...displayRules,
+			{ path: '', operator: 'contains' },
+		] );
+	};
+
+	const removeRule = ( index ) => {
+		updateVisibility(
+			'display_rules',
+			displayRules.filter( ( _, i ) => i !== index )
+		);
+	};
+
+	const saveVisibility = useCallback( async () => {
+		setSavingVisibility( true );
+		setVisibilitySaved( false );
+
 		try {
 			const response = await apiFetch( {
 				path: `${ window.hyve.api }/settings`,
@@ -78,24 +125,16 @@ const Dashboard = ( { isBlocked } ) => {
 				throw new Error( response.error );
 			}
 
-			createNotice( 'success', __( 'Settings saved.', 'hyve-lite' ), {
-				type: 'snackbar',
-				isDismissible: true,
-			} );
+			setVisibilitySaved( true );
 		} catch ( error ) {
 			createNotice( 'error', error, {
 				type: 'snackbar',
 				isDismissible: true,
 			} );
 		}
-	}, [ settings, createNotice ] );
 
-	useEffect( () => {
-		if ( autoUpdate ) {
-			onSave();
-			setAutoUpdate( false );
-		}
-	}, [ autoUpdate, onSave ] );
+		setSavingVisibility( false );
+	}, [ settings, createNotice ] );
 
 	const ACTIONS = [
 		{
@@ -134,43 +173,175 @@ const Dashboard = ( { isBlocked } ) => {
 		<div className="col-span-6 xl:col-span-4">
 			<Panel header={ __( 'Dashboard', 'hyve-lite' ) }>
 				<PanelRow>
-					<ToggleGroupControl
-						__nextHasNoMarginBottom
-						isBlock
-						label={ __(
-							'Enable Chat on all the pages',
-							'hyve-lite'
+					<div className="mb-6">
+						<p className="text-sm font-semibold mb-1">
+							{ __( 'Where should Hyve appear?', 'hyve-lite' ) }
+						</p>
+						<p className="text-sm text-gray-500 mb-3">
+							{ __(
+								'Blocks and shortcodes remain available for inline or manual placement.',
+								'hyve-lite'
+							) }
+						</p>
+
+						<div
+							role="radiogroup"
+							aria-label={ __(
+								'Where should Hyve appear?',
+								'hyve-lite'
+							) }
+							className="flex flex-wrap gap-3"
+						>
+							{ DISPLAY_MODE_OPTIONS.map( ( option ) => {
+								const isSelected = displayMode === option.value;
+
+								return (
+									<label
+										key={ option.value }
+										htmlFor={ `hyve-mode-${ option.value }` }
+										className={ `inline-flex items-center gap-2.5 m-0 px-4 py-3 border border-solid rounded-md cursor-pointer transition-colors duration-100 ${
+											isSelected
+												? 'border-[#3858e9] bg-[#f0f3ff]'
+												: 'border-gray-300 bg-white hover:border-gray-400'
+										}` }
+									>
+										<input
+											type="radio"
+											id={ `hyve-mode-${ option.value }` }
+											name="hyve-display-mode"
+											className="w-5 h-5 shrink-0 cursor-pointer accent-[#3858e9]"
+											aria-label={ option.label }
+											value={ option.value }
+											checked={ isSelected }
+											onChange={ () =>
+												updateVisibility(
+													'display_mode',
+													option.value
+												)
+											}
+										/>
+										<span className="text-sm font-medium text-gray-900 whitespace-nowrap">
+											{ option.label }
+										</span>
+									</label>
+								);
+							} ) }
+						</div>
+
+						{ ( 'include' === displayMode ||
+							'exclude' === displayMode ) && (
+							<div className="mt-4 p-4 border border-solid border-gray-200 rounded-md">
+								<p className="text-sm font-medium mb-1">
+									{ __( 'Content URLs', 'hyve-lite' ) }
+								</p>
+								<p className="text-xs text-gray-500 mb-3">
+									{ __(
+										'Match by URL path. Use “contains” for a whole section (e.g. /shop/), or “matches” for one exact page.',
+										'hyve-lite'
+									) }
+								</p>
+
+								{ displayRules.map( ( rule, index ) => (
+									<div
+										// eslint-disable-next-line react/no-array-index-key
+										key={ index }
+										className="flex gap-2 items-end mb-2"
+									>
+										<div className="flex-1">
+											<TextControl
+												__nextHasNoMarginBottom
+												hideLabelFromVision
+												label={ __(
+													'Path',
+													'hyve-lite'
+												) }
+												placeholder={ __(
+													'/example-page/',
+													'hyve-lite'
+												) }
+												value={ rule.path || '' }
+												onChange={ ( value ) =>
+													updateRule(
+														index,
+														'path',
+														value
+													)
+												}
+											/>
+										</div>
+
+										<div className="w-36">
+											<SelectControl
+												__nextHasNoMarginBottom
+												hideLabelFromVision
+												label={ __(
+													'Operator',
+													'hyve-lite'
+												) }
+												value={
+													rule.operator || 'contains'
+												}
+												options={ [
+													{
+														label: __(
+															'contains',
+															'hyve-lite'
+														),
+														value: 'contains',
+													},
+													{
+														label: __(
+															'matches',
+															'hyve-lite'
+														),
+														value: 'matches',
+													},
+												] }
+												onChange={ ( value ) =>
+													updateRule(
+														index,
+														'operator',
+														value
+													)
+												}
+											/>
+										</div>
+
+										<Button
+											variant="tertiary"
+											isDestructive
+											onClick={ () =>
+												removeRule( index )
+											}
+										>
+											{ __( 'Remove', 'hyve-lite' ) }
+										</Button>
+									</div>
+								) ) }
+
+								<Button variant="secondary" onClick={ addRule }>
+									{ __( 'Add URL Rule', 'hyve-lite' ) }
+								</Button>
+							</div>
 						) }
-						value={ Boolean( settings.chat_enabled ) }
-						onChange={ ( newValue ) => {
-							setSetting( 'chat_enabled', Boolean( newValue ) );
-							setAutoUpdate( true );
-						} }
-						help={
-							__(
-								'Display the Chat on all the pages.',
-								'hyve-lite'
-							) +
-							' ' +
-							__(
-								'For specific pages, use the Hyve Gutenberg Block.',
-								'hyve-lite'
-							)
-						}
-					>
-						<ToggleGroupControlOption
-							aria-label={ __( 'Enable Chat', 'hyve-lite' ) }
-							label={ __( 'Enable', 'hyve-lite' ) }
-							showTooltip
-							value={ true }
-						/>
-						<ToggleGroupControlOption
-							aria-label={ __( 'Enable Chat', 'hyve-lite' ) }
-							label={ __( 'Disable', 'hyve-lite' ) }
-							showTooltip
-							value={ false }
-						/>
-					</ToggleGroupControl>
+
+						<div className="flex items-center gap-3 mt-4">
+							<Button
+								variant="primary"
+								onClick={ saveVisibility }
+								isBusy={ isSavingVisibility }
+								disabled={ isSavingVisibility }
+							>
+								{ __( 'Save visibility', 'hyve-lite' ) }
+							</Button>
+
+							{ visibilitySaved && (
+								<span className="text-sm text-gray-500">
+									{ __( 'Saved.', 'hyve-lite' ) }
+								</span>
+							) }
+						</div>
+					</div>
 
 					{ 0 ===
 						Number( window.hyve?.stats?.totalChunks ?? '0' ) && (
