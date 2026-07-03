@@ -221,6 +221,10 @@ class API extends BaseAPI {
 							'required' => false,
 							'type'     => 'string',
 						],
+						'is_test'   => [
+							'required' => false,
+							'type'     => 'boolean',
+						],
 					],
 					'callback'            => [ $this, 'get_chat' ],
 					'permission_callback' => function ( $request ) {
@@ -232,7 +236,7 @@ class API extends BaseAPI {
 					'methods'             => \WP_REST_Server::CREATABLE,
 					'args'                => [
 						'message'   => [
-							'required' => true,
+							'required' => false,
 							'type'     => 'string',
 						],
 						'thread_id' => [
@@ -245,6 +249,15 @@ class API extends BaseAPI {
 								'string',
 								'integer',
 							],
+						],
+						'is_test'   => [
+							'required' => false,
+							'type'     => 'boolean',
+						],
+						'mode'      => [
+							'required' => false,
+							'type'     => 'string',
+							'enum'     => [ 'stream', 'background' ],
 						],
 					],
 					'callback'            => [ $this, 'send_chat' ],
@@ -410,9 +423,27 @@ class API extends BaseAPI {
 				],
 				'post_row_addon_enabled'     => [
 					'validate' => function ( $value ) {
-							return is_bool( $value );
+						return is_bool( $value );
 					},
 					'sanitize' => 'rest_sanitize_boolean',
+				],
+				'sound_enabled'              => [
+					'validate' => function ( $value ) {
+						return is_bool( $value );
+					},
+					'sanitize' => 'rest_sanitize_boolean',
+				],
+				'show_timestamp'             => [
+					'validate' => function ( $value ) {
+						return is_bool( $value );
+					},
+					'sanitize' => 'rest_sanitize_boolean',
+				],
+				'chat_position'              => [
+					'validate' => function ( $value ) {
+						return in_array( $value, [ 'left', 'right' ], true );
+					},
+					'sanitize' => 'sanitize_text_field',
 				],
 				'show_source_link'           => [
 					'validate' => function ( $value ) {
@@ -850,32 +881,33 @@ class API extends BaseAPI {
 			return rest_ensure_response( [ 'error' => __( 'No messages found.', 'hyve-lite' ) ] );
 		}
 
-		$message = reset( $message )->content[0]->text;
-		$message = json_decode( $message, true );
+		$text = reset( $message )->content[0]->text;
 
-		if ( json_last_error() !== JSON_ERROR_NONE ) {
-			return rest_ensure_response( [ 'error' => __( 'No messages found.', 'hyve-lite' ) ] );
-		}
-		
 		Main::add_labels_to_default_settings();
 		$settings = Main::get_settings();
 
-		if ( isset( $message['properties'] ) ) {
-			$message = $message['properties'];
+		$interpreted = OpenAI::interpret_chat_payload( $text, $settings['default_message'] );
+
+		if ( ! $interpreted['decoded'] ) {
+			return rest_ensure_response( [ 'error' => __( 'No messages found.', 'hyve-lite' ) ] );
 		}
 
-		$response = ( isset( $message['success'] ) && true === $message['success'] && isset( $message['response'] ) ) ? $message['response'] : esc_html( $settings['default_message'] );
+		$payload  = $interpreted['payload'];
+		$response = $interpreted['final'];
 
-		if ( isset( $message['success'] ) && true === $message['success'] && ! empty( $settings['show_source_link'] ) ) {
+		if ( ! empty( $settings['show_source_link'] ) && ! empty( $payload['success'] ) ) {
 			$response = $this->append_source_link( $response, $run_id );
 		}
 
-		do_action( 'hyve_chat_response', $run_id, $thread_id, $query, $record_id, $message, $response );
+		// Skip recording for admin live-preview test chats (see send_chat).
+		if ( ! $request->get_param( 'is_test' ) ) {
+			do_action( 'hyve_chat_response', $run_id, $thread_id, $query, $record_id, $payload, $response );
+		}
 
 		return rest_ensure_response(
 			[
 				'status'  => $status,
-				'success' => isset( $message['success'] ) ? $message['success'] : false,
+				'success' => isset( $payload['success'] ) ? $payload['success'] : false,
 				'message' => $response,
 			]
 		);
@@ -1013,8 +1045,8 @@ class API extends BaseAPI {
 			return $articles_embedded_data;
 		}
 
-		$top_score   = -1.0;
-		$top_row_id  = null;
+		$top_score  = -1.0;
+		$top_row_id = null;
 
 		foreach ( $matched_articles as $article ) {
 			$article_data = $this->table->get_post_data( $article['id'] );
@@ -1113,6 +1145,20 @@ class API extends BaseAPI {
 		$post_id       = get_transient( $transient_key );
 		delete_transient( $transient_key );
 
+		return $this->maybe_append_source_link( $response, $post_id );
+	}
+
+	/**
+	 * Append a source link to a chat response when a public source is available.
+	 *
+	 * @since 1.4.2
+	 *
+	 * @param string     $response The chat response HTML.
+	 * @param int|string $post_id  The source post ID.
+	 *
+	 * @return string
+	 */
+	public function maybe_append_source_link( $response, $post_id ) {
 		if ( empty( $post_id ) ) {
 			return $response;
 		}
@@ -1150,22 +1196,102 @@ class API extends BaseAPI {
 	 * @return \WP_REST_Response
 	 */
 	public function send_chat( $request ) {
-		$message    = $request->get_param( 'message' );
-		$record_id  = $request->get_param( 'record_id' );
+		$prepared = $this->prepare_chat( $request );
+
+		if ( is_wp_error( $prepared ) ) {
+			return rest_ensure_response( [ 'error' => $this->get_error_message( $prepared ) ] );
+		}
+
+		$is_test        = (bool) $request->get_param( 'is_test' );
+		$request_record = $request->get_param( 'record_id' );
+		$request_record = $request_record ? $request_record : null;
+
+		// Streaming path: stash the prepared turn and hand back a token the
+		// streaming endpoint (admin-ajax) will use to generate and record the
+		// reply. The user message is recorded there, once, when the reply lands.
+		if ( 'stream' === $request->get_param( 'mode' ) ) {
+			$token = wp_generate_password( 24, false );
+
+			set_transient(
+				'hyve_stream_job_' . $token,
+				[
+					'thread_id'      => $prepared['thread_id'],
+					'record_id'      => $request_record,
+					'message'        => $prepared['message'],
+					'context'        => $prepared['context'],
+					'is_test'        => $is_test,
+					'source_post_id' => $this->source_post_id,
+				],
+				5 * MINUTE_IN_SECONDS
+			);
+
+			return rest_ensure_response(
+				[
+					'thread_id'    => $prepared['thread_id'],
+					'record_id'    => $request_record,
+					'stream_token' => $token,
+					'content'      => $prepared['context'],
+				]
+			);
+		}
+
+		// Default path: background run + client polling (unchanged behavior).
+		$thread_id = $prepared['thread_id'];
+		$query_run = $this->create_background_run( $prepared['context'], $prepared['message'], $thread_id );
+
+		if ( is_wp_error( $query_run ) ) {
+			return rest_ensure_response( [ 'error' => $this->get_error_message( $query_run ) ] );
+		}
+
+		// Test chats from the admin live preview are not recorded as threads, so
+		// they never pollute the conversation history or the analytics charts.
+		$record_id = $is_test ? null : apply_filters( 'hyve_chat_request', $thread_id, $request_record, $prepared['message'] );
+
+		return rest_ensure_response(
+			[
+				'thread_id' => $thread_id,
+				'query_run' => $query_run,
+				'record_id' => $record_id ? $record_id : null,
+				'content'   => $prepared['context'],
+			]
+		);
+	}
+
+	/**
+	 * Prepare a chat turn before a model run is created.
+	 *
+	 * Runs the shared, transport-agnostic work: moderation, embeddings,
+	 * knowledge base search and conversation/thread creation. Used by both the
+	 * streaming and the background reply flows so each runs once per turn. The
+	 * user message is recorded by the caller (so it happens exactly once,
+	 * whichever flow ultimately answers).
+	 *
+	 * @param \WP_REST_Request<array<string, mixed>> $request Request.
+	 *
+	 * @return array{thread_id:string,message:string,context:string}|\WP_Error
+	 */
+	private function prepare_chat( $request ) {
+		$message = $request->get_param( 'message' );
+
+		if ( empty( $message ) ) {
+			return new \WP_Error( 'missing_message', __( 'Message was flagged.', 'hyve-lite' ) );
+		}
+
 		$moderation = OpenAI::instance()->moderate_chunks( $message );
 
 		if ( true !== $moderation ) {
-			return rest_ensure_response( [ 'error' => __( 'Message was flagged.', 'hyve-lite' ) ] );
+			return new \WP_Error( 'flagged', __( 'Message was flagged.', 'hyve-lite' ) );
 		}
 
 		$openai         = OpenAI::instance();
 		$message_vector = $openai->create_embeddings( $message );
-		$message_vector = reset( $message_vector );
-		$message_vector = $message_vector->embedding;
 
 		if ( is_wp_error( $message_vector ) ) {
-			return rest_ensure_response( [ 'error' => __( 'No embeddings found.', 'hyve-lite' ) ] );
+			return new \WP_Error( 'no_embeddings', __( 'No embeddings found.', 'hyve-lite' ) );
 		}
+
+		$message_vector = reset( $message_vector );
+		$message_vector = $message_vector->embedding;
 
 		if ( $request->get_param( 'thread_id' ) ) {
 			$thread_id = $request->get_param( 'thread_id' );
@@ -1174,7 +1300,7 @@ class API extends BaseAPI {
 		}
 
 		if ( is_wp_error( $thread_id ) ) {
-			return rest_ensure_response( [ 'error' => $this->get_error_message( $thread_id ) ] );
+			return $thread_id;
 		}
 
 		/**
@@ -1193,68 +1319,52 @@ class API extends BaseAPI {
 
 		$article_context = $this->search_knowledge_base( $message_vector, $similarity_score_threshold );
 
-		$query_run = $openai->create_response(
-			[
-				[
-					'type'    => 'message',
-					'role'    => 'user',
-					'content' => 'START CONTEXT: ' . $article_context . ' :END CONTEXT',
-				],
-				[
-					'type'    => 'message',
-					'role'    => 'user',
-					'content' => 'START QUESTION: ' . $message . ' :END QUESTION',
-				],
-			],
-			$thread_id
-		);
-
-		if ( is_wp_error( $query_run ) ) {
-			if ( strpos( $this->get_error_message( $query_run ), 'Conversation with id' ) !== false ) {
-				$thread_id = $openai->create_conversation();
-
-				if ( is_wp_error( $thread_id ) ) {
-					return rest_ensure_response( [ 'error' => $this->get_error_message( $thread_id ) ] );
-				}
-
-				$query_run = $openai->create_response(
-					[
-						[
-							'type'    => 'message',
-							'role'    => 'user',
-							'content' => 'START CONTEXT: ' . $article_context . ' :END CONTEXT',
-						],
-						[
-							'type'    => 'message',
-							'role'    => 'user',
-							'content' => 'START QUESTION: ' . $message . ' :END QUESTION',
-						],
-					],
-					$thread_id
-				);
-
-				if ( is_wp_error( $query_run ) ) {
-					return rest_ensure_response( [ 'error' => $this->get_error_message( $query_run ) ] );
-				}
-			}
-		}
-
 		$hash = hash( 'md5', strtolower( $message ) );
-		set_transient( 'hyve_message_' . $hash, $message_vector, MINUTE_IN_SECONDS );
+		// TTL must outlast the slowest reply (streaming can run up to the 120s
+		// cURL cap) so the embedding is still available when hyve_chat_response
+		// fires and unanswered-question analytics can read it.
+		set_transient( 'hyve_message_' . $hash, $message_vector, 5 * MINUTE_IN_SECONDS );
+
+		return [
+			'thread_id' => $thread_id,
+			'message'   => $message,
+			'context'   => $article_context,
+		];
+	}
+
+	/**
+	 * Create a background model run for the poll-based reply flow.
+	 *
+	 * Mirrors the original send_chat behavior, including the retry when the
+	 * conversation has expired on OpenAI's side.
+	 *
+	 * @param string $context   Knowledge base context.
+	 * @param string $message   User message.
+	 * @param string $thread_id Conversation id (by reference; recreated if expired).
+	 *
+	 * @return string|\WP_Error Run id or error.
+	 */
+	private function create_background_run( $context, $message, &$thread_id ) {
+		$openai = OpenAI::instance();
+
+		$items = OpenAI::build_chat_items( $context, $message );
+
+		$query_run = $openai->create_response( $items, $thread_id );
+
+		if ( is_wp_error( $query_run ) && strpos( $this->get_error_message( $query_run ), 'Conversation with id' ) !== false ) {
+			$new_thread = $openai->create_conversation();
+
+			if ( is_wp_error( $new_thread ) ) {
+				return $new_thread;
+			}
+
+			$thread_id = $new_thread;
+			$query_run = $openai->create_response( $items, $thread_id );
+		}
 
 		if ( ! empty( $this->source_post_id ) && is_string( $query_run ) ) {
 			set_transient( 'hyve_source_' . $query_run, $this->source_post_id, HOUR_IN_SECONDS );
 		}
-
-		$record_id = apply_filters( 'hyve_chat_request', $thread_id, $record_id, $message );
-
-		return rest_ensure_response(
-			[
-				'thread_id' => $thread_id,
-				'query_run' => $query_run,
-				'record_id' => $record_id ? $record_id : null,
-				'content'   => $article_context,
-			]
-		);
+		return $query_run;
 	}
 }

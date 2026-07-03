@@ -132,18 +132,18 @@ class OpenAI {
 	}
 
 	/**
-	 * Create a Response.
-	 * 
+	 * Build the chat parameters shared by the background (poll) and streaming
+	 * reply flows, so a single prompt and JSON schema drive both paths.
+	 *
 	 * @param array<array<string, mixed>> $items        Items.
 	 * @param string                      $conversation Conversation.
-	 * 
-	 * @return object|\WP_Error
+	 *
+	 * @return array<string, mixed>
 	 */
-	public function create_response( $items, $conversation ) {
+	private function get_chat_response_params( $items, $conversation ) {
 		$settings = Main::get_settings();
 
-		$params = [
-			'background'   => true,
+		return [
 			'conversation' => $conversation,
 			'model'        => $this->chat_model,
 			'temperature'  => $settings['temperature'],
@@ -173,6 +173,19 @@ class OpenAI {
 				],
 			],
 		];
+	}
+
+	/**
+	 * Create a background Response (poll flow).
+	 *
+	 * @param array<array<string, mixed>> $items        Items.
+	 * @param string                      $conversation Conversation.
+	 *
+	 * @return string|\WP_Error
+	 */
+	public function create_response( $items, $conversation ) {
+		$params               = $this->get_chat_response_params( $items, $conversation );
+		$params['background'] = true;
 
 		$response = $this->request(
 			'responses',
@@ -188,6 +201,70 @@ class OpenAI {
 		}
 
 		return $response->id;
+	}
+
+	/**
+	 * Build the chat input items (context + question) for a turn.
+	 *
+	 * Shared by the background and streaming reply flows so both send an
+	 * identical prompt structure.
+	 *
+	 * @param string $context Knowledge base context.
+	 * @param string $message User message.
+	 *
+	 * @return array<array<string, string>>
+	 */
+	public static function build_chat_items( $context, $message ) {
+		return [
+			[
+				'type'    => 'message',
+				'role'    => 'user',
+				'content' => 'START CONTEXT: ' . $context . ' :END CONTEXT',
+			],
+			[
+				'type'    => 'message',
+				'role'    => 'user',
+				'content' => 'START QUESTION: ' . $message . ' :END QUESTION',
+			],
+		];
+	}
+
+	/**
+	 * Interpret a model reply (the structured JSON output) into a decision.
+	 *
+	 * Shared by the background (get_chat) and streaming (Stream) flows so a model
+	 * reply is turned into success/answer text identically on both paths.
+	 *
+	 * @param string $text            The raw model output (JSON string).
+	 * @param string $default_message Fallback shown when there is no answer.
+	 *
+	 * @return array{decoded:bool,payload:array<string,mixed>,answered:bool,final:string}
+	 */
+	public static function interpret_chat_payload( $text, $default_message ) {
+		$payload = json_decode( $text, true );
+
+		if ( JSON_ERROR_NONE !== json_last_error() || ! is_array( $payload ) ) {
+			return [
+				'decoded'  => false,
+				'payload'  => [],
+				'answered' => false,
+				'final'    => esc_html( $default_message ),
+			];
+		}
+
+		if ( isset( $payload['properties'] ) ) {
+			$payload = $payload['properties'];
+		}
+
+		$answered = isset( $payload['success'] ) && true === $payload['success'] && isset( $payload['response'] );
+		$final    = $answered ? $payload['response'] : esc_html( $default_message );
+
+		return [
+			'decoded'  => true,
+			'payload'  => $payload,
+			'answered' => $answered,
+			'final'    => $final,
+		];
 	}
 
 	/**
@@ -209,6 +286,143 @@ class OpenAI {
 		}
 
 		return $response;
+	}
+
+	/**
+	 * Stream a Response from OpenAI.
+	 *
+	 * Uses a raw cURL request because `wp_remote_*` cannot read the response
+	 * body incrementally. Each text delta is passed to `$on_delta` as it
+	 * arrives; the fully assembled text and response id are returned at the end.
+	 *
+	 * @param array<array<string, mixed>> $items        Input items.
+	 * @param string                      $conversation Conversation id.
+	 * @param callable                    $on_delta     Receives each text delta (string).
+	 *
+	 * @return array{id:string,text:string}|\WP_Error
+	 */
+	public function stream_response( $items, $conversation, $on_delta ) {
+		if ( ! $this->api_key ) {
+			return new \WP_Error( 'no_api_key', __( 'API key is missing.', 'hyve-lite' ) );
+		}
+
+		if ( ! function_exists( 'curl_init' ) ) {
+			return new \WP_Error( 'no_curl', __( 'cURL is not available.', 'hyve-lite' ) );
+		}
+
+		$params           = $this->get_chat_response_params( $items, $conversation );
+		$params['stream'] = true;
+
+		$body = wp_json_encode( apply_filters( 'hyve_create_response_params', $params ) );
+
+		if ( false === $body ) {
+			return new \WP_Error( 'invalid_params', __( 'Invalid params.', 'hyve-lite' ) );
+		}
+
+		$assembled   = '';
+		$response_id = '';
+		$sse_buffer  = '';
+		$stream_err  = null;
+
+		$write = function ( $ch, $chunk ) use ( &$sse_buffer, &$assembled, &$response_id, &$stream_err, $on_delta ) {
+			$sse_buffer .= $chunk;
+
+			while ( false !== ( $pos = strpos( $sse_buffer, "\n\n" ) ) ) {
+				$raw        = substr( $sse_buffer, 0, $pos );
+				$sse_buffer = substr( $sse_buffer, $pos + 2 );
+
+				$data = [];
+
+				foreach ( explode( "\n", $raw ) as $line ) {
+					$line = rtrim( $line, "\r" );
+
+					if ( 0 === strpos( $line, 'data:' ) ) {
+						$data[] = ltrim( substr( $line, 5 ), ' ' );
+					}
+				}
+
+				if ( empty( $data ) ) {
+					continue;
+				}
+
+				$payload = implode( "\n", $data );
+
+				if ( '[DONE]' === $payload ) {
+					continue;
+				}
+
+				$event = json_decode( $payload );
+
+				if ( ! is_object( $event ) || ! isset( $event->type ) ) {
+					continue;
+				}
+
+				if ( isset( $event->response->id ) ) {
+					$response_id = $event->response->id;
+				}
+
+				if ( 'response.output_text.delta' === $event->type && isset( $event->delta ) && is_string( $event->delta ) ) {
+					$assembled .= $event->delta;
+					call_user_func( $on_delta, $event->delta );
+				}
+
+				if ( 'response.failed' === $event->type || 'error' === $event->type ) {
+					$stream_err = isset( $event->response->error->message ) ? $event->response->error->message : ( isset( $event->message ) ? $event->message : __( 'Streaming failed.', 'hyve-lite' ) );
+				}
+			}
+
+			if ( function_exists( 'connection_aborted' ) && connection_aborted() ) {
+				return 0;
+			}
+
+			return strlen( $chunk );
+		};
+
+		// Streaming requires reading the response body incrementally, which
+		// wp_remote_* cannot do, so cURL is used directly here.
+		// phpcs:disable WordPress.WP.AlternativeFunctions.curl_curl_init, WordPress.WP.AlternativeFunctions.curl_curl_setopt_array, WordPress.WP.AlternativeFunctions.curl_curl_exec, WordPress.WP.AlternativeFunctions.curl_curl_error, WordPress.WP.AlternativeFunctions.curl_curl_getinfo, WordPress.WP.AlternativeFunctions.curl_curl_close
+		$handle = curl_init();
+
+		curl_setopt_array(
+			$handle,
+			[
+				CURLOPT_URL            => self::$base_url . 'responses',
+				CURLOPT_POST           => true,
+				CURLOPT_POSTFIELDS     => $body,
+				CURLOPT_HTTPHEADER     => [
+					'Content-Type: application/json',
+					'Authorization: Bearer ' . $this->api_key,
+					'Accept: text/event-stream',
+				],
+				CURLOPT_RETURNTRANSFER => false,
+				CURLOPT_CONNECTTIMEOUT => 15,
+				CURLOPT_TIMEOUT        => 120,
+				CURLOPT_WRITEFUNCTION  => $write,
+			]
+		);
+
+		$ok   = curl_exec( $handle );
+		$err  = curl_error( $handle );
+		$code = (int) curl_getinfo( $handle, CURLINFO_HTTP_CODE );
+		curl_close( $handle );
+		// phpcs:enable WordPress.WP.AlternativeFunctions.curl_curl_init, WordPress.WP.AlternativeFunctions.curl_curl_setopt_array, WordPress.WP.AlternativeFunctions.curl_curl_exec, WordPress.WP.AlternativeFunctions.curl_curl_error, WordPress.WP.AlternativeFunctions.curl_curl_getinfo, WordPress.WP.AlternativeFunctions.curl_curl_close
+
+		if ( null !== $stream_err ) {
+			return new \WP_Error( 'stream_error', $stream_err );
+		}
+
+		if ( $code >= 400 ) {
+			return new \WP_Error( 'stream_http_error', sprintf( 'HTTP %d', $code ) );
+		}
+
+		if ( false === $ok && '' === $assembled && ! ( function_exists( 'connection_aborted' ) && connection_aborted() ) ) {
+			return new \WP_Error( 'stream_failed', $err ? $err : __( 'Streaming request failed.', 'hyve-lite' ) );
+		}
+
+		return [
+			'id'   => $response_id,
+			'text' => $assembled,
+		];
 	}
 
 	/**
