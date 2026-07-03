@@ -20,6 +20,7 @@ class App {
 		this.runID = null;
 		this.recordID = null;
 		this.isMenuOpen = false;
+		this.isInline = false;
 
 		if ( Boolean( window.hyveClient?.canShow ) ) {
 			this.initialize();
@@ -31,6 +32,30 @@ class App {
 		await this.renderUI();
 		this.setupListeners();
 		this.restoreMessages();
+		this.showInlineWelcome();
+	}
+
+	/**
+	 * Show the welcome message for an inline placement.
+	 *
+	 * The inline chat is always open, so it never goes through
+	 * toggleChatWindow() where the floating chat adds its welcome message.
+	 */
+	showInlineWelcome() {
+		if ( ! this.isInline || 0 !== this.messages.length ) {
+			return;
+		}
+
+		if ( ! window.hyveClient.welcome || '' === window.hyveClient.welcome ) {
+			return;
+		}
+
+		this.isInitialToggle = false;
+
+		setTimeout( () => {
+			this.add( window.hyveClient.welcome, 'bot' );
+			this.addSuggestions();
+		}, 1000 );
 	}
 
 	restoreStorage() {
@@ -741,9 +766,16 @@ class App {
 		chatInputBox.appendChild( chatSendButton );
 		chatWindow.appendChild( chatInputBox );
 
+		// An explicit inline placement (block or shortcode) always wins over the
+		// floating auto-display, so the chat renders where it was added regardless
+		// of the global visibility rules.
+		const inlineChat = document.querySelector( '#hyve-inline-chat' );
 		const chatExists = document.querySelectorAll( '#hyve-chat' );
 
-		if (
+		if ( inlineChat ) {
+			inlineChat.appendChild( chatWindow );
+			this.isInline = true;
+		} else if (
 			true === Boolean( window?.hyveClient?.isEnabled ) ||
 			0 < chatExists.length
 		) {
@@ -754,14 +786,6 @@ class App {
 			document.body.appendChild( chatWindow );
 			document.body.appendChild( chatOpen );
 			document.body.appendChild( chatClose );
-
-			return;
-		}
-
-		const inlineChat = document.querySelector( '#hyve-inline-chat' );
-
-		if ( inlineChat ) {
-			inlineChat.appendChild( chatWindow );
 		}
 	}
 

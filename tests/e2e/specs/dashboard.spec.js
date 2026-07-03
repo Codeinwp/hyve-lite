@@ -41,7 +41,7 @@ test.describe( 'Dashboard', () => {
 	 */
 	test( 'check tabs', async ( { page } ) => {
 		await expect(
-			page.getByText( 'Enable Chat on all the pages' )
+			page.getByText( 'Where should Hyve appear?' )
 		).toBeVisible();
 
 		await page

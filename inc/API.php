@@ -316,11 +316,38 @@ class API extends BaseAPI {
 					},
 					'sanitize' => 'sanitize_url',
 				],
-				'chat_enabled'               => [
+				'display_mode'               => [
 					'validate' => function ( $value ) {
-						return is_bool( $value );
+						return in_array( $value, [ 'all', 'include', 'exclude', 'manual' ], true );
 					},
-					'sanitize' => 'rest_sanitize_boolean',
+					'sanitize' => 'sanitize_text_field',
+				],
+				'display_rules'              => [
+					'validate' => function ( $value ) {
+						return is_array( $value );
+					},
+					'sanitize' => function ( $value ) {
+						if ( ! is_array( $value ) ) {
+							return [];
+						}
+
+						$rules = [];
+
+						foreach ( $value as $rule ) {
+							if ( ! is_array( $rule ) || empty( $rule['path'] ) ) {
+								continue;
+							}
+
+							$operator = ( isset( $rule['operator'] ) && 'matches' === $rule['operator'] ) ? 'matches' : 'contains';
+
+							$rules[] = [
+								'path'     => sanitize_text_field( $rule['path'] ),
+								'operator' => $operator,
+							];
+						}
+
+						return $rules;
+					},
 				],
 				'welcome_message'            => [
 					'validate' => function ( $value ) {
@@ -503,6 +530,29 @@ class API extends BaseAPI {
 	}
 
 	/**
+	 * Get the visibility of a post for the Knowledge Base UI.
+	 *
+	 * Content added to the Knowledge Base is surfaced to any chat visitor
+	 * regardless of the post's original visibility, so the admin UI flags
+	 * restricted content.
+	 *
+	 * @param int $post_id Post ID.
+	 *
+	 * @return string One of 'public', 'private' or 'password'.
+	 */
+	private function get_post_visibility( $post_id ) {
+		if ( 'private' === get_post_status( $post_id ) ) {
+			return 'private';
+		}
+
+		if ( '' !== get_post_field( 'post_password', $post_id ) ) {
+			return 'password';
+		}
+
+		return 'public';
+	}
+
+	/**
 	 * Get data.
 	 *
 	 * @param \WP_REST_Request<array<string, mixed>> $request Request object.
@@ -512,7 +562,7 @@ class API extends BaseAPI {
 	public function get_data( $request ) {
 		$args = [
 			'post_type'      => $request->get_param( 'type' ),
-			'post_status'    => 'publish',
+			'post_status'    => [ 'publish', 'private' ],
 			'posts_per_page' => 20,
 			'fields'         => 'ids',
 			'offset'         => $request->get_param( 'offset' ),
@@ -588,8 +638,9 @@ class API extends BaseAPI {
 				 * @var int $post_id
 				 */
 				$post_data = [
-					'ID'    => $post_id,
-					'title' => get_the_title( $post_id ),
+					'ID'         => $post_id,
+					'title'      => html_entity_decode( get_the_title( $post_id ), ENT_QUOTES, 'UTF-8' ),
+					'visibility' => $this->get_post_visibility( $post_id ),
 				];
 
 				if ( 'moderation' === $status ) {
@@ -762,7 +813,7 @@ class API extends BaseAPI {
 
 				$post_data = [
 					'ID'        => $post_id,
-					'title'     => get_the_title( $post_id ),
+					'title'     => html_entity_decode( get_the_title( $post_id ), ENT_QUOTES, 'UTF-8' ),
 					'date'      => get_the_date( 'c', $post_id ),
 					'thread'    => get_post_meta( $post_id, '_hyve_thread_data', true ),
 					'thread_id' => get_post_meta( $post_id, '_hyve_thread_id', true ),
