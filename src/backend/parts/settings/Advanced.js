@@ -9,6 +9,7 @@ import {
 	BaseControl,
 	Button,
 	ExternalLink,
+	Icon,
 	Panel,
 	PanelRow,
 	TextControl,
@@ -20,6 +21,14 @@ import { useDispatch, useSelect } from '@wordpress/data';
 
 import { applyFilters } from '@wordpress/hooks';
 
+const getInitialApiStatus = () => {
+	if ( window.hyve?.isApiKeyConnected ) {
+		return 'connected';
+	}
+
+	return window.hyve?.hasAPIKey ? 'error' : 'none';
+};
+
 const Advanced = () => {
 	const settings = useSelect( ( select ) => select( 'hyve' ).getSettings() );
 
@@ -28,6 +37,8 @@ const Advanced = () => {
 	const { createNotice } = useDispatch( 'core/notices' );
 
 	const [ isSaving, setIsSaving ] = useState( false );
+
+	const [ apiStatus, setApiStatus ] = useState( getInitialApiStatus );
 
 	const onSave = async () => {
 		setIsSaving( true );
@@ -47,8 +58,10 @@ const Advanced = () => {
 
 			if ( settings.api_key ) {
 				setHasAPI( true );
+				setApiStatus( 'connected' );
 			} else {
 				setHasAPI( false );
+				setApiStatus( 'none' );
 			}
 
 			createNotice( 'success', __( 'Settings saved.', 'hyve-lite' ), {
@@ -56,6 +69,10 @@ const Advanced = () => {
 				isDismissible: true,
 			} );
 		} catch ( error ) {
+			if ( settings.api_key ) {
+				setApiStatus( 'error' );
+			}
+
 			createNotice( 'error', error, {
 				type: 'snackbar',
 				isDismissible: true,
@@ -86,17 +103,37 @@ const Advanced = () => {
 									featureComponent: 'api-key',
 									featureValue: 'added',
 								} );
+								setApiStatus( 'editing' );
 								setSetting( 'api_key', newValue );
 							} }
 						/>
 					</BaseControl>
 
-					<ExternalLink
-						href="https://platform.openai.com/api-keys"
-						className="flex mb-2 items-centertext-sm text-blue-600"
-					>
-						{ __( 'Get an API key', 'hyve-lite' ) }
-					</ExternalLink>
+					{ 'connected' === apiStatus && (
+						<p className="mb-2 flex items-center text-green-700">
+							<Icon icon="yes" className="text-green-600" />
+							{ __( 'Connected', 'hyve-lite' ) }
+						</p>
+					) }
+
+					{ 'error' === apiStatus && (
+						<p className="mb-2 flex items-center text-red-700">
+							<Icon icon="warning" className="text-red-600" />
+							{ __(
+								'Not connected. Please check your API key.',
+								'hyve-lite'
+							) }
+						</p>
+					) }
+
+					{ 'connected' !== apiStatus && (
+						<ExternalLink
+							href="https://platform.openai.com/api-keys"
+							className="flex mb-2 items-centertext-sm text-blue-600"
+						>
+							{ __( 'Get an API key', 'hyve-lite' ) }
+						</ExternalLink>
+					) }
 
 					<Button
 						variant="primary"

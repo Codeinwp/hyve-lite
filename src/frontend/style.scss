@@ -113,6 +113,14 @@ $hyve-z: 999999;
 	display: none;
 }
 
+// In the dashboard live preview (wp-admin only), keep the launcher below the
+// admin bar and menu so it doesn't float over the admin chrome.
+body.wp-admin {
+	.hyve-bar-open,
+	.hyve-bar-close {
+		z-index: 9;
+	}
+}
 // Inline (shortcode/block) placement: render in-flow, no floating/animation.
 #hyve-inline-chat {
 	.hyve-window {
@@ -260,6 +268,7 @@ $hyve-z: 999999;
 				align-items: center;
 				justify-content: center;
 				transition: background-color 0.2s ease;
+				padding: 0;
 
 				&:hover {
 					background-color: rgba(15, 23, 42, 0.06);
@@ -414,6 +423,11 @@ $hyve-z: 999999;
 					height: 18px;
 					margin-left: 2px;
 				}
+			}
+
+			// Match the icon contrast to the button background, like the launcher.
+			&.is-light button svg {
+				fill: #1f2933;
 			}
 		}
 	}

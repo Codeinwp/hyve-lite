@@ -1322,6 +1322,18 @@ class App {
 			} )
 		);
 
+		// Adapt the send icon color to the icon background, like the launcher.
+		if ( window.hyveClient.colors?.icon_background ) {
+			chatSendButton.classList.add( 'is-dark' );
+		}
+
+		if (
+			! window.hyveClient.colors?.icon_background &&
+			undefined !== window.hyveClient.colors?.icon_background
+		) {
+			chatSendButton.classList.add( 'is-light' );
+		}
+
 		chatWindow.appendChild( chatHeader );
 
 		// In the dashboard test preview, make it obvious this chat is for trying
@@ -1343,9 +1355,16 @@ class App {
 		chatInputBox.appendChild( chatSendButton );
 		chatWindow.appendChild( chatInputBox );
 
+		// An explicit inline placement (block or shortcode) always wins over the
+		// floating auto-display, so the chat renders where it was added regardless
+		// of the global visibility rules.
+		const inlineChat = document.querySelector( '#hyve-inline-chat' );
 		const chatExists = document.querySelectorAll( '#hyve-chat' );
 
-		if (
+		if ( inlineChat ) {
+			inlineChat.appendChild( chatWindow );
+			this.isInline = true;
+		} else if (
 			true === Boolean( window?.hyveClient?.isEnabled ) ||
 			0 < chatExists.length
 		) {
@@ -1356,15 +1375,6 @@ class App {
 			document.body.appendChild( chatWindow );
 			document.body.appendChild( chatOpen );
 			document.body.appendChild( chatClose );
-
-			return;
-		}
-
-		const inlineChat = document.querySelector( '#hyve-inline-chat' );
-
-		if ( inlineChat ) {
-			this.isInline = true;
-			inlineChat.appendChild( chatWindow );
 		}
 	}
 
@@ -1523,6 +1533,11 @@ class App {
 		);
 		setClasses(
 			document.getElementById( 'hyve-close' ),
+			colors.icon_background,
+			true
+		);
+		setClasses(
+			document.getElementById( 'hyve-send-button' ),
 			colors.icon_background,
 			true
 		);
