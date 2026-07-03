@@ -98,6 +98,38 @@ class Main {
 
 		add_filter( 'themeisle_sdk_blackfriday_data', [ $this, 'add_black_friday_data' ] );
 		add_action( 'admin_init', [ $this, 'admin_init' ] );
+		add_action( 'admin_init', [ $this, 'add_privacy_policy_content' ] );
+	}
+
+	/**
+	 * Register suggested privacy policy content.
+	 *
+	 * Surfaces Hyve's third-party data processing (message storage and OpenAI
+	 * processing) in the core Privacy Policy guide at Settings → Privacy.
+	 *
+	 * @since 1.4.2
+	 *
+	 * @return void
+	 */
+	public function add_privacy_policy_content() {
+		if ( ! function_exists( 'wp_add_privacy_policy_content' ) ) {
+			return;
+		}
+
+		$content =
+			'<p class="privacy-policy-tutorial">' .
+			__( 'This information is provided to help you disclose how the Hyve chat assistant processes visitor data. Review it and adapt it to your site before publishing.', 'hyve-lite' ) .
+			'</p>' .
+			'<p>' . __( 'When visitors use the Hyve chat assistant on this site, the messages they send are stored on this website so the site administrator can review chat history. No account is required to use the chat.', 'hyve-lite' ) . '</p>' .
+			'<p>' . __( 'To generate replies, the messages are also sent to OpenAI, L.L.C. — a third-party service based in the United States. OpenAI processes the messages to moderate their content, to create numerical representations (embeddings) used to find relevant information, and to generate the assistant\'s responses.', 'hyve-lite' ) . '</p>' .
+			'<p>' . __( 'For details on how OpenAI handles data, see OpenAI\'s privacy policy at https://openai.com/policies/privacy-policy/.', 'hyve-lite' ) . '</p>';
+
+		// Only disclose Qdrant when it is actually connected, so the suggested text reflects the site's real data flows.
+		if ( Qdrant_API::is_active() ) {
+			$content .= '<p>' . __( 'This site also uses Qdrant, a third-party vector database. A numerical representation (embedding) of your message is sent to Qdrant to look up relevant information. See Qdrant\'s privacy policy at https://qdrant.tech/legal/privacy-policy/.', 'hyve-lite' ) . '</p>';
+		}
+
+		wp_add_privacy_policy_content( 'Hyve', wp_kses_post( $content ) );
 	}
 
 	/**
