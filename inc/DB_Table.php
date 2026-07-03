@@ -597,7 +597,7 @@ class DB_Table {
 	public function update_posts() {
 		$args = [
 			'post_type'      => 'any',
-			'post_status'    => 'publish',
+			'post_status'    => [ 'publish', 'private' ],
 			'posts_per_page' => 5,
 			'fields'         => 'ids',
 			'meta_query'     => [
