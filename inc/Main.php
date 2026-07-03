@@ -232,7 +232,6 @@ class Main {
 				'api_key'                    => '',
 				'qdrant_api_key'             => '',
 				'qdrant_endpoint'            => '',
-				'chat_enabled'               => true,
 				'chat_model'                 => 'gpt-4o-mini',
 				'temperature'                => 1,
 				'top_p'                      => 1,
@@ -253,6 +252,8 @@ class Main {
 				'default_message'            => '',
 				'similarity_score_threshold' => 0.4,
 				'post_row_addon_enabled'     => true,
+				'display_mode'               => 'all',
+				'display_rules'              => [],
 			]
 		);
 	}
@@ -265,11 +266,28 @@ class Main {
 	 * @return array<string, mixed>
 	 */
 	public static function get_settings() {
-		$settings = get_option( 'hyve_settings', [] );
+		$saved = get_option( 'hyve_settings', [] );
 
+		if ( ! is_array( $saved ) ) {
+			$saved = [];
+		}
+
+		$settings                      = $saved;
 		$settings['telemetry_enabled'] = 'yes' === get_option( 'hyve_lite_logger_flag', 'no' );
 
-		return wp_parse_args( $settings, self::get_default_settings() );
+		$settings = wp_parse_args( $settings, self::get_default_settings() );
+
+		/*
+		 * Backward compatibility: derive the visibility mode from the legacy
+		 * chat_enabled boolean until the migration persists display_mode. Only
+		 * fires on the front-end window before the SDK migration runs (admin_init
+		 * after an upgrade), so it can be removed once all installs migrated.
+		 */
+		if ( ! isset( $saved['display_mode'] ) ) {
+			$settings['display_mode'] = ( isset( $saved['chat_enabled'] ) && ! $saved['chat_enabled'] ) ? 'manual' : 'all';
+		}
+
+		return $settings;
 	}
 
 	/**
@@ -342,6 +360,8 @@ class Main {
 		 */
 		$should_show_chat = apply_filters( 'hyve_display_chat', 0 < intval( $stats['totalChunks'] ) );
 
+		$should_display_chat = $this->should_display_chat();
+
 		wp_localize_script(
 			'hyve-lite-scripts',
 			'hyveClient',
@@ -354,7 +374,7 @@ class Main {
 						'ping'  => HYVE_LITE_URL . 'assets/audio/ping.mp3',
 					],
 					'welcome'   => esc_html( $settings['welcome_message'] ?? '' ),
-					'isEnabled' => $settings['chat_enabled'],
+					'isEnabled' => $should_display_chat,
 					'strings'   => [
 						'reply'             => __( 'Write a reply…', 'hyve-lite' ),
 						'suggestions'       => __( 'Not sure where to start?', 'hyve-lite' ),
@@ -377,7 +397,7 @@ class Main {
 			)
 		);
 
-		if ( ! isset( $settings['chat_enabled'] ) || false === $settings['chat_enabled'] ) {
+		if ( ! $should_display_chat ) {
 			return;
 		}
 
@@ -516,11 +536,76 @@ class Main {
 	 */
 	public function is_global_chat_enabled() {
 		$settings = self::get_settings();
-		if ( ! isset( $settings['chat_enabled'] ) ) {
+
+		return isset( $settings['display_mode'] ) && 'all' === $settings['display_mode'];
+	}
+
+	/**
+	 * Whether the chat should be auto-displayed on the current request.
+	 *
+	 * Evaluates the visibility rules against the current page. Manual placement
+	 * via the block or shortcode is unaffected by this.
+	 *
+	 * @since 1.4.2
+	 *
+	 * @return bool
+	 */
+	public function should_display_chat() {
+		$settings = self::get_settings();
+		$mode     = isset( $settings['display_mode'] ) ? $settings['display_mode'] : 'all';
+
+		if ( 'all' === $mode ) {
+			return true;
+		}
+
+		if ( 'include' !== $mode && 'exclude' !== $mode ) {
+			// 'manual' or any unknown mode: no automatic display.
 			return false;
 		}
 
-		return boolval( $settings['chat_enabled'] );
+		$rules   = ( isset( $settings['display_rules'] ) && is_array( $settings['display_rules'] ) ) ? $settings['display_rules'] : [];
+		$matches = $this->path_matches( $rules );
+
+		return 'include' === $mode ? $matches : ! $matches;
+	}
+
+	/**
+	 * Check the current request URI against a set of path rules.
+	 *
+	 * Mirrors the exact/contains matching used by other ThemeIsle plugins.
+	 *
+	 * @since 1.4.2
+	 *
+	 * @param array<int, array<string, string>> $rules List of { path, operator } rules.
+	 *
+	 * @return bool True when any rule matches the current request.
+	 */
+	private function path_matches( $rules ) {
+		if ( empty( $rules ) || ! isset( $_SERVER['REQUEST_URI'] ) ) {
+			return false;
+		}
+
+		$uri = esc_url_raw( wp_unslash( $_SERVER['REQUEST_URI'] ) );
+
+		foreach ( $rules as $rule ) {
+			$path = isset( $rule['path'] ) ? trim( $rule['path'] ) : '';
+
+			if ( '' === $path ) {
+				continue;
+			}
+
+			$operator = isset( $rule['operator'] ) ? $rule['operator'] : 'contains';
+
+			if ( 'matches' === $operator ) {
+				if ( $uri === $path ) {
+					return true;
+				}
+			} elseif ( false !== strpos( $uri, $path ) ) {
+				return true;
+			}
+		}
+
+		return false;
 	}
 
 	/**
@@ -701,7 +786,8 @@ class Main {
 				'stats_threads'             => $options['stats']['threads'],
 				'stats_total_chunks'        => $options['stats']['totalChunks'],
 				'openai_chat_model'         => $settings['chat_model'],
-				'chat_on_all_pages_enabled' => $settings['chat_enabled'],
+				'chat_on_all_pages_enabled' => 'all' === $settings['display_mode'],
+				'chat_display_mode'         => $settings['display_mode'],
 			],
 		];
 
