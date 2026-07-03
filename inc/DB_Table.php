@@ -467,7 +467,7 @@ class DB_Table {
 	public function add_post( $post_id, $action = 'add' ) {
 		$data = [
 			'ID'      => $post_id,
-			'title'   => get_the_title( $post_id ),
+			'title'   => html_entity_decode( get_the_title( $post_id ), ENT_QUOTES, 'UTF-8' ),
 			'content' => apply_filters( 'the_content', get_post_field( 'post_content', $post_id ) ),
 		];
 
