@@ -316,11 +316,38 @@ class API extends BaseAPI {
 					},
 					'sanitize' => 'sanitize_url',
 				],
-				'chat_enabled'               => [
+				'display_mode'               => [
 					'validate' => function ( $value ) {
-						return is_bool( $value );
+						return in_array( $value, [ 'all', 'include', 'exclude', 'manual' ], true );
 					},
-					'sanitize' => 'rest_sanitize_boolean',
+					'sanitize' => 'sanitize_text_field',
+				],
+				'display_rules'              => [
+					'validate' => function ( $value ) {
+						return is_array( $value );
+					},
+					'sanitize' => function ( $value ) {
+						if ( ! is_array( $value ) ) {
+							return [];
+						}
+
+						$rules = [];
+
+						foreach ( $value as $rule ) {
+							if ( ! is_array( $rule ) || empty( $rule['path'] ) ) {
+								continue;
+							}
+
+							$operator = ( isset( $rule['operator'] ) && 'matches' === $rule['operator'] ) ? 'matches' : 'contains';
+
+							$rules[] = [
+								'path'     => sanitize_text_field( $rule['path'] ),
+								'operator' => $operator,
+							];
+						}
+
+						return $rules;
+					},
 				],
 				'welcome_message'            => [
 					'validate' => function ( $value ) {
