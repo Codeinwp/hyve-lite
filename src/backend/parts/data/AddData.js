@@ -12,6 +12,7 @@ import apiFetch from '@wordpress/api-fetch';
 
 import {
 	Button,
+	Modal,
 	Notice,
 	Panel,
 	PanelRow,
@@ -53,6 +54,7 @@ const AddData = ( { refresh, setAddPost } ) => {
 	const [ isUpdating, setUpdating ] = useState( [] );
 	const [ isModerationModalOpen, setModerationModalOpen ] = useState( false );
 	const [ post, setPost ] = useState( null );
+	const [ confirmPost, setConfirmPost ] = useState( null );
 	const [ offset, setOffset ] = useState( 0 );
 
 	const [ query, setQuery ] = useState( {
@@ -66,7 +68,20 @@ const AddData = ( { refresh, setAddPost } ) => {
 		select( 'hyve' ).hasReachedLimit()
 	);
 
-	const onProcess = async ( id ) => {
+	const onProcess = ( id ) => {
+		const currentPost = posts[ queryHash ]?.find( ( p ) => p.ID === id );
+
+		// Restricted content is surfaced to any chat visitor once added, so
+		// require an explicit confirmation before importing it.
+		if ( currentPost && 'public' !== currentPost.visibility ) {
+			setConfirmPost( currentPost );
+			return;
+		}
+
+		processPost( id );
+	};
+
+	const processPost = async ( id ) => {
 		setUpdating( ( prev ) => [ ...prev, id ] );
 		const currentPost = posts[ queryHash ].find( ( p ) => p.ID === id );
 
@@ -227,6 +242,45 @@ const AddData = ( { refresh, setAddPost } ) => {
 					</PanelRow>
 				</Panel>
 			</div>
+
+			{ confirmPost && (
+				<Modal
+					title={ __( 'Add restricted content?', 'hyve-lite' ) }
+					onRequestClose={ () => setConfirmPost( null ) }
+				>
+					<p className="max-w-md">
+						{ 'private' === confirmPost.visibility
+							? __(
+									'This is a private post. Adding it to the Knowledge Base lets the chatbot surface its content to any visitor, even though the post itself is not publicly viewable.',
+									'hyve-lite'
+							  )
+							: __(
+									'This is a password-protected post. Adding it to the Knowledge Base lets the chatbot surface its content to any visitor without entering the password.',
+									'hyve-lite'
+							  ) }
+					</p>
+
+					<div className="flex justify-end gap-3 pt-6">
+						<Button
+							variant="tertiary"
+							onClick={ () => setConfirmPost( null ) }
+						>
+							{ __( 'Cancel', 'hyve-lite' ) }
+						</Button>
+
+						<Button
+							variant="primary"
+							onClick={ () => {
+								const id = confirmPost.ID;
+								setConfirmPost( null );
+								processPost( id );
+							} }
+						>
+							{ __( 'Add anyway', 'hyve-lite' ) }
+						</Button>
+					</div>
+				</Modal>
+			) }
 
 			<ModerationReview
 				post={ post }

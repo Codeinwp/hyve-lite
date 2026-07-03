@@ -98,6 +98,38 @@ class Main {
 
 		add_filter( 'themeisle_sdk_blackfriday_data', [ $this, 'add_black_friday_data' ] );
 		add_action( 'admin_init', [ $this, 'admin_init' ] );
+		add_action( 'admin_init', [ $this, 'add_privacy_policy_content' ] );
+	}
+
+	/**
+	 * Register suggested privacy policy content.
+	 *
+	 * Surfaces Hyve's third-party data processing (message storage and OpenAI
+	 * processing) in the core Privacy Policy guide at Settings → Privacy.
+	 *
+	 * @since 1.4.2
+	 *
+	 * @return void
+	 */
+	public function add_privacy_policy_content() {
+		if ( ! function_exists( 'wp_add_privacy_policy_content' ) ) {
+			return;
+		}
+
+		$content =
+			'<p class="privacy-policy-tutorial">' .
+			__( 'This information is provided to help you disclose how the Hyve chat assistant processes visitor data. Review it and adapt it to your site before publishing.', 'hyve-lite' ) .
+			'</p>' .
+			'<p>' . __( 'When visitors use the Hyve chat assistant on this site, the messages they send are stored on this website so the site administrator can review chat history. No account is required to use the chat.', 'hyve-lite' ) . '</p>' .
+			'<p>' . __( 'To generate replies, the messages are also sent to OpenAI, L.L.C. — a third-party service based in the United States. OpenAI processes the messages to moderate their content, to create numerical representations (embeddings) used to find relevant information, and to generate the assistant\'s responses.', 'hyve-lite' ) . '</p>' .
+			'<p>' . __( 'For details on how OpenAI handles data, see OpenAI\'s privacy policy at https://openai.com/policies/privacy-policy/.', 'hyve-lite' ) . '</p>';
+
+		// Only disclose Qdrant when it is actually connected, so the suggested text reflects the site's real data flows.
+		if ( Qdrant_API::is_active() ) {
+			$content .= '<p>' . __( 'This site also uses Qdrant, a third-party vector database. A numerical representation (embedding) of your message is sent to Qdrant to look up relevant information. See Qdrant\'s privacy policy at https://qdrant.tech/legal/privacy-policy/.', 'hyve-lite' ) . '</p>';
+		}
+
+		wp_add_privacy_policy_content( 'Hyve', wp_kses_post( $content ) );
 	}
 
 	/**
@@ -158,21 +190,22 @@ class Main {
 				return array_merge(
 					$data,
 					[
-						'api'            => $this->api->get_endpoint(),
-						'rest_url'       => rest_url( $this->api->get_endpoint() ),
-						'postTypes'      => $post_types_for_js,
-						'hasAPIKey'      => isset( $settings['api_key'] ) && ! empty( $settings['api_key'] ),
-						'chunksLimit'    => apply_filters( 'hyve_chunks_limit', 500 ),
-						'isQdrantActive' => Qdrant_API::is_active(),
-						'assets'         => [
+						'api'               => $this->api->get_endpoint(),
+						'rest_url'          => rest_url( $this->api->get_endpoint() ),
+						'postTypes'         => $post_types_for_js,
+						'hasAPIKey'         => isset( $settings['api_key'] ) && ! empty( $settings['api_key'] ),
+						'isApiKeyConnected' => self::is_api_key_connected( $settings ),
+						'chunksLimit'       => apply_filters( 'hyve_chunks_limit', 500 ),
+						'isQdrantActive'    => Qdrant_API::is_active(),
+						'assets'            => [
 							'images' => HYVE_LITE_URL . 'assets/images/',
 						],
-						'stats'          => $this->get_stats(),
-						'docs'           => 'https://docs.themeisle.com/article/2009-hyve-documentation',
-						'qdrant_docs'    => 'https://docs.themeisle.com/article/2066-integrate-hyve-with-qdrant',
-						'pro'            => 'https://themeisle.com/plugins/hyve/',
-						'chart'          => $this->get_chart_data(),
-						'hasPro'         => apply_filters( 'product_hyve_license_status', false ),
+						'stats'             => $this->get_stats(),
+						'docs'              => 'https://docs.themeisle.com/article/2009-hyve-documentation',
+						'qdrant_docs'       => 'https://docs.themeisle.com/article/2066-integrate-hyve-with-qdrant',
+						'pro'               => 'https://themeisle.com/plugins/hyve/',
+						'chart'             => $this->get_chart_data(),
+						'hasPro'            => apply_filters( 'product_hyve_license_status', false ),
 					]
 				);
 			},
@@ -639,6 +672,43 @@ class Main {
 			],
 			'labels' => $labels,
 		];
+	}
+
+	/**
+	 * Determine whether the saved OpenAI API key is connected.
+	 *
+	 * The key is validated against OpenAI whenever it is saved, and any
+	 * key-related failure during use is stored in the error option. The key is
+	 * considered connected when it is set and the last stored error (if any) is
+	 * not one that invalidates the key itself.
+	 *
+	 * @param array<string, mixed> $settings Plugin settings.
+	 *
+	 * @return bool
+	 */
+	public static function is_api_key_connected( $settings ) {
+		if ( empty( $settings['api_key'] ) ) {
+			return false;
+		}
+
+		$last_error = get_option( OpenAI::ERROR_OPTION_KEY, false );
+
+		if ( ! is_array( $last_error ) || empty( $last_error['code'] ) ) {
+			return true;
+		}
+
+		$key_error_codes = [
+			'invalid_api_key',
+			'invalid_authentication',
+			'account_deactivated',
+			'billing_not_active',
+			'organization_not_found',
+			'organization_deactivated',
+			'permission_denied',
+			'insufficient_quota',
+		];
+
+		return ! in_array( $last_error['code'], $key_error_codes, true );
 	}
 
 	/**
