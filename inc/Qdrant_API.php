@@ -17,6 +17,7 @@ use Qdrant\Models\VectorStruct;
 use Qdrant\Models\Filter\Filter;
 use Qdrant\Models\Filter\Condition\MatchString;
 use Qdrant\Models\Request\CreateCollection;
+use Qdrant\Models\Request\CreateIndex;
 use Qdrant\Models\Request\SearchRequest;
 use Qdrant\Models\Request\VectorParams;
 
@@ -109,6 +110,14 @@ class Qdrant_API {
 			}
 		}
 
+		// Ensure the payload index required to filter/delete by post_id exists,
+		// including on collections created before this index was introduced.
+		$payload_index = $this->ensure_payload_index();
+
+		if ( is_wp_error( $payload_index ) ) {
+			return $payload_index;
+		}
+
 		update_option( 'hyve_qdrant_status', 'active' );
 
 		$existing_chunks = DB_Table::instance()->get_count();
@@ -169,6 +178,31 @@ class Qdrant_API {
 			delete_option( self::ERROR_OPTION_KEY );
 
 			return $response['result'];
+		} catch ( \Exception $e ) {
+			return $this->handle_exception( $e );
+		}
+	}
+
+	/**
+	 * Ensure the payload index needed to filter and delete by post_id exists.
+	 *
+	 * Qdrant requires a keyword index on a payload field before it can be used in
+	 * a filter. Without it, deleting or updating points by post_id fails with a
+	 * 400 Bad Request and the vectors are left orphaned. Creating an index that
+	 * already exists is a no-op, so this is safe to run on every init.
+	 *
+	 * @since 1.4.2
+	 *
+	 * @return bool|\WP_Error
+	 */
+	public function ensure_payload_index() {
+		try {
+			$this->client->collections( self::COLLECTION_NAME )->index()->create(
+				new CreateIndex( 'post_id', 'keyword' )
+			);
+			delete_option( self::ERROR_OPTION_KEY );
+
+			return true;
 		} catch ( \Exception $e ) {
 			return $this->handle_exception( $e );
 		}

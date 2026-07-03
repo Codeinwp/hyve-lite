@@ -735,8 +735,8 @@ class API extends BaseAPI {
 			try {
 				$delete_result = Qdrant_API::instance()->delete_point( $id );
 
-				if ( ! $delete_result ) {
-					throw new \Exception( __( 'Failed to delete point in Qdrant.', 'hyve-lite' ) );
+				if ( is_wp_error( $delete_result ) || ! $delete_result ) {
+					throw new \Exception( is_wp_error( $delete_result ) ? $delete_result->get_error_message() : __( 'Failed to delete point in Qdrant.', 'hyve-lite' ) );
 				}
 			} catch ( \Exception $e ) {
 				return rest_ensure_response( [ 'error' => $e->getMessage() ] );
