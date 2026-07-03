@@ -55,7 +55,7 @@
     "conventional-changelog-simple-preset": "^1.0.24",
     "cssnano": "^8.0.2",
     "filenamify": "^7.0.2",
-    "grunt": "^1.6.1",
+    "grunt": "^1.6.2",
     "grunt-version": "^3.0.2",
     "grunt-wp-readme-to-markdown": "^2.1.0",
     "npm-run-all": "^4.1.5",
