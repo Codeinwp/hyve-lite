@@ -219,9 +219,18 @@ class OpenAI {
 			return $instructions;
 		}
 
-		return $instructions
-			. "\r\n\r\nAdditional instructions from the site owner. Apply these for tone, persona, and scope, but always keep the response format, allowed HTML tags, and context-usage rules described above:\r\n\r\n"
-			. $custom;
+		// The custom prompt is placed both before and after the built-in rules and
+		// explicitly overrides their tone/brevity guidance. A single trailing note
+		// is too weak: the built-in prompt repeatedly asks for precise, concise
+		// answers, which otherwise flattens the custom persona. The response format,
+		// allowed HTML, and answer-from-context rules are kept intact.
+		$preamble = "PERSONA AND STYLE (highest priority, overrides any tone, brevity, or style guidance further below): Write every answer in this voice, and never in a plain, neutral, or purely factual tone:\r\n"
+			. $custom
+			. "\r\n\r\n";
+
+		$reminder = "\r\n\r\nFinal reminder: regardless of any guidance above about being precise, concise, to-the-point, or straightforward, the answer MUST be written fully in the voice described at the top. Keep the JSON response format, the allowed HTML tags, and the answer-from-context rules exactly as specified.";
+
+		return $preamble . $instructions . $reminder;
 	}
 
 	/**
