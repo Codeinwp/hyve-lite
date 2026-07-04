@@ -68,6 +68,7 @@ export const ROUTE_TREE = {
 		label: __( 'Messages', 'hyve-lite' ),
 		icon: comment,
 		component: Messages,
+		disabled: false,
 	},
 	integrations: {
 		label: __( 'Integrations', 'hyve-lite' ),

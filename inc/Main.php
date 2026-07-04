@@ -54,6 +54,7 @@ class Main {
 		new Threads();
 
 		add_action( 'admin_menu', [ $this, 'register_menu_page' ] );
+		add_filter( 'user_has_cap', [ $this, 'grant_message_capabilities' ] );
 		add_action( 'save_post', [ $this, 'update_meta' ], 10, 3 );
 		add_action( 'delete_post', [ $this, 'delete_post' ] );
 		add_filter( 'themeisle_sdk_enable_telemetry', '__return_true' );
@@ -133,6 +134,34 @@ class Main {
 	}
 
 	/**
+	 * Grant the Messages capabilities to administrators.
+	 *
+	 * The two capabilities are custom, so nobody has them by default. Granting
+	 * them to anyone who can `manage_options` keeps the Messages submenu and its
+	 * REST endpoints working for admins. Doing it here, instead of persisting to
+	 * the role, means there is nothing to clean up on uninstall.
+	 *
+	 * To give access to other roles, add the capabilities to them with a
+	 * role-editor plugin or WP_Role::add_cap():
+	 *  - `hyve_read_messages`   view the Messages page and read conversations.
+	 *  - `hyve_manage_messages` delete conversations and export them.
+	 *
+	 * @since 1.5.0
+	 *
+	 * @param array<string, bool> $allcaps All capabilities of the current user.
+	 *
+	 * @return array<string, bool>
+	 */
+	public function grant_message_capabilities( $allcaps ) {
+		if ( ! empty( $allcaps['manage_options'] ) ) {
+			$allcaps['hyve_read_messages']   = true;
+			$allcaps['hyve_manage_messages'] = true;
+		}
+
+		return $allcaps;
+	}
+
+	/**
 	 * Register menu page.
 	 *
 	 * @since 1.2.0
@@ -140,7 +169,7 @@ class Main {
 	 * @return void
 	 */
 	public function register_menu_page() {
-		$page_hook_suffix = add_menu_page(
+		add_menu_page(
 			__( 'Hyve', 'hyve-lite' ),
 			__( 'Hyve', 'hyve-lite' ),
 			'manage_options',
@@ -150,7 +179,62 @@ class Main {
 			99
 		);
 
-		add_action( "admin_print_scripts-$page_hook_suffix", [ $this, 'enqueue_options_assets' ] );
+		foreach ( $this->get_submenu_pages() as $slug => $submenu ) {
+			$hook = add_submenu_page(
+				'hyve',
+				$submenu['label'],
+				$submenu['label'],
+				$submenu['capability'],
+				$slug,
+				[ $this, 'menu_page' ]
+			);
+
+			if ( $hook ) {
+				add_action( "admin_print_scripts-$hook", [ $this, 'enqueue_options_assets' ] );
+			}
+		}
+	}
+
+	/**
+	 * Get the Hyve submenu pages.
+	 *
+	 * Each entry mirrors a top-level section of the dashboard app and deep-links
+	 * into it. The `route` is passed to the app so the matching screen opens.
+	 * Messages is gated on `hyve_read_messages` so support staff can reach it
+	 * without seeing the rest of the dashboard.
+	 *
+	 * @since 1.5.0
+	 *
+	 * @return array<string, array{label: string, capability: string, route: string}>
+	 */
+	public function get_submenu_pages() {
+		return [
+			'hyve'                => [
+				'label'      => __( 'Dashboard', 'hyve-lite' ),
+				'capability' => 'manage_options',
+				'route'      => 'home',
+			],
+			'hyve-knowledge-base' => [
+				'label'      => __( 'Knowledge Base', 'hyve-lite' ),
+				'capability' => 'manage_options',
+				'route'      => 'data',
+			],
+			'hyve-messages'       => [
+				'label'      => __( 'Messages', 'hyve-lite' ),
+				'capability' => 'hyve_read_messages',
+				'route'      => 'messages',
+			],
+			'hyve-integrations'   => [
+				'label'      => __( 'Integrations', 'hyve-lite' ),
+				'capability' => 'manage_options',
+				'route'      => 'integrations',
+			],
+			'hyve-settings'       => [
+				'label'      => __( 'Settings', 'hyve-lite' ),
+				'capability' => 'manage_options',
+				'route'      => 'settings',
+			],
+		];
 	}
 
 	/**
@@ -184,12 +268,26 @@ class Main {
 			];
 		}
 
+		$submenu_pages = $this->get_submenu_pages();
+
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Reading the current admin page to pick the initial app screen, no state change.
+		$current_page = isset( $_GET['page'] ) ? sanitize_key( wp_unslash( $_GET['page'] ) ) : 'hyve';
+		$current_view = isset( $submenu_pages[ $current_page ] ) ? $submenu_pages[ $current_page ]['route'] : 'home';
+
 		add_filter(
 			'hyve_options_data',
-			function ( $data ) use ( $settings, $post_types_for_js ) {
+			function ( $data ) use ( $settings, $post_types_for_js, $current_view ) {
+				/**
+				 * PHPStan false positive: the return type is an array, but PHPStan cannot infer it because of the dynamic nature of the filter.
+				 * 
+				 * @phpstan-ignore return.type
+				 */
 				return array_merge(
 					$data,
 					[
+						'view'              => $current_view,
+						'canManage'         => current_user_can( 'manage_options' ),
+						'canManageMessages' => current_user_can( 'hyve_manage_messages' ),
 						'api'               => $this->api->get_endpoint(),
 						'rest_url'          => rest_url( $this->api->get_endpoint() ),
 						'postTypes'         => $post_types_for_js,
@@ -221,6 +319,13 @@ class Main {
 	 * @return void
 	 */
 	public function enqueue_options_assets() {
+
+		/**
+		 * Fires before the Hyve dashboard assets are enqueued,
+		 * 
+		 * @since 1.5.0
+		 */
+		do_action( 'hyve_enqueue_options_assets' );
 
 		// @phpstan-ignore include.fileNotFound
 		$asset_file = include HYVE_LITE_PATH . '/build/backend/index.asset.php';

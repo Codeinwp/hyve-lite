@@ -158,25 +158,31 @@ class API extends BaseAPI {
 			],
 			'threads'  => [
 				[
-					'methods'  => \WP_REST_Server::READABLE,
-					'args'     => [
+					'methods'             => \WP_REST_Server::READABLE,
+					'args'                => [
 						'offset' => [
 							'required' => false,
 							'type'     => 'integer',
 							'default'  => 0,
 						],
 					],
-					'callback' => [ $this, 'get_threads' ],
+					'callback'            => [ $this, 'get_threads' ],
+					'permission_callback' => function () {
+						return current_user_can( 'hyve_read_messages' );
+					},
 				],
 				[
-					'methods'  => \WP_REST_Server::DELETABLE,
-					'args'     => [
+					'methods'             => \WP_REST_Server::DELETABLE,
+					'args'                => [
 						'id' => [
 							'required' => true,
 							'type'     => 'integer',
 						],
 					],
-					'callback' => [ $this, 'delete_thread' ],
+					'callback'            => [ $this, 'delete_thread' ],
+					'permission_callback' => function () {
+						return current_user_can( 'hyve_manage_messages' );
+					},
 				],
 			],
 			'qdrant'   => [
