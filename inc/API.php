@@ -430,6 +430,12 @@ class API extends BaseAPI {
 					},
 					'sanitize' => 'rest_sanitize_boolean',
 				],
+				'privacy_notice_enabled'     => [
+					'validate' => function ( $value ) {
+						return is_bool( $value );
+					},
+					'sanitize' => 'rest_sanitize_boolean',
+				],
 				'chat_position'              => [
 					'validate' => function ( $value ) {
 						return in_array( $value, [ 'left', 'right' ], true );
