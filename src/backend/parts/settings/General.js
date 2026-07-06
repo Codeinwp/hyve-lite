@@ -156,6 +156,41 @@ const General = () => {
 				</PanelRow>
 
 				<PanelRow>
+					<ToggleGroupControl
+						__nextHasNoMarginBottom
+						isBlock
+						label={ __( 'Chat Sound', 'hyve-lite' ) }
+						value={ Boolean( settings.sound_enabled ?? true ) }
+						onChange={ ( newValue ) =>
+							setSetting( 'sound_enabled', Boolean( newValue ) )
+						}
+						help={ __(
+							'Play a sound when the chat opens and when a new message arrives. Visitors can still mute it for themselves from within the chat.',
+							'hyve-lite'
+						) }
+					>
+						<ToggleGroupControlOption
+							aria-label={ __(
+								'Enable chat sound',
+								'hyve-lite'
+							) }
+							label={ __( 'Enable', 'hyve-lite' ) }
+							showTooltip
+							value={ true }
+						/>
+						<ToggleGroupControlOption
+							aria-label={ __(
+								'Disable chat sound',
+								'hyve-lite'
+							) }
+							label={ __( 'Disable', 'hyve-lite' ) }
+							showTooltip
+							value={ false }
+						/>
+					</ToggleGroupControl>
+				</PanelRow>
+
+				<PanelRow>
 					<TextControl
 						label={ __( 'Welcome Message', 'hyve-lite' ) }
 						help={ __(

@@ -36,10 +36,20 @@ class OpenAI {
 
 	/**
 	 * API Key.
-	 * 
+	 *
 	 * @var string
 	 */
 	private $api_key;
+
+	/**
+	 * Whether request errors should be persisted as a service error notice.
+	 *
+	 * Disabled while validating a candidate key that may be rejected, so a key
+	 * that never gets saved does not leave a dashboard notice behind.
+	 *
+	 * @var bool
+	 */
+	private $persist_errors = true;
 
 	/**
 	 * The single instance of the class.
@@ -50,10 +60,42 @@ class OpenAI {
 
 	/**
 	 * The service error option key for `wp_options`.
-	 * 
+	 *
 	 * @var string
 	 */
 	public const ERROR_OPTION_KEY = 'hyve_open_ai_api_error';
+
+	/**
+	 * Error codes that mean the API key itself is invalid (block a key save).
+	 *
+	 * @var string[]
+	 */
+	public const AUTH_ERROR_CODES = [
+		'invalid_api_key',
+		'invalid_authentication',
+		'missing_scope',
+		'permission_denied',
+	];
+
+	/**
+	 * Error codes worth persisting as a dashboard notice — those that require the
+	 * site admin to act (key, auth, billing, quota, account). Transient errors
+	 * such as rate_limit_exceeded are intentionally excluded: they self-resolve,
+	 * and saving them would clobber a real actionable error in this single slot.
+	 *
+	 * @var string[]
+	 */
+	public const PERSISTED_ERROR_CODES = [
+		'invalid_api_key',
+		'invalid_authentication',
+		'insufficient_quota',
+		'quota_exceeded',
+		'billing_not_active',
+		'account_deactivated',
+		'organization_not_found',
+		'organization_deactivated',
+		'permission_denied',
+	];
 
 	/**
 	 * Ensures only one instance of the class is loaded.
@@ -77,6 +119,57 @@ class OpenAI {
 		$settings         = Main::get_settings();
 		$this->api_key    = ! empty( $api_key ) ? $api_key : ( isset( $settings['api_key'] ) ? $settings['api_key'] : '' );
 		$this->chat_model = isset( $settings['chat_model'] ) ? $settings['chat_model'] : $this->chat_model;
+	}
+
+	/**
+	 * Set whether request errors should be persisted as a service error notice.
+	 *
+	 * @param bool $persist Whether to persist errors.
+	 *
+	 * @return OpenAI
+	 */
+	public function set_error_persistence( $persist ) {
+		$this->persist_errors = (bool) $persist;
+		return $this;
+	}
+
+	/**
+	 * Whether an error code is fatal — it requires the site admin to act (key,
+	 * auth, billing, quota, account) and will not resolve by retrying. Anything
+	 * else (rate limits, network blips, transient 5xx) is treated as retryable.
+	 *
+	 * @param int|string $code The error code.
+	 *
+	 * @return bool
+	 */
+	public static function is_fatal_error_code( $code ) {
+		return in_array( $code, self::AUTH_ERROR_CODES, true )
+			|| in_array( $code, self::PERSISTED_ERROR_CODES, true );
+	}
+
+	/**
+	 * Persist a service error so it surfaces on the dashboard.
+	 *
+	 * Subject to the same actionable-code allow list as runtime errors (so, for
+	 * example, rate limits are not persisted). Used when a key is saved despite
+	 * an account-level problem, to explicitly record what a real request would.
+	 *
+	 * @param \WP_Error $error The error to persist.
+	 *
+	 * @return void
+	 */
+	public function save_service_error( $error ) {
+		$previous             = $this->persist_errors;
+		$this->persist_errors = true;
+
+		$this->check_and_save_error(
+			[
+				'code'    => (string) $error->get_error_code(),
+				'message' => $error->get_error_message(),
+			]
+		);
+
+		$this->persist_errors = $previous;
 	}
 
 	/**
@@ -388,17 +481,35 @@ class OpenAI {
 			$body = json_decode( $body );
 
 			if ( isset( $body->error ) ) {
-				if ( 'POST' === $method ) {
-					$this->check_and_save_error( (array) $body->error );
+				$error_code = ! empty( $body->error->code ) ? $body->error->code : '';
+
+				// OpenAI can return a 429 with a null code (e.g. brand-new
+				// accounts with no credits, even on the free moderation
+				// endpoint). Fall back to the HTTP status so the error stays
+				// mappable to an actionable message.
+				if ( '' === $error_code && 429 === (int) wp_remote_retrieve_response_code( $response ) ) {
+					$error_code = 'rate_limit_exceeded';
 				}
 
-				if ( isset( $body->error->message ) ) {
-					return new \WP_Error( isset( $body->error->code ) ? $body->error->code : 'unknown_error', $body->error->message );
+				if ( '' === $error_code ) {
+					$error_code = 'unknown_error';
 				}
-				return new \WP_Error( 'unknown_error', __( 'An error occurred while processing the request.', 'hyve-lite' ) );
+
+				$error_message = isset( $body->error->message ) ? $body->error->message : __( 'An error occurred while processing the request.', 'hyve-lite' );
+
+				if ( 'POST' === $method ) {
+					$this->check_and_save_error(
+						[
+							'code'    => $error_code,
+							'message' => $error_message,
+						]
+					);
+				}
+
+				return new \WP_Error( $error_code, $error_message );
 			}
 			
-			if ( 'POST' === $method ) {
+			if ( 'POST' === $method && $this->persist_errors ) {
 				delete_option( self::ERROR_OPTION_KEY );
 			}
 			return $body;
@@ -414,30 +525,17 @@ class OpenAI {
 	 * @return void
 	 */
 	private function check_and_save_error( $error ) {
+		if ( ! $this->persist_errors ) {
+			return;
+		}
+
 		if ( empty( $error['code'] ) ) {
-			
 			return;
 		}
 
 		$code = $error['code'];
 		
-		$errors_codes = [
-			// API Key Errors.
-			'invalid_api_key',
-			'insufficient_quota',
-			'invalid_authentication',
-			'account_deactivated',
-			'billing_not_active',
-			'organization_not_found',
-			'organization_deactivated',
-			'permission_denied',
-
-			// Rate Limiting Errors.
-			'rate_limit_exceeded',
-			'quota_exceeded ',
-		];
-		
-		if ( in_array( $code, $errors_codes, true ) ) {
+		if ( in_array( $code, self::PERSISTED_ERROR_CODES, true ) ) {
 			update_option(
 				self::ERROR_OPTION_KEY,
 				[
@@ -445,8 +543,43 @@ class OpenAI {
 					'message'  => ! empty( $error['message'] ) ? $error['message'] : '',
 					'date'     => wp_date( 'c' ),
 					'provider' => 'OpenAI',
-				] 
+				]
 			);
 		}
+	}
+
+	/**
+	 * Translate an OpenAI error code into an actionable, user-facing message.
+	 *
+	 * This is the single source of truth for OpenAI error copy. Callers that
+	 * surface an error to the user (REST responses, the dashboard notice) should
+	 * run the code through here and fall back to the raw provider message when
+	 * this returns null.
+	 *
+	 * @param int|string $code The OpenAI error code.
+	 *
+	 * @return string|null The actionable message, or null when the code is unmapped.
+	 */
+	public static function get_error_message_for_code( $code ) {
+		$quota_message = __( 'Your OpenAI account has no available credits. If you are using a free API key, please add billing or upgrade to a paid plan to use AI features.', 'hyve-lite' );
+		$auth_message  = __( 'OpenAI could not authenticate the request. Please verify your API key in Settings → Advanced.', 'hyve-lite' );
+		$scope_message = __( 'Your OpenAI API key lacks permission for this operation. Please use a key with the required scopes.', 'hyve-lite' );
+		$org_message   = __( 'Your OpenAI organization could not be found or is no longer active. Please check your OpenAI account settings.', 'hyve-lite' );
+
+		$messages = [
+			'invalid_api_key'          => __( 'The OpenAI API key is incorrect. Please double-check it in Settings → Advanced.', 'hyve-lite' ),
+			'invalid_authentication'   => $auth_message,
+			'missing_scope'            => $scope_message,
+			'permission_denied'        => $scope_message,
+			'insufficient_quota'       => $quota_message,
+			'quota_exceeded'           => $quota_message,
+			'billing_not_active'       => __( 'Billing is not active on your OpenAI account. Please add a payment method in your OpenAI billing settings.', 'hyve-lite' ),
+			'account_deactivated'      => __( 'Your OpenAI account has been deactivated. Please contact OpenAI support to restore access.', 'hyve-lite' ),
+			'organization_not_found'   => $org_message,
+			'organization_deactivated' => $org_message,
+			'rate_limit_exceeded'      => __( 'OpenAI returned a rate limit response (HTTP 429). If you recently created this account or key, it may not have any credits yet — add a payment method or credits in your OpenAI billing settings. Otherwise you may be sending requests too quickly; wait a moment and try again.', 'hyve-lite' ),
+		];
+
+		return $messages[ $code ] ?? null;
 	}
 }

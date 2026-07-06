@@ -60,9 +60,16 @@ add_filter(
 	}
 );
 
+add_filter(
+	HYVE_PRODUCT_SLUG . '_sdk_migrations_path',
+	function () {
+		return HYVE_LITE_PATH . '/migrations';
+	}
+);
+
 add_action(
 	'plugins_loaded',
 	function () {
 		new \ThemeIsle\HyveLite\Main();
-	} 
+	}
 );
