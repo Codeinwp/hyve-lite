@@ -379,20 +379,6 @@ class API extends BaseAPI {
 					},
 					'sanitize' => 'floatval',
 				],
-				'moderation_threshold'       => [
-					'validate' => function ( $value ) {
-						return is_array( $value ) && array_reduce(
-							$value,
-							function ( $carry, $item ) {
-								return $carry && is_int( $item );
-							},
-							true
-						);
-					},
-					'sanitize' => function ( $value ) {
-						return array_map( 'intval', $value );
-					},
-				],
 				'similarity_score_threshold' => [
 					'validate' => function ( $value ) {
 						return is_numeric( $value );
