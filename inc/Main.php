@@ -399,6 +399,7 @@ class Main {
 						'reply'             => __( 'Write a reply…', 'hyve-lite' ),
 						'suggestions'       => __( 'Not sure where to start?', 'hyve-lite' ),
 						'tryAgain'          => __( 'Sorry, I am not able to process your request at the moment. Please try again.', 'hyve-lite' ),
+						'flagged'           => __( 'Sorry, I can\'t help with that request.', 'hyve-lite' ),
 						'typing'            => __( 'Typing…', 'hyve-lite' ),
 						'clearConversation' => __( 'Clear Conversation', 'hyve-lite' ),
 						'openChat'          => __( 'Open chat', 'hyve-lite' ),

@@ -1015,7 +1015,12 @@ class API extends BaseAPI {
 		$moderation = OpenAI::instance()->moderate_chunks( $message );
 
 		if ( true !== $moderation ) {
-			return rest_ensure_response( [ 'error' => __( 'Message was flagged.', 'hyve-lite' ) ] );
+			return rest_ensure_response(
+				[
+					'error' => __( 'Message was flagged.', 'hyve-lite' ),
+					'code'  => 'content_flagged',
+				]
+			);
 		}
 
 		$openai         = OpenAI::instance();
