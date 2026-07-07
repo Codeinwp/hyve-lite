@@ -66,6 +66,30 @@ class OpenAI {
 	public const ERROR_OPTION_KEY = 'hyve_open_ai_api_error';
 
 	/**
+	 * Default moderation category thresholds (0-100 scale).
+	 *
+	 * A flagged category is only suppressed when its score is below the matching
+	 * threshold, so these values act as the tolerance for OpenAI's own flags.
+	 * They used to be editable in the UI; that was removed in favor of these
+	 * defaults, tunable with the `hyve_moderation_threshold` filter.
+	 *
+	 * @var array<string, int>
+	 */
+	public const DEFAULT_MODERATION_THRESHOLD = [
+		'sexual'                 => 80,
+		'hate'                   => 70,
+		'harassment'             => 70,
+		'self-harm'              => 50,
+		'sexual/minors'          => 50,
+		'hate/threatening'       => 60,
+		'violence/graphic'       => 80,
+		'self-harm/intent'       => 50,
+		'self-harm/instructions' => 50,
+		'harassment/threatening' => 60,
+		'violence'               => 70,
+	];
+
+	/**
 	 * Error codes that mean the API key itself is invalid (block a key save).
 	 *
 	 * @var string[]
@@ -487,10 +511,22 @@ class OpenAI {
 			}
 		}
 
-		$results              = [];
-		$return               = true;
-		$settings             = Main::get_settings();
-		$moderation_threshold = $settings['moderation_threshold'];
+		$openai  = self::instance();
+		$results = [];
+		$return  = true;
+
+		/**
+		 * Filters the moderation category thresholds (0-100 scale).
+		 *
+		 * A category flagged by OpenAI is only suppressed when its score is below
+		 * the matching threshold. Higher values are more permissive (setting all
+		 * to 100 effectively disables moderation); lower values are stricter.
+		 *
+		 * @since 1.5.0
+		 *
+		 * @param array<string, int> $moderation_threshold Category thresholds.
+		 */
+		$moderation_threshold = apply_filters( 'hyve_moderation_threshold', self::DEFAULT_MODERATION_THRESHOLD );
 
 		if ( ! is_array( $chunks ) ) {
 			$chunks = [ $chunks ];

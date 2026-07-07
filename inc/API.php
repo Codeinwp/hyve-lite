@@ -387,20 +387,6 @@ class API extends BaseAPI {
 					},
 					'sanitize' => 'floatval',
 				],
-				'moderation_threshold'       => [
-					'validate' => function ( $value ) {
-						return is_array( $value ) && array_reduce(
-							$value,
-							function ( $carry, $item ) {
-								return $carry && is_int( $item );
-							},
-							true
-						);
-					},
-					'sanitize' => function ( $value ) {
-						return array_map( 'intval', $value );
-					},
-				],
 				'similarity_score_threshold' => [
 					'validate' => function ( $value ) {
 						return is_numeric( $value );
@@ -1142,7 +1128,12 @@ class API extends BaseAPI {
 		$moderation = OpenAI::instance()->moderate_chunks( $message );
 
 		if ( true !== $moderation ) {
-			return rest_ensure_response( [ 'error' => __( 'Message was flagged.', 'hyve-lite' ) ] );
+			return rest_ensure_response(
+				[
+					'error' => __( 'Message was flagged.', 'hyve-lite' ),
+					'code'  => 'content_flagged',
+				]
+			);
 		}
 
 		$openai         = OpenAI::instance();

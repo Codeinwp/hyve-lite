@@ -32,7 +32,6 @@ import Qdrant from './parts/integrations/Qdrant';
 import General from './parts/settings/General';
 import Appearance from './parts/settings/Appearance';
 import Assistant from './parts/settings/Assistant';
-import Moderation from './parts/settings/Moderation';
 import Advanced from './parts/settings/Advanced';
 import { ExternalSearch } from './parts/integrations/ExternalSearch';
 
@@ -101,11 +100,6 @@ export const ROUTE_TREE = {
 			assistant: {
 				label: __( 'Assistant', 'hyve-lite' ),
 				component: Assistant,
-				disabled: true,
-			},
-			moderation: {
-				label: __( 'Moderation', 'hyve-lite' ),
-				component: Moderation,
 				disabled: true,
 			},
 			advanced: {
