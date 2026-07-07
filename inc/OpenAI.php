@@ -225,6 +225,98 @@ class OpenAI {
 	}
 
 	/**
+	 * Detect sensitive personal data in a block of text.
+	 *
+	 * Used before importing a document, so the user can be warned about and
+	 * confirm content that contains personal data before it is embedded and
+	 * stored. Only a capped portion of the text is scanned, to bound cost.
+	 *
+	 * @param string $text The text to scan.
+	 *
+	 * @return array{has_sensitive: bool, summary: string, categories: string[]}|\WP_Error
+	 */
+	public function detect_sensitive_data( $text ) {
+		/**
+		 * Filters how many characters of a document are scanned for sensitive data.
+		 *
+		 * @since 1.5.0
+		 *
+		 * @param int $length Maximum characters scanned. Default 12000.
+		 */
+		$limit = (int) apply_filters( 'hyve_document_scan_length', 12000 );
+
+		if ( mb_strlen( $text ) > $limit ) {
+			$text = mb_substr( $text, 0, $limit );
+		}
+
+		$response = $this->request(
+			'chat/completions',
+			[
+				'model'           => $this->chat_model,
+				'temperature'     => 0,
+				'messages'        => [
+					[
+						'role'    => 'system',
+						'content' => 'You review text for sensitive personal data before it is stored and sent to a third party for processing. Sensitive data includes full names combined with contact details, email addresses, phone numbers, postal addresses, government or national identification numbers, financial or payment card details, credentials, API keys, and health information. Decide whether the text contains such data. Write a short, plain summary of the kinds of sensitive data present, describing the categories only and never repeating the actual values.',
+					],
+					[
+						'role'    => 'user',
+						'content' => $text,
+					],
+				],
+				'response_format' => [
+					'type'        => 'json_schema',
+					'json_schema' => [
+						'name'   => 'sensitive_data_review',
+						'strict' => true,
+						'schema' => [
+							'type'                 => 'object',
+							'properties'           => [
+								'has_sensitive' => [
+									'type'        => 'boolean',
+									'description' => 'Whether the text contains sensitive personal data.',
+								],
+								'summary'       => [
+									'type'        => 'string',
+									'description' => 'A short description of the kinds of sensitive data present, or an empty string if none.',
+								],
+								'categories'    => [
+									'type'        => 'array',
+									'description' => 'The categories of sensitive data present.',
+									'items'       => [ 'type' => 'string' ],
+								],
+							],
+							'required'             => [ 'has_sensitive', 'summary', 'categories' ],
+							'additionalProperties' => false,
+						],
+					],
+				],
+			]
+		);
+
+		if ( is_wp_error( $response ) ) {
+			return $response;
+		}
+
+		if ( ! empty( $response->error ) ) {
+			return new \WP_Error( 'sensitive_scan_failed', __( 'The document could not be scanned.', 'hyve-lite' ) );
+		}
+
+		$content = isset( $response->choices[0]->message->content ) ? $response->choices[0]->message->content : '';
+		$data    = json_decode( $content, true );
+
+		if ( ! is_array( $data ) || ! isset( $data['has_sensitive'] ) ) {
+			return new \WP_Error( 'sensitive_scan_failed', __( 'The document could not be scanned.', 'hyve-lite' ) );
+		}
+
+		return [
+			'has_sensitive' => (bool) $data['has_sensitive'],
+			'summary'       => isset( $data['summary'] ) ? (string) $data['summary'] : '',
+			'categories'    => isset( $data['categories'] ) && is_array( $data['categories'] ) ? array_map( 'strval', $data['categories'] ) : [],
+		];
+	}
+
+	/**
 	 * Create a Conversation.
 	 * 
 	 * @param array<string, mixed> $params Parameters.
@@ -363,11 +455,51 @@ class OpenAI {
 	}
 
 	/**
+	 * Moderate a batch of inputs in a single request.
+	 *
+	 * The moderations endpoint accepts an array of inputs, so a batch of chunks
+	 * is moderated in one request instead of one request per chunk.
+	 *
+	 * @param array<string> $inputs Inputs to moderate.
+	 *
+	 * @return array<int, object{flagged: bool, categories: array<string, bool>, category_scores: array<string, float>, category_applied_input_types: array<string, string[]>}>|\WP_Error Flagged results, or error.
+	 */
+	private function moderate_batch( $inputs ) {
+		$response = $this->request(
+			'moderations',
+			[
+				'input' => $inputs,
+			]
+		);
+
+		if ( is_wp_error( $response ) ) {
+			return $response;
+		}
+
+		$flagged = [];
+
+		if ( isset( $response->results ) && is_array( $response->results ) ) {
+			foreach ( $response->results as $result ) {
+				if ( isset( $result->flagged ) && $result->flagged ) {
+					/**
+					 * Moderation result.
+					 *
+					 * @var object{flagged: bool, categories: array<string, bool>, category_scores: array<string, float>, category_applied_input_types: array<string, string[]>} $result
+					 */
+					$flagged[] = $result;
+				}
+			}
+		}
+
+		return $flagged;
+	}
+
+	/**
 	 * Moderate data.
-	 * 
+	 *
 	 * @param array<string>|string $chunks Data to moderate.
 	 * @param int                  $id     Post ID.
-	 * 
+	 *
 	 * @return true|array<string, float>|\WP_Error
 	 */
 	public function moderate_chunks( $chunks, $id = null ) {
@@ -400,16 +532,28 @@ class OpenAI {
 			$chunks = [ $chunks ];
 		}
 
-		foreach ( $chunks as $chunk ) {
-			$moderation = $openai->moderate( $chunk );
+		/**
+		 * Filters how many chunks are moderated per request.
+		 *
+		 * The moderations endpoint accepts an array of inputs, so chunks are
+		 * batched rather than sent one request at a time. Chunks are up to ~1000
+		 * tokens each, so the default of 5 keeps a request well under the
+		 * endpoint's token limit.
+		 *
+		 * @since 1.5.0
+		 *
+		 * @param int $size Chunks per moderation request. Default 5.
+		 */
+		$batch_size = max( 1, (int) apply_filters( 'hyve_moderation_batch_size', 5 ) );
 
-			if ( is_wp_error( $moderation ) ) {
-				return $moderation;
+		foreach ( array_chunk( array_values( $chunks ), $batch_size ) as $batch ) {
+			$moderated = $this->moderate_batch( $batch );
+
+			if ( is_wp_error( $moderated ) ) {
+				return $moderated;
 			}
 
-			if ( is_object( $moderation ) ) {
-				$results[] = $moderation;
-			}
+			$results = array_merge( $results, $moderated );
 		}
 
 		if ( ! empty( $results ) ) {
