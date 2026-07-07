@@ -30,6 +30,7 @@ tailwind.config.js
 /.wordpress-org
 /.idea
 /src
+/patches
 /bin
 /tests
 /phpunit.xml

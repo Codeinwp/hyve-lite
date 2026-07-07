@@ -248,6 +248,8 @@ class Main {
 			apply_filters( 'hyve_options_data', [] )
 		);
 
+		$this->enqueue_chat_preview();
+
 		do_action( 'themeisle_internal_page', HYVE_PRODUCT_SLUG, 'dashboard' );
 	}
 
@@ -272,6 +274,9 @@ class Main {
 				'default_message'            => '',
 				'similarity_score_threshold' => 0.4,
 				'post_row_addon_enabled'     => true,
+				'sound_enabled'              => true,
+				'show_timestamp'             => true,
+				'chat_position'              => 'right',
 				'display_mode'               => 'all',
 				'display_rules'              => [],
 			]
@@ -336,6 +341,53 @@ class Main {
 	}
 
 	/**
+	 * The built-in chat icon slugs that can be inlined.
+	 *
+	 * @return string[]
+	 */
+	public static function get_known_icon_slugs() {
+		return [
+			'chat-bubble-left-ellipsis',
+			'chat-bubble-oval-left',
+			'chat-bubble-bottom-center-text',
+			'chat-bubble-bottom-center',
+			'chat-bubble-left',
+			'chat-bubble-left-right',
+		];
+	}
+
+	/**
+	 * Read and inline the given built-in chat icon SVGs.
+	 *
+	 * Only known bundled icons are read (allowlist), and only the plugin's own
+	 * asset files — never remote data.
+	 *
+	 * @param string[] $slugs Icon slugs to inline.
+	 *
+	 * @return array<string, string> Map of slug => SVG markup.
+	 */
+	public static function get_inline_icons( $slugs ) {
+		$known = self::get_known_icon_slugs();
+		$icons = [];
+
+		foreach ( array_unique( $slugs ) as $slug ) {
+			if ( ! in_array( $slug, $known, true ) ) {
+				continue;
+			}
+
+			$icon_path = HYVE_LITE_PATH . '/assets/icons/' . $slug . '.svg';
+
+			if ( is_readable( $icon_path ) ) {
+				// Reading a bundled plugin asset, not remote data.
+				// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents, WordPressVIPMinimum.Performance.FetchingRemoteData.FileGetContentsUnknown
+				$icons[ $slug ] = trim( (string) file_get_contents( $icon_path ) );
+			}
+		}
+
+		return $icons;
+	}
+
+	/**
 	 * Enqueue assets.
 	 *
 	 * @since 1.2.0
@@ -367,56 +419,10 @@ class Main {
 
 		wp_set_script_translations( 'hyve-lite-scripts', 'hyve-lite' );
 
-		self::add_labels_to_default_settings();
-		$settings = self::get_settings();
-		$stats    = $this->get_stats();
+		wp_localize_script( 'hyve-lite-scripts', 'hyveClient', $this->get_frontend_data() );
 
-		/**
-		 * Filters whether the chat should be displayed.
-		 *
-		 * @since 1.4.0
-		 *
-		 * @param bool $should_show_chat Whether to display the chat. Default true if totalChunks > 0.
-		 */
-		$should_show_chat = apply_filters( 'hyve_display_chat', 0 < intval( $stats['totalChunks'] ) );
-
+		$settings            = self::get_settings();
 		$should_display_chat = $this->should_display_chat();
-
-		wp_localize_script(
-			'hyve-lite-scripts',
-			'hyveClient',
-			apply_filters(
-				'hyve_frontend_data',
-				[
-					'api'       => $this->api->get_endpoint(),
-					'audio'     => [
-						'click' => HYVE_LITE_URL . 'assets/audio/click.mp3',
-						'ping'  => HYVE_LITE_URL . 'assets/audio/ping.mp3',
-					],
-					'welcome'   => esc_html( $settings['welcome_message'] ?? '' ),
-					'isEnabled' => $should_display_chat,
-					'strings'   => [
-						'reply'             => __( 'Write a reply…', 'hyve-lite' ),
-						'suggestions'       => __( 'Not sure where to start?', 'hyve-lite' ),
-						'tryAgain'          => __( 'Sorry, I am not able to process your request at the moment. Please try again.', 'hyve-lite' ),
-						'flagged'           => __( 'Sorry, I can\'t help with that request.', 'hyve-lite' ),
-						'typing'            => __( 'Typing…', 'hyve-lite' ),
-						'clearConversation' => __( 'Clear Conversation', 'hyve-lite' ),
-						'openChat'          => __( 'Open chat', 'hyve-lite' ),
-						'closeChat'         => __( 'Close chat', 'hyve-lite' ),
-						'sendMessage'       => __( 'Send message', 'hyve-lite' ),
-					],
-					'icons'     => [
-						'chat-bubble-oval-left'          => esc_url( HYVE_LITE_URL . 'assets/icons/chat-bubble-oval-left.svg' ),
-						'chat-bubble-bottom-center-text' => esc_url( HYVE_LITE_URL . 'assets/icons/chat-bubble-bottom-center-text.svg' ),
-						'chat-bubble-bottom-center'      => esc_url( HYVE_LITE_URL . 'assets/icons/chat-bubble-bottom-center.svg' ),
-						'chat-bubble-left'               => esc_url( HYVE_LITE_URL . 'assets/icons/chat-bubble-left.svg' ),
-						'chat-bubble-left-right'         => esc_url( HYVE_LITE_URL . 'assets/icons/chat-bubble-left-right.svg' ),
-					],
-					'canShow'   => $should_show_chat,
-				]
-			)
-		);
 
 		if ( ! $should_display_chat ) {
 			return;
@@ -434,6 +440,131 @@ class Main {
 		wp_add_inline_script(
 			'hyve-lite-scripts',
 			'document.addEventListener("DOMContentLoaded", function() { const c = document.createElement("div"); c.className = "hyve-credits"; c.innerHTML = "<a href=\"https://themeisle.com/plugins/hyve/\" target=\"_blank\">Powered by Hyve</a>"; document.querySelector( ".hyve-input-box" ).before( c ); });'
+		);
+	}
+
+	/**
+	 * Build the data localized for the chat widget.
+	 *
+	 * Shared by the public frontend and the dashboard test preview so the two
+	 * stay in sync. The `hyve_frontend_data` filter lets the Pro plugin layer
+	 * appearance (name, icon, colors) on top.
+	 *
+	 * @param array<string, mixed> $overrides Values merged over the defaults (e.g. preview flags).
+	 *
+	 * @return array<string, mixed>
+	 */
+	public function get_frontend_data( $overrides = [] ) {
+		self::add_labels_to_default_settings();
+		$settings = self::get_settings();
+		$stats    = $this->get_stats();
+
+		/**
+		 * Filters whether the chat should be displayed.
+		 *
+		 * @since 1.4.0
+		 *
+		 * @param bool $should_show_chat Whether to display the chat. Default true if totalChunks > 0.
+		 */
+		$should_show_chat = apply_filters( 'hyve_display_chat', 0 < intval( $stats['totalChunks'] ) );
+
+		// Inline the icon SVGs so the chat button renders instantly, without an
+		// extra runtime fetch (which causes an icon flash on load). Only the
+		// icons the chat can actually use are read: the default, plus the
+		// selected built-in icon — not every bundled file on each request.
+		$selected_icon = ( isset( $settings['chat_icon']['type'], $settings['chat_icon']['value'] ) && 'svg' === $settings['chat_icon']['type'] )
+			? (string) $settings['chat_icon']['value']
+			: '';
+
+		$icon_slugs = [ 'chat-bubble-left-ellipsis' ];
+
+		if ( in_array( $selected_icon, self::get_known_icon_slugs(), true ) ) {
+			$icon_slugs[] = $selected_icon;
+		}
+
+		$data = apply_filters(
+			'hyve_frontend_data',
+			[
+				'api'           => $this->api->get_endpoint(),
+				'audio'         => [
+					'ping' => HYVE_LITE_URL . 'assets/audio/ping.mp3',
+				],
+				'welcome'       => esc_html( $settings['welcome_message'] ?? '' ),
+				'isEnabled'     => $this->should_display_chat(),
+				'soundEnabled'  => boolval( $settings['sound_enabled'] ?? true ),
+				'showTimestamp' => boolval( $settings['show_timestamp'] ?? true ),
+				'chatPosition'  => 'left' === ( $settings['chat_position'] ?? 'right' ) ? 'left' : 'right',
+				'strings'       => [
+					'title'             => __( 'AI Assistant', 'hyve-lite' ),
+					'status'            => __( 'Online', 'hyve-lite' ),
+					'reply'             => __( 'Write a reply…', 'hyve-lite' ),
+					'suggestions'       => __( 'Not sure where to start?', 'hyve-lite' ),
+					'tryAgain'          => __( 'Sorry, I am not able to process your request at the moment. Please try again.', 'hyve-lite' ),
+					'typing'            => __( 'Typing…', 'hyve-lite' ),
+					'clearConversation' => __( 'Clear Conversation', 'hyve-lite' ),
+					'muteSound'         => __( 'Mute Sound', 'hyve-lite' ),
+					'unmuteSound'       => __( 'Unmute Sound', 'hyve-lite' ),
+					'openChat'          => __( 'Open chat', 'hyve-lite' ),
+					'closeChat'         => __( 'Close chat', 'hyve-lite' ),
+					'sendMessage'       => __( 'Send message', 'hyve-lite' ),
+					'previewNotice'     => __( 'Preview mode — test your assistant here. These messages aren\'t saved.', 'hyve-lite' ),
+				],
+				'icons'         => self::get_inline_icons( $icon_slugs ),
+				'canShow'       => $should_show_chat,
+			]
+		);
+
+		return array_merge( $data, $overrides );
+	}
+
+	/**
+	 * Enqueue the chat widget on the Hyve dashboard as a live test preview.
+	 *
+	 * Available in the free version too: as long as an OpenAI API key is set the
+	 * widget appears on every Hyve settings screen, so admins can try the bot
+	 * and — with Pro — watch appearance changes apply live. Test chats are
+	 * flagged (`isPreview`) so they are not recorded in history or analytics.
+	 *
+	 * @return void
+	 */
+	public function enqueue_chat_preview() {
+		$settings = self::get_settings();
+
+		if ( empty( $settings['api_key'] ) ) {
+			return;
+		}
+
+		// @phpstan-ignore include.fileNotFound
+		$asset_file = include HYVE_LITE_PATH . '/build/frontend/frontend.asset.php';
+
+		wp_enqueue_style(
+			'hyve-chat-preview',
+			HYVE_LITE_URL . 'build/frontend/style-index.css',
+			[],
+			$asset_file['version']
+		);
+
+		wp_enqueue_script(
+			'hyve-chat-preview',
+			HYVE_LITE_URL . 'build/frontend/frontend.js',
+			$asset_file['dependencies'],
+			$asset_file['version'],
+			true
+		);
+
+		wp_set_script_translations( 'hyve-chat-preview', 'hyve-lite' );
+
+		wp_localize_script(
+			'hyve-chat-preview',
+			'hyveClient',
+			$this->get_frontend_data(
+				[
+					'isPreview' => true,
+					'canShow'   => true,
+					'isEnabled' => true,
+					'icons'     => self::get_inline_icons( self::get_known_icon_slugs() ),
+				]
+			)
 		);
 	}
 
@@ -799,13 +930,27 @@ class Main {
 		$errors = [];
 
 		$open_ai_last_error = get_option( OpenAI::ERROR_OPTION_KEY, false );
-		if ( is_array( $open_ai_last_error ) ) {
+		if ( is_array( $open_ai_last_error ) && $this->is_recent_error( $open_ai_last_error ) ) {
+			if ( ! empty( $open_ai_last_error['code'] ) ) {
+				$friendly_message = OpenAI::get_error_message_for_code( $open_ai_last_error['code'] );
+
+				if ( null !== $friendly_message ) {
+					$open_ai_last_error['message'] = $friendly_message;
+				}
+			}
+
 			$errors[] = $open_ai_last_error;
 		}
 
 		$qdrant_last_error = get_option( Qdrant_API::ERROR_OPTION_KEY, false );
-		if ( is_array( $qdrant_last_error ) ) {
-			$qdrant_last_error['message'] = __( 'Invalid credentials.', 'hyve-lite' ) . ' ' . __( 'Please check your API key and endpoint URL.', 'hyve-lite' );
+		if ( is_array( $qdrant_last_error ) && $this->is_recent_error( $qdrant_last_error ) ) {
+			$friendly_message = ! empty( $qdrant_last_error['code'] ) ? Qdrant_API::get_error_message_for_code( $qdrant_last_error['code'] ) : null;
+
+			if ( null === $friendly_message ) {
+				$friendly_message = __( 'Hyve could not connect to Qdrant.', 'hyve-lite' ) . ' ' . __( 'Please check your API key and endpoint URL in the Integrations settings.', 'hyve-lite' );
+			}
+
+			$qdrant_last_error['message'] = $friendly_message;
 			$errors[]                     = $qdrant_last_error;
 		}
 
@@ -814,6 +959,31 @@ class Main {
 		}
 
 		return $options;
+	}
+
+	/**
+	 * Whether a saved service error is recent enough to surface to the admin.
+	 *
+	 * A successful request already clears the saved error, so this only guards
+	 * against a stale failure lingering on a site with no traffic since: we only
+	 * show errors from the last 24 hours that still have no subsequent success.
+	 *
+	 * @param array<string, mixed> $error The saved error.
+	 *
+	 * @return bool
+	 */
+	private function is_recent_error( $error ) {
+		if ( empty( $error['date'] ) ) {
+			return false;
+		}
+
+		$timestamp = strtotime( $error['date'] );
+
+		if ( false === $timestamp ) {
+			return false;
+		}
+
+		return $timestamp >= ( time() - DAY_IN_SECONDS );
 	}
 
 	/**
