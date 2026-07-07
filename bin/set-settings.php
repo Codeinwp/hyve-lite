@@ -11,19 +11,6 @@ $settings = [
 	'chat_model'           => 'gpt-4o-mini',
 	'temperature'          => 1,
 	'top_p'                => 1,
-	'moderation_threshold' => [
-		'sexual'                 => 80,
-		'hate'                   => 70,
-		'harassment'             => 70,
-		'self-harm'              => 50,
-		'sexual/minors'          => 50,
-		'hate/threatening'       => 60,
-		'violence/graphic'       => 80,
-		'self-harm/intent'       => 50,
-		'self-harm/instructions' => 50,
-		'harassment/threatening' => 60,
-		'violence'               => 70,
-	],
 ];
 
 update_option( 'hyve_settings', $settings );

@@ -127,19 +127,6 @@ test.describe( 'Dashboard', () => {
 		).toBeVisible();
 
 		await page
-			.getByRole( 'button', { name: 'Moderation' } )
-			.click( { force: true } );
-		await expect(
-			page.getByRole( 'heading', { name: 'Moderation Settings' } )
-		).toBeVisible();
-		expect(
-			await page.locator( '.components-range-control__slider' ).count()
-		).toBeGreaterThan( 0 );
-		await expect(
-			page.getByRole( 'button', { name: 'Save' } )
-		).toBeVisible();
-
-		await page
 			.getByRole( 'button', { name: 'Advanced' } )
 			.click( { force: true } );
 		await expect(
