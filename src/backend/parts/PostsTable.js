@@ -11,6 +11,7 @@ export const PostsTable = ( {
 	hasMore,
 	onFetch,
 	actions,
+	renderStatus,
 } ) => {
 	return (
 		<>
@@ -27,57 +28,72 @@ export const PostsTable = ( {
 					</div>
 				</div>
 				<div className="flex flex-col">
-					{ posts?.map( ( post ) => (
-						<div
-							key={ post.ID }
-							className="flex items-center bg-white px-6 py-4 border-b text-sm text-gray-500"
-						>
-							<div className="w-1/6">{ post.ID }</div>
+					{ posts?.map( ( post ) => {
+						const status = renderStatus
+							? renderStatus( post )
+							: null;
 
-							<div className="flex-1 text-left rtl:text-right overflow-hidden">
-								<span className="max-w-full text-ellipsis overflow-hidden">
-									{ post.title }
-								</span>
+						return (
+							<div
+								key={ post.ID ?? post.key }
+								className="flex items-center bg-white px-6 py-4 border-b text-sm text-gray-500"
+							>
+								<div className="w-1/6">{ post.ID ?? '' }</div>
 
-								{ post.error && (
-									<span className="block mt-1 text-xs text-yellow-800">
-										{ sprintf(
-											// translators: %s: the reason indexing failed, including whether it will be retried.
-											__(
-												'Indexing failed: %s',
-												'hyve-lite'
-											),
-											post.error
-										) }
+								<div className="flex-1 text-left rtl:text-right overflow-hidden">
+									<span className="max-w-full text-ellipsis overflow-hidden">
+										{ post.title }
 									</span>
-								) }
-							</div>
 
-							<div className="text-center flex gap-4">
-								{ actions?.map( ( action ) => (
-									<Button
-										key={ action?.label }
-										variant={ action?.variant || 'primary' }
-										onClick={ () =>
-											action?.onClick( post.ID )
-										}
-										disabled={
-											action?.isBusy.includes(
-												post.ID
-											) || action?.isDisabled
-										}
-										isBusy={ action?.isBusy.includes(
-											post.ID
-										) }
-										isDestructive={ action?.isDestructive }
-										className="w-20 justify-center"
-									>
-										{ action?.label }
-									</Button>
-								) ) }
+									{ post.error && (
+										<span className="block mt-1 text-xs text-yellow-800">
+											{ sprintf(
+												// translators: %s: the reason indexing failed, including whether it will be retried.
+												__(
+													'Indexing failed: %s',
+													'hyve-lite'
+												),
+												post.error
+											) }
+										</span>
+									) }
+								</div>
+
+								<div className="text-center flex gap-4 items-center justify-center">
+									{ status
+										? status
+										: actions?.map( ( action ) => (
+												<Button
+													key={ action?.label }
+													variant={
+														action?.variant ||
+														'primary'
+													}
+													onClick={ () =>
+														action?.onClick(
+															post.ID
+														)
+													}
+													disabled={
+														action?.isBusy.includes(
+															post.ID
+														) || action?.isDisabled
+													}
+													isBusy={ action?.isBusy.includes(
+														post.ID
+													) }
+													isDestructive={
+														action?.isDestructive
+													}
+													className="w-20 justify-center"
+												>
+													{ action?.label }
+												</Button>
+										  ) ) }
+								</div>
 							</div>
-						</div>
-					) ) }
+						);
+					} ) }
 
 					{ ! posts.length && ! isLoading && (
 						<div className="flex justify-center py-4">

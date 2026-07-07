@@ -587,12 +587,11 @@ class API extends BaseAPI {
 	 */
 	public function get_data( $request ) {
 		$args = [
-			'post_type'      => $request->get_param( 'type' ),
-			'post_status'    => [ 'publish', 'private' ],
-			'posts_per_page' => 20,
-			'fields'         => 'ids',
-			'offset'         => $request->get_param( 'offset' ),
-			'meta_query'     => [
+			'post_type'   => $request->get_param( 'type' ),
+			'post_status' => [ 'publish', 'private' ],
+			'fields'      => 'ids',
+			'offset'      => $request->get_param( 'offset' ),
+			'meta_query'  => [
 				[
 					'key'     => '_hyve_added',
 					'compare' => 'NOT EXISTS',
@@ -652,46 +651,44 @@ class API extends BaseAPI {
 			];
 		}
 
-		$query = new \WP_Query( $args );
+		$page = $this->query_page( $args );
 
 		$posts_data = [];
 
-		if ( $query->have_posts() ) {
-			foreach ( $query->posts as $post_id ) {
-				/**
-				 * The post id.
-				 *
-				 * @var int $post_id
-				 */
-				$post_data = [
-					'ID'         => $post_id,
-					'title'      => html_entity_decode( get_the_title( $post_id ), ENT_QUOTES, 'UTF-8' ),
-					'visibility' => $this->get_post_visibility( $post_id ),
-				];
+		foreach ( $page['posts'] as $post_id ) {
+			/**
+			 * The post id.
+			 *
+			 * @var int $post_id
+			 */
+			$post_data = [
+				'ID'         => $post_id,
+				'title'      => html_entity_decode( get_the_title( $post_id ), ENT_QUOTES, 'UTF-8' ),
+				'visibility' => $this->get_post_visibility( $post_id ),
+			];
 
-				if ( 'moderation' === $status ) {
-					$review = get_post_meta( $post_id, '_hyve_moderation_review', true );
+			if ( 'moderation' === $status ) {
+				$review = get_post_meta( $post_id, '_hyve_moderation_review', true );
 
-					if ( ! is_array( $review ) || empty( $review ) ) {
-						$review = [];
-					}
-
-					$post_data['review'] = $review;
+				if ( ! is_array( $review ) || empty( $review ) ) {
+					$review = [];
 				}
 
-				$processing_error = get_post_meta( $post_id, '_hyve_processing_error', true );
-
-				if ( ! empty( $processing_error ) && get_post_meta( $post_id, '_hyve_added', true ) ) {
-					$post_data['error'] = $processing_error;
-				}
-
-				$posts_data[] = $post_data;
+				$post_data['review'] = $review;
 			}
+
+			$processing_error = get_post_meta( $post_id, '_hyve_processing_error', true );
+
+			if ( ! empty( $processing_error ) && get_post_meta( $post_id, '_hyve_added', true ) ) {
+				$post_data['error'] = $processing_error;
+			}
+
+			$posts_data[] = $post_data;
 		}
 
 		$posts = [
 			'posts'       => $posts_data,
-			'more'        => $query->found_posts > 20,
+			'more'        => $page['more'],
 			'totalChunks' => $this->table->get_count(),
 		];
 
@@ -818,40 +815,37 @@ class API extends BaseAPI {
 		$pages = apply_filters( 'hyve_threads_per_page', 3 );
 
 		$args = [
-			'post_type'      => 'hyve_threads',
-			'post_status'    => 'publish',
-			'posts_per_page' => $pages,
-			'fields'         => 'ids',
-			'offset'         => $request->get_param( 'offset' ),
+			'post_type'   => 'hyve_threads',
+			'post_status' => 'publish',
+			'fields'      => 'ids',
+			'offset'      => $request->get_param( 'offset' ),
 		];
 
-		$query = new \WP_Query( $args );
+		$page = $this->query_page( $args, $pages );
 
 		$posts_data = [];
 
-		if ( $query->have_posts() ) {
-			foreach ( $query->posts as $post_id ) {
-				/**
-				 * The post id.
-				 *
-				 * @var int $post_id
-				 */
+		foreach ( $page['posts'] as $post_id ) {
+			/**
+			 * The post id.
+			 *
+			 * @var int $post_id
+			 */
 
-				$post_data = [
-					'ID'        => $post_id,
-					'title'     => html_entity_decode( get_the_title( $post_id ), ENT_QUOTES, 'UTF-8' ),
-					'date'      => get_the_date( 'c', $post_id ),
-					'thread'    => get_post_meta( $post_id, '_hyve_thread_data', true ),
-					'thread_id' => get_post_meta( $post_id, '_hyve_thread_id', true ),
-				];
+			$post_data = [
+				'ID'        => $post_id,
+				'title'     => html_entity_decode( get_the_title( $post_id ), ENT_QUOTES, 'UTF-8' ),
+				'date'      => get_the_date( 'c', $post_id ),
+				'thread'    => get_post_meta( $post_id, '_hyve_thread_data', true ),
+				'thread_id' => get_post_meta( $post_id, '_hyve_thread_id', true ),
+			];
 
-				$posts_data[] = $post_data;
-			}
+			$posts_data[] = $post_data;
 		}
 
 		$posts = [
 			'posts' => $posts_data,
-			'more'  => $query->found_posts > $pages,
+			'more'  => $page['more'],
 		];
 
 		return rest_ensure_response( $posts );

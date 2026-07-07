@@ -9,6 +9,7 @@ import {
 	comment,
 	customLink,
 	home,
+	page,
 	settings,
 	wordpress,
 } from '@wordpress/icons';
@@ -24,6 +25,7 @@ import FailedModeration from './parts/data/FailedModeration';
 import Custom from './parts/data/Custom';
 import URLCrawler from './parts/data/URLCrawler';
 import SitemapCrawler from './parts/data/SitemapCrawler';
+import Documents from './parts/data/Documents';
 import FAQ from './parts/data/FAQ';
 import Messages from './parts/Messages';
 import Qdrant from './parts/integrations/Qdrant';
@@ -150,6 +152,16 @@ export const KNOWLEDGE_BASE = {
 		description: __( 'Add a sitemap to the Knowledge Base.', 'hyve-lite' ),
 		icon: blockMeta,
 		component: SitemapCrawler,
+		isPro: true,
+	},
+	documents: {
+		label: __( 'Documents', 'hyve-lite' ),
+		description: __(
+			'Import PDF, Word, Markdown, Text, or CSV files into the Knowledge Base.',
+			'hyve-lite'
+		),
+		icon: page,
+		component: Documents,
 		isPro: true,
 	},
 };
