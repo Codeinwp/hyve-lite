@@ -879,19 +879,29 @@ class API extends BaseAPI {
 
 		$payload  = $interpreted['payload'];
 		$response = $interpreted['final'];
+		$answered = $interpreted['answered'];
 
 		// Skip recording for admin live-preview test chats (see send_chat).
 		if ( ! $request->get_param( 'is_test' ) ) {
 			do_action( 'hyve_chat_response', $run_id, $thread_id, $query, $record_id, $payload, $response );
 		}
 
-		return rest_ensure_response(
-			[
-				'status'  => $status,
-				'success' => isset( $payload['success'] ) ? $payload['success'] : false,
-				'message' => $response,
-			]
-		);
+		$data = [
+			'status'  => $status,
+			'success' => $answered,
+			'message' => $response,
+		];
+
+		// Let extensions attach extra reply data (e.g. follow-up suggestions from
+		// the structured payload). Shared with the streaming flow (Stream) so both
+		// paths surface the same data to the widget.
+		$reply = apply_filters( 'hyve_chat_reply_data', $data, $payload, $answered );
+
+		if ( is_array( $reply ) ) {
+			$data = $reply;
+		}
+
+		return rest_ensure_response( $data );
 	}
 
 	/**
