@@ -833,3 +833,84 @@ body.wp-admin {
 		height: min(70vh, calc(100vh - 110px));
 	}
 }
+
+.hyve-message-box .hyve-bot-message {
+
+	.hyve-source {
+		display: flex;
+		align-items: center;
+		flex-wrap: wrap;
+		gap: 8px;
+		margin-top: 10px;
+	}
+
+	.hyve-source__intro {
+		font-size: 12.5px;
+		font-weight: 500;
+
+		// Inherit the message text color (adapts to the bubble background via the
+		// is-dark/is-light classes) and soften it for a label.
+		color: inherit;
+		opacity: 0.6;
+	}
+
+	.hyve-source__link {
+		position: relative;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 22px;
+		height: 22px;
+		padding: 0;
+		border: 1px solid rgba( 128, 128, 128, 0.3 );
+		border-radius: 7px;
+		background: rgba( 128, 128, 128, 0.12 );
+
+		// The number follows the message text color so it stays legible on both
+		// light and dark bubble backgrounds, like the rest of the chat.
+		color: inherit;
+		opacity: 0.85;
+		font-size: 12px;
+		font-weight: 700;
+		font-variant-numeric: tabular-nums;
+		text-decoration: none;
+		transition: opacity 0.15s ease, background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+
+		&:hover,
+		&:focus-visible {
+			opacity: 1;
+			background: var( --icon_background, #1155cc );
+			border-color: var( --icon_background, #1155cc );
+			color: #fff;
+		}
+	}
+
+	.hyve-source__label {
+		position: absolute;
+		bottom: calc( 100% + 6px );
+		left: 0;
+		width: max-content;
+		max-width: 200px;
+		padding: 5px 9px;
+		border-radius: 7px;
+		background: #141824;
+		color: #fff;
+		font-size: 11.5px;
+		font-weight: 500;
+		line-height: 1.35;
+		white-space: normal;
+		opacity: 0;
+		visibility: hidden;
+		transform: translateY( 4px );
+		pointer-events: none;
+		transition: opacity 0.15s ease, transform 0.15s ease;
+		z-index: 2;
+	}
+
+	.hyve-source__link:hover .hyve-source__label,
+	.hyve-source__link:focus-visible .hyve-source__label {
+		opacity: 1;
+		visibility: visible;
+		transform: translateY( 0 );
+	}
+}

@@ -168,11 +168,12 @@ class Stream {
 		// Consume the job so it cannot be replayed.
 		delete_transient( 'hyve_stream_job_' . $token );
 
-		$thread_id = isset( $job['thread_id'] ) ? $job['thread_id'] : '';
-		$record_id = isset( $job['record_id'] ) ? $job['record_id'] : null;
-		$message   = isset( $job['message'] ) ? $job['message'] : '';
-		$context   = isset( $job['context'] ) ? $job['context'] : '';
-		$is_test   = ! empty( $job['is_test'] );
+		$thread_id       = isset( $job['thread_id'] ) ? $job['thread_id'] : '';
+		$record_id       = isset( $job['record_id'] ) ? $job['record_id'] : null;
+		$message         = isset( $job['message'] ) ? $job['message'] : '';
+		$context         = isset( $job['context'] ) ? $job['context'] : '';
+		$is_test         = ! empty( $job['is_test'] );
+		$source_post_ids = isset( $job['source_post_ids'] ) ? $job['source_post_ids'] : [];
 
 		Main::add_labels_to_default_settings();
 		$settings        = Main::get_settings();
@@ -256,6 +257,9 @@ class Stream {
 			}
 		}
 
+		if ( $answered && ! empty( $settings['show_source_link'] ) ) {
+			$final = API::instance()->maybe_append_source_link( $final, $source_post_ids );
+		}
 		// Record the turn once, now that the reply has landed: the user message
 		// (hyve_chat_request) then the reply (hyve_chat_response), preserving the
 		// poll flow's contract so logging and analytics are unaffected. Test chats

@@ -279,6 +279,7 @@ class Main {
 				'sound_enabled'              => true,
 				'show_timestamp'             => true,
 				'chat_position'              => 'right',
+				'show_source_link'           => false,
 				'display_mode'               => 'all',
 				'display_rules'              => [],
 			]
