@@ -439,16 +439,6 @@ const Dashboard = () => {
 
 	return (
 		<>
-			<div className="hyve-next-pagehead">
-				<h1>{ __( 'Dashboard', 'hyve-lite' ) }</h1>
-				<p>
-					{ __(
-						'An overview of how Hyve is performing on your site.',
-						'hyve-lite'
-					) }
-				</p>
-			</div>
-
 			{ showChecklist && <SetupChecklist /> }
 
 			{ hasAPI && (

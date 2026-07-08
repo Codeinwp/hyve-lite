@@ -830,8 +830,10 @@ class API extends BaseAPI {
 		}
 
 		$posts = [
-			'posts' => $posts_data,
-			'more'  => $page['more'],
+			'posts'    => $posts_data,
+			'more'     => $page['more'],
+			'total'    => intval( Threads::get_thread_count() ),
+			'per_page' => $pages,
 		];
 
 		return rest_ensure_response( $posts );

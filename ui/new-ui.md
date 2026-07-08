@@ -17,7 +17,7 @@ Legend: `[ ]` todo · `[x]` done · `[~]` in progress
 - [x] **F2. `next/` scaffold**: folder structure (`next/App.js`, `next/router.js`, `next/screens/*`, `next/components/*`, `next/data/*`), lint clean, builds with the existing wp-scripts setup. (Done 2026-07-08: `next/App.js` + `next/style.scss` land the scaffold; `router.js`/`screens/`/`components/`/`data/` get created by F3/F6 when their first files exist.)
 - [x] **F3. Route registry**: data-driven tree for the 7 screens + sub-panels (Dashboard; KB: all/attention/faq + 5 source drills; Messages: conversations/leads/thread; Chat: behavior/appearance; AI: provider/advanced/tools; Integrations; Settings). Each entry: label, icon, component, capability, pro flag, api-required flag. Designed so Pro can register/override entries (decision 7 in `new-ui-plan.md`). (Done 2026-07-08: `next/router.js`; Pro extends via the `hyve.next.routes` filter; drill-ins are `hidden` subs, planned panels are `planned` subs. Components attach per screen in S items.)
 - [x] **F4. Deep linking + browser history**: screen in the URL via `?nav=`, sub-panel via `&sub=`. `navigate()` writes the URL with `history.pushState` and back/forward restores views (popstate), so every view is linkable and history works both ways. Deliberately NO legacy route-key aliases and NO `window.hyve.view` handling: when PR lite#194 (capabilities/submenus) merges, the router gets adapted to what it actually ships (tracked in W2). (Done 2026-07-08: `parseLocation`/`navigate`/`useRoute` in `next/router.js`; App renders a temporary tab row + subnav until F7/F8.)
-- [x] **F5. WP palette + Tailwind tokens**: map the mockup's CSS variables (wp-blue #2271b1, borders, surfaces, ok/warn/bad, 2px radii) into the Tailwind config/theme for `next/`. (Done 2026-07-08: tokens live as `--hyve-*` CSS custom properties scoped under `.hyve-next` in `next/style.scss`; Tailwind arbitrary values can reference them, and the layout kit (F6) consumes them directly. Includes temporary shell chrome that F7 replaces.)
+- [x] **F5. WP palette + Tailwind tokens**: map the mockup's CSS variables (wp-blue #2271b1, borders, surfaces, ok/warn/bad, 2px radii) into the Tailwind config/theme for `next/`. (Done 2026-07-08: tokens live as `--hyve-*` CSS custom properties scoped under `.hyve-next` in `next/style.scss`; Tailwind arbitrary values can reference them, and the layout kit (F6) consumes them directly. Includes temporary shell chrome that F7 replaces. Also done 2026-07-08: wp-components polish pass, `--wp-components-color-accent`/`--wp-admin-theme-color` overrides swap the Gutenberg indigo for WP admin blue, plus compact 30px control sizing; modals get the same via the `.hyve-next-modal` class since they portal outside the app root.)
 - [ ] **F6. Layout kit components** (each small, reusable, mockup-faithful):
   - [x] F6.1 Card (header, actions, form footer; done 2026-07-08: `next/components/Card.js`)
   - [ ] F6.2 PlannedCard (dashed variant)
@@ -69,24 +69,24 @@ Legend: `[ ]` todo · `[x]` done · `[~]` in progress
 
 ## S3. Messages screen
 
-- [ ] **S3.1 Subnav**: Conversations / Leads [PLANNED placeholder; decision: visible in production or dev-flag only].
-- [ ] **S3.2 Conversations table**: `GET threads` with pagination (Load more; free tier shows first page + upsell per current gating), title + snippet + message count + date.
-- [ ] **S3.3 Search** [backend]: thread search endpoint (does not exist today; mockup has the box). Decide: build endpoint or drop the box until then.
-- [ ] **S3.4 Thread drill-in**: full conversation bubbles with timestamps, thread metadata, Delete conversation (needs `hyve_manage_messages` when PR lite#194 lands; admin-only until then).
-- [ ] **S3.5 Export CSV** [PRO]: `window.hyve.exportMessagesURL` link, hidden without manage capability, free tier lock + upsell.
+- [x] **S3.1 Subnav**: DECIDED (2026-07-08): Leads is removed from the code entirely (like Tools, it lives in the mockup only until #168 ships). With one visible panel left, the App hides single-link subnavs, so Messages renders with no subnav.
+- [x] **S3.2 Conversations table**: `GET threads` with pagination; title + snippet (last message, tags stripped) + message count + date + View. Free tier: first page (3) + the blue note upsell (only when more exist); Pro: Previous/Next pagination with "Page X of Y" in the card footer (10/page). No avatars. [backend, done]: `GET threads` now also returns `total` and `per_page` to drive the pager. (Done 2026-07-08: `next/screens/Messages.js`; base `.hyve-next-table` styles land here for F6.5 to build on.)
+- [x] **S3.3 Search**: REMOVED from the plan (2026-07-08). No conversations search, also dropped from the mockup.
+- [x] **S3.4 Thread drill-in**: full conversation bubbles with timestamps, meta line (date, count, thread id), Delete conversation with snackbar + back to the list (admin-only until PR lite#194, then `hyve_manage_messages`). Router gained an `&item=<id>` param so threads are linkable and Back works. Deep links resolve from an in-memory cache, falling back to a first-page lookup; a "Conversation not found" card covers stale links. [backend, optional]: a single-thread endpoint would make old deep links resolvable. (Done 2026-07-08.)
+- [x] **S3.5 Export CSV**: DECIDED (2026-07-08): the button is always visible; without `window.hyve.exportMessagesURL` (free) it is disabled with a lock icon and does nothing, with it (pro) it downloads. Pro wiring of the localized URL into the new UI is part of P2.
 - [ ] **S3.6 Messages-only user rendering**: whole app boots into Messages with other tabs absent (depends on PR lite#194's `view`/capability plumbing).
 
 ## S4. Chat screen
 
-- [ ] **S4.1 Behavior > Conversation card**: `welcome_message`, `default_message` (TextControls), `sound_enabled` toggle, Save. (Sits below the visibility card, S4.9.)
-- [ ] **S4.2 Behavior > Suggestions card** [PRO]: 3 `predefined_questions` fields; free tier chips + lock.
+- [x] **S4.1 Behavior > Conversation card**: `welcome_message`, `default_message` (TextControls), `sound_enabled` toggle with Enabled/Disabled label, Save. Sits below the visibility card. (Done 2026-07-08: `next/screens/Chat.js`; descriptions reuse the old UI strings to keep translations.)
+- [x] **S4.2 Behavior > Suggestions card**: 3 `predefined_questions` fields. Pro: editable + Save. Free: PRO chip in the card head, disabled inputs with example placeholders, blue note upsell (UTM `suggested-questions-settings`). (Done 2026-07-08.)
 - [ ] **S4.3 Follow-up questions toggle** [PRO][PR-dep hyve#259]: `follow_up_questions` placeholder control until merge, then wired.
 - [ ] **S4.4 Source links toggle** [PR-dep lite#180]: `show_source_link` placeholder until merge.
 - [ ] **S4.5 Privacy notice toggle** [PR-dep lite#192]: `privacy_notice_enabled` + "no privacy page" warning (`window.hyve.hasPrivacyPage`, `privacySettings` link).
 - [ ] **S4.6 Proactive messages + Lead capture planned cards** [decision: production visibility].
-- [ ] **S4.7 Appearance form**: `chat_position`, `show_timestamp` (free); `chat_name`, `chat_icon` (icon set + MediaUpload custom image), 4 color tiles with ColorPicker + reset [PRO]; free tier chips + lock note.
-- [ ] **S4.8 Live preview**: embed the real widget preview beside the form, push changes via `window.hyveApp.applyPreviewAppearance` (position, timestamps, name, colors + dark-color mapping, icon, privacy notice line).
-- [ ] **S4.9 Visibility card** (top of the Behavior panel, not its own sub-tab): `display_mode` radio cards, `display_rules` URL-rule editor (path + contains/matches, add/remove), saved by the Behavior Save; moved off the old Dashboard. The Dashboard "Manage visibility" shortcut deep-links here.
+- [x] **S4.7 Appearance form**: `chat_position`, `show_timestamp` (free); `chat_name`, `chat_icon` (icon set via the `hyve.appearance.chat-icons` JS filter + MediaUpload custom image), 4 color tiles with ColorPicker popovers + Reset to defaults [PRO]. Free tier: PRO chips on the locked rows, controls visible but disabled, blue note upsell (UTM `appearance-settings`); the icon-set row only renders when pro provides icons. (Done 2026-07-08: `next/screens/ChatAppearance.js`.)
+- [x] **S4.8 Live preview**: DECIDED, deviation from the mockup: no static in-card preview. The real widget already floats on the admin page as a preview-flagged test chat (`enqueue_chat_preview`), so the panel shows a notice pointing at it and pushes every edit through `window.hyveApp.applyPreviewAppearance` (position, timestamps, name, colors + dark-color mapping, icon) as you type. (Done 2026-07-08.)
+- [x] **S4.9 Visibility card** (top of the Behavior panel, not its own sub-tab): `display_mode` radio cards, `display_rules` URL-rule editor (path + contains/matches, add/remove), own Save; moved off the old Dashboard. The Dashboard "Manage visibility" shortcut deep-links here and now lands on the real card. (Done 2026-07-08. Also done alongside: page headings moved into the App shell, rendered for every screen from the registry's new `description` field, so they sit above the subnav like the mockup's headrow.)
 
 ## S5. AI screen
 
@@ -111,8 +111,8 @@ Legend: `[ ]` todo · `[x]` done · `[~]` in progress
 
 ## P. Pro plugin lockstep (Codeinwp/hyve)
 
-- [ ] **P1. Extension surface**: implement the section/route registry hooks in lite; document the contract (replaces `hyve.route`, `hyve.data`, `hyve.appearance.options`, `hyve.suggestedQuestions`, `hyve.systemPrompt`, `hyve.others`, `hyve.tokens-management`, `hyve.messages.load-more`, `hyve.messages.export-messages`).
-- [ ] **P2. Port pro registrations**: FAQ, Custom/URL/Sitemap/Documents sources, Appearance options, Suggested questions (+follow-ups), System prompt, License/Advanced, Access tokens, Messages pagination + export. Old filters kept working until the old UI is removed.
+- [ ] **P1. Extension surface** [decided 2026-07-08, see plan decision #8]: pro extends via `hyve.next.routes` plus at most one component-slot filter; document the contract. Settings-backed pro features stay in lite behind the license gate and do NOT move to filters (already shipped that way: suggested questions, appearance branding, export button, messages pagination).
+- [ ] **P2. Port pro registrations** (pro-only surfaces only): FAQ, Custom/URL/Sitemap/Documents sources, System prompt (if slot-based), License card, Access tokens. Old filters keep working until the old UI is removed.
 - [ ] **P3. Shared components bridge**: replace `window.hyveComponents` (PostsTable/PostModal) with the new DataTable/modal exports; keep the old export until pro is migrated.
 
 ## W. Wire-up and ship

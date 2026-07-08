@@ -18,19 +18,28 @@ import {
 } from '@wordpress/icons';
 
 /**
- * Route registry. The URL is the source of truth (`&nav=<screen>&sub=<panel>`).
- * Sub-panels: `default` is the landing panel, `hidden` keeps drill-ins out of
- * the subnav. Pro extends entries via the `hyve.next.routes` filter.
+ * Route registry. The URL is the source of truth
+ * (`&nav=<screen>&sub=<panel>&item=<id>`). Sub-panels: `default` is the
+ * landing panel, `hidden` keeps drill-ins out of the subnav. Pro extends
+ * entries via the `hyve.next.routes` filter.
  */
 const ROUTES = {
 	dashboard: {
 		label: __( 'Dashboard', 'hyve-lite' ),
+		description: __(
+			'An overview of how Hyve is performing on your site.',
+			'hyve-lite'
+		),
 		icon: home,
 		capability: 'manage_options',
 		requiresAPI: false,
 	},
 	kb: {
 		label: __( 'Knowledge Base', 'hyve-lite' ),
+		description: __(
+			'The content Hyve draws its answers from.',
+			'hyve-lite'
+		),
 		icon: archive,
 		capability: 'manage_options',
 		requiresAPI: true,
@@ -74,6 +83,10 @@ const ROUTES = {
 	},
 	messages: {
 		label: __( 'Messages', 'hyve-lite' ),
+		description: __(
+			'Every conversation your visitors have had with Hyve.',
+			'hyve-lite'
+		),
 		icon: comment,
 		capability: 'hyve_read_messages',
 		requiresAPI: true,
@@ -81,10 +94,6 @@ const ROUTES = {
 			conversations: {
 				label: __( 'Conversations', 'hyve-lite' ),
 				default: true,
-			},
-			leads: {
-				label: __( 'Leads', 'hyve-lite' ),
-				planned: true,
 			},
 			thread: {
 				label: __( 'Conversation', 'hyve-lite' ),
@@ -94,6 +103,10 @@ const ROUTES = {
 	},
 	chat: {
 		label: __( 'Chat', 'hyve-lite' ),
+		description: __(
+			'Everything your visitors see and experience in the chat widget.',
+			'hyve-lite'
+		),
 		icon: commentContent,
 		capability: 'manage_options',
 		requiresAPI: true,
@@ -109,6 +122,10 @@ const ROUTES = {
 	},
 	ai: {
 		label: __( 'AI', 'hyve-lite' ),
+		description: __(
+			'The engine behind the answers: provider, model and tuning.',
+			'hyve-lite'
+		),
 		icon: cog,
 		capability: 'manage_options',
 		requiresAPI: false,
@@ -124,12 +141,20 @@ const ROUTES = {
 	},
 	integrations: {
 		label: __( 'Integrations', 'hyve-lite' ),
+		description: __(
+			'Connect Hyve to external storage, search and automation tools.',
+			'hyve-lite'
+		),
 		icon: blockMeta,
 		capability: 'manage_options',
 		requiresAPI: true,
 	},
 	settings: {
 		label: __( 'Settings', 'hyve-lite' ),
+		description: __(
+			'Plugin administration: license, site integration and privacy.',
+			'hyve-lite'
+		),
 		icon: settings,
 		capability: 'manage_options',
 		requiresAPI: true,
@@ -165,7 +190,7 @@ const resolveSub = ( route, sub ) => {
 /**
  * Read the current route from the URL, falling back to the dashboard.
  *
- * @return {{screen: string, sub: ?string}} Current route.
+ * @return {{screen: string, sub: ?string, item: ?string}} Current route.
  */
 export const parseLocation = () => {
 	const routes = getRoutes();
@@ -178,7 +203,11 @@ export const parseLocation = () => {
 		screen = 'dashboard';
 	}
 
-	return { screen, sub: resolveSub( routes[ screen ], sub ) };
+	return {
+		screen,
+		sub: resolveSub( routes[ screen ], sub ),
+		item: params.get( 'item' ) || null,
+	};
 };
 
 const listeners = new Set();
@@ -193,8 +222,13 @@ const notify = () => listeners.forEach( ( listener ) => listener() );
  * @param {?string} sub             Sub-panel key.
  * @param {Object}  options         Options.
  * @param {boolean} options.replace Replace the current history entry.
+ * @param {?string} options.item    Item id for drill-in panels.
  */
-export const navigate = ( screen, sub = null, { replace = false } = {} ) => {
+export const navigate = (
+	screen,
+	sub = null,
+	{ replace = false, item = null } = {}
+) => {
 	const routes = getRoutes();
 
 	if ( ! routes[ screen ] ) {
@@ -202,9 +236,15 @@ export const navigate = ( screen, sub = null, { replace = false } = {} ) => {
 	}
 
 	const resolved = resolveSub( routes[ screen ], sub );
+	const resolvedItem = item ? String( item ) : null;
 	const current = parseLocation();
 
-	if ( current.screen === screen && current.sub === resolved && ! replace ) {
+	if (
+		current.screen === screen &&
+		current.sub === resolved &&
+		current.item === resolvedItem &&
+		! replace
+	) {
 		return;
 	}
 
@@ -217,8 +257,14 @@ export const navigate = ( screen, sub = null, { replace = false } = {} ) => {
 		url.searchParams.delete( 'sub' );
 	}
 
+	if ( resolvedItem ) {
+		url.searchParams.set( 'item', resolvedItem );
+	} else {
+		url.searchParams.delete( 'item' );
+	}
+
 	window.history[ replace ? 'replaceState' : 'pushState' ](
-		{ screen, sub: resolved },
+		{ screen, sub: resolved, item: resolvedItem },
 		'',
 		url.toString()
 	);
@@ -231,7 +277,7 @@ export const navigate = ( screen, sub = null, { replace = false } = {} ) => {
 /**
  * Current route; re-renders on navigate() and browser back/forward.
  *
- * @return {{screen: string, sub: ?string}} Current route.
+ * @return {{screen: string, sub: ?string, item: ?string}} Current route.
  */
 export const useRoute = () => {
 	const [ route, setRoute ] = useState( parseLocation );

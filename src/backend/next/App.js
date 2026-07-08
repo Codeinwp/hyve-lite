@@ -1,7 +1,7 @@
 /**
  * WordPress dependencies.
  */
-import { __, sprintf } from '@wordpress/i18n';
+import { __ } from '@wordpress/i18n';
 
 import apiFetch from '@wordpress/api-fetch';
 
@@ -18,15 +18,19 @@ import HeaderBar from './components/HeaderBar';
 import TabNav from './components/TabNav';
 import Notices from './components/Notices';
 import Dashboard from './screens/Dashboard';
+import Messages from './screens/Messages';
+import Chat from './screens/Chat';
 import AI from './screens/AI';
 
 const SCREENS = {
 	dashboard: Dashboard,
+	messages: Messages,
+	chat: Chat,
 	ai: AI,
 };
 
 const App = () => {
-	const { screen, sub } = useRoute();
+	const { screen, sub, item } = useRoute();
 
 	const hasAPI = useSelect( ( select ) => select( 'hyve' ).hasAPI() );
 
@@ -68,7 +72,16 @@ const App = () => {
 			<TabNav />
 
 			<div className="hyve-next__wrap">
-				{ 0 < subs.length && (
+				{ current && (
+					<div className="hyve-next-pagehead">
+						<h1>{ current.label }</h1>
+						{ current.description && (
+							<p>{ current.description }</p>
+						) }
+					</div>
+				) }
+
+				{ 1 < subs.length && (
 					<div className="hyve-next__subnav">
 						{ subs.map( ( [ key, entry ] ) => (
 							<button
@@ -86,19 +99,9 @@ const App = () => {
 				) }
 
 				{ Screen ? (
-					<Screen sub={ sub } />
+					<Screen sub={ sub } item={ item } />
 				) : (
 					<div className="hyve-next__card">
-						<h1>
-							{ sub && current?.subs?.[ sub ]
-								? sprintf(
-										/* translators: 1: screen name, 2: sub-panel name. */
-										__( '%1$s: %2$s', 'hyve-lite' ),
-										current.label,
-										current.subs[ sub ].label
-								  )
-								: current?.label }
-						</h1>
 						<p>
 							{ __(
 								'This screen is on its way. Use the tabs to move around; the URL updates so every view is linkable and browser back/forward works.',

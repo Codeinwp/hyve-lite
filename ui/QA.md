@@ -135,8 +135,60 @@ How to force the common states:
 - [ ] Below roughly 640px: stats and Get started go single column.
 - [ ] Tab row scrolls horizontally instead of wrapping or overflowing the page.
 
-## 16. Copy and general polish
+## 16. Messages screen
 
+- [ ] No subnav row (Conversations is the only panel, single-link subnavs are hidden).
+- [ ] While loading: spinner in the card.
+- [ ] No conversations: "Conversations will appear here once visitors start chatting with Hyve."
+- [ ] Table rows: title, snippet of the last message (no HTML tags visible), message count, short date, View button.
+- [ ] A very long title or snippet truncates with an ellipsis.
+- [ ] **Free, more conversations exist**: 3 rows + the blue "Read every conversation" note; no Load more.
+- [ ] **Free, 3 or fewer total**: rows only, no upsell.
+- [ ] **Pro**: Previous/Next pagination in the card footer with "Page X of Y"; Previous disabled on the first page, Next disabled on the last, both disabled while a page loads.
+- [ ] Pager math holds up: Y matches the real conversation count divided by 10, and the last page shows the remainder.
+- [ ] Pagination footer is absent entirely when everything fits on one page.
+- [ ] Export CSV: disabled with a lock icon on free (clicking does nothing); on pro it downloads the CSV.
+- [ ] View opens the thread; the URL gains `&item=<id>` and is shareable (open it in a new tab: same thread loads).
+- [ ] A deep link to a deleted/unknown thread shows the "Conversation not found" card, and "All conversations" goes back to the list.
+- [ ] Thread view: meta line (date, message count, thread id), visitor bubbles right in blue, Hyve bubbles left in light blue, each with a time.
+- [ ] A long conversation scrolls inside the messages area (capped height), not the whole page.
+- [ ] Links inside bot replies render as links.
+- [ ] Delete conversation opens a confirmation dialog; Cancel (or Escape, or clicking outside) closes it with nothing deleted.
+- [ ] Confirming the delete: success snackbar, returns to the list, the row is gone (reload to confirm it stayed gone).
+- [ ] Browser Back from a thread returns to the list; Back again leaves Messages.
+- [ ] Dashboard "View all" and a conversation row's flow both land correctly scrolled to the top.
+
+## 17. Chat screen: Behavior
+
+- [ ] Every screen now shows its heading and description above the subnav (Chat: "Everything your visitors see and experience in the chat widget.").
+- [ ] Subnav shows Behavior / Appearance; Appearance is a placeholder card for now.
+- [ ] Visibility card: the saved `display_mode` is preselected; the selected radio card is highlighted in blue.
+- [ ] Picking "Only on selected content" or "Everywhere except selected content" reveals the Content URLs editor; "Show on all pages" and "Don't show automatically" hide it.
+- [ ] URL rules: add a rule, edit path and operator, remove a rule; Save persists them (reload to confirm).
+- [ ] After changing the mode and saving, the Dashboard visibility notice wording matches the new mode.
+- [ ] Dashboard "Manage visibility" lands on this card, scrolled to the top.
+- [ ] Conversation card: welcome message, default message, and the sound toggle persist across save + reload; the toggle label flips between Enabled and Disabled.
+- [ ] **Suggestions, free**: PRO chip in the card head, three disabled inputs with example placeholders, blue upsell with "Unlock with Pro" (UTM `suggested-questions-settings`), no Save button.
+- [ ] **Suggestions, pro**: no chip, no upsell, three editable fields that persist, Save button present.
+- [ ] Known behavior: each card's Save posts the whole settings object, so edits pending in another card get saved too.
+
+## 18. Chat screen: Appearance
+
+- [ ] A notice points at the floating chat widget as the live preview (only when the test widget is present on the page; it needs content in the knowledge base to appear).
+- [ ] Position: switching Left/Right moves the floating widget instantly, before saving.
+- [ ] Timestamps: Show/Hide updates the widget's message timestamps instantly.
+- [ ] Save persists position and timestamps (reload to confirm).
+- [ ] **Free**: Assistant name, Custom icon image, and Colors rows show PRO chips, controls are visible but disabled, color tiles show the defaults and do not open a picker, and the blue "Make the chat match your brand" upsell links to Pro (UTM `appearance-settings`).
+- [ ] **Pro**: typing an assistant name updates the widget header live; empty name falls back to the default.
+- [ ] **Pro**: the launcher icon set row appears (icons come from the pro bundle), picking one swaps the widget button icon live; Default resets it.
+- [ ] **Pro**: selecting a media-library image previews it in the form and on the widget; Remove reverts to the default icon.
+- [ ] **Pro**: each color tile opens a picker, the widget recolors as you drag, light/dark text contrast flips correctly on dark backgrounds, and Reset to defaults restores all four.
+- [ ] **Pro**: saved appearance matches the real site frontend after reload (admin preview and frontend agree).
+
+## 19. Copy and general polish
+
+- [ ] Every button, link, select, toggle, slider, and focus ring renders in the WP admin blue (#2271b1); no Gutenberg indigo (#3858e9) anywhere, including inside modals and their buttons.
+- [ ] Controls are compact (about 30px tall): check the Manage visibility button, the Usage range select, table View buttons, pagination, and the AI screen's key field, model select, and save buttons.
 - [ ] No em or en dashes anywhere in the visible copy.
 - [ ] Nothing references a screen location it should not (error strings are location-neutral).
 - [ ] Free tier shows no Pro chips in nav or subnav (upsells live inside screens only).

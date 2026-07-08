@@ -51,6 +51,11 @@ Hardeep's direction: **NUX, not onboarding** — no wizard or modal flow; the de
 5. **Dashboard metrics**: **UI-first, slots reserved** — render existing `stats`/`chart` data; recent-conversations feed mocked in the prototype; deltas/sparklines/answer-rate only if trivially derivable, otherwise follow-up backend issues. A dashed placeholder card reserves the Hyve Agent quota slot.
 6. **Upsell presentation** (recommendation, validate in mockup review): small PRO chips + inline lock notes instead of dimmed fake controls; per-section gating where a whole feature is Pro (e.g. Tools), per-control where a single field is (e.g. system prompt).
 7. **New extension surface for Pro** (recommendation, finalize in Phase 5): replace the one-off filter-per-upsell pattern with a declarative section registry — screens and settings sections declared as data (like `ROUTE_TREE`), Pro registers/overrides entries rather than adding new filters.
+8. **Lite/Pro code split — DECIDED 2026-07-08**: hybrid, with one rule: *whoever owns the endpoint owns the UI code.*
+   - **Settings-backed pro features live in lite, gated by license** (suggested questions, appearance name/icon/colors, system prompt when it lands, the export button). The UI just writes settings keys; enforcement stays server-side in pro (`hyve_frontend_data`, `hyve_threads_per_page`, the export endpoint), so unlocking the flag client-side yields nothing. One implementation, no lite/pro markup drift (the old UI's duplicated fake color tiles are the anti-pattern this kills), and free users see the real UI disabled next to the upsell.
+   - **Pro-only surfaces live in pro, registered via filters** (KB sources: custom/URL/sitemap/documents, FAQ, access tokens, license card): their REST endpoints exist only in pro, so lite ships only a locked placeholder/upsell in the slot.
+   - **One registration surface, not nine ad-hoc filters**: pro extends through `hyve.next.routes` (screens/subs) plus at most one component-slot filter. That is the whole P1 contract.
+   - **Gate semantics**: `window.hyve.license` (pro plugin installed) unlocks the UI, matching the old UI's behavior; `window.hyve.hasPro` (license validity) stays a server-side/update concern.
 
 ## Delivery approach: `?new=true` parallel app
 
