@@ -272,19 +272,6 @@ class Main {
 				'chat_model'                 => 'gpt-4o-mini',
 				'temperature'                => 1,
 				'top_p'                      => 1,
-				'moderation_threshold'       => [
-					'sexual'                 => 80,
-					'hate'                   => 70,
-					'harassment'             => 70,
-					'self-harm'              => 50,
-					'sexual/minors'          => 50,
-					'hate/threatening'       => 60,
-					'violence/graphic'       => 80,
-					'self-harm/intent'       => 50,
-					'self-harm/instructions' => 50,
-					'harassment/threatening' => 60,
-					'violence'               => 70,
-				],
 				'welcome_message'            => '',
 				'default_message'            => '',
 				'similarity_score_threshold' => 0.4,
@@ -437,6 +424,7 @@ class Main {
 
 		wp_localize_script( 'hyve-lite-scripts', 'hyveClient', $this->get_frontend_data() );
 
+		$settings            = self::get_settings();
 		$should_display_chat = $this->should_display_chat();
 
 		if ( ! $should_display_chat ) {
@@ -947,13 +935,27 @@ class Main {
 		$errors = [];
 
 		$open_ai_last_error = get_option( OpenAI::ERROR_OPTION_KEY, false );
-		if ( is_array( $open_ai_last_error ) ) {
+		if ( is_array( $open_ai_last_error ) && $this->is_recent_error( $open_ai_last_error ) ) {
+			if ( ! empty( $open_ai_last_error['code'] ) ) {
+				$friendly_message = OpenAI::get_error_message_for_code( $open_ai_last_error['code'] );
+
+				if ( null !== $friendly_message ) {
+					$open_ai_last_error['message'] = $friendly_message;
+				}
+			}
+
 			$errors[] = $open_ai_last_error;
 		}
 
 		$qdrant_last_error = get_option( Qdrant_API::ERROR_OPTION_KEY, false );
-		if ( is_array( $qdrant_last_error ) ) {
-			$qdrant_last_error['message'] = __( 'Invalid credentials.', 'hyve-lite' ) . ' ' . __( 'Please check your API key and endpoint URL.', 'hyve-lite' );
+		if ( is_array( $qdrant_last_error ) && $this->is_recent_error( $qdrant_last_error ) ) {
+			$friendly_message = ! empty( $qdrant_last_error['code'] ) ? Qdrant_API::get_error_message_for_code( $qdrant_last_error['code'] ) : null;
+
+			if ( null === $friendly_message ) {
+				$friendly_message = __( 'Hyve could not connect to Qdrant.', 'hyve-lite' ) . ' ' . __( 'Please check your API key and endpoint URL in the Integrations settings.', 'hyve-lite' );
+			}
+
+			$qdrant_last_error['message'] = $friendly_message;
 			$errors[]                     = $qdrant_last_error;
 		}
 
@@ -962,6 +964,31 @@ class Main {
 		}
 
 		return $options;
+	}
+
+	/**
+	 * Whether a saved service error is recent enough to surface to the admin.
+	 *
+	 * A successful request already clears the saved error, so this only guards
+	 * against a stale failure lingering on a site with no traffic since: we only
+	 * show errors from the last 24 hours that still have no subsequent success.
+	 *
+	 * @param array<string, mixed> $error The saved error.
+	 *
+	 * @return bool
+	 */
+	private function is_recent_error( $error ) {
+		if ( empty( $error['date'] ) ) {
+			return false;
+		}
+
+		$timestamp = strtotime( $error['date'] );
+
+		if ( false === $timestamp ) {
+			return false;
+		}
+
+		return $timestamp >= ( time() - DAY_IN_SECONDS );
 	}
 
 	/**

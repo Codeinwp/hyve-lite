@@ -11,6 +11,7 @@ const DEFAULT_STATE = {
 	hasAPI: Boolean( window.hyve.hasAPIKey ),
 	isQdrantActive: Boolean( window.hyve.isQdrantActive ),
 	totalChunks: 0,
+	serviceErrors: window.hyve.serviceErrors || [],
 };
 
 const actions = {
@@ -56,6 +57,12 @@ const actions = {
 			isQdrantActive,
 		};
 	},
+	setServiceErrors( serviceErrors ) {
+		return {
+			type: 'SET_SERVICE_ERRORS',
+			serviceErrors,
+		};
+	},
 };
 
 const selectors = {
@@ -82,6 +89,9 @@ const selectors = {
 	},
 	isQdrantActive( state ) {
 		return state.isQdrantActive;
+	},
+	getServiceErrors( state ) {
+		return state.serviceErrors;
 	},
 };
 
@@ -124,6 +134,11 @@ const reducer = ( state = DEFAULT_STATE, action ) => {
 			return {
 				...state,
 				isQdrantActive: action.isQdrantActive,
+			};
+		case 'SET_SERVICE_ERRORS':
+			return {
+				...state,
+				serviceErrors: action.serviceErrors,
 			};
 		default:
 			return state;

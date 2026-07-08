@@ -260,7 +260,6 @@ class Stream {
 		if ( $answered && ! empty( $settings['show_source_link'] ) ) {
 			$final = API::instance()->maybe_append_source_link( $final, $source_post_ids );
 		}
-
 		// Record the turn once, now that the reply has landed: the user message
 		// (hyve_chat_request) then the reply (hyve_chat_response), preserving the
 		// poll flow's contract so logging and analytics are unaffected. Test chats
@@ -271,14 +270,23 @@ class Stream {
 			do_action( 'hyve_chat_response', $result['id'], $thread_id, $message, $record_id, $payload, $final );
 		}
 
-		$this->send_event(
-			'done',
-			[
-				'success'   => $answered,
-				'message'   => $final,
-				'record_id' => $record_id ? $record_id : null,
-			]
-		);
+		$data = [
+			'success'   => $answered,
+			'message'   => $final,
+			'record_id' => $record_id ? $record_id : null,
+		];
+
+		// Let extensions attach extra reply data (e.g. follow-up suggestions from
+		// the structured payload) to the terminal event. Shared with the poll flow
+		// (get_chat) so both paths surface the same data to the widget. A filter
+		// that returns a non-array is ignored so it cannot corrupt the done frame.
+		$reply = apply_filters( 'hyve_chat_reply_data', $data, $payload, $answered );
+
+		if ( is_array( $reply ) ) {
+			$data = $reply;
+		}
+
+		$this->send_event( 'done', $data );
 
 		exit;
 	}
