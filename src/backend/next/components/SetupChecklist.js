@@ -33,7 +33,7 @@ const SetupChecklist = () => {
 			locked: false,
 			action: {
 				label: __( 'Add API key', 'hyve-lite' ),
-				onClick: () => navigate( 'ai' ),
+				onClick: () => navigate( 'settings', 'ai-provider' ),
 			},
 		},
 		{
@@ -60,7 +60,7 @@ const SetupChecklist = () => {
 			locked: ! hasAPI,
 			action: {
 				label: __( 'View integrations', 'hyve-lite' ),
-				onClick: () => navigate( 'integrations' ),
+				onClick: () => navigate( 'settings', 'integrations' ),
 			},
 		},
 	];

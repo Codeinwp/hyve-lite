@@ -16,17 +16,16 @@ import './style.scss';
 import { getRoutes, navigate, useRoute } from './router';
 import HeaderBar from './components/HeaderBar';
 import TabNav from './components/TabNav';
+import SideNav from './components/SideNav';
 import Notices from './components/Notices';
 import Dashboard from './screens/Dashboard';
 import Messages from './screens/Messages';
-import Chat from './screens/Chat';
-import AI from './screens/AI';
+import Settings from './screens/Settings';
 
 const SCREENS = {
 	dashboard: Dashboard,
 	messages: Messages,
-	chat: Chat,
-	ai: AI,
+	settings: Settings,
 };
 
 const App = () => {
@@ -54,16 +53,47 @@ const App = () => {
 	const Screen = SCREENS[ screen ];
 
 	useEffect( () => {
-		if ( ! hasAPI && current?.requiresAPI ) {
-			navigate( 'dashboard', null, { replace: true } );
+		if ( hasAPI || ! current ) {
+			return;
 		}
-	}, [ hasAPI, current ] );
+
+		if ( current.requiresAPI ) {
+			navigate( 'dashboard', null, { replace: true } );
+			return;
+		}
+
+		// Key-gated sub-panel without a key: land on the first open panel.
+		if ( sub && current.subs?.[ sub ]?.requiresAPI ) {
+			const fallback = Object.keys( current.subs ).find(
+				( key ) =>
+					! current.subs[ key ].requiresAPI &&
+					! current.subs[ key ].hidden
+			);
+
+			if ( fallback ) {
+				navigate( screen, fallback, { replace: true } );
+			}
+		}
+	}, [ hasAPI, current, screen, sub ] );
 
 	const subs = current?.subs
 		? Object.entries( current.subs ).filter(
 				( [ , entry ] ) => ! entry.hidden
 		  )
 		: [];
+
+	const screenContent = Screen ? (
+		<Screen sub={ sub } item={ item } />
+	) : (
+		<div className="hyve-next__card">
+			<p>
+				{ __(
+					'This screen is on its way. Use the tabs to move around; the URL updates so every view is linkable and browser back/forward works.',
+					'hyve-lite'
+				) }
+			</p>
+		</div>
+	);
 
 	return (
 		<div className="hyve-next">
@@ -81,34 +111,40 @@ const App = () => {
 					</div>
 				) }
 
-				{ 1 < subs.length && (
-					<div className="hyve-next__subnav">
-						{ subs.map( ( [ key, entry ] ) => (
-							<button
-								key={ key }
-								type="button"
-								className={ `hyve-next__sublink${
-									key === sub ? ' is-active' : ''
-								}` }
-								onClick={ () => navigate( screen, key ) }
-							>
-								{ entry.label }
-							</button>
-						) ) }
+				{ current?.sidebar ? (
+					<div className="hyve-next-settings">
+						<SideNav
+							screen={ screen }
+							subs={ subs }
+							active={ sub }
+						/>
+						<div className="hyve-next-settings__content">
+							{ screenContent }
+						</div>
 					</div>
-				) }
-
-				{ Screen ? (
-					<Screen sub={ sub } item={ item } />
 				) : (
-					<div className="hyve-next__card">
-						<p>
-							{ __(
-								'This screen is on its way. Use the tabs to move around; the URL updates so every view is linkable and browser back/forward works.',
-								'hyve-lite'
-							) }
-						</p>
-					</div>
+					<>
+						{ 1 < subs.length && (
+							<div className="hyve-next__subnav">
+								{ subs.map( ( [ key, entry ] ) => (
+									<button
+										key={ key }
+										type="button"
+										className={ `hyve-next__sublink${
+											key === sub ? ' is-active' : ''
+										}` }
+										onClick={ () =>
+											navigate( screen, key )
+										}
+									>
+										{ entry.label }
+									</button>
+								) ) }
+							</div>
+						) }
+
+						{ screenContent }
+					</>
 				) }
 			</div>
 

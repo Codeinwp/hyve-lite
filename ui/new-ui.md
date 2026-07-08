@@ -11,6 +11,8 @@ Rules of engagement:
 
 Legend: `[ ]` todo · `[x]` done · `[~]` in progress
 
+**IA revision 2026-07-09**: the top nav flattened to Dashboard / Knowledge Base / Messages / Settings. The S4 (Chat), S5 (AI), S6 (Integrations) and S7 (Settings) surfaces all live as sidebar panels INSIDE the Settings screen now (`?nav=settings&sub=chat-behavior|chat-appearance|ai-provider|ai-advanced|integrations|general`). The item IDs below keep their original numbering; only the placement changed. Settings is reachable without an API key; gated sidebar panels are muted and redirect to Provider & model.
+
 ## F. Foundations (shell and plumbing)
 
 - [x] **F1. `?new=true` bootstrap**: in lite `src/backend/index.js`/`App.js`, when the URL has `new=true`, mount the new app from `src/backend/next/` instead of the current one. Old UI untouched otherwise. (Done 2026-07-08: `index.js` renders `next/App` when `new=true`.)

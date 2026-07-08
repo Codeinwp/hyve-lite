@@ -4,7 +4,7 @@ Everything testable in what has been built so far. Work through it top to bottom
 
 How to force the common states:
 
-- **No API key**: clear the key in AI > Provider & model (or the old UI) and save.
+- **No API key**: clear the key in Settings > Provider & model (or the old UI) and save.
 - **Invalid API key**: save a made-up key like `sk-wrong`.
 - **Empty knowledge base**: remove all sources in the old UI's Knowledge Base.
 - **Qdrant on/off**: connect or disconnect Qdrant in the old UI's Integrations tab.
@@ -20,11 +20,11 @@ How to force the common states:
 ## 2. Routing and URLs
 
 - [ ] Clicking each tab updates the URL (`?nav=...`) without a page reload.
-- [ ] Sub-panel links update `&sub=...` (AI: Provider & model / Advanced).
-- [ ] Opening a deep URL directly (for example `&nav=ai&sub=advanced`) lands on that exact view.
+- [ ] Settings sidebar links update `&sub=...` (chat-behavior, chat-appearance, ai-provider, ai-advanced, integrations, general).
+- [ ] Opening a deep URL directly (for example `&nav=settings&sub=ai-advanced`) lands on that exact panel.
 - [ ] An unknown `nav` or `sub` value falls back gracefully (defaults to Dashboard / the screen's first panel) instead of a blank page.
 - [ ] Browser Back and Forward walk through previously visited views correctly.
-- [ ] Navigating via tab, subnav link, or any in-screen shortcut scrolls the page to the top.
+- [ ] Navigating via tab, sidebar link, or any in-screen shortcut scrolls the page to the top.
 - [ ] Back/Forward restores the scroll position (browser behavior, should not be forced to top).
 
 ## 3. Sticky chrome
@@ -38,22 +38,23 @@ How to force the common states:
 - [ ] Plugin icon renders (the real Hyve icon, not a placeholder).
 - [ ] Version pill matches the installed plugin version.
 - [ ] API status pill: green "API connected" with a key, amber "API not connected" without.
-- [ ] The pill flips to green immediately after saving a valid key on the AI screen, without a reload.
+- [ ] The pill flips to green immediately after saving a valid key in Settings > Provider & model, without a reload.
 - [ ] Docs link opens the documentation.
 - [ ] Free: "Upgrade" CTA visible, links to the Pro page with the `header-upgrade` UTM campaign.
 - [ ] Pro: "Upgrade" CTA hidden.
 
-## 5. Tab gating (no API key)
+## 5. Gating (no API key)
 
-- [ ] Without a key: Knowledge Base, Messages, Chat, Integrations, Settings tabs are muted and unclickable.
-- [ ] Dashboard and AI stay fully usable.
-- [ ] Opening a gated screen's URL directly (for example `&nav=messages`) redirects to Dashboard, replacing the history entry (Back does not bounce you into a redirect loop).
-- [ ] After saving a valid key, all tabs unlock without a reload.
+- [ ] Without a key: Knowledge Base and Messages tabs are muted and unclickable; Dashboard and Settings stay usable.
+- [ ] In the Settings sidebar without a key: only Provider & model and Advanced are clickable; Behavior, Appearance, Integrations and General are muted.
+- [ ] Opening Settings without a key lands on Provider & model (the default Behavior panel is gated, so it redirects).
+- [ ] Opening a gated screen's URL directly (for example `&nav=messages`) redirects to Dashboard, and a gated panel URL (for example `&nav=settings&sub=chat-behavior`) redirects to Provider & model; neither creates a Back loop.
+- [ ] After saving a valid key, all tabs and sidebar items unlock without a reload.
 
 ## 6. Dashboard: setup checklist states
 
 - [ ] **No API key**: page shows the heading and the checklist ONLY. No notice, stats, chart, conversations, or Get started.
-- [ ] Step 1 shows "Add API key" button leading to the AI screen.
+- [ ] Step 1 shows "Add API key" button leading to Settings > Provider & model.
 - [ ] Steps 2 and 3 are locked with disabled "Waiting for step 1" buttons (including the optional Qdrant step).
 - [ ] Progress chip reads "0 of 2 steps done" (Qdrant does not count toward the 2).
 - [ ] **Key saved, knowledge base empty**: checklist still visible (step 1 done, step 2 unlocked), AND the full dashboard renders below it.
@@ -67,14 +68,14 @@ How to force the common states:
 - [ ] `display_mode = include`: "Chat is live on selected pages" wording.
 - [ ] `display_mode = exclude`: "Chat is live on most pages" wording.
 - [ ] `display_mode = manual`: "Chat appears only where you place it" wording.
-- [ ] "Manage visibility" navigates to Chat > Behavior (placeholder card for now).
+- [ ] "Manage visibility" navigates to Settings > Behavior (the visibility card).
 
 ## 8. Dashboard: stat cards
 
 - [ ] Sessions and Messages numbers match the old dashboard's Overview numbers.
 - [ ] Large numbers get thousands separators.
 - [ ] **Knowledge base, Qdrant OFF**: value reads "X / 500 chunks", a meter bar shows the fill, foot reads "N% of the free limit used."
-- [ ] **Knowledge base, Qdrant OFF, more than 400 chunks**: "Need more storage?" link appears in the foot and navigates to Integrations.
+- [ ] **Knowledge base, Qdrant OFF, more than 400 chunks**: "Need more storage?" link appears in the foot and navigates to Settings > Integrations.
 - [ ] **Knowledge base, Qdrant ON**: plain number with a "chunks" suffix, no meter, foot reads "Stored in your Qdrant cluster."
 - [ ] Hyve Agent card: dashed border, PLANNED chip, faint "N/A" value.
 
@@ -101,13 +102,13 @@ How to force the common states:
 
 - [ ] Clear gap above the "Get started" heading and below the cards (nothing cramped).
 - [ ] "Grow the knowledge base" navigates to Knowledge Base.
-- [ ] "Personalize the chat" navigates to Chat.
+- [ ] "Personalize the chat" navigates to Settings > Behavior.
 - [ ] "Need help?" opens the docs in a new tab.
 - [ ] Cards get a blue border on hover.
 
-## 12. AI screen: Provider & model
+## 12. Settings > AI: Provider & model
 
-- [ ] Subnav shows "Provider & model" and "Advanced"; active one is bold.
+- [ ] The sidebar highlights "Provider & model" (blue bar + tinted background) when open.
 - [ ] **No key saved**: no status chip, "Get an API key" link below the field.
 - [ ] **Valid key saved**: green "Connected" chip.
 - [ ] **Key saved but invalid**: amber "Not connected" chip.
@@ -117,7 +118,7 @@ How to force the common states:
 - [ ] Save with a bad key: warning snackbar and "Not connected" chip.
 - [ ] Model select lists the models, defaults to GPT-4o mini, and the choice survives a save and reload.
 
-## 13. AI screen: Advanced
+## 13. Settings > AI: Advanced
 
 - [ ] Temperature, Top P, and Similarity threshold sliders show the saved values.
 - [ ] "Reset to defaults" sets 1 / 1 / 0.4 (and needs a Save to persist).
@@ -158,21 +159,24 @@ How to force the common states:
 - [ ] Browser Back from a thread returns to the list; Back again leaves Messages.
 - [ ] Dashboard "View all" and a conversation row's flow both land correctly scrolled to the top.
 
-## 17. Chat screen: Behavior
+## 17. Settings sidebar and Chat > Behavior
 
-- [ ] Every screen now shows its heading and description above the subnav (Chat: "Everything your visitors see and experience in the chat widget.").
-- [ ] Subnav shows Behavior / Appearance; Appearance is a placeholder card for now.
+- [ ] Settings shows the sidebar left, panels right; groups labeled Chat, AI, Connections, Plugin (uppercase).
+- [ ] The active item has a blue left bar and tinted background; the sidebar sticks below the tabs while the panel scrolls.
+- [ ] Integrations and General show placeholder cards for now.
+- [ ] Below roughly 980px the sidebar collapses above the content and wraps horizontally.
+- [ ] Every screen shows its heading and description above the content (Settings: "Configure the chat, the AI engine, integrations and the plugin.").
 - [ ] Visibility card: the saved `display_mode` is preselected; the selected radio card is highlighted in blue.
 - [ ] Picking "Only on selected content" or "Everywhere except selected content" reveals the Content URLs editor; "Show on all pages" and "Don't show automatically" hide it.
 - [ ] URL rules: add a rule, edit path and operator, remove a rule; Save persists them (reload to confirm).
 - [ ] After changing the mode and saving, the Dashboard visibility notice wording matches the new mode.
-- [ ] Dashboard "Manage visibility" lands on this card, scrolled to the top.
+- [ ] Dashboard "Manage visibility" lands on this panel, scrolled to the top.
 - [ ] Conversation card: welcome message, default message, and the sound toggle persist across save + reload; the toggle label flips between Enabled and Disabled.
 - [ ] **Suggestions, free**: PRO chip in the card head, three disabled inputs with example placeholders, blue upsell with "Unlock with Pro" (UTM `suggested-questions-settings`), no Save button.
 - [ ] **Suggestions, pro**: no chip, no upsell, three editable fields that persist, Save button present.
 - [ ] Known behavior: each card's Save posts the whole settings object, so edits pending in another card get saved too.
 
-## 18. Chat screen: Appearance
+## 18. Settings > Chat: Appearance
 
 - [ ] A notice points at the floating chat widget as the live preview (only when the test widget is present on the page; it needs content in the knowledge base to appear).
 - [ ] Position: switching Left/Right moves the floating widget instantly, before saving.
@@ -188,7 +192,7 @@ How to force the common states:
 ## 19. Copy and general polish
 
 - [ ] Every button, link, select, toggle, slider, and focus ring renders in the WP admin blue (#2271b1); no Gutenberg indigo (#3858e9) anywhere, including inside modals and their buttons.
-- [ ] Controls are compact (about 30px tall): check the Manage visibility button, the Usage range select, table View buttons, pagination, and the AI screen's key field, model select, and save buttons.
+- [ ] Controls are compact (about 30px tall): check the Manage visibility button, the Usage range select, table View buttons, pagination, and the key field, model select, and save buttons under Settings.
 - [ ] No em or en dashes anywhere in the visible copy.
 - [ ] Nothing references a screen location it should not (error strings are location-neutral).
 - [ ] Free tier shows no Pro chips in nav or subnav (upsells live inside screens only).

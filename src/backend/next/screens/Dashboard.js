@@ -81,7 +81,7 @@ const GET_STARTED = [
 			'Set the welcome message, brand the widget, and choose where it appears.',
 			'hyve-lite'
 		),
-		go: () => navigate( 'chat' ),
+		go: () => navigate( 'settings', 'chat-behavior' ),
 	},
 	{
 		id: 'docs',
@@ -134,7 +134,7 @@ const VisibilityNotice = ( { mode } ) => {
 
 			<Button
 				variant="secondary"
-				onClick={ () => navigate( 'chat', 'behavior' ) }
+				onClick={ () => navigate( 'settings', 'chat-behavior' ) }
 			>
 				{ __( 'Manage visibility', 'hyve-lite' ) }
 			</Button>
@@ -209,7 +209,9 @@ const StatsGrid = () => {
 							{ needsStorage && (
 								<Button
 									variant="link"
-									onClick={ () => navigate( 'integrations' ) }
+									onClick={ () =>
+										navigate( 'settings', 'integrations' )
+									}
 								>
 									{ __( 'Need more storage?', 'hyve-lite' ) }
 								</Button>

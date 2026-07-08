@@ -9,9 +9,18 @@ Parent issue: [hyve#223 — Refresh Dashboard UI](https://github.com/Codeinwp/hy
 - Every in-flight setting (see `incoming-settings.md`) gets a **placeholder control** in its final position; every future feature (see `future-features.md`) gets a **reserved slot** so the IA won't need another overhaul.
 - kushh23's requirement on #223: reorganize and properly categorize settings.
 
-## Proposed information architecture (v1 — for discussion)
+## Information architecture
 
-Top-level navigation (7 items):
+**REVISED 2026-07-09 (v2, approved and shipped)**: the top navigation flattened to **4 tabs**: Dashboard, Knowledge Base, Messages, Settings. The former Chat, AI, and Integrations tabs became grouped panels inside **Settings**, which renders a left sidebar (WP-style: sticky, uppercase group labels, blue active bar):
+
+- **Chat**: Behavior (default panel), Appearance
+- **AI**: Provider & model, Advanced (Tools stays mockup-only until #195)
+- **Connections**: Integrations (Qdrant, Hyve Connect, Webhooks slot)
+- **Plugin**: General (license, site integration)
+
+Consequences: the Settings tab is reachable WITHOUT an API key (the key lives there now); with no key, sidebar items other than the AI pair are muted, and gated panels redirect to Provider & model. Deep links use `?nav=settings&sub=chat-behavior` style keys. Everything below this line describes v1 (7 tabs) and remains for the per-section content details, which are unchanged; only the placement moved.
+
+Top-level navigation (v1, superseded — 7 items):
 
 1. **Dashboard** — stats cards (Sessions, Messages, KB usage meter; slot reserved for a Hyve Agent quota card and an "answer rate"-style metric if we add it), usage chart, recent conversations, get-started cards, and the **NUX setup checklist** (see "New user experience" below). The "Where should Hyve appear?" block MOVES OUT of here (→ Chat > Visibility), but the Dashboard keeps a status notice with a "Manage visibility" shortcut that deep-links there (like the reference mockup's notice).
 2. **Knowledge Base** — sub-views: All sources (add-source grid + indexed content), **Needs Attention** (Requires Update + Failed Moderation merged into one review inbox, with an "Issue" column distinguishing "Edited since indexing" from "Failed moderation"), FAQ (Pro). The Cosine Similarity Threshold moves out (→ AI > Advanced).

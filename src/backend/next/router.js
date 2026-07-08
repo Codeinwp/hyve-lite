@@ -7,15 +7,7 @@ import { useEffect, useState } from '@wordpress/element';
 
 import { applyFilters } from '@wordpress/hooks';
 
-import {
-	archive,
-	blockMeta,
-	cog,
-	comment,
-	commentContent,
-	home,
-	settings,
-} from '@wordpress/icons';
+import { archive, comment, home, settings } from '@wordpress/icons';
 
 /**
  * Route registry. The URL is the source of truth
@@ -101,63 +93,47 @@ const ROUTES = {
 			},
 		},
 	},
-	chat: {
-		label: __( 'Chat', 'hyve-lite' ),
-		description: __(
-			'Everything your visitors see and experience in the chat widget.',
-			'hyve-lite'
-		),
-		icon: commentContent,
-		capability: 'manage_options',
-		requiresAPI: true,
-		subs: {
-			behavior: {
-				label: __( 'Behavior', 'hyve-lite' ),
-				default: true,
-			},
-			appearance: {
-				label: __( 'Appearance', 'hyve-lite' ),
-			},
-		},
-	},
-	ai: {
-		label: __( 'AI', 'hyve-lite' ),
-		description: __(
-			'The engine behind the answers: provider, model and tuning.',
-			'hyve-lite'
-		),
-		icon: cog,
-		capability: 'manage_options',
-		requiresAPI: false,
-		subs: {
-			provider: {
-				label: __( 'Provider & model', 'hyve-lite' ),
-				default: true,
-			},
-			advanced: {
-				label: __( 'Advanced', 'hyve-lite' ),
-			},
-		},
-	},
-	integrations: {
-		label: __( 'Integrations', 'hyve-lite' ),
-		description: __(
-			'Connect Hyve to external storage, search and automation tools.',
-			'hyve-lite'
-		),
-		icon: blockMeta,
-		capability: 'manage_options',
-		requiresAPI: true,
-	},
 	settings: {
 		label: __( 'Settings', 'hyve-lite' ),
 		description: __(
-			'Plugin administration: license, site integration and privacy.',
+			'Configure the chat, the AI engine, integrations and the plugin.',
 			'hyve-lite'
 		),
 		icon: settings,
 		capability: 'manage_options',
-		requiresAPI: true,
+		requiresAPI: false,
+		sidebar: true,
+		subs: {
+			'chat-behavior': {
+				label: __( 'Behavior', 'hyve-lite' ),
+				group: __( 'Chat', 'hyve-lite' ),
+				default: true,
+				requiresAPI: true,
+			},
+			'chat-appearance': {
+				label: __( 'Appearance', 'hyve-lite' ),
+				group: __( 'Chat', 'hyve-lite' ),
+				requiresAPI: true,
+			},
+			'ai-provider': {
+				label: __( 'Provider & model', 'hyve-lite' ),
+				group: __( 'AI', 'hyve-lite' ),
+			},
+			'ai-advanced': {
+				label: __( 'Advanced', 'hyve-lite' ),
+				group: __( 'AI', 'hyve-lite' ),
+			},
+			integrations: {
+				label: __( 'Integrations', 'hyve-lite' ),
+				group: __( 'Connections', 'hyve-lite' ),
+				requiresAPI: true,
+			},
+			general: {
+				label: __( 'General', 'hyve-lite' ),
+				group: __( 'Plugin', 'hyve-lite' ),
+				requiresAPI: true,
+			},
+		},
 	},
 };
 

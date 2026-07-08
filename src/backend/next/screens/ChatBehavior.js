@@ -10,7 +10,7 @@ import {
 	ToggleControl,
 } from '@wordpress/components';
 
-import { useDispatch, useSelect } from '@wordpress/data';
+import { useDispatch } from '@wordpress/data';
 
 /**
  * Internal dependencies.
@@ -20,7 +20,6 @@ import Card from '../components/Card';
 import Chip from '../components/Chip';
 import FieldRow from '../components/FieldRow';
 import useSaveSettings from '../data/useSaveSettings';
-import ChatAppearance from './ChatAppearance';
 
 const VISIBILITY_OPTIONS = [
 	{ value: 'all', label: __( 'Show on all pages', 'hyve-lite' ) },
@@ -367,17 +366,7 @@ const SuggestionsCard = () => {
 	);
 };
 
-const Chat = ( { sub } ) => {
-	const hasLoaded = useSelect( ( select ) => select( 'hyve' ).hasLoaded() );
-
-	if ( ! hasLoaded ) {
-		return null;
-	}
-
-	if ( 'appearance' === sub ) {
-		return <ChatAppearance />;
-	}
-
+const ChatBehavior = () => {
 	return (
 		<>
 			<VisibilityCard />
@@ -387,4 +376,4 @@ const Chat = ( { sub } ) => {
 	);
 };
 
-export default Chat;
+export default ChatBehavior;

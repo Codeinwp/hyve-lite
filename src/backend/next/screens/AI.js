@@ -11,7 +11,7 @@ import {
 	TextControl,
 } from '@wordpress/components';
 
-import { useDispatch, useSelect } from '@wordpress/data';
+import { useDispatch } from '@wordpress/data';
 
 import { useState } from '@wordpress/element';
 
@@ -83,7 +83,7 @@ const ApiStatusChip = ( { status } ) => {
 	return null;
 };
 
-const ProviderPanel = () => {
+export const ProviderPanel = () => {
 	const [ apiStatus, setApiStatus ] = useState( getInitialApiStatus );
 
 	const { settings, isSaving, save } = useSaveSettings();
@@ -180,7 +180,7 @@ const ProviderPanel = () => {
 	);
 };
 
-const AdvancedPanel = () => {
+export const AdvancedPanel = () => {
 	const { settings, isSaving, save } = useSaveSettings();
 
 	const { setSetting } = useDispatch( 'hyve' );
@@ -278,19 +278,3 @@ const AdvancedPanel = () => {
 		</Card>
 	);
 };
-
-const AI = ( { sub } ) => {
-	const hasLoaded = useSelect( ( select ) => select( 'hyve' ).hasLoaded() );
-
-	if ( ! hasLoaded ) {
-		return null;
-	}
-
-	if ( 'advanced' === sub ) {
-		return <AdvancedPanel />;
-	}
-
-	return <ProviderPanel />;
-};
-
-export default AI;
