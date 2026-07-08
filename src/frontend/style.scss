@@ -332,7 +332,7 @@ body.wp-admin {
 		font-size: 11px;
 		color: #9ca3af;
 		line-height: 1;
-		padding: 4px;
+		padding: 0 16px 4px;
 
 		a {
 			text-decoration: none;
@@ -413,7 +413,6 @@ body.wp-admin {
 			}
 		}
 	}
-
 	.hyve-input-box {
 		display: flex;
 		align-items: center;

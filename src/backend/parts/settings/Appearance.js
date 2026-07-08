@@ -6,9 +6,7 @@ import { __ } from '@wordpress/i18n';
 import apiFetch from '@wordpress/api-fetch';
 
 import {
-	BaseControl,
 	Button,
-	ColorPalette,
 	Panel,
 	PanelRow,
 	TextControl,
@@ -115,19 +113,44 @@ const ProOptionsUpsell = () => {
 			) }
 
 			<PanelRow>
-				{ colorOptions.map( ( option ) => (
-					<BaseControl
-						id={ option.label }
-						key={ option.value }
-						label={ option.label }
-					>
-						<ColorPalette
-							colors={ [] }
-							value={ option.default }
-							onChange={ () => {} }
-						/>
-					</BaseControl>
-				) ) }
+				<div className="w-full">
+					<div className="flex items-baseline justify-between gap-3 mb-3">
+						<span className="components-base-control__label">
+							{ __( 'Colors', 'hyve-lite' ) }
+						</span>
+						<Button
+							variant="link"
+							onClick={ () => {} }
+							className="hyve-color-reset"
+						>
+							{ __( 'Reset to defaults', 'hyve-lite' ) }
+						</Button>
+					</div>
+
+					<div className="hyve-color-tiles">
+						{ colorOptions.map( ( option ) => (
+							<span
+								key={ option.value }
+								className="hyve-color-tile"
+							>
+								<span className="hyve-color-tile__btn">
+									<span
+										className="hyve-color-tile__swatch"
+										style={ { background: option.default } }
+									/>
+									<span className="hyve-color-tile__meta">
+										<span className="hyve-color-tile__name">
+											{ option.label }
+										</span>
+										<span className="hyve-color-tile__hex">
+											{ option.default.toUpperCase() }
+										</span>
+									</span>
+								</span>
+							</span>
+						) ) }
+					</div>
+				</div>
 			</PanelRow>
 		</UpsellContainer>
 	);

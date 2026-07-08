@@ -64,10 +64,17 @@ const Advanced = () => {
 				setApiStatus( 'none' );
 			}
 
-			createNotice( 'success', __( 'Settings saved.', 'hyve-lite' ), {
-				type: 'snackbar',
-				isDismissible: true,
-			} );
+			if ( response.warning ) {
+				createNotice( 'warning', response.warning, {
+					type: 'snackbar',
+					isDismissible: true,
+				} );
+			} else {
+				createNotice( 'success', __( 'Settings saved.', 'hyve-lite' ), {
+					type: 'snackbar',
+					isDismissible: true,
+				} );
+			}
 		} catch ( error ) {
 			if ( settings.api_key ) {
 				setApiStatus( 'error' );

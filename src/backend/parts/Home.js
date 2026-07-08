@@ -243,7 +243,6 @@ const Dashboard = ( { isBlocked } ) => {
 
 								{ displayRules.map( ( rule, index ) => (
 									<div
-										// eslint-disable-next-line react/no-array-index-key
 										key={ index }
 										className="flex gap-2 items-end mb-2"
 									>
