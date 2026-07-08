@@ -438,24 +438,6 @@ class API extends BaseAPI {
 					},
 					'sanitize' => 'rest_sanitize_boolean',
 				],
-				'sound_enabled'              => [
-					'validate' => function ( $value ) {
-						return is_bool( $value );
-					},
-					'sanitize' => 'rest_sanitize_boolean',
-				],
-				'show_timestamp'             => [
-					'validate' => function ( $value ) {
-						return is_bool( $value );
-					},
-					'sanitize' => 'rest_sanitize_boolean',
-				],
-				'chat_position'              => [
-					'validate' => function ( $value ) {
-						return in_array( $value, [ 'left', 'right' ], true );
-					},
-					'sanitize' => 'sanitize_text_field',
-				],
 				'telemetry_enabled'          => [
 					'validate' => function ( $value ) {
 						return is_bool( $value );
