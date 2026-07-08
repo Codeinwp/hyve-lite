@@ -741,12 +741,12 @@ class OpenAI {
 	 */
 	public static function get_error_message_for_code( $code ) {
 		$quota_message = __( 'Your OpenAI account has no available credits. If you are using a free API key, please add billing or upgrade to a paid plan to use AI features.', 'hyve-lite' );
-		$auth_message  = __( 'OpenAI could not authenticate the request. Please verify your API key in Settings → Advanced.', 'hyve-lite' );
+		$auth_message  = __( 'OpenAI could not authenticate the request. Please verify your API key.', 'hyve-lite' );
 		$scope_message = __( 'Your OpenAI API key lacks permission for this operation. Please use a key with the required scopes.', 'hyve-lite' );
 		$org_message   = __( 'Your OpenAI organization could not be found or is no longer active. Please check your OpenAI account settings.', 'hyve-lite' );
 
 		$messages = [
-			'invalid_api_key'          => __( 'The OpenAI API key is incorrect. Please double-check it in Settings → Advanced.', 'hyve-lite' ),
+			'invalid_api_key'          => __( 'The OpenAI API key is incorrect. Please double-check the key you entered.', 'hyve-lite' ),
 			'invalid_authentication'   => $auth_message,
 			'missing_scope'            => $scope_message,
 			'permission_denied'        => $scope_message,
@@ -756,7 +756,7 @@ class OpenAI {
 			'account_deactivated'      => __( 'Your OpenAI account has been deactivated. Please contact OpenAI support to restore access.', 'hyve-lite' ),
 			'organization_not_found'   => $org_message,
 			'organization_deactivated' => $org_message,
-			'rate_limit_exceeded'      => __( 'OpenAI returned a rate limit response (HTTP 429). If you recently created this account or key, it may not have any credits yet — add a payment method or credits in your OpenAI billing settings. Otherwise you may be sending requests too quickly; wait a moment and try again.', 'hyve-lite' ),
+			'rate_limit_exceeded'      => __( 'OpenAI returned a rate limit response (HTTP 429). If you recently created this account or key, it may not have any credits yet. Add a payment method or credits in your OpenAI billing settings. Otherwise you may be sending requests too quickly; wait a moment and try again.', 'hyve-lite' ),
 		];
 
 		return $messages[ $code ] ?? null;

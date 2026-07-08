@@ -142,7 +142,10 @@ test.describe( 'Dashboard', () => {
 	} ) => {
 		await page.route( HYVE_DATA_API_ROUTE_PATTERN, async ( route ) => {
 			const url = route.request().url();
-			if ( ! url.includes( 'offset=0' ) || ! url.includes( 'status=included' ) ) {
+			if (
+				! url.includes( 'offset=0' ) ||
+				! url.includes( 'status=included' )
+			) {
 				await route.continue();
 				return;
 			}

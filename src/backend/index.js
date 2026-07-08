@@ -16,6 +16,7 @@ import { addFilter } from '@wordpress/hooks';
 import './style.scss';
 import './store';
 import App from './App';
+import NextApp from './next/App';
 import { PostsTable } from './parts/PostsTable';
 import PostModal from './parts/PostModal';
 import { getChatIcons } from './utils';
@@ -62,8 +63,12 @@ domReady( () => {
 		)
 	);
 
+	// The redesigned dashboard ships behind ?new=true while it is built out.
+	const isNextUI =
+		'true' === new URLSearchParams( window.location.search ).get( 'new' );
+
 	const root = createRoot( document.getElementById( 'hyve-options' ) );
-	root.render( <App /> );
+	root.render( isNextUI ? <NextApp /> : <App /> );
 } );
 
 function setUpTracking() {

@@ -1,0 +1,512 @@
+<!doctype html><html><head><!-- frame-runtime --><script>window.__FRAME_PREAMBLE={"capabilities":{"mcp":"mcp.BQqQVVN_.js"},"transforms":"_transforms.DYk1Ltlh.js"}</script><script>(function(){"use strict";const X="modulepreload",Y=function(e){return"/"+e},Z={},U=function(t,n,u){let o=Promise.resolve();function i(f){const a=new Event("vite:preloadError",{cancelable:!0});if(a.payload=f,window.dispatchEvent(a),!a.defaultPrevented)throw f}return o.then(f=>{for(const a of f||[])a.status==="rejected"&&i(a.reason);return t().catch(i)})},D=["light","dark","system"];function $(e){if(e==null||typeof e!="object")return!1;const t=e.__frame_init;return t!=null&&typeof t=="object"}function q(e){if(e==null||typeof e!="object")return!1;const t=e.__frame_theme;if(t==null||typeof t!="object")return!1;const n=t.theme;return typeof n=="string"&&D.includes(n)}function M(e){if(window===top||e.type==="auxclick"&&e.button!==1)return;const t=e.composedPath?e.composedPath():[e.target];let n=null;for(let f=0;f<t.length;f++){const a=t[f];if(a&&a.matches&&a.matches("a[href],area[href]")){n=a;break}}if(!n&&e.target&&e.target.closest&&(n=e.target.closest("a[href],area[href]")),!n)return;const u=n.getAttribute("href");if(!u)return;let o,i;try{o=new URL(u,document.baseURI),i=new URL(document.baseURI).origin}catch{return}(o.protocol==="http:"||o.protocol==="https:")&&o.origin!==i&&(e.preventDefault(),parent.postMessage({__frame_nav:!0,url:o.href},"*"))}const L={};function y(e){if(window===top)return;const t=Date.now();t-(L[e]||0)<500||(L[e]=t,parent.postMessage({__frame_engaged:!0,kind:e},"*"))}const F=2e3,T=["wheel","touchstart","touchmove","keydown","pointerdown"];let k=0;function B(e){e.isTrusted&&(k=Date.now())}function z(){addEventListener("click",M,!0),addEventListener("auxclick",M,!0)}function W(){for(let e=0;e<T.length;e++)addEventListener(T[e],B,{capture:!0,passive:!0});addEventListener("scroll",e=>{e.isTrusted&&Date.now()-k<F&&y("scroll")},{capture:!0,passive:!0}),addEventListener("pointermove",e=>{e.isTrusted&&y("pointer")},{capture:!0,passive:!0}),addEventListener("click",e=>{e.isTrusted&&y("click")},{capture:!0,passive:!0})}function x(e,t,n){const u=[...t.values()].filter(o=>o.targets.some(i=>i.startsWith(e+".")));return{wrap(o,i){const f=`${e}.${o}`,a=u.filter(s=>s.targets.includes(f));return a.length===0?(...s)=>{try{return i(...s)}catch(d){return Promise.reject(d)}}:(...s)=>{let d=s;for(const c of a){const l=c.module.parameters;if(l)try{d=l(d)}catch{return Promise.reject({code:"transform_error",id:c.id,scope:e,message:"parameters transform failed"})}}let m;try{m=i(...d)}catch(c){m=Promise.reject(c)}return m.then(c=>{for(let l=a.length-1;l>=0;l--){const h=a[l],p=h.module.returns;if(p)try{c=p(c)}catch{return n({id:h.id,scope:e,leg:"returns"}),c}}return c},c=>{for(let l=a.length-1;l>=0;l--){const h=a[l],p=h.module.throws;if(p)try{c=p(c)}catch{return n({id:h.id,scope:e,leg:"throws"}),Promise.reject(c)}}return Promise.reject(c)})}}}}function H(e,t,n,u=()=>{}){const o=new Set(e.changes??[]),i=new Map;for(const f of o){const a=t[f];a&&i.set(f,a)}return{contract:e.contract,changes:o,flags:new Set(e.flags??[]),capabilities:e.capabilities??{},transforms:i,shellOrigin:n.shellOrigin,mount:n.mount,pipe:f=>x(f,i,u)}}(function(){const e=Object.defineProperty,t=globalThis,n=["RTCPeerConnection","webkitRTCPeerConnection","RTCDataChannel","RTCIceCandidate","RTCSessionDescription","RTCRtpSender","RTCRtpReceiver"];let u=0;for(let o=0;o<n.length;o++){const i=n[o];try{e(t,i,{value:void 0,writable:!1,configurable:!1})}catch{try{delete t[i]}catch{}try{e(t,i,{value:void 0,writable:!1,configurable:!0})}catch{}}typeof t[i]=="function"&&u++}if(u&&window!==top)try{parent.postMessage({__frame_rtc_lockdown_failed:u},"*")}catch{}})();const K=1e4,G=Object.freeze([...window.__FRAME_PREAMBLE?.origins??["https://claude.ai","https://preview.claude.ai"]]);function J(e){for(const t of G)if(t.endsWith(":*"))try{const n=new URL(e);if(`${n.protocol}//${n.hostname}:*`===t)return!0}catch{}else if(e===t)return!0;return!1}const w=Object.freeze({...window.__FRAME_PREAMBLE?.capabilities??{}}),E=window.__FRAME_PREAMBLE?.transforms,C=/^[\w.-]+\.js$/,V=/^[a-z][a-z0-9_-]{0,63}$/;let A=null,g=null;function P(e,t,n){try{Object.defineProperty(e,t,{value:n,writable:!1,configurable:!1,enumerable:!0})}catch{try{Object.defineProperty(e,t,{value:n,writable:!1,configurable:!0,enumerable:!0})}catch{}}}let R=!1;function N(e){const t=document.documentElement;e==="light"||e==="dark"?(t.dataset.theme=e,t.style.colorScheme=e,R=!0):R&&(delete t.dataset.theme,t.style.colorScheme="",R=!1)}const _=new Map;function Q(e,t){const n=_.get(e);if(!n)return;Object.assign(n.impl,t),n.impl.__settled=()=>Promise.reject({code:"capability_removed",message:`${e}: method not in this runtime`});const u=n.queue;n.queue=[];for(const o of u){const i=t[o.method];i?i(...o.args).then(o.resolve,o.reject):o.reject({code:"capability_removed",message:`${e}.${o.method} is not in this runtime`})}}function O(e,t){const n=_.get(e);if(!n)return;n.impl.__settled=()=>Promise.reject(t);const u=n.queue;n.queue=[];for(const o of u)o.reject(t)}const j=Object.getOwnPropertyDescriptor(window,"claude");if(window!==top&&!(j&&j.writable===!1)){z(),W();const e=j?.value??{};P(window,"claude",e);const t=s=>{const d={impl:Object.create(null),queue:[]};_.set(s,d);const m=new Proxy(d.impl,{get:(c,l)=>{if(typeof l=="string"&&!(l==="then"||l==="toJSON"||l==="valueOf"))return l==="toString"?Object.prototype.toString:(...h)=>{const p=c[l]??c.__settled;return p?p(...h):new Promise((b,S)=>{d.queue.push({method:l,args:h,resolve:b,reject:S})})}},set:()=>!1});P(e,s,m)};for(const s of Object.keys(w)){if(e[s]!==void 0){P(e,s,e[s]);continue}t(s)}let n=null,u=null,o=0;const i=s=>{s.source!==parent||!J(s.origin)||$(s.data)&&(n=s.data.__frame_init,g=s.origin,removeEventListener("message",i),clearTimeout(o),u?.())};addEventListener("message",i),parent.postMessage({__frame_connect:!0},"*");const f=new Promise(s=>{u=s,o=setTimeout(()=>{removeEventListener("message",i),s()},K)}),a=document.readyState==="loading"?new Promise(s=>document.addEventListener("DOMContentLoaded",()=>s(),{once:!0})):Promise.resolve();f.then(async()=>{if(!n||!g){for(const r of _.keys())O(r,{code:"not_granted",message:"frame initialization did not arrive - capability unavailable"});return}N(n.theme);const s=g;addEventListener("message",r=>{r.source!==parent||r.origin!==s||q(r.data)&&N(r.data.__frame_theme.theme)});const d=r=>U(()=>import("/_runtime/"+r),void 0),m=Object.keys(n.capabilities??{});for(const r of m)Object.hasOwn(w,r)||V.test(r)&&e[r]===void 0&&(t(r),O(r,{code:"capability_disabled",message:"capability not in this runtime generation"}));const c=m.filter(r=>Object.hasOwn(w,r)).map(r=>[r,w[r]]).filter(r=>typeof r[1]=="string"&&C.test(r[1])),[l,...h]=await Promise.allSettled([E&&C.test(E)?d(E):Promise.resolve({}),...c.map(([,r])=>d(r))]),p=g;A=H(n,l.status==="fulfilled"&&l.value?.TRANSFORMS||{},{shellOrigin:p,mount:Q},r=>parent.postMessage({__frame_cap_telemetry:r},p));const b=r=>parent.postMessage({__frame_cap_telemetry:{kind:"cap-load-error",cap:r}},p),S=A;h.forEach((r,v)=>{const I=c[v][0];if(r.status!=="fulfilled"){b(I);return}try{r.value?.install?.(S)}catch{b(I)}});for(const[r,v]of _)v.queue.length===0&&Object.keys(v.impl).length>0||O(r,{code:m.includes(r)?"capability_disabled":"not_granted",message:"capability not available in this session"});await a,parent.postMessage({__frame_ready:!0},g)})}})();</script><!-- /frame-runtime --><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1"><style>:root{color-scheme:light}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#faf9f5;color:#141413}img{max-width:100%}</style></head><body>
+<title>Hyve — Dashboard (WP-native)</title>
+<style>
+  :root{
+    --wp-blue:#2271b1; --wp-blue-h:#135e96; --wp-blue-a:#043959;
+    --hyve-a:#4d8af5; --hyve-b:#1155cc;
+    --text:#1e1e1e; --text-2:#3c434a; --muted:#757575; --faint:#a7aaad;
+    --border:#dcdcde; --border-2:#c3c4c7;
+    --bg:#f0f0f1; --surface:#fff; --surface-2:#f6f7f7;
+    --ok:#007017; --ok-bg:#edfaef; --ok-dot:#00a32a;
+    --warn:#8a6d00; --warn-bg:#fcf9e8; --warn-dot:#dba617;
+    --bad:#b32d2e; --bad-bg:#fcf0f1; --bad-dot:#d63638;
+    --r:2px; --r-in:4px;
+    --shadow:0 1px 1px rgba(0,0,0,.04);
+    --font:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Oxygen-Sans,Ubuntu,Cantarell,"Helvetica Neue",sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{background:var(--bg);color:var(--text-2);font-family:var(--font);font-size:13px;line-height:1.5;-webkit-font-smoothing:antialiased}
+  .tnum{font-variant-numeric:tabular-nums}
+  button{font-family:inherit}
+  a{color:var(--wp-blue);text-decoration:none}
+  a:hover{color:var(--wp-blue-h)}
+  ::selection{background:#b9d4ec}
+
+  /* ---------- Plugin header bar ---------- */
+  .pluginbar{background:var(--surface);border-bottom:1px solid var(--border);padding:0 24px;
+    display:flex;align-items:center;gap:14px;height:64px;position:sticky;top:0;z-index:8}
+  .pluginbar .mark{width:30px;height:30px;border-radius:9px;flex:0 0 auto;position:relative;
+    background:linear-gradient(150deg,var(--hyve-a),#0a3aa0);box-shadow:0 3px 8px rgba(17,85,204,.35)}
+  .pluginbar .mark::after{content:"";position:absolute;left:8px;bottom:7px;width:8px;height:8px;
+    border-radius:50% 50% 50% 2px;background:rgba(255,255,255,.95)}
+  .pluginbar .wm{font-size:16px;font-weight:700;color:var(--text);letter-spacing:-.01em}
+  .pluginbar .ver{font-size:11px;color:var(--muted);background:var(--surface-2);border:1px solid var(--border);
+    padding:1px 7px;border-radius:20px;font-weight:600}
+  .pluginbar .spacer{flex:1}
+  .status{display:inline-flex;align-items:center;gap:7px;font-size:12px;font-weight:600;color:var(--text-2)}
+  .status .dot{width:8px;height:8px;border-radius:50%;background:var(--ok-dot);box-shadow:0 0 0 3px var(--ok-bg)}
+  .barlink{font-size:13px;font-weight:500}
+  .barlink svg{width:15px;height:15px;vertical-align:-3px;margin-right:4px}
+
+  /* ---------- Buttons (WP) ---------- */
+  .btn{display:inline-flex;align-items:center;gap:7px;font-size:13px;font-weight:500;line-height:1;
+    padding:0 12px;height:32px;border-radius:var(--r);cursor:pointer;border:1px solid var(--wp-blue);
+    background:var(--surface);color:var(--wp-blue);transition:.1s}
+  .btn:hover{background:#f0f6fc;border-color:var(--wp-blue-h);color:var(--wp-blue-h)}
+  .btn svg{width:15px;height:15px}
+  .btn.primary{background:var(--wp-blue);color:#fff}
+  .btn.primary:hover{background:var(--wp-blue-h);color:#fff}
+  .btn.sm{height:28px;font-size:12px;padding:0 9px}
+  .btn.link{border-color:transparent;background:transparent;padding:0;height:auto}
+  .btn.link:hover{background:transparent;text-decoration:underline}
+
+  /* ---------- Tab nav (Gutenberg TabPanel) ---------- */
+  .tabs{background:var(--surface);border-bottom:1px solid var(--border);padding:0 24px;
+    display:flex;gap:4px;position:sticky;top:64px;z-index:7;overflow-x:auto}
+  .tabs button{border:0;background:transparent;cursor:pointer;font-size:13px;font-weight:500;color:var(--text-2);
+    padding:14px 12px;border-bottom:2px solid transparent;white-space:nowrap;display:inline-flex;align-items:center;gap:7px}
+  .tabs button svg{width:16px;height:16px;opacity:.7}
+  .tabs button:hover{color:var(--wp-blue)}
+  .tabs button.active{color:var(--wp-blue);border-bottom-color:var(--wp-blue);font-weight:600}
+  .tabs button.active svg{opacity:1}
+  .tabs .badge{font-size:11px;font-weight:700;background:var(--surface-2);border:1px solid var(--border);
+    color:var(--text-2);padding:0 6px;border-radius:20px;line-height:16px}
+  .tabs .propill{font-size:9px;font-weight:800;letter-spacing:.04em;background:#f0f6fc;color:var(--wp-blue);
+    border:1px solid #c5d9ec;padding:1px 6px;border-radius:20px}
+
+  /* ---------- Page ---------- */
+  .wrap{max-width:1100px;margin:0 auto;padding:24px}
+  .screen{display:none}
+  .screen.show{display:block}
+  .pagehead{margin:0 0 4px}
+  .pagehead h1{margin:0;font-size:21px;font-weight:600;color:var(--text)}
+  .pagehead p{margin:3px 0 0;font-size:13px;color:var(--muted)}
+  .headrow{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin-bottom:20px}
+
+  /* ---------- WP Card ---------- */
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--shadow)}
+  .card-h{padding:14px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px}
+  .card-h h2{margin:0;font-size:14px;font-weight:600;color:var(--text)}
+  .card-h .spacer{flex:1}
+  .card-b{padding:16px}
+  .card-b.tight{padding:0}
+
+  /* ---------- WP notice ---------- */
+  .notice{background:var(--surface);border:1px solid var(--border);border-left:4px solid var(--wp-blue);
+    border-radius:var(--r);padding:12px 16px;display:flex;align-items:center;gap:14px;margin-bottom:20px;box-shadow:var(--shadow)}
+  .notice .spacer{flex:1}
+  .notice b{color:var(--text);font-size:13px}
+  .notice p{margin:2px 0 0;font-size:12.5px;color:var(--muted)}
+
+  /* ---------- WP Toggle ---------- */
+  .twrap{display:inline-flex;align-items:center;gap:9px;cursor:pointer;font-size:13px;color:var(--text-2)}
+  .toggle{width:36px;height:20px;border-radius:20px;background:var(--border-2);position:relative;transition:.15s;flex:0 0 auto}
+  .toggle::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;transition:.15s;box-shadow:0 1px 2px rgba(0,0,0,.2)}
+  .toggle.on{background:var(--wp-blue)}.toggle.on::after{left:18px}
+
+  /* ---------- stat cards ---------- */
+  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:24px}
+  .stat{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px;box-shadow:var(--shadow)}
+  .stat .top{display:flex;align-items:center;gap:8px;color:var(--muted)}
+  .stat .top svg{width:16px;height:16px}
+  .stat .top .lbl{font-size:12px;font-weight:600;text-transform:none}
+  .stat .num{font-size:28px;font-weight:600;color:var(--text);letter-spacing:-.02em;margin:10px 0 4px}
+  .stat .num small{font-size:14px;color:var(--muted);font-weight:500}
+  .stat .foot{display:flex;align-items:center;gap:6px;font-size:12px}
+  .stat .delta.up{color:var(--ok)}.stat .delta.down{color:var(--bad)}
+  .stat .foot .x{color:var(--muted)}
+  .stat .spark{display:block;width:100%;height:30px;margin-top:10px}
+  .meter{height:6px;border-radius:20px;background:var(--surface-2);overflow:hidden;margin:8px 0 4px}
+  .meter i{display:block;height:100%;background:var(--wp-blue)}
+
+  /* ---------- grids ---------- */
+  .grid-2{display:grid;grid-template-columns:1.7fr 1fr;gap:16px}
+  .legend{display:flex;gap:14px;font-size:12px;color:var(--muted)}
+  .legend i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:5px;vertical-align:middle}
+
+  /* activity */
+  .act .row{display:flex;gap:11px;padding:12px 16px;border-bottom:1px solid var(--border)}
+  .act .row:last-child{border-bottom:0}
+  .act .av{width:30px;height:30px;border-radius:50%;flex:0 0 auto;display:grid;place-items:center;
+    background:var(--surface-2);border:1px solid var(--border);color:var(--text-2);font-weight:600;font-size:11px}
+  .act .msg{font-size:13px;color:var(--text)}
+  .act .meta{font-size:11.5px;color:var(--muted);margin-top:2px}
+  .act .when{margin-left:auto;font-size:11.5px;color:var(--faint);white-space:nowrap}
+
+  /* get started */
+  .qa{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+  .qa a{display:block;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);
+    padding:16px;box-shadow:var(--shadow);transition:.12s}
+  .qa a:hover{border-color:var(--wp-blue);box-shadow:0 1px 6px rgba(34,113,177,.12)}
+  .qa .ic{width:34px;height:34px;border-radius:var(--r);display:grid;place-items:center;
+    background:#f0f6fc;color:var(--wp-blue);margin-bottom:12px}
+  .qa .ic svg{width:18px;height:18px}
+  .qa h4{margin:0 0 4px;font-size:13.5px;font-weight:600;color:var(--text)}
+  .qa p{margin:0;font-size:12.5px;color:var(--muted)}
+
+  /* chips */
+  .chip{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:600;padding:2px 9px;border-radius:var(--r)}
+  .chip .d{width:6px;height:6px;border-radius:50%}
+  .chip.ok{background:var(--ok-bg);color:var(--ok)}.chip.ok .d{background:var(--ok-dot)}
+  .chip.warn{background:var(--warn-bg);color:var(--warn)}.chip.warn .d{background:var(--warn-dot)}
+  .chip.bad{background:var(--bad-bg);color:var(--bad)}.chip.bad .d{background:var(--bad-dot)}
+  .chip.muted{background:var(--surface-2);color:var(--muted);border:1px solid var(--border)}.chip.muted .d{background:var(--faint)}
+  .chip.pro{background:#f0f6fc;color:var(--wp-blue);border:1px solid #c5d9ec}
+
+  /* table */
+  .tbl-wrap{overflow-x:auto}
+  table{width:100%;border-collapse:collapse;font-size:13px;min-width:640px}
+  thead th{text-align:left;font-size:12px;font-weight:600;color:var(--text-2);background:var(--surface-2);
+    padding:10px 16px;border-bottom:1px solid var(--border)}
+  tbody td{padding:12px 16px;border-bottom:1px solid var(--border);vertical-align:middle;color:var(--text-2)}
+  tbody tr:last-child td{border-bottom:0}
+  tbody tr:hover{background:var(--surface-2)}
+  .tcell{display:flex;align-items:center;gap:10px}
+  .tcell .av{width:30px;height:30px;border-radius:50%;display:grid;place-items:center;flex:0 0 auto;
+    background:#f0f6fc;color:var(--wp-blue);font-weight:600;font-size:11px;border:1px solid #c5d9ec}
+  .tcell .ttl{font-weight:600;color:var(--text)}
+  .tcell .q{font-size:12px;color:var(--muted);max-width:330px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .toolbar{display:flex;gap:8px;align-items:center;margin-bottom:14px}
+  .search{flex:1;max-width:320px;display:flex;align-items:center;gap:8px;background:var(--surface);
+    border:1px solid var(--border-2);border-radius:var(--r-in);padding:7px 11px;color:var(--muted)}
+  .search:focus-within{border-color:var(--wp-blue);box-shadow:0 0 0 1px var(--wp-blue)}
+  .search svg{width:15px;height:15px}
+  .search input{border:0;outline:0;background:transparent;font:inherit;color:var(--text);width:100%}
+
+  /* secondary tabs (WP subsubsub) */
+  .subnav{display:flex;gap:0;margin-bottom:18px;font-size:13px}
+  .subnav button{border:0;background:transparent;cursor:pointer;color:var(--wp-blue);padding:0 10px;
+    border-right:1px solid var(--border-2);line-height:1}
+  .subnav button:first-child{padding-left:0}.subnav button:last-child{border-right:0}
+  .subnav button.on{color:var(--text);font-weight:600}
+
+  /* forms */
+  .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:0 24px}
+  .field{padding:16px 0;border-bottom:1px solid var(--border)}
+  .field:last-child{border-bottom:0}
+  .field.row{display:grid;grid-template-columns:240px 1fr;gap:24px;align-items:start}
+  .field .lab{font-size:13px;font-weight:600;color:var(--text)}
+  .field .desc{font-size:12.5px;color:var(--muted);margin-top:3px;line-height:1.5}
+  .inp,select.inp{width:100%;max-width:420px;border:1px solid var(--border-2);border-radius:var(--r-in);
+    padding:7px 11px;font:inherit;font-size:13px;color:var(--text);background:var(--surface);outline:none;min-height:32px}
+  .inp:focus{border-color:var(--wp-blue);box-shadow:0 0 0 1px var(--wp-blue)}
+  .range{width:100%;max-width:300px;accent-color:var(--wp-blue);vertical-align:middle}
+  .range-row{display:flex;align-items:center;gap:12px}
+  .range-row .val{font-weight:600;font-variant-numeric:tabular-nums;min-width:30px}
+  .seg{display:inline-flex;border:1px solid var(--border-2);border-radius:var(--r-in);overflow:hidden}
+  .seg button{border:0;background:var(--surface);padding:7px 16px;font-weight:500;font-size:12.5px;
+    color:var(--text-2);cursor:pointer;border-right:1px solid var(--border-2)}
+  .seg button:last-child{border-right:0}
+  .seg button.on{background:var(--wp-blue);color:#fff}
+  .swatches{display:flex;gap:8px}
+  .sw{width:30px;height:30px;border-radius:var(--r-in);cursor:pointer;border:2px solid var(--surface);
+    box-shadow:0 0 0 1px var(--border-2)}
+  .sw.sel{box-shadow:0 0 0 2px var(--wp-blue)}
+  .pro-note{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--wp-blue);background:#f0f6fc;
+    border:1px solid #c5d9ec;border-radius:var(--r);padding:9px 12px;margin-top:10px}
+  .pro-note svg{width:14px;height:14px}
+  .form-foot{padding:14px 16px;border-top:1px solid var(--border);display:flex;gap:8px;background:var(--surface-2)}
+
+  /* kb sources */
+  .src{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:8px}
+  .src button{position:relative;text-align:left;background:var(--surface);border:1px solid var(--border);
+    border-radius:var(--r);padding:16px;cursor:pointer;box-shadow:var(--shadow);transition:.12s}
+  .src button:hover{border-color:var(--wp-blue)}
+  .src .ic{width:34px;height:34px;border-radius:var(--r);background:#f0f6fc;color:var(--wp-blue);
+    display:grid;place-items:center;margin-bottom:11px}
+  .src .ic svg{width:18px;height:18px}
+  .src h4{margin:0 0 3px;font-size:13px;font-weight:600;color:var(--text)}
+  .src p{margin:0;font-size:12px;color:var(--muted)}
+  .src .chip{position:absolute;top:13px;right:13px}
+
+  /* chat preview */
+  .preview{background:#f6f7f7;border:1px solid var(--border);border-radius:var(--r);
+    padding:24px;display:flex;justify-content:flex-end;align-items:flex-end;min-height:420px;position:relative;
+    background-image:radial-gradient(var(--border) 1px,transparent 1px);background-size:18px 18px}
+  .preview .tag{position:absolute;top:12px;left:14px;font-size:11px;font-weight:600;color:var(--muted)}
+  .widget{width:300px;background:#fff;border-radius:12px;box-shadow:0 8px 30px rgba(0,0,0,.18);overflow:hidden;border:1px solid var(--border)}
+  .widget .wh{background:linear-gradient(120deg,var(--hyve-a),var(--hyve-b));color:#fff;padding:14px 16px;display:flex;align-items:center;gap:11px}
+  .widget .wh .a{width:32px;height:32px;border-radius:9px;background:rgba(255,255,255,.18);display:grid;place-items:center}
+  .widget .wh .a svg{width:17px;height:17px}
+  .widget .wh b{font-size:13.5px;display:block}.widget .wh span{font-size:11px;opacity:.85}
+  .widget .wb{padding:15px;background:#f6f7f7;display:flex;flex-direction:column;gap:9px}
+  .bub{max-width:80%;padding:9px 12px;border-radius:13px;font-size:12.5px;line-height:1.45}
+  .bub.bot{background:#fff;border:1px solid var(--border);color:var(--text);border-bottom-left-radius:3px;align-self:flex-start}
+  .bub.usr{background:linear-gradient(120deg,var(--hyve-a),var(--hyve-b));color:#fff;border-bottom-right-radius:3px;align-self:flex-end}
+  .widget .wf{padding:10px 12px;border-top:1px solid var(--border);display:flex;gap:8px;align-items:center;background:#fff}
+  .widget .wf .f{flex:1;background:#f6f7f7;border-radius:20px;padding:8px 12px;font-size:12px;color:var(--muted)}
+  .widget .wf .s{width:30px;height:30px;border-radius:50%;background:linear-gradient(120deg,var(--hyve-a),var(--hyve-b));display:grid;place-items:center;color:#fff;flex:0 0 auto}
+  .widget .wf .s svg{width:14px;height:14px}
+
+  @media(max-width:980px){.stats{grid-template-columns:repeat(2,1fr)}.grid-2{grid-template-columns:1fr}
+    .qa,.src{grid-template-columns:1fr 1fr}.form-grid{grid-template-columns:1fr}.field.row{grid-template-columns:1fr}}
+  @media(max-width:640px){.stats,.qa,.src{grid-template-columns:1fr}.wrap{padding:16px}.pluginbar{padding:0 14px}.tabs{padding:0 8px}}
+</style>
+
+<!-- ===== Plugin header bar ===== -->
+<div class="pluginbar">
+  <span class="mark"></span>
+  <span class="wm">Hyve</span>
+  <span class="ver">v1.6</span>
+  <span class="spacer"></span>
+  <span class="status"><span class="dot"></span> Chat live on all pages</span>
+  <a class="barlink" href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>Docs</a>
+  <a class="btn primary sm" href="#">Upgrade to Pro</a>
+</div>
+
+<!-- ===== Tab nav ===== -->
+<nav class="tabs">
+  <button class="active" data-screen="home"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/></svg>Dashboard</button>
+  <button data-screen="kb"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>Knowledge Base</button>
+  <button data-screen="messages"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H8l-5 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>Messages<span class="badge tnum">23</span></button>
+  <button data-screen="integrations"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/></svg>Integrations</button>
+  <button data-screen="appearance"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9.06 11.9 8.07-8.06a2.85 2.85 0 1 1 4.03 4.03l-8.06 8.08"/><path d="M7.07 14.94a3.01 3.01 0 0 0-3 3.02c0 1.33-2.5 1.52-2 2.02 1.08 1.1 2.49 2.02 4 2.02 2.2 0 4-1.8 4-4.04a3.01 3.01 0 0 0-3-3.02z"/></svg>Appearance</button>
+  <button data-screen="assistant"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="8" width="16" height="12" rx="3"/><path d="M12 8V4M9 2h6"/><circle cx="9" cy="14" r="1.2" fill="currentColor"/><circle cx="15" cy="14" r="1.2" fill="currentColor"/></svg>Assistant</button>
+  <button data-screen="settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-2.81 1.17V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9c.2.46.66.78 1.16.82H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>Settings</button>
+</nav>
+
+<div class="wrap">
+
+  <!-- ---------- DASHBOARD ---------- -->
+  <section class="screen show" id="s-home">
+    <div class="headrow">
+      <div class="pagehead"><h1>Dashboard</h1><p>An overview of how Hyve is performing on your site.</p></div>
+    </div>
+
+    <div class="notice">
+      <div><b>Chat is enabled on all pages</b><p>Hyve answers visitors site-wide. Use the Hyve block for page-specific control.</p></div>
+      <span class="spacer"></span>
+      <label class="twrap"><span class="toggle on" data-toggle></span> Enabled</label>
+    </div>
+
+    <div class="stats">
+      <div class="stat">
+        <div class="top"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg><span class="lbl">Sessions</span></div>
+        <div class="num tnum">1,284</div>
+        <div class="foot"><span class="delta up">▲ 12%</span><span class="x">vs last month</span></div>
+        <canvas class="spark" data-spark></canvas>
+      </div>
+      <div class="stat">
+        <div class="top"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H8l-5 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg><span class="lbl">Messages</span></div>
+        <div class="num tnum">8,470</div>
+        <div class="foot"><span class="delta up">▲ 8%</span><span class="x">vs last month</span></div>
+        <canvas class="spark" data-spark></canvas>
+      </div>
+      <div class="stat">
+        <div class="top"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg><span class="lbl">Knowledge base</span></div>
+        <div class="num tnum">412 <small>/ 600 chunks</small></div>
+        <div class="meter"><i style="width:68%"></i></div>
+        <div class="foot"><span class="x">68% of your free limit used</span></div>
+      </div>
+      <div class="stat">
+        <div class="top"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="m22 4-10 10.01-3-3"/></svg><span class="lbl">Answer rate</span></div>
+        <div class="num tnum">94%</div>
+        <div class="foot"><span class="delta up">▲ 4%</span><span class="x">vs last month</span></div>
+        <canvas class="spark" data-spark></canvas>
+      </div>
+    </div>
+
+    <div class="grid-2">
+      <div class="card">
+        <div class="card-h"><h2>Conversations</h2><span class="spacer"></span>
+          <span class="legend"><span><i style="background:var(--wp-blue)"></i>Messages</span><span><i style="background:#9cc0fb"></i>Sessions</span></span></div>
+        <div class="card-b"><canvas id="mainChart" style="width:100%;height:230px;display:block"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="card-h"><h2>Recent conversations</h2><span class="spacer"></span><a class="btn link sm" href="#">View all</a></div>
+        <div class="card-b tight act">
+          <div class="row"><div class="av">JD</div><div><div class="msg">“Do you ship to Canada?”</div><div class="meta">Answered from <b>Shipping FAQ</b></div></div><div class="when">2m</div></div>
+          <div class="row"><div class="av">MK</div><div><div class="msg">“How do I reset my password?”</div><div class="meta">Answered from <b>Account docs</b></div></div><div class="when">14m</div></div>
+          <div class="row"><div class="av">SL</div><div><div class="msg">“Student discount?”</div><div class="meta"><span class="chip warn"><span class="d"></span>No source</span></div></div><div class="when">38m</div></div>
+          <div class="row"><div class="av">RP</div><div><div class="msg">“Can I export my data?”</div><div class="meta">Answered from <b>Privacy page</b></div></div><div class="when">1h</div></div>
+          <div class="row"><div class="av">TW</div><div><div class="msg">“What's your refund window?”</div><div class="meta">Answered from <b>Returns policy</b></div></div><div class="when">2h</div></div>
+        </div>
+      </div>
+    </div>
+
+    <h2 style="font-size:14px;font-weight:600;color:var(--text);margin:26px 0 14px">Get started</h2>
+    <div class="qa">
+      <a href="#"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg></span><h4>Grow the knowledge base →</h4><p>Add posts, pages and custom data so Hyve answers more accurately.</p></a>
+      <a href="#"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9.06 11.9 8.07-8.06a2.85 2.85 0 1 1 4.03 4.03l-8.06 8.08"/><path d="M7.07 14.94a3.01 3.01 0 0 0-3 3.02c0 1.33-2.5 1.52-2 2.02 1.08 1.1 2.49 2.02 4 2.02 2.2 0 4-1.8 4-4.04a3.01 3.01 0 0 0-3-3.02z"/></svg></span><h4>Personalize the look →</h4><p>Match Hyve to your brand — name, colors, position and icon.</p></a>
+      <a href="#"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg></span><h4>Need help? →</h4><p>Browse the docs or reach support whenever you get stuck.</p></a>
+    </div>
+  </section>
+
+  <!-- ---------- KNOWLEDGE BASE ---------- -->
+  <section class="screen" id="s-kb">
+    <div class="headrow"><div class="pagehead"><h1>Knowledge Base</h1><p>The content Hyve draws its answers from.</p></div></div>
+    <div class="subnav"><button class="on">All sources</button><button>Requires update</button><button>Failed moderation</button><button>FAQ</button></div>
+
+    <div class="card" style="margin-bottom:20px">
+      <div class="card-h"><h2>Add a source</h2></div>
+      <div class="card-b">
+        <div class="src">
+          <button><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15 15 0 0 1 0 20 15 15 0 0 1 0-20"/></svg></span><h4>WordPress</h4><p>Import posts and pages.</p></button>
+          <button><span class="chip pro">PRO</span><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg></span><h4>Custom data</h4><p>Paste text or Q&A pairs.</p></button>
+          <button><span class="chip pro">PRO</span><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1"/><path d="M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/></svg></span><h4>Website URL</h4><p>Crawl any web page.</p></button>
+          <button><span class="chip pro">PRO</span><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/></svg></span><h4>Sitemap</h4><p>Bulk import from XML.</p></button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-h"><h2>Indexed content</h2><span class="spacer"></span><span class="chip muted"><span class="d"></span>412 chunks</span></div>
+      <div class="card-b tight tbl-wrap"><table>
+        <thead><tr><th>Title</th><th>Type</th><th>Chunks</th><th>Status</th><th></th></tr></thead>
+        <tbody>
+          <tr><td><div class="tcell"><div class="ttl">Shipping &amp; Delivery</div></div></td><td>Page</td><td class="tnum">8</td><td><span class="chip ok"><span class="d"></span>Indexed</span></td><td style="text-align:right"><button class="btn sm">Manage</button></td></tr>
+          <tr><td><div class="tcell"><div class="ttl">Returns &amp; Refunds policy</div></div></td><td>Page</td><td class="tnum">12</td><td><span class="chip ok"><span class="d"></span>Indexed</span></td><td style="text-align:right"><button class="btn sm">Manage</button></td></tr>
+          <tr><td><div class="tcell"><div class="ttl">Getting started guide</div></div></td><td>Post</td><td class="tnum">21</td><td><span class="chip warn"><span class="d"></span>Needs update</span></td><td style="text-align:right"><button class="btn sm">Manage</button></td></tr>
+          <tr><td><div class="tcell"><div class="ttl">Pricing &amp; plans</div></div></td><td>Page</td><td class="tnum">6</td><td><span class="chip ok"><span class="d"></span>Indexed</span></td><td style="text-align:right"><button class="btn sm">Manage</button></td></tr>
+        </tbody>
+      </table></div>
+    </div>
+  </section>
+
+  <!-- ---------- MESSAGES ---------- -->
+  <section class="screen" id="s-messages">
+    <div class="headrow"><div class="pagehead"><h1>Messages</h1><p>Every conversation your visitors have had with Hyve.</p></div></div>
+    <div class="toolbar">
+      <div class="search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg><input placeholder="Search conversations…"></div>
+      <span style="flex:1"></span>
+      <button class="btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 3H2l8 9.46V19l4 2v-8.54z"/></svg>Filter</button>
+      <button class="btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/></svg>Export CSV</button>
+    </div>
+    <div class="card"><div class="card-b tight tbl-wrap"><table>
+      <thead><tr><th>Conversation</th><th>Source</th><th>Status</th><th>Messages</th><th>Date</th></tr></thead>
+      <tbody>
+        <tr><td><div class="tcell"><div class="av">JD</div><div><div class="ttl">Jane D.</div><div class="q">Do you ship to Canada and how long does it take?</div></div></div></td><td>Shipping FAQ</td><td><span class="chip ok"><span class="d"></span>Answered</span></td><td class="tnum">4</td><td>Jun 28</td></tr>
+        <tr><td><div class="tcell"><div class="av">MK</div><div><div class="ttl">Marco K.</div><div class="q">How do I reset my account password?</div></div></div></td><td>Account docs</td><td><span class="chip ok"><span class="d"></span>Answered</span></td><td class="tnum">3</td><td>Jun 28</td></tr>
+        <tr><td><div class="tcell"><div class="av">SL</div><div><div class="ttl">Sara L.</div><div class="q">Is there a student discount available?</div></div></div></td><td>—</td><td><span class="chip warn"><span class="d"></span>No source</span></td><td class="tnum">2</td><td>Jun 27</td></tr>
+        <tr><td><div class="tcell"><div class="av">RP</div><div><div class="ttl">Raj P.</div><div class="q">Can I export all my data before cancelling?</div></div></div></td><td>Privacy page</td><td><span class="chip ok"><span class="d"></span>Answered</span></td><td class="tnum">6</td><td>Jun 27</td></tr>
+        <tr><td><div class="tcell"><div class="av">TW</div><div><div class="ttl">Tom W.</div><div class="q">This is spam content blah blah buy now</div></div></div></td><td>—</td><td><span class="chip bad"><span class="d"></span>Flagged</span></td><td class="tnum">1</td><td>Jun 26</td></tr>
+        <tr><td><div class="tcell"><div class="av">EN</div><div><div class="ttl">Elif N.</div><div class="q">What's your refund window for opened items?</div></div></div></td><td>Returns policy</td><td><span class="chip ok"><span class="d"></span>Answered</span></td><td class="tnum">5</td><td>Jun 26</td></tr>
+      </tbody>
+    </table></div></div>
+  </section>
+
+  <!-- ---------- INTEGRATIONS ---------- -->
+  <section class="screen" id="s-integrations">
+    <div class="headrow"><div class="pagehead"><h1>Integrations</h1><p>Connect external vector stores and search providers.</p></div></div>
+    <div class="card card-b" style="text-align:center;padding:56px"><h2 style="margin:0 0 6px;color:var(--text)">Qdrant &amp; Hyve Connect</h2><p style="color:var(--muted);margin:0">Same WP card + form system as the other screens.</p></div>
+  </section>
+
+  <!-- ---------- APPEARANCE ---------- -->
+  <section class="screen" id="s-appearance">
+    <div class="headrow"><div class="pagehead"><h1>Appearance</h1><p>Make Hyve look and feel like your brand.</p></div></div>
+    <div class="grid-2">
+      <div class="card">
+        <div class="card-h"><h2>Chat widget</h2></div>
+        <div class="card-b" style="padding:0 16px">
+          <div class="field row"><div><div class="lab">Assistant name</div><div class="desc">Shown in the chat header.</div></div><div><input class="inp" value="Hyve Assistant"></div></div>
+          <div class="field row"><div><div class="lab">Chat position</div><div class="desc">Where the launcher sits.</div></div><div><div class="seg"><button>Left</button><button class="on">Right</button></div></div></div>
+          <div class="field row"><div><div class="lab">Show timestamps</div><div class="desc">Display the time on each message.</div></div><div><div class="seg"><button class="on">Show</button><button>Hide</button></div></div></div>
+          <div class="field row"><div><div class="lab">Brand color <span class="chip pro" style="margin-left:4px">PRO</span></div><div class="desc">Header, launcher and user bubbles.</div></div><div>
+            <div class="swatches"><span class="sw sel" style="background:#1155cc"></span><span class="sw" style="background:#00a32a"></span><span class="sw" style="background:#7c3aed"></span><span class="sw" style="background:#d63638"></span><span class="sw" style="background:#1e1e1e"></span></div>
+            <div class="pro-note"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>Custom colors, name &amp; launcher icon are Pro features.</div>
+          </div></div>
+        </div>
+        <div class="form-foot"><button class="btn primary">Save changes</button></div>
+      </div>
+
+      <div class="card">
+        <div class="card-h"><h2>Live preview</h2></div>
+        <div class="card-b">
+          <div class="preview"><span class="tag">Live preview</span>
+            <div class="widget">
+              <div class="wh"><span class="a"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H8l-5 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></span><div><b>Hyve Assistant</b><span>Typically replies instantly</span></div></div>
+              <div class="wb"><div class="bub bot">Hi! 👋 I'm here to help. Ask me anything.</div><div class="bub usr">Do you offer free returns?</div><div class="bub bot">Yes — returns are free within 30 days. Want the policy?</div></div>
+              <div class="wf"><div class="f">Type your message…</div><div class="s"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 2-7 20-4-9-9-4z"/><path d="M22 2 11 13"/></svg></div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ---------- ASSISTANT ---------- -->
+  <section class="screen" id="s-assistant">
+    <div class="headrow"><div class="pagehead"><h1>Assistant</h1><p>Tune the AI model that powers your chat.</p></div></div>
+    <div class="card" style="max-width:680px">
+      <div class="card-h"><h2>Model &amp; behavior</h2></div>
+      <div class="card-b" style="padding:0 16px">
+        <div class="field"><div class="lab">Model</div><div class="desc">More capable models give better answers but cost more per message.</div>
+          <select class="inp" style="margin-top:8px"><option>GPT-4o mini — fast &amp; cost-effective (recommended)</option><option>GPT-4o — smart, balanced</option><option>GPT-4.1 — most capable</option><option>GPT-5.4 — newest flagship</option></select>
+        </div>
+        <div class="field"><div class="lab">Temperature</div><div class="desc">Higher is more creative; lower is more focused.</div>
+          <div class="range-row" style="margin-top:8px"><input class="range" type="range" min="0" max="2" step="0.1" value="0.8"><span class="val tnum">0.8</span></div>
+        </div>
+        <div class="field"><div class="lab">Top P</div><div class="desc">Nucleus sampling alternative to temperature.</div>
+          <div class="range-row" style="margin-top:8px"><input class="range" type="range" min="0" max="1" step="0.05" value="1"><span class="val tnum">1.0</span></div>
+        </div>
+      </div>
+      <div class="form-foot"><button class="btn primary">Save changes</button><button class="btn">Reset</button></div>
+    </div>
+  </section>
+
+  <!-- ---------- SETTINGS ---------- -->
+  <section class="screen" id="s-settings">
+    <div class="headrow"><div class="pagehead"><h1>Settings</h1><p>General configuration for Hyve.</p></div></div>
+    <div class="subnav"><button class="on">General</button><button>Moderation</button><button>Advanced</button></div>
+    <div class="card" style="max-width:680px">
+      <div class="card-h"><h2>General</h2></div>
+      <div class="card-b" style="padding:0 16px">
+        <div class="field row"><div><div class="lab">Enable chat site-wide</div><div class="desc">Show Hyve on every page.</div></div><div><label class="twrap"><span class="toggle on" data-toggle></span></label></div></div>
+        <div class="field row"><div><div class="lab">Chat sounds</div><div class="desc">Play a sound on new messages.</div></div><div><label class="twrap"><span class="toggle on" data-toggle></span></label></div></div>
+        <div class="field row"><div><div class="lab">Welcome message</div><div class="desc">First thing visitors see.</div></div><div><input class="inp" value="Hi! 👋 How can I help you today?"></div></div>
+      </div>
+      <div class="form-foot"><button class="btn primary">Save changes</button></div>
+    </div>
+  </section>
+
+</div>
+
+<script>
+(function(){
+  var meta={
+    home:["Dashboard","An overview of how Hyve is performing on your site."],
+    kb:["Knowledge Base","The content Hyve draws its answers from."],
+    messages:["Messages","Every conversation your visitors have had with Hyve."],
+    integrations:["Integrations","Connect external vector stores and search providers."],
+    appearance:["Appearance","Make Hyve look and feel like your brand."],
+    assistant:["Assistant","Tune the AI model that powers your chat."],
+    settings:["Settings","General configuration for Hyve."]
+  };
+  var tabs=document.querySelectorAll('.tabs button');
+  tabs.forEach(function(b){
+    b.addEventListener('click',function(){
+      var s=b.dataset.screen;
+      tabs.forEach(function(x){x.classList.remove('active')}); b.classList.add('active');
+      document.querySelectorAll('.screen').forEach(function(sec){sec.classList.remove('show')});
+      var el=document.getElementById('s-'+s); if(el)el.classList.add('show');
+      window.scrollTo({top:0,behavior:'smooth'});
+    });
+  });
+  document.querySelectorAll('[data-toggle]').forEach(function(t){t.addEventListener('click',function(){t.classList.toggle('on')})});
+  document.querySelectorAll('.seg').forEach(function(g){g.addEventListener('click',function(e){var t=e.target.closest('button');if(!t)return;g.querySelectorAll('button').forEach(function(x){x.classList.remove('on')});t.classList.add('on')})});
+  document.querySelectorAll('.subnav').forEach(function(g){g.addEventListener('click',function(e){var t=e.target.closest('button');if(!t)return;g.querySelectorAll('button').forEach(function(x){x.classList.remove('on')});t.classList.add('on')})});
+  document.querySelectorAll('.swatches').forEach(function(g){g.addEventListener('click',function(e){var t=e.target.closest('.sw');if(!t)return;g.querySelectorAll('.sw').forEach(function(x){x.classList.remove('sel')});t.classList.add('sel')})});
+  document.querySelectorAll('.range').forEach(function(r){r.addEventListener('input',function(){r.parentNode.querySelector('.val').textContent=Number(r.value).toFixed(1)})});
+
+  function spark(c){
+    var dpr=window.devicePixelRatio||1,w=c.clientWidth,h=c.clientHeight;
+    c.width=w*dpr;c.height=h*dpr;var x=c.getContext('2d');x.scale(dpr,dpr);
+    var d=[6,9,7,12,10,15,13,18,16,21,19,24],n=d.length,mx=Math.max.apply(null,d),mn=Math.min.apply(null,d);
+    function px(i){return i/(n-1)*w}function py(v){return h-3-((v-mn)/(mx-mn))*(h-6)}
+    var g=x.createLinearGradient(0,0,0,h);g.addColorStop(0,'rgba(34,113,177,.22)');g.addColorStop(1,'rgba(34,113,177,0)');
+    x.beginPath();x.moveTo(0,h);d.forEach(function(v,i){x.lineTo(px(i),py(v))});x.lineTo(w,h);x.closePath();x.fillStyle=g;x.fill();
+    x.beginPath();d.forEach(function(v,i){i?x.lineTo(px(i),py(v)):x.moveTo(px(i),py(v))});x.strokeStyle='#2271b1';x.lineWidth=1.8;x.lineJoin='round';x.stroke();
+  }
+  document.querySelectorAll('.spark').forEach(spark);
+
+  function mainChart(){
+    var c=document.getElementById('mainChart');if(!c)return;
+    var dpr=window.devicePixelRatio||1,w=c.clientWidth,h=230;
+    c.width=w*dpr;c.height=h*dpr;var x=c.getContext('2d');x.scale(dpr,dpr);x.clearRect(0,0,w,h);
+    var msgs=[120,180,150,220,200,280,260,320,300,380,360,420,400,460],sess=[40,55,48,70,62,88,80,100,92,118,110,132,124,148];
+    var n=msgs.length,mx=480,padB=20,padT=8;
+    function px(i){return 4+i/(n-1)*(w-8)}function py(v){return padT+(1-v/mx)*(h-padB-padT)}
+    x.strokeStyle='#eef0f1';x.lineWidth=1;for(var g=0;g<=4;g++){var yy=padT+g/4*(h-padB-padT);x.beginPath();x.moveTo(4,yy);x.lineTo(w-4,yy);x.stroke();}
+    function area(d,c1,c2,lw){var grd=x.createLinearGradient(0,0,0,h);grd.addColorStop(0,c1);grd.addColorStop(1,'rgba(255,255,255,0)');
+      x.beginPath();x.moveTo(4,h-padB);d.forEach(function(v,i){x.lineTo(px(i),py(v))});x.lineTo(w-4,h-padB);x.closePath();x.fillStyle=grd;x.fill();
+      x.beginPath();d.forEach(function(v,i){i?x.lineTo(px(i),py(v)):x.moveTo(px(i),py(v))});x.strokeStyle=c2;x.lineWidth=lw;x.lineJoin='round';x.stroke();}
+    area(msgs,'rgba(34,113,177,.18)','#2271b1',2.2);area(sess,'rgba(156,192,251,.20)','#9cc0fb',1.8);
+    var l=msgs.length-1;x.beginPath();x.arc(px(l),py(msgs[l]),3.5,0,7);x.fillStyle='#2271b1';x.fill();x.lineWidth=2;x.strokeStyle='#fff';x.stroke();
+  }
+  mainChart();
+  window.addEventListener('resize',function(){document.querySelectorAll('.spark').forEach(spark);mainChart();});
+})();
+</script>
+
+</body></html>

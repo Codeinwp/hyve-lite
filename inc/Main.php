@@ -191,6 +191,7 @@ class Main {
 					$data,
 					[
 						'api'               => $this->api->get_endpoint(),
+						'version'           => HYVE_LITE_VERSION,
 						'rest_url'          => rest_url( $this->api->get_endpoint() ),
 						'postTypes'         => $post_types_for_js,
 						'hasAPIKey'         => isset( $settings['api_key'] ) && ! empty( $settings['api_key'] ),

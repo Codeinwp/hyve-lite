@@ -1,0 +1,143 @@
+# QA checklist for the new dashboard (`?new=true`)
+
+Everything testable in what has been built so far. Work through it top to bottom; each line is a check. Where a card or screen has multiple states, the setup for each state is spelled out.
+
+How to force the common states:
+
+- **No API key**: clear the key in AI > Provider & model (or the old UI) and save.
+- **Invalid API key**: save a made-up key like `sk-wrong`.
+- **Empty knowledge base**: remove all sources in the old UI's Knowledge Base.
+- **Qdrant on/off**: connect or disconnect Qdrant in the old UI's Integrations tab.
+- **Free vs Pro**: deactivate/activate the Hyve Pro plugin.
+- **Display modes**: change "Where should Hyve appear?" on the old Dashboard (all, include, exclude, manual).
+
+## 1. Bootstrapping and the old UI
+
+- [ ] `admin.php?page=hyve` (no `new=true`) still loads the old dashboard, completely unaffected.
+- [ ] `admin.php?page=hyve&new=true` loads the new shell.
+- [ ] No JavaScript errors in the console on load, on any screen.
+
+## 2. Routing and URLs
+
+- [ ] Clicking each tab updates the URL (`?nav=...`) without a page reload.
+- [ ] Sub-panel links update `&sub=...` (AI: Provider & model / Advanced).
+- [ ] Opening a deep URL directly (for example `&nav=ai&sub=advanced`) lands on that exact view.
+- [ ] An unknown `nav` or `sub` value falls back gracefully (defaults to Dashboard / the screen's first panel) instead of a blank page.
+- [ ] Browser Back and Forward walk through previously visited views correctly.
+- [ ] Navigating via tab, subnav link, or any in-screen shortcut scrolls the page to the top.
+- [ ] Back/Forward restores the scroll position (browser behavior, should not be forced to top).
+
+## 3. Sticky chrome
+
+- [ ] Header bar sticks below the WP admin bar when scrolling, never hides behind it.
+- [ ] Tab row sticks directly below the header bar.
+- [ ] Check both on a normal desktop window and a narrow window where the admin bar becomes taller (mobile width).
+
+## 4. Header bar
+
+- [ ] Plugin icon renders (the real Hyve icon, not a placeholder).
+- [ ] Version pill matches the installed plugin version.
+- [ ] API status pill: green "API connected" with a key, amber "API not connected" without.
+- [ ] The pill flips to green immediately after saving a valid key on the AI screen, without a reload.
+- [ ] Docs link opens the documentation.
+- [ ] Free: "Upgrade" CTA visible, links to the Pro page with the `header-upgrade` UTM campaign.
+- [ ] Pro: "Upgrade" CTA hidden.
+
+## 5. Tab gating (no API key)
+
+- [ ] Without a key: Knowledge Base, Messages, Chat, Integrations, Settings tabs are muted and unclickable.
+- [ ] Dashboard and AI stay fully usable.
+- [ ] Opening a gated screen's URL directly (for example `&nav=messages`) redirects to Dashboard, replacing the history entry (Back does not bounce you into a redirect loop).
+- [ ] After saving a valid key, all tabs unlock without a reload.
+
+## 6. Dashboard: setup checklist states
+
+- [ ] **No API key**: page shows the heading and the checklist ONLY. No notice, stats, chart, conversations, or Get started.
+- [ ] Step 1 shows "Add API key" button leading to the AI screen.
+- [ ] Steps 2 and 3 are locked with disabled "Waiting for step 1" buttons (including the optional Qdrant step).
+- [ ] Progress chip reads "0 of 2 steps done" (Qdrant does not count toward the 2).
+- [ ] **Key saved, knowledge base empty**: checklist still visible (step 1 done, step 2 unlocked), AND the full dashboard renders below it.
+- [ ] **Key saved, knowledge base has content**: checklist gone entirely.
+- [ ] Qdrant step shows as done when Qdrant is connected.
+
+## 7. Dashboard: visibility notice
+
+- [ ] Hidden while the knowledge base is empty (chat is not live then).
+- [ ] `display_mode = all`: "Chat is live on all pages" wording.
+- [ ] `display_mode = include`: "Chat is live on selected pages" wording.
+- [ ] `display_mode = exclude`: "Chat is live on most pages" wording.
+- [ ] `display_mode = manual`: "Chat appears only where you place it" wording.
+- [ ] "Manage visibility" navigates to Chat > Behavior (placeholder card for now).
+
+## 8. Dashboard: stat cards
+
+- [ ] Sessions and Messages numbers match the old dashboard's Overview numbers.
+- [ ] Large numbers get thousands separators.
+- [ ] **Knowledge base, Qdrant OFF**: value reads "X / 500 chunks", a meter bar shows the fill, foot reads "N% of the free limit used."
+- [ ] **Knowledge base, Qdrant OFF, more than 400 chunks**: "Need more storage?" link appears in the foot and navigates to Integrations.
+- [ ] **Knowledge base, Qdrant ON**: plain number with a "chunks" suffix, no meter, foot reads "Stored in your Qdrant cluster."
+- [ ] Hyve Agent card: dashed border, PLANNED chip, faint "N/A" value.
+
+## 9. Dashboard: Usage card
+
+- [ ] With data: one chart, Messages in blue with a light fill, Sessions in solid amber; legend shows both.
+- [ ] Range selector offers Last 7 / 14 / 30 / 90 days and re-slices the chart on change.
+- [ ] Default range is 30 days.
+- [ ] With no usage data at all: the selector is hidden and the card shows "Usage data will appear here once visitors start chatting."
+- [ ] Chart resizes sensibly when the window resizes.
+
+## 10. Dashboard: Recent conversations card
+
+- [ ] While loading: spinner.
+- [ ] No conversations: "Conversations will appear here once visitors start chatting with Hyve."
+- [ ] **Free, more than 3 conversations exist**: exactly 3 rows plus the blue "Read every conversation" note pinned to the card bottom, with a primary "Unlock with Pro" button (UTM campaign `messages-feature`, opens in a new tab).
+- [ ] **Free, 3 or fewer conversations total**: rows only, NO upsell.
+- [ ] **Pro**: up to 5 rows, never an upsell.
+- [ ] Each row: conversation title, message count ("1 message" vs "N messages" pluralization), relative time on the right ("5 min. ago", "18 hr. ago", "2 days ago").
+- [ ] A very long conversation title truncates with an ellipsis instead of wrapping or pushing the time off.
+- [ ] "View all" navigates to Messages (placeholder for now).
+
+## 11. Dashboard: Get started
+
+- [ ] Clear gap above the "Get started" heading and below the cards (nothing cramped).
+- [ ] "Grow the knowledge base" navigates to Knowledge Base.
+- [ ] "Personalize the chat" navigates to Chat.
+- [ ] "Need help?" opens the docs in a new tab.
+- [ ] Cards get a blue border on hover.
+
+## 12. AI screen: Provider & model
+
+- [ ] Subnav shows "Provider & model" and "Advanced"; active one is bold.
+- [ ] **No key saved**: no status chip, "Get an API key" link below the field.
+- [ ] **Valid key saved**: green "Connected" chip.
+- [ ] **Key saved but invalid**: amber "Not connected" chip.
+- [ ] Typing in the field switches the chip to muted "Unsaved".
+- [ ] The field keeps the same width no matter which chip (or no chip) is shown.
+- [ ] Save with a valid key: success snackbar, header pill flips, tabs unlock, checklist step 1 done.
+- [ ] Save with a bad key: warning snackbar and "Not connected" chip.
+- [ ] Model select lists the models, defaults to GPT-4o mini, and the choice survives a save and reload.
+
+## 13. AI screen: Advanced
+
+- [ ] Temperature, Top P, and Similarity threshold sliders show the saved values.
+- [ ] "Reset to defaults" sets 1 / 1 / 0.4 (and needs a Save to persist).
+- [ ] Save persists all three (verify by reloading).
+- [ ] Controls disable while a save is in flight.
+
+## 14. Snackbars
+
+- [ ] Success and error notices appear bottom-left, stack, and can be dismissed.
+- [ ] A failed save (for example, cut network in devtools) shows an error snackbar rather than failing silently.
+
+## 15. Responsive
+
+- [ ] Below roughly 980px: stat grid drops to 2 columns, the Usage + Conversations grid stacks, Get started drops to 2 columns, field rows stack label-over-control.
+- [ ] Below roughly 640px: stats and Get started go single column.
+- [ ] Tab row scrolls horizontally instead of wrapping or overflowing the page.
+
+## 16. Copy and general polish
+
+- [ ] No em or en dashes anywhere in the visible copy.
+- [ ] Nothing references a screen location it should not (error strings are location-neutral).
+- [ ] Free tier shows no Pro chips in nav or subnav (upsells live inside screens only).
+- [ ] With the pro plugin active, everything above still holds (no duplicate screens, no lite-only assumptions breaking).

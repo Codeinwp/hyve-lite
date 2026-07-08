@@ -2,5 +2,5 @@
 module.exports = {
 	content: [ './src/style.scss', './src/*.js', './src/**/*.js' ],
 	theme: {},
-	plugins: []
+	plugins: [],
 };
