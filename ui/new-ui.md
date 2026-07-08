@@ -6,7 +6,6 @@ Rules of engagement:
 
 - One item per session/PR unless items are explicitly bundled.
 - An item is done when it works at `admin.php?page=hyve&new=true`, is i18n-wrapped, has no em/en dashes in copy, and matches the mockup (or the mockup gets updated to match reality, noted here).
-- Prototype phase: mutations may be no-ops where marked [mock-first]; the wire-up milestone (W) makes them real.
 - Tags: [PRO] pro tier, [PR-dep] blocked on an open PR merging, [backend] needs new PHP/endpoint work, [decision] needs a call before building.
 
 Legend: `[ ]` todo · `[x]` done · `[~]` in progress
@@ -82,9 +81,9 @@ Legend: `[ ]` todo · `[x]` done · `[~]` in progress
 
 - [x] **S4.1 Behavior > Conversation card**: `welcome_message`, `default_message` (TextControls), `sound_enabled` toggle with Enabled/Disabled label, Save. Sits below the visibility card. (Done 2026-07-08: `next/screens/Chat.js`; descriptions reuse the old UI strings to keep translations.)
 - [x] **S4.2 Behavior > Suggestions card**: 3 `predefined_questions` fields. Pro: editable + Save. Free: PRO chip in the card head, disabled inputs with example placeholders, blue note upsell (UTM `suggested-questions-settings`). (Done 2026-07-08.)
-- [ ] **S4.3 Follow-up questions toggle** [PRO][PR-dep hyve#259]: `follow_up_questions` placeholder control until merge, then wired.
-- [ ] **S4.4 Source links toggle** [PR-dep lite#180]: `show_source_link` placeholder until merge.
-- [ ] **S4.5 Privacy notice toggle** [PR-dep lite#192]: `privacy_notice_enabled` + "no privacy page" warning (`window.hyve.hasPrivacyPage`, `privacySettings` link).
+- [x] **S4.3 Follow-up questions toggle**: `follow_up_questions` ToggleControl in the Suggestions card (default on, enforcement fully server-side in pro). Pro: editable; free: disabled under the card's upsell, whose copy now covers follow-ups too. First admin UI for this setting anywhere (the old UI never got one). (Done 2026-07-09 after hyve#259 merged.)
+- [x] **S4.4 Source links toggle**: `show_source_link` ToggleControl in the "Trust & sources" card, reusing the old UI's description string. (Done 2026-07-09 after lite#180 merged into the branch.)
+- [x] **S4.5 Privacy notice toggle**: `privacy_notice_enabled` ToggleControl in "Trust & sources" with the linked Settings → Privacy description and the compact warning notice when enabled without a privacy page (`window.hyve.hasPrivacyPage`, `privacySettings`); strings reused from the old UI. (Done 2026-07-09 after lite#192 merged into the branch.)
 - [ ] **S4.6 Proactive messages + Lead capture planned cards** [decision: production visibility].
 - [x] **S4.7 Appearance form**: `chat_position`, `show_timestamp` (free); `chat_name`, `chat_icon` (icon set via the `hyve.appearance.chat-icons` JS filter + MediaUpload custom image), 4 color tiles with ColorPicker popovers + Reset to defaults [PRO]. Free tier: PRO chips on the locked rows, controls visible but disabled, blue note upsell (UTM `appearance-settings`); the icon-set row only renders when pro provides icons. (Done 2026-07-08: `next/screens/ChatAppearance.js`.)
 - [x] **S4.8 Live preview**: DECIDED, deviation from the mockup: no static in-card preview. The real widget already floats on the admin page as a preview-flagged test chat (`enqueue_chat_preview`), so the panel shows a notice pointing at it and pushes every edit through `window.hyveApp.applyPreviewAppearance` (position, timestamps, name, colors + dark-color mapping, icon) as you type. (Done 2026-07-08.)
@@ -95,7 +94,7 @@ Legend: `[ ]` todo · `[x]` done · `[~]` in progress
 - [ ] **S5.1 Provider selector**: OpenAI active, "Hyve Agent (coming soon)" disabled [decision: production visibility until #164].
 - [x] **S5.2 API key field**: `api_key` password input, status chip (Connected/Not connected/Unsaved + "Get an API key" link when empty), Save posts real settings, updates `hasAPI` (unlocks tabs, ticks checklist step 1), surfaces endpoint warnings. (Done 2026-07-08: `next/screens/AI.js` ProviderPanel.)
 - [x] **S5.3 Model select** [PR-dep lite#174]: shipped with the CURRENT model list as a SelectControl (gpt-4o-mini recommended first, 4.1 family, 4o, 3.5 legacy); swap in the refreshed list when PR lite#174 merges. (Done 2026-07-08 in `next/screens/AI.js`.)
-- [ ] **S5.4 System prompt** [PRO][PR-dep lite#193 + hyve#252]: textarea via the `hyve.systemPrompt` slot equivalent; free tier lock.
+- [ ] **S5.4 System prompt** [PRO][PR-dep lite#193 + hyve#252]: `system_prompt` textarea in Settings > AI. Per plan decision #8 this is settings-backed: build in lite gated by license (no filter slot), free tier disabled + upsell.
 - [x] **S5.5 Advanced panel**: `temperature`, `top_p` (moved per #248), `similarity_score_threshold` (moved from KB Options; same key), Reset to defaults, Save. (Done 2026-07-08: `next/screens/AI.js` AdvancedPanel.)
 - [x] **S5.6 Tools panel** (#195): DECIDED, not present in the real dashboard for now (removed from the AI subnav/registry); stays in the mockup only. Revisit when #195 gets built.
 
@@ -119,7 +118,7 @@ Legend: `[ ]` todo · `[x]` done · `[~]` in progress
 
 ## W. Wire-up and ship
 
-- [ ] **W1. Mock-first audit**: list every [mock-first] mutation still stubbed; wire each to its real endpoint.
+- [ ] **W1. Live-data audit**: nothing is stubbed (every shipped mutation hits its real endpoint), but page-load snapshots need live wiring: `window.hyve.stats`/`chart` on the Dashboard and the checklist's `totalChunks` should refresh after content changes without a reload.
 - [ ] **W2. Capability/submenu integration**: align with PR lite#194 (WP submenus per tab, `window.hyve.view` boot, `canManageMessages`).
 - [ ] **W3. Responsive pass**: tabs scroll, grids stack, tables scroll horizontally, per mockup breakpoints.
 - [ ] **W4. Accessibility pass**: focus states, aria on tabs/subnavs/modals/toggles, Escape closes modals, reduced motion.
@@ -139,6 +138,6 @@ Legend: `[ ]` todo · `[x]` done · `[~]` in progress
 | Thread search | S3.3 | new [decision] |
 | Everything else | all screens | existing endpoints (see `current-ui-lite.md` §5, `current-ui-pro.md` §4) |
 
-## Suggested order (Hardeep decides, this is just a sane default)
+## Suggested order for what remains (Hardeep decides, this is just a sane default)
 
-F1 → F2 → F5 → F6 → F3/F4 → F7/F8 → S1 → S4 → S5 → S2 → S3 → S6 → S7 → P1/P2 → W.
+S2 (Knowledge Base, starts with F6.5 DataTable) → S6 (Integrations) → S7 (General) → remaining F items (F9-F12) → P1/P2 → W.

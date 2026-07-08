@@ -10,7 +10,7 @@ Working folder for [hyve#223 — Refresh Dashboard UI](https://github.com/Codein
 | [`new-ui.md`](new-ui.md) | **Execution tracker.** The itemized mockup-to-real transfer checklist (F/S/P/W items). Hardeep picks items by ID; check them off as they land. |
 | [`current-ui-lite.md`](current-ui-lite.md) | Exhaustive map of the existing lite dashboard: routes, every page/section/control with settings keys, store, `window.hyve` payload, REST surface, styling, conditional gates. |
 | [`current-ui-pro.md`](current-ui-pro.md) | How the Pro plugin extends the lite app: every filter, every Pro component and its controls, Pro REST endpoints and localized data, lite↔pro slot wiring. |
-| [`incoming-settings.md`](incoming-settings.md) | Settings arriving in open PRs (issues #250, #184, #152, #176, #232, #221, plus #248) with exact keys and control types — each needs a placeholder in the new UI. |
+| [`incoming-settings.md`](incoming-settings.md) | Settings arriving in still-open PRs (issues #176 system prompt, #232 capabilities, #221 model list) with exact keys and control types. Shipped items get removed from the page. |
 | [`future-features.md`](future-features.md) | Planned issues with no PR yet (#164, #168, #185, #192, #195) and where the new IA reserves room for them. |
 | [`reference-mockup.html`](reference-mockup.html) | Local copy of the baseline mockup artifact from the issue (treat as direction, not spec). |
 | [`mockup-v2.html`](mockup-v2.html) | **Current mockup**: the approved Chat/AI IA with all incoming/planned placeholders, all drill-in flows and modals, and a floating preview-state switcher (Free/Pro, Admin/Messages-only, API set/unset). Open directly in a browser. |

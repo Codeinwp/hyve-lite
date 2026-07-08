@@ -174,6 +174,12 @@ How to force the common states:
 - [ ] Conversation card: welcome message, default message, and the sound toggle persist across save + reload; the toggle label flips between Enabled and Disabled.
 - [ ] **Suggestions, free**: PRO chip in the card head, three disabled inputs with example placeholders, blue upsell with "Unlock with Pro" (UTM `suggested-questions-settings`), no Save button.
 - [ ] **Suggestions, pro**: no chip, no upsell, three editable fields that persist, Save button present.
+- [ ] **Follow-up questions, pro**: the toggle in the Suggestions card persists across save + reload, and turning it off stops follow-up suggestions appearing after chat answers on the frontend.
+- [ ] **Follow-up questions, free**: the toggle shows as on but disabled.
+- [ ] Trust & sources card: the Source links toggle persists across save + reload.
+- [ ] Privacy notice toggle persists; its description links to WP's Settings > Privacy page in a new tab.
+- [ ] **Privacy notice ON, no privacy page set**: a compact yellow warning appears under the toggle with a link to choose a page; it disappears when the toggle is off or once a privacy page exists.
+- [ ] With the notice enabled and a privacy page set, the chat widget shows the "By chatting, you agree to our Privacy Policy" line on the frontend.
 - [ ] Known behavior: each card's Save posts the whole settings object, so edits pending in another card get saved too.
 
 ## 18. Settings > Chat: Appearance
@@ -182,7 +188,8 @@ How to force the common states:
 - [ ] Position: switching Left/Right moves the floating widget instantly, before saving.
 - [ ] Timestamps: Show/Hide updates the widget's message timestamps instantly.
 - [ ] Save persists position and timestamps (reload to confirm).
-- [ ] **Free**: Assistant name, Custom icon image, and Colors rows show PRO chips, controls are visible but disabled, color tiles show the defaults and do not open a picker, and the blue "Make the chat match your brand" upsell links to Pro (UTM `appearance-settings`).
+- [ ] **Free**: Assistant name, Custom icon image, and Colors rows show PRO chips, controls are visible but disabled (greyed), and color tiles show the defaults without opening a picker.
+- [ ] **Free**: the card footer shows Save changes on the left and the upsell on the right ("A custom name, icon and colors are part of Hyve Pro." + a secondary "Unlock with Pro" button, UTM `appearance-settings`); no separate upsell band above the footer.
 - [ ] **Pro**: typing an assistant name updates the widget header live; empty name falls back to the default.
 - [ ] **Pro**: the launcher icon set row appears (icons come from the pro bundle), picking one swaps the widget button icon live; Default resets it.
 - [ ] **Pro**: selecting a media-library image previews it in the form and on the widget; Remove reverts to the default icon.

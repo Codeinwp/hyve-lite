@@ -257,14 +257,36 @@ const ChatAppearance = () => {
 			<Card
 				title={ __( 'Widget', 'hyve-lite' ) }
 				footer={
-					<Button
-						variant="primary"
-						isBusy={ isSaving }
-						disabled={ isSaving }
-						onClick={ save }
-					>
-						{ __( 'Save changes', 'hyve-lite' ) }
-					</Button>
+					<>
+						<Button
+							variant="primary"
+							isBusy={ isSaving }
+							disabled={ isSaving }
+							onClick={ save }
+						>
+							{ __( 'Save changes', 'hyve-lite' ) }
+						</Button>
+						{ ! isPro && (
+							<div className="hyve-next-card__foot-upsell">
+								<span>
+									{ __(
+										'A custom name, icon and colors are part of Hyve Pro.',
+										'hyve-lite'
+									) }
+								</span>
+								<Button
+									variant="secondary"
+									href={ setUtm(
+										window.hyve?.pro,
+										'appearance-settings'
+									) }
+									target="_blank"
+								>
+									{ __( 'Unlock with Pro', 'hyve-lite' ) }
+								</Button>
+							</div>
+						) }
+					</>
 				}
 			>
 				<FieldRow
@@ -488,33 +510,6 @@ const ChatAppearance = () => {
 						</p>
 					) }
 				</FieldRow>
-
-				{ ! isPro && (
-					<div className="hyve-next-act__upsell">
-						<strong>
-							{ __(
-								'Make the chat match your brand',
-								'hyve-lite'
-							) }
-						</strong>
-						<p>
-							{ __(
-								'A custom name, icon and colors are part of Hyve Pro.',
-								'hyve-lite'
-							) }
-						</p>
-						<Button
-							variant="primary"
-							href={ setUtm(
-								window.hyve?.pro,
-								'appearance-settings'
-							) }
-							target="_blank"
-						>
-							{ __( 'Unlock with Pro', 'hyve-lite' ) }
-						</Button>
-					</div>
-				) }
 			</Card>
 		</>
 	);

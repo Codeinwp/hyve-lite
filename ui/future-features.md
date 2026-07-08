@@ -23,7 +23,7 @@ Will need:
 - Enable toggle + field configuration (which fields to collect).
 - Somewhere to VIEW captured leads — likely a new list next to Messages, or a tab on the Messages page.
 
-Placeholder home: a "Leads" area — either a sub-view of Messages or its own top-level item. Reserve a nav slot.
+Placeholder home: a "Leads" sub-panel of Messages. Per the "planned things don't ship in code" rule it exists in the mockup only; it enters the route registry when #168 is real.
 
 ## Proactive chat messages — [hyve#185](https://github.com/Codeinwp/hyve/issues/185)
 
@@ -55,8 +55,8 @@ Will need (Pro):
 - An **abilities allowlist screen**: rows grouped by plugin prefix, each with label, description (what the model reads), read-only/destructive risk badge, group-level toggle + per-ability overrides, everything default-off.
 - A designed **empty/unsupported state** (no abilities registered, or WP < 7.0).
 
-Placeholder home: this is a full screen, not a field — plan a "Tools" (or "Abilities") sub-page under Assistant or Integrations. It's the largest future surface; the nav must be able to absorb it without crowding.
+Placeholder home: this is a full panel, not a field — a "Tools" (or "Abilities") item in the Settings sidebar under the AI group. Mockup-only until #195 is real; the sidebar absorbs it without new top-level nav.
 
 ## Sizing note
 
-Counting nav-level surfaces the future adds: Leads (view + settings), Tools/Abilities (screen), AI provider + quota, webhooks, proactive messages. The redesign's IA should absorb roughly 3 new field-groups and 2 new screens without adding more top-level items than the design can carry.
+Counting surfaces the future adds: Leads (Messages sub-panel + settings), Tools/Abilities (Settings sidebar panel), AI provider + quota, webhooks, proactive messages. The 2026-07-09 IA absorbs all of them inside the existing 4 tabs (Settings sidebar groups and Messages sub-panels); no new top-level items needed.

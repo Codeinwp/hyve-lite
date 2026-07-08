@@ -12,6 +12,8 @@ import {
 
 import { useDispatch } from '@wordpress/data';
 
+import { createInterpolateElement } from '@wordpress/element';
+
 /**
  * Internal dependencies.
  */
@@ -281,6 +283,8 @@ const SuggestionsCard = () => {
 
 	const { settings, isSaving, save } = useSaveSettings();
 
+	const followUps = Boolean( settings.follow_up_questions ?? true );
+
 	const { setSetting } = useDispatch( 'hyve' );
 
 	const questions = Array.isArray( settings.predefined_questions )
@@ -336,6 +340,28 @@ const SuggestionsCard = () => {
 				</div>
 			</FieldRow>
 
+			<FieldRow
+				label={ __( 'Follow-up questions', 'hyve-lite' ) }
+				description={ __(
+					'After each answer, suggest a few related questions the visitor can click to keep the conversation going. Only questions the knowledge base can answer get suggested.',
+					'hyve-lite'
+				) }
+			>
+				<ToggleControl
+					__nextHasNoMarginBottom
+					label={
+						followUps
+							? __( 'Enabled', 'hyve-lite' )
+							: __( 'Disabled', 'hyve-lite' )
+					}
+					checked={ followUps }
+					disabled={ ! isPro || isSaving }
+					onChange={ ( value ) =>
+						setSetting( 'follow_up_questions', Boolean( value ) )
+					}
+				/>
+			</FieldRow>
+
 			{ ! isPro && (
 				<div className="hyve-next-act__upsell">
 					<strong>
@@ -346,7 +372,7 @@ const SuggestionsCard = () => {
 					</strong>
 					<p>
 						{ __(
-							'Suggested questions are part of Hyve Pro.',
+							'Suggested questions and follow-ups are part of Hyve Pro.',
 							'hyve-lite'
 						) }
 					</p>
@@ -366,12 +392,100 @@ const SuggestionsCard = () => {
 	);
 };
 
+const TrustCard = () => {
+	const { settings, isSaving, save } = useSaveSettings();
+
+	const { setSetting } = useDispatch( 'hyve' );
+
+	const sourceLinks = Boolean( settings.show_source_link );
+	const privacyNotice = Boolean( settings.privacy_notice_enabled ?? false );
+
+	const privacySettingsUrl =
+		window.hyve?.privacySettings || 'options-privacy.php';
+
+	const privacyLink = (
+		// eslint-disable-next-line jsx-a11y/anchor-has-content
+		<a href={ privacySettingsUrl } target="_blank" rel="noreferrer" />
+	);
+
+	return (
+		<Card
+			title={ __( 'Trust & sources', 'hyve-lite' ) }
+			footer={ <SaveButton isSaving={ isSaving } save={ save } /> }
+		>
+			<FieldRow
+				label={ __( 'Source links', 'hyve-lite' ) }
+				description={ __(
+					'When enabled, chat responses include a link to the source content they were based on. The link is only added for publicly accessible sources.',
+					'hyve-lite'
+				) }
+			>
+				<ToggleControl
+					__nextHasNoMarginBottom
+					label={
+						sourceLinks
+							? __( 'Enabled', 'hyve-lite' )
+							: __( 'Disabled', 'hyve-lite' )
+					}
+					checked={ sourceLinks }
+					disabled={ isSaving }
+					onChange={ ( value ) =>
+						setSetting( 'show_source_link', Boolean( value ) )
+					}
+				/>
+			</FieldRow>
+
+			<FieldRow
+				label={ __( 'Privacy notice', 'hyve-lite' ) }
+				description={ createInterpolateElement(
+					__(
+						'Show a short “By chatting, you agree to our Privacy Policy” notice above the chat input. The link points to the page set under <a>Settings → Privacy</a>.',
+						'hyve-lite'
+					),
+					{ a: privacyLink }
+				) }
+			>
+				<ToggleControl
+					__nextHasNoMarginBottom
+					label={
+						privacyNotice
+							? __( 'Enabled', 'hyve-lite' )
+							: __( 'Disabled', 'hyve-lite' )
+					}
+					checked={ privacyNotice }
+					disabled={ isSaving }
+					onChange={ ( value ) =>
+						setSetting( 'privacy_notice_enabled', Boolean( value ) )
+					}
+				/>
+
+				{ privacyNotice && ! window.hyve?.hasPrivacyPage && (
+					<div className="hyve-next-notice is-warn is-compact">
+						<div className="hyve-next-notice__body">
+							<p className="hyve-next-notice__text">
+								{ createInterpolateElement(
+									__(
+										'No Privacy Policy page is set, so the notice won’t appear on your site yet. Choose one under <a>Settings → Privacy</a>.',
+										'hyve-lite'
+									),
+									{ a: privacyLink }
+								) }
+							</p>
+						</div>
+					</div>
+				) }
+			</FieldRow>
+		</Card>
+	);
+};
+
 const ChatBehavior = () => {
 	return (
 		<>
 			<VisibilityCard />
 			<ConversationCard />
 			<SuggestionsCard />
+			<TrustCard />
 		</>
 	);
 };
