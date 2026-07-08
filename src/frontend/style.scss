@@ -121,7 +121,6 @@ body.wp-admin {
 		z-index: 9;
 	}
 }
-
 // Inline (shortcode/block) placement: render in-flow, no floating/animation.
 #hyve-inline-chat {
 	.hyve-window {
@@ -345,6 +344,75 @@ body.wp-admin {
 		}
 	}
 
+	.hyve-privacy-notice {
+		display: flex;
+		align-items: center;
+		gap: 9px;
+		flex-shrink: 0;
+		margin: 0 16px 8px;
+		padding: 9px 8px 9px 11px;
+		font-size: 12px;
+		line-height: 1.4;
+		color: #64748b;
+		background-color: rgba(15, 23, 42, 0.035);
+		border-radius: 10px;
+
+		.hyve-privacy-notice__icon {
+			display: inline-flex;
+			flex-shrink: 0;
+			width: 15px;
+			height: 15px;
+			opacity: 0.75;
+
+			svg {
+				width: 15px;
+				height: 15px;
+				stroke: currentColor;
+			}
+		}
+
+		.hyve-privacy-notice__text {
+			flex-grow: 1;
+		}
+
+		.hyve-privacy-notice__link {
+			color: inherit;
+			font-weight: 600;
+			text-decoration: underline;
+
+			&:hover,
+			&:focus-visible {
+				color: #1155cc;
+			}
+		}
+
+		.hyve-privacy-notice__dismiss {
+			display: inline-flex;
+			align-items: center;
+			justify-content: center;
+			flex-shrink: 0;
+			width: 22px;
+			height: 22px;
+			padding: 0;
+			border: none;
+			border-radius: 6px;
+			background: transparent;
+			color: inherit;
+			opacity: 0.55;
+			cursor: pointer;
+			transition: opacity 0.15s ease, background-color 0.15s ease;
+
+			svg {
+				fill: currentColor;
+			}
+
+			&:hover,
+			&:focus-visible {
+				opacity: 1;
+				background-color: rgba(15, 23, 42, 0.06);
+			}
+		}
+	}
 	.hyve-input-box {
 		display: flex;
 		align-items: center;
@@ -499,6 +567,21 @@ body.wp-admin {
 		.hyve-credits,
 		.hyve-credits a {
 			color: #94a3b8;
+		}
+
+		.hyve-privacy-notice {
+			color: #cbd5e1;
+			background-color: rgba(255, 255, 255, 0.06);
+
+			.hyve-privacy-notice__link:hover,
+			.hyve-privacy-notice__link:focus-visible {
+				color: #fff;
+			}
+
+			.hyve-privacy-notice__dismiss:hover,
+			.hyve-privacy-notice__dismiss:focus-visible {
+				background-color: rgba(255, 255, 255, 0.1);
+			}
 		}
 
 		.hyve-input-box {
@@ -832,5 +915,86 @@ body.wp-admin {
 		bottom: 90px;
 		width: auto;
 		height: min(70vh, calc(100vh - 110px));
+	}
+}
+
+.hyve-message-box .hyve-bot-message {
+
+	.hyve-source {
+		display: flex;
+		align-items: center;
+		flex-wrap: wrap;
+		gap: 8px;
+		margin-top: 10px;
+	}
+
+	.hyve-source__intro {
+		font-size: 12.5px;
+		font-weight: 500;
+
+		// Inherit the message text color (adapts to the bubble background via the
+		// is-dark/is-light classes) and soften it for a label.
+		color: inherit;
+		opacity: 0.6;
+	}
+
+	.hyve-source__link {
+		position: relative;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 22px;
+		height: 22px;
+		padding: 0;
+		border: 1px solid rgba( 128, 128, 128, 0.3 );
+		border-radius: 7px;
+		background: rgba( 128, 128, 128, 0.12 );
+
+		// The number follows the message text color so it stays legible on both
+		// light and dark bubble backgrounds, like the rest of the chat.
+		color: inherit;
+		opacity: 0.85;
+		font-size: 12px;
+		font-weight: 700;
+		font-variant-numeric: tabular-nums;
+		text-decoration: none;
+		transition: opacity 0.15s ease, background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+
+		&:hover,
+		&:focus-visible {
+			opacity: 1;
+			background: var( --icon_background, #1155cc );
+			border-color: var( --icon_background, #1155cc );
+			color: #fff;
+		}
+	}
+
+	.hyve-source__label {
+		position: absolute;
+		bottom: calc( 100% + 6px );
+		left: 0;
+		width: max-content;
+		max-width: 200px;
+		padding: 5px 9px;
+		border-radius: 7px;
+		background: #141824;
+		color: #fff;
+		font-size: 11.5px;
+		font-weight: 500;
+		line-height: 1.35;
+		white-space: normal;
+		opacity: 0;
+		visibility: hidden;
+		transform: translateY( 4px );
+		pointer-events: none;
+		transition: opacity 0.15s ease, transform 0.15s ease;
+		z-index: 2;
+	}
+
+	.hyve-source__link:hover .hyve-source__label,
+	.hyve-source__link:focus-visible .hyve-source__label {
+		opacity: 1;
+		visibility: visible;
+		transform: translateY( 0 );
 	}
 }

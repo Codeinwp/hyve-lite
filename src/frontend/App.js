@@ -147,6 +147,10 @@ class App {
 			return;
 		}
 
+		// Sending a message is itself agreement, so retire the privacy notice
+		// (and remember it) once the visitor's first message goes out.
+		this.dismissPrivacyNotice();
+
 		this.sendRequest( message );
 
 		if ( this.hasSuggestions ) {
@@ -268,25 +272,388 @@ class App {
 			if ( 'completed' === response.status ) {
 				this.add( response.message, 'bot' );
 				this.setLoading( false );
+
+				// Contextual follow-ups on the poll path (Pro), mirroring the
+				// streaming flow. Present only on a successful, grounded answer.
+				this.renderSuggestions( response.follow_ups );
 			}
 
 			if ( 'failed' === response.status ) {
 				this.add( strings.tryAgain, 'bot' );
 				this.setLoading( false );
 			}
-		} catch ( error ) {
+		} catch {
 			this.add( strings.tryAgain, 'bot' );
 			this.setLoading( false );
 		}
 	}
 
 	async sendRequest( message ) {
+		this.setLoading( true );
+		this.addPreloaderMessage( 'hyve-preloader' );
+
+		// Try real streaming first; fall back to the poll flow when the host
+		// buffers the response or streaming isn't available.
+		if ( this.canStream() ) {
+			const handled = await this.streamRequest( message );
+
+			if ( handled ) {
+				return;
+			}
+		}
+
+		await this.backgroundRequest( message );
+	}
+
+	/**
+	 * Whether progressive streaming should be attempted.
+	 *
+	 * @return {boolean} True when streaming can be attempted.
+	 */
+	canStream() {
+		return (
+			Boolean( window.hyveClient?.ajaxUrl ) &&
+			Boolean( window.hyveClient?.streamNonce ) &&
+			'function' === typeof window.fetch &&
+			'undefined' !== typeof window.AbortController &&
+			'undefined' !== typeof window.TextDecoder &&
+			! this.streamRecentlyUnsupported()
+		);
+	}
+
+	/**
+	 * Whether streaming was marked unsupported within the last 24h.
+	 *
+	 * The flag is time-bounded so a one-off slow start or transient blip can't
+	 * permanently disable streaming for the visitor — it is re-probed after a day.
+	 *
+	 * @return {boolean} True if streaming should be skipped for now.
+	 */
+	streamRecentlyUnsupported() {
 		try {
-			this.setLoading( true );
+			const value = window.localStorage.getItem(
+				'hyve-stream-unsupported'
+			);
 
-			const preloaderId = 'hyve-preloader';
-			this.addPreloaderMessage( preloaderId );
+			if ( ! value ) {
+				return false;
+			}
 
+			const ts = parseInt( value, 10 );
+			const DAY = 24 * 60 * 60 * 1000;
+
+			if ( isNaN( ts ) || Date.now() - ts > DAY ) {
+				window.localStorage.removeItem( 'hyve-stream-unsupported' );
+				return false;
+			}
+
+			return true;
+		} catch {
+			return false;
+		}
+	}
+
+	/**
+	 * Remember (with a timestamp) that streaming is unavailable on this host so
+	 * later messages skip straight to the poll flow, re-probing after 24h.
+	 */
+	markStreamUnsupported() {
+		try {
+			window.localStorage.setItem(
+				'hyve-stream-unsupported',
+				String( Date.now() )
+			);
+		} catch {}
+	}
+
+	/**
+	 * Parse a single SSE event block into its event name and JSON payload.
+	 *
+	 * @param {string} raw The raw event block (lines between blank lines).
+	 * @return {{event:string,data:any}} Parsed event.
+	 */
+	parseSSE( raw ) {
+		let event = '';
+		const dataLines = [];
+
+		raw.split( '\n' ).forEach( ( line ) => {
+			if ( line.startsWith( 'event:' ) ) {
+				event = line.slice( 6 ).trim();
+			} else if ( line.startsWith( 'data:' ) ) {
+				dataLines.push( line.slice( 5 ).replace( /^ /, '' ) );
+			}
+		} );
+
+		let data = null;
+
+		if ( dataLines.length ) {
+			try {
+				data = JSON.parse( dataLines.join( '\n' ) );
+			} catch {
+				data = null;
+			}
+		}
+
+		return { event, data };
+	}
+
+	/**
+	 * Attempt a streamed reply.
+	 *
+	 * @param {string} message The user's message.
+	 * @return {Promise<boolean>} True if the reply was handled (shown or a real
+	 *                            error surfaced); false to fall back to polling.
+	 */
+	async streamRequest( message ) {
+		let token;
+
+		try {
+			const setup = await apiFetch( {
+				path: this.addCacheProtection(
+					`${ window.hyveClient.api }/chat`
+				),
+				method: 'POST',
+				data: {
+					message,
+					mode: 'stream',
+					...( null !== this.threadID
+						? { thread_id: this.threadID }
+						: {} ),
+					...( null !== this.recordID
+						? { record_id: this.recordID }
+						: {} ),
+					...( this.isPreview() ? { is_test: true } : {} ),
+				},
+				headers: this.getDefaultHeaders(),
+			} );
+
+			if ( setup.error ) {
+				// A real content/server error (e.g. flagged) — not a transport
+				// problem, so surface it instead of falling back.
+				this.removeMessage( 'hyve-preloader' );
+				this.add( strings.tryAgain, 'bot' );
+				this.setLoading( false );
+				return true;
+			}
+
+			if ( ! setup.stream_token ) {
+				return false;
+			}
+
+			token = setup.stream_token;
+
+			if ( setup.thread_id && setup.thread_id !== this.threadID ) {
+				this.setThreadID( setup.thread_id );
+			}
+
+			if (
+				undefined !== setup.record_id &&
+				setup.record_id !== this.recordID
+			) {
+				this.setRecordID( setup.record_id );
+			}
+		} catch {
+			return false;
+		}
+
+		const url = addQueryArgs( window.hyveClient.ajaxUrl, {
+			action: 'hyve_stream',
+			token,
+			nonce: window.hyveClient.streamNonce,
+		} );
+
+		const controller = new AbortController();
+		const bubbleId = 'hyve-stream';
+
+		let firstEvent = false;
+		let timedOut = false;
+		let started = false;
+		let streamedText = '';
+
+		// Fall back if no real SSE event (delta/done/error) arrives in time. The
+		// ': connected' comment is deliberately NOT counted as content, so a proxy
+		// that forwards the comment but buffers the body is still detected. 8s is
+		// lenient enough for a slow first token; a false trip self-heals after 24h.
+		const watchdog = setTimeout( () => {
+			if ( ! firstEvent ) {
+				timedOut = true;
+				controller.abort();
+			}
+		}, 8000 );
+
+		const renderInto = ( html ) => {
+			const node = document.getElementById(
+				`hyve-message-${ bubbleId }`
+			);
+
+			if ( ! node ) {
+				return;
+			}
+
+			const inner = node.querySelector( 'div' );
+
+			if ( inner ) {
+				inner.innerHTML = html;
+			}
+
+			const box = document.getElementById( 'hyve-message-box' );
+
+			if ( box ) {
+				box.scrollTop = box.scrollHeight;
+			}
+		};
+
+		const ensureBubble = () => {
+			if ( started ) {
+				return;
+			}
+
+			this.removeMessage( 'hyve-preloader' );
+			this.addMessage( new Date(), '', 'bot', bubbleId, false );
+			started = true;
+		};
+
+		try {
+			const response = await fetch( url, {
+				headers: { Accept: 'text/event-stream' },
+				credentials: 'same-origin',
+				signal: controller.signal,
+			} );
+
+			if ( ! response.ok || ! response.body ) {
+				clearTimeout( watchdog );
+				return false;
+			}
+
+			const reader = response.body.getReader();
+			const decoder = new TextDecoder();
+
+			let buffer = '';
+			let finished = false;
+			let reading = true;
+
+			while ( reading ) {
+				const { value, done } = await reader.read();
+
+				if ( done ) {
+					break;
+				}
+
+				buffer += decoder.decode( value, { stream: true } );
+
+				let sep = buffer.indexOf( '\n\n' );
+
+				while ( -1 !== sep ) {
+					const rawEvent = buffer.slice( 0, sep );
+					buffer = buffer.slice( sep + 2 );
+					sep = buffer.indexOf( '\n\n' );
+
+					const { event, data } = this.parseSSE( rawEvent );
+
+					if ( ! event ) {
+						continue;
+					}
+
+					// First real content event: the pipe is flushing, cancel the
+					// fallback watchdog.
+					if ( ! firstEvent ) {
+						firstEvent = true;
+						clearTimeout( watchdog );
+					}
+
+					if ( 'delta' === event ) {
+						ensureBubble();
+						streamedText += data?.text || '';
+						renderInto( streamedText );
+					} else if ( 'done' === event ) {
+						this.finalizeStream( bubbleId, data );
+						finished = true;
+						reading = false;
+						break;
+					} else if ( 'error' === event ) {
+						// Generation failed and the server recorded nothing.
+						// Discard any partial and fall back to the poll flow for a
+						// complete, recorded-once answer.
+						clearTimeout( watchdog );
+						this.removeMessage( bubbleId );
+						this.removeMessage( 'hyve-preloader' );
+						this.addPreloaderMessage( 'hyve-preloader' );
+						return false;
+					}
+				}
+			}
+
+			clearTimeout( watchdog );
+
+			if ( finished ) {
+				return true;
+			}
+
+			// Stream ended without a terminal event.
+			if ( started ) {
+				this.finalizeStream( bubbleId, {
+					success: true,
+					message: streamedText,
+				} );
+				return true;
+			}
+
+			return false;
+		} catch {
+			clearTimeout( watchdog );
+
+			if ( started ) {
+				this.finalizeStream( bubbleId, {
+					success: true,
+					message: streamedText,
+				} );
+				return true;
+			}
+
+			if ( timedOut ) {
+				this.markStreamUnsupported();
+			}
+
+			return false;
+		}
+	}
+
+	/**
+	 * Replace the streaming placeholder with the final, authoritative reply.
+	 *
+	 * @param {string} bubbleId The temporary streaming bubble id.
+	 * @param {any}    data     The `done` payload ({ success, message }).
+	 */
+	finalizeStream( bubbleId, data ) {
+		this.removeMessage( 'hyve-preloader' );
+		this.removeMessage( bubbleId );
+
+		// The streamed turn is recorded server-side only once the reply lands,
+		// so adopt the returned record id to keep follow-ups on the same thread.
+		if (
+			undefined !== data?.record_id &&
+			null !== data?.record_id &&
+			data.record_id !== this.recordID
+		) {
+			this.setRecordID( data.record_id );
+		}
+
+		const message = data?.message ?? strings.tryAgain;
+		this.add( message, 'bot' );
+		this.setLoading( false );
+		// Contextual follow-ups ride on the terminal event (Pro). They are only
+		// present on a successful, grounded answer.
+		this.renderSuggestions( data?.follow_ups );
+	}
+
+	/**
+	 * Background reply flow: create a run and poll for the answer. This is the
+	 * original, proven path, used as the fallback when streaming is unavailable.
+	 *
+	 * @param {string} message The user's message.
+	 */
+	async backgroundRequest( message ) {
+		try {
 			const response = await apiFetch( {
 				path: this.addCacheProtection(
 					`${ window.hyveClient.api }/chat`
@@ -305,7 +672,7 @@ class App {
 				headers: this.getDefaultHeaders(),
 			} );
 
-			this.removeMessage( preloaderId );
+			this.removeMessage( 'hyve-preloader' );
 
 			if ( response.error ) {
 				this.add(
@@ -333,7 +700,7 @@ class App {
 			this.addPreloaderMessage( response.query_run );
 
 			await this.getResponse( message );
-		} catch ( error ) {
+		} catch {
 			this.removeMessage( 'hyve-preloader' );
 			this.add( strings.tryAgain, 'bot' );
 			this.setLoading( false );
@@ -557,31 +924,55 @@ class App {
 	}
 
 	addSuggestions() {
-		const questions = window.hyveClient?.predefinedQuestions;
+		this.renderSuggestions( window.hyveClient?.predefinedQuestions );
+	}
 
+	/**
+	 * Render a row of clickable suggestion chips under the latest message.
+	 *
+	 * Shared by the pre-conversation predefined questions and the per-turn
+	 * follow-up questions. Clicking a chip sends it as the next message; any
+	 * previous chip row is cleared first so only the latest set is shown.
+	 *
+	 * @param {Array<string>} questions The suggestions to render.
+	 * @return {void}
+	 */
+	renderSuggestions( questions ) {
 		if ( ! Array.isArray( questions ) ) {
 			return;
 		}
 
-		const filteredQuestions = questions.filter(
-			( question ) => '' !== question.trim()
-		);
+		const filteredQuestions = questions
+			.filter( ( question ) => 'string' === typeof question )
+			.map( ( question ) => question.trim() )
+			.filter( ( question ) => '' !== question );
 
 		if ( 0 === filteredQuestions.length ) {
 			return;
 		}
 
+		// Clear any prior chip row so only the latest set is on screen.
+		this.removeSuggestions();
+
 		const chatMessageBox = document.getElementById( 'hyve-message-box' );
-
-		const suggestions = [ `<span>${ strings.suggestions }</span>` ];
-
-		filteredQuestions.forEach( ( question ) => {
-			suggestions.push( `<button>${ question }</button>` );
-		} );
 
 		const messageDiv = this.createElement( 'div', {
 			className: 'hyve-suggestions',
-			innerHTML: suggestions.join( '' ),
+		} );
+
+		const label = this.createElement( 'span' );
+		label.textContent = strings.suggestions;
+		messageDiv.appendChild( label );
+
+		// Build buttons with textContent (not innerHTML) so model-generated
+		// follow-ups cannot inject markup into the widget.
+		filteredQuestions.forEach( ( question ) => {
+			const button = this.createElement( 'button' );
+			button.textContent = question;
+			button.addEventListener( 'click', () => {
+				this.add( question, 'user' );
+			} );
+			messageDiv.appendChild( button );
 		} );
 
 		if ( window.hyveClient.colors?.user_background ) {
@@ -595,15 +986,13 @@ class App {
 			messageDiv.classList.add( 'is-light' );
 		}
 
-		const suggestionButtons = messageDiv.querySelectorAll( 'button' );
-
-		suggestionButtons.forEach( ( button ) => {
-			button.addEventListener( 'click', () => {
-				this.add( button.textContent, 'user' );
-			} );
-		} );
-
 		chatMessageBox?.appendChild( messageDiv );
+
+		// The reply already scrolled to its own bottom before the chips were
+		// appended, so bring the freshly added chips into view too.
+		if ( chatMessageBox ) {
+			chatMessageBox.scrollTop = chatMessageBox.scrollHeight;
+		}
 
 		this.hasSuggestions = true;
 	}
@@ -759,6 +1148,129 @@ class App {
 		};
 	}
 
+	/**
+	 * Whether the visitor has dismissed the privacy notice in this browser.
+	 *
+	 * Dismissal is never persisted in the admin preview, so admins always see
+	 * the notice while configuring the widget.
+	 *
+	 * @return {boolean} True if the notice was dismissed.
+	 */
+	isPrivacyNoticeDismissed() {
+		if ( this.isPreview() ) {
+			return false;
+		}
+
+		try {
+			return (
+				'true' ===
+				window.localStorage.getItem( 'hyve-privacy-dismissed' )
+			);
+		} catch {
+			return false;
+		}
+	}
+
+	/**
+	 * Remember that the visitor dismissed the privacy notice and remove it.
+	 *
+	 * @return {void}
+	 */
+	dismissPrivacyNotice() {
+		const notice = document.querySelector( '.hyve-privacy-notice' );
+
+		if ( notice ) {
+			notice.remove();
+		}
+
+		// The "Powered by Hyve" credit is kept hidden while the notice shows
+		// (free version only); reveal it now that the notice is gone.
+		const credits = document.querySelector( '.hyve-credits' );
+
+		if ( credits ) {
+			credits.hidden = false;
+		}
+
+		if ( this.isPreview() ) {
+			return;
+		}
+
+		try {
+			window.localStorage.setItem( 'hyve-privacy-dismissed', 'true' );
+		} catch {}
+	}
+
+	/**
+	 * Build the dismissible privacy notice shown above the input box.
+	 *
+	 * The notice text carries a single `%s` placeholder marking where the
+	 * (optional) privacy-policy link goes; both halves are inserted as text
+	 * nodes so admin-supplied copy can never inject markup.
+	 *
+	 * @return {HTMLElement|null} The notice element, or null when it shouldn't show.
+	 */
+	renderPrivacyNotice() {
+		const notice = window.hyveClient?.privacyNotice;
+
+		// Skip entirely without a resolvable policy URL — a notice that points
+		// nowhere is worse than no notice. The admin dashboard warns when the
+		// toggle is on but no Privacy Policy page has been set.
+		if (
+			! notice?.enabled ||
+			! notice?.url ||
+			! strings.privacyNotice ||
+			this.isPrivacyNoticeDismissed()
+		) {
+			return null;
+		}
+
+		const icon = this.createElement( 'span', {
+			className: 'hyve-privacy-notice__icon',
+			innerHTML:
+				'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 3l7 3v5c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6l7-3z"/></svg>',
+		} );
+
+		const text = this.createElement( 'span', {
+			className: 'hyve-privacy-notice__text',
+		} );
+
+		const link = this.createElement( 'a', {
+			className: 'hyve-privacy-notice__link',
+			href: notice.url,
+			target: '_blank',
+			rel: 'noopener noreferrer',
+			textContent: strings.privacyPolicy || '',
+		} );
+
+		const [ before, after = '' ] = strings.privacyNotice.split( '%s' );
+
+		text.appendChild( document.createTextNode( before ) );
+		text.appendChild( link );
+		text.appendChild( document.createTextNode( after ) );
+
+		const dismiss = this.createElement( 'button', {
+			className: 'hyve-privacy-notice__dismiss',
+			ariaLabel: strings.dismissNotice ?? 'Dismiss',
+			innerHTML:
+				'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false"><path d="M12 13.06l3.712 3.713 1.061-1.06L13.061 12l3.712-3.712-1.06-1.06L12 10.938 8.288 7.227l-1.061 1.06L10.939 12l-3.712 3.712 1.06 1.061L12 13.061z"></path></svg>',
+		} );
+
+		dismiss.addEventListener( 'click', () => this.dismissPrivacyNotice() );
+
+		const container = this.createElement(
+			'div',
+			{ className: 'hyve-privacy-notice' },
+			icon,
+			text,
+			dismiss
+		);
+
+		if ( window.hyveClient.colors?.chat_background ) {
+			container.classList.add( 'is-dark' );
+		}
+
+		return container;
+	}
 	renderUI() {
 		// Whether the widget is anchored to the left side of the screen.
 		const isLeft = 'left' === window.hyveClient?.chatPosition;
@@ -999,6 +1511,13 @@ class App {
 		}
 
 		chatWindow.appendChild( chatMessageBox );
+
+		const privacyNotice = this.renderPrivacyNotice();
+
+		if ( privacyNotice ) {
+			chatWindow.appendChild( privacyNotice );
+		}
+
 		chatWrite.appendChild( chatInputText );
 		chatInputBox.appendChild( chatWrite );
 		chatInputBox.appendChild( chatSendButton );
