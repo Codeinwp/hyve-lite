@@ -36,10 +36,20 @@ class OpenAI {
 
 	/**
 	 * API Key.
-	 * 
+	 *
 	 * @var string
 	 */
 	private $api_key;
+
+	/**
+	 * Whether request errors should be persisted as a service error notice.
+	 *
+	 * Disabled while validating a candidate key that may be rejected, so a key
+	 * that never gets saved does not leave a dashboard notice behind.
+	 *
+	 * @var bool
+	 */
+	private $persist_errors = true;
 
 	/**
 	 * The single instance of the class.
@@ -50,10 +60,66 @@ class OpenAI {
 
 	/**
 	 * The service error option key for `wp_options`.
-	 * 
+	 *
 	 * @var string
 	 */
 	public const ERROR_OPTION_KEY = 'hyve_open_ai_api_error';
+
+	/**
+	 * Default moderation category thresholds (0-100 scale).
+	 *
+	 * A flagged category is only suppressed when its score is below the matching
+	 * threshold, so these values act as the tolerance for OpenAI's own flags.
+	 * They used to be editable in the UI; that was removed in favor of these
+	 * defaults, tunable with the `hyve_moderation_threshold` filter.
+	 *
+	 * @var array<string, int>
+	 */
+	public const DEFAULT_MODERATION_THRESHOLD = [
+		'sexual'                 => 80,
+		'hate'                   => 70,
+		'harassment'             => 70,
+		'self-harm'              => 50,
+		'sexual/minors'          => 50,
+		'hate/threatening'       => 60,
+		'violence/graphic'       => 80,
+		'self-harm/intent'       => 50,
+		'self-harm/instructions' => 50,
+		'harassment/threatening' => 60,
+		'violence'               => 70,
+	];
+
+	/**
+	 * Error codes that mean the API key itself is invalid (block a key save).
+	 *
+	 * @var string[]
+	 */
+	public const AUTH_ERROR_CODES = [
+		'invalid_api_key',
+		'invalid_authentication',
+		'missing_scope',
+		'permission_denied',
+	];
+
+	/**
+	 * Error codes worth persisting as a dashboard notice — those that require the
+	 * site admin to act (key, auth, billing, quota, account). Transient errors
+	 * such as rate_limit_exceeded are intentionally excluded: they self-resolve,
+	 * and saving them would clobber a real actionable error in this single slot.
+	 *
+	 * @var string[]
+	 */
+	public const PERSISTED_ERROR_CODES = [
+		'invalid_api_key',
+		'invalid_authentication',
+		'insufficient_quota',
+		'quota_exceeded',
+		'billing_not_active',
+		'account_deactivated',
+		'organization_not_found',
+		'organization_deactivated',
+		'permission_denied',
+	];
 
 	/**
 	 * Ensures only one instance of the class is loaded.
@@ -77,6 +143,57 @@ class OpenAI {
 		$settings         = Main::get_settings();
 		$this->api_key    = ! empty( $api_key ) ? $api_key : ( isset( $settings['api_key'] ) ? $settings['api_key'] : '' );
 		$this->chat_model = isset( $settings['chat_model'] ) ? $settings['chat_model'] : $this->chat_model;
+	}
+
+	/**
+	 * Set whether request errors should be persisted as a service error notice.
+	 *
+	 * @param bool $persist Whether to persist errors.
+	 *
+	 * @return OpenAI
+	 */
+	public function set_error_persistence( $persist ) {
+		$this->persist_errors = (bool) $persist;
+		return $this;
+	}
+
+	/**
+	 * Whether an error code is fatal — it requires the site admin to act (key,
+	 * auth, billing, quota, account) and will not resolve by retrying. Anything
+	 * else (rate limits, network blips, transient 5xx) is treated as retryable.
+	 *
+	 * @param int|string $code The error code.
+	 *
+	 * @return bool
+	 */
+	public static function is_fatal_error_code( $code ) {
+		return in_array( $code, self::AUTH_ERROR_CODES, true )
+			|| in_array( $code, self::PERSISTED_ERROR_CODES, true );
+	}
+
+	/**
+	 * Persist a service error so it surfaces on the dashboard.
+	 *
+	 * Subject to the same actionable-code allow list as runtime errors (so, for
+	 * example, rate limits are not persisted). Used when a key is saved despite
+	 * an account-level problem, to explicitly record what a real request would.
+	 *
+	 * @param \WP_Error $error The error to persist.
+	 *
+	 * @return void
+	 */
+	public function save_service_error( $error ) {
+		$previous             = $this->persist_errors;
+		$this->persist_errors = true;
+
+		$this->check_and_save_error(
+			[
+				'code'    => (string) $error->get_error_code(),
+				'message' => $error->get_error_message(),
+			]
+		);
+
+		$this->persist_errors = $previous;
 	}
 
 	/**
@@ -105,6 +222,98 @@ class OpenAI {
 		}
 
 		return new \WP_Error( 'unknown_error', __( 'An error occurred while creating the embeddings.', 'hyve-lite' ) );
+	}
+
+	/**
+	 * Detect sensitive personal data in a block of text.
+	 *
+	 * Used before importing a document, so the user can be warned about and
+	 * confirm content that contains personal data before it is embedded and
+	 * stored. Only a capped portion of the text is scanned, to bound cost.
+	 *
+	 * @param string $text The text to scan.
+	 *
+	 * @return array{has_sensitive: bool, summary: string, categories: string[]}|\WP_Error
+	 */
+	public function detect_sensitive_data( $text ) {
+		/**
+		 * Filters how many characters of a document are scanned for sensitive data.
+		 *
+		 * @since 1.5.0
+		 *
+		 * @param int $length Maximum characters scanned. Default 12000.
+		 */
+		$limit = (int) apply_filters( 'hyve_document_scan_length', 12000 );
+
+		if ( mb_strlen( $text ) > $limit ) {
+			$text = mb_substr( $text, 0, $limit );
+		}
+
+		$response = $this->request(
+			'chat/completions',
+			[
+				'model'           => $this->chat_model,
+				'temperature'     => 0,
+				'messages'        => [
+					[
+						'role'    => 'system',
+						'content' => 'You review text for sensitive personal data before it is stored and sent to a third party for processing. Sensitive data includes full names combined with contact details, email addresses, phone numbers, postal addresses, government or national identification numbers, financial or payment card details, credentials, API keys, and health information. Decide whether the text contains such data. Write a short, plain summary of the kinds of sensitive data present, describing the categories only and never repeating the actual values.',
+					],
+					[
+						'role'    => 'user',
+						'content' => $text,
+					],
+				],
+				'response_format' => [
+					'type'        => 'json_schema',
+					'json_schema' => [
+						'name'   => 'sensitive_data_review',
+						'strict' => true,
+						'schema' => [
+							'type'                 => 'object',
+							'properties'           => [
+								'has_sensitive' => [
+									'type'        => 'boolean',
+									'description' => 'Whether the text contains sensitive personal data.',
+								],
+								'summary'       => [
+									'type'        => 'string',
+									'description' => 'A short description of the kinds of sensitive data present, or an empty string if none.',
+								],
+								'categories'    => [
+									'type'        => 'array',
+									'description' => 'The categories of sensitive data present.',
+									'items'       => [ 'type' => 'string' ],
+								],
+							],
+							'required'             => [ 'has_sensitive', 'summary', 'categories' ],
+							'additionalProperties' => false,
+						],
+					],
+				],
+			]
+		);
+
+		if ( is_wp_error( $response ) ) {
+			return $response;
+		}
+
+		if ( ! empty( $response->error ) ) {
+			return new \WP_Error( 'sensitive_scan_failed', __( 'The document could not be scanned.', 'hyve-lite' ) );
+		}
+
+		$content = isset( $response->choices[0]->message->content ) ? $response->choices[0]->message->content : '';
+		$data    = json_decode( $content, true );
+
+		if ( ! is_array( $data ) || ! isset( $data['has_sensitive'] ) ) {
+			return new \WP_Error( 'sensitive_scan_failed', __( 'The document could not be scanned.', 'hyve-lite' ) );
+		}
+
+		return [
+			'has_sensitive' => (bool) $data['has_sensitive'],
+			'summary'       => isset( $data['summary'] ) ? (string) $data['summary'] : '',
+			'categories'    => isset( $data['categories'] ) && is_array( $data['categories'] ) ? array_map( 'strval', $data['categories'] ) : [],
+		];
 	}
 
 	/**
@@ -460,11 +669,51 @@ class OpenAI {
 	}
 
 	/**
+	 * Moderate a batch of inputs in a single request.
+	 *
+	 * The moderations endpoint accepts an array of inputs, so a batch of chunks
+	 * is moderated in one request instead of one request per chunk.
+	 *
+	 * @param array<string> $inputs Inputs to moderate.
+	 *
+	 * @return array<int, object{flagged: bool, categories: array<string, bool>, category_scores: array<string, float>, category_applied_input_types: array<string, string[]>}>|\WP_Error Flagged results, or error.
+	 */
+	private function moderate_batch( $inputs ) {
+		$response = $this->request(
+			'moderations',
+			[
+				'input' => $inputs,
+			]
+		);
+
+		if ( is_wp_error( $response ) ) {
+			return $response;
+		}
+
+		$flagged = [];
+
+		if ( isset( $response->results ) && is_array( $response->results ) ) {
+			foreach ( $response->results as $result ) {
+				if ( isset( $result->flagged ) && $result->flagged ) {
+					/**
+					 * Moderation result.
+					 *
+					 * @var object{flagged: bool, categories: array<string, bool>, category_scores: array<string, float>, category_applied_input_types: array<string, string[]>} $result
+					 */
+					$flagged[] = $result;
+				}
+			}
+		}
+
+		return $flagged;
+	}
+
+	/**
 	 * Moderate data.
-	 * 
+	 *
 	 * @param array<string>|string $chunks Data to moderate.
 	 * @param int                  $id     Post ID.
-	 * 
+	 *
 	 * @return true|array<string, float>|\WP_Error
 	 */
 	public function moderate_chunks( $chunks, $id = null ) {
@@ -476,26 +725,49 @@ class OpenAI {
 			}
 		}
 
-		$openai               = self::instance();
-		$results              = [];
-		$return               = true;
-		$settings             = Main::get_settings();
-		$moderation_threshold = $settings['moderation_threshold'];
+		$openai  = self::instance();
+		$results = [];
+		$return  = true;
+
+		/**
+		 * Filters the moderation category thresholds (0-100 scale).
+		 *
+		 * A category flagged by OpenAI is only suppressed when its score is below
+		 * the matching threshold. Higher values are more permissive (setting all
+		 * to 100 effectively disables moderation); lower values are stricter.
+		 *
+		 * @since 1.5.0
+		 *
+		 * @param array<string, int> $moderation_threshold Category thresholds.
+		 */
+		$moderation_threshold = apply_filters( 'hyve_moderation_threshold', self::DEFAULT_MODERATION_THRESHOLD );
 
 		if ( ! is_array( $chunks ) ) {
 			$chunks = [ $chunks ];
 		}
 
-		foreach ( $chunks as $chunk ) {
-			$moderation = $openai->moderate( $chunk );
+		/**
+		 * Filters how many chunks are moderated per request.
+		 *
+		 * The moderations endpoint accepts an array of inputs, so chunks are
+		 * batched rather than sent one request at a time. Chunks are up to ~1000
+		 * tokens each, so the default of 5 keeps a request well under the
+		 * endpoint's token limit.
+		 *
+		 * @since 1.5.0
+		 *
+		 * @param int $size Chunks per moderation request. Default 5.
+		 */
+		$batch_size = max( 1, (int) apply_filters( 'hyve_moderation_batch_size', 5 ) );
 
-			if ( is_wp_error( $moderation ) ) {
-				return $moderation;
+		foreach ( array_chunk( array_values( $chunks ), $batch_size ) as $batch ) {
+			$moderated = $this->moderate_batch( $batch );
+
+			if ( is_wp_error( $moderated ) ) {
+				return $moderated;
 			}
 
-			if ( is_object( $moderation ) ) {
-				$results[] = $moderation;
-			}
+			$results = array_merge( $results, $moderated );
 		}
 
 		if ( ! empty( $results ) ) {
@@ -602,17 +874,35 @@ class OpenAI {
 			$body = json_decode( $body );
 
 			if ( isset( $body->error ) ) {
-				if ( 'POST' === $method ) {
-					$this->check_and_save_error( (array) $body->error );
+				$error_code = ! empty( $body->error->code ) ? $body->error->code : '';
+
+				// OpenAI can return a 429 with a null code (e.g. brand-new
+				// accounts with no credits, even on the free moderation
+				// endpoint). Fall back to the HTTP status so the error stays
+				// mappable to an actionable message.
+				if ( '' === $error_code && 429 === (int) wp_remote_retrieve_response_code( $response ) ) {
+					$error_code = 'rate_limit_exceeded';
 				}
 
-				if ( isset( $body->error->message ) ) {
-					return new \WP_Error( isset( $body->error->code ) ? $body->error->code : 'unknown_error', $body->error->message );
+				if ( '' === $error_code ) {
+					$error_code = 'unknown_error';
 				}
-				return new \WP_Error( 'unknown_error', __( 'An error occurred while processing the request.', 'hyve-lite' ) );
+
+				$error_message = isset( $body->error->message ) ? $body->error->message : __( 'An error occurred while processing the request.', 'hyve-lite' );
+
+				if ( 'POST' === $method ) {
+					$this->check_and_save_error(
+						[
+							'code'    => $error_code,
+							'message' => $error_message,
+						]
+					);
+				}
+
+				return new \WP_Error( $error_code, $error_message );
 			}
 			
-			if ( 'POST' === $method ) {
+			if ( 'POST' === $method && $this->persist_errors ) {
 				delete_option( self::ERROR_OPTION_KEY );
 			}
 			return $body;
@@ -628,30 +918,17 @@ class OpenAI {
 	 * @return void
 	 */
 	private function check_and_save_error( $error ) {
+		if ( ! $this->persist_errors ) {
+			return;
+		}
+
 		if ( empty( $error['code'] ) ) {
-			
 			return;
 		}
 
 		$code = $error['code'];
 		
-		$errors_codes = [
-			// API Key Errors.
-			'invalid_api_key',
-			'insufficient_quota',
-			'invalid_authentication',
-			'account_deactivated',
-			'billing_not_active',
-			'organization_not_found',
-			'organization_deactivated',
-			'permission_denied',
-
-			// Rate Limiting Errors.
-			'rate_limit_exceeded',
-			'quota_exceeded ',
-		];
-		
-		if ( in_array( $code, $errors_codes, true ) ) {
+		if ( in_array( $code, self::PERSISTED_ERROR_CODES, true ) ) {
 			update_option(
 				self::ERROR_OPTION_KEY,
 				[
@@ -659,8 +936,43 @@ class OpenAI {
 					'message'  => ! empty( $error['message'] ) ? $error['message'] : '',
 					'date'     => wp_date( 'c' ),
 					'provider' => 'OpenAI',
-				] 
+				]
 			);
 		}
+	}
+
+	/**
+	 * Translate an OpenAI error code into an actionable, user-facing message.
+	 *
+	 * This is the single source of truth for OpenAI error copy. Callers that
+	 * surface an error to the user (REST responses, the dashboard notice) should
+	 * run the code through here and fall back to the raw provider message when
+	 * this returns null.
+	 *
+	 * @param int|string $code The OpenAI error code.
+	 *
+	 * @return string|null The actionable message, or null when the code is unmapped.
+	 */
+	public static function get_error_message_for_code( $code ) {
+		$quota_message = __( 'Your OpenAI account has no available credits. If you are using a free API key, please add billing or upgrade to a paid plan to use AI features.', 'hyve-lite' );
+		$auth_message  = __( 'OpenAI could not authenticate the request. Please verify your API key in Settings → Advanced.', 'hyve-lite' );
+		$scope_message = __( 'Your OpenAI API key lacks permission for this operation. Please use a key with the required scopes.', 'hyve-lite' );
+		$org_message   = __( 'Your OpenAI organization could not be found or is no longer active. Please check your OpenAI account settings.', 'hyve-lite' );
+
+		$messages = [
+			'invalid_api_key'          => __( 'The OpenAI API key is incorrect. Please double-check it in Settings → Advanced.', 'hyve-lite' ),
+			'invalid_authentication'   => $auth_message,
+			'missing_scope'            => $scope_message,
+			'permission_denied'        => $scope_message,
+			'insufficient_quota'       => $quota_message,
+			'quota_exceeded'           => $quota_message,
+			'billing_not_active'       => __( 'Billing is not active on your OpenAI account. Please add a payment method in your OpenAI billing settings.', 'hyve-lite' ),
+			'account_deactivated'      => __( 'Your OpenAI account has been deactivated. Please contact OpenAI support to restore access.', 'hyve-lite' ),
+			'organization_not_found'   => $org_message,
+			'organization_deactivated' => $org_message,
+			'rate_limit_exceeded'      => __( 'OpenAI returned a rate limit response (HTTP 429). If you recently created this account or key, it may not have any credits yet — add a payment method or credits in your OpenAI billing settings. Otherwise you may be sending requests too quickly; wait a moment and try again.', 'hyve-lite' ),
+		];
+
+		return $messages[ $code ] ?? null;
 	}
 }

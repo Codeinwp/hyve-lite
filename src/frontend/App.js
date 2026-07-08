@@ -664,7 +664,12 @@ class App {
 			this.removeMessage( 'hyve-preloader' );
 
 			if ( response.error ) {
-				this.add( strings.tryAgain, 'bot' );
+				this.add(
+					'content_flagged' === response.code
+						? strings.flagged
+						: strings.tryAgain,
+					'bot'
+				);
 				this.setLoading( false );
 				return;
 			}

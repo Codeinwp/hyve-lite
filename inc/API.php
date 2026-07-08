@@ -305,7 +305,7 @@ class API extends BaseAPI {
 		}
 
 		if ( empty( $updated ) ) {
-			return rest_ensure_response( [ 'error' => __( 'No settings to update.', 'hyve-lite' ) ] );
+			return $this->settings_response( [ 'success' => __( 'Settings are already up to date.', 'hyve-lite' ) ] );
 		}
 
 		$validation = apply_filters(
@@ -392,20 +392,6 @@ class API extends BaseAPI {
 					},
 					'sanitize' => 'floatval',
 				],
-				'moderation_threshold'       => [
-					'validate' => function ( $value ) {
-						return is_array( $value ) && array_reduce(
-							$value,
-							function ( $carry, $item ) {
-								return $carry && is_int( $item );
-							},
-							true
-						);
-					},
-					'sanitize' => function ( $value ) {
-						return array_map( 'intval', $value );
-					},
-				],
 				'similarity_score_threshold' => [
 					'validate' => function ( $value ) {
 						return is_numeric( $value );
@@ -449,7 +435,7 @@ class API extends BaseAPI {
 
 		foreach ( $updated as $key => $value ) {
 			if ( ! $validation[ $key ]['validate']( $value ) ) {
-				return rest_ensure_response(
+				return $this->settings_response(
 					[
 						// translators: %s: option key.
 						'error' => sprintf( __( 'Invalid value: %s', 'hyve-lite' ), $key ),
@@ -460,15 +446,34 @@ class API extends BaseAPI {
 			$updated[ $key ] = $validation[ $key ]['sanitize']( $value );
 		}
 
+		$api_warning   = '';
+		$api_key_error = null;
+		$key_validated = false;
+
 		foreach ( $updated as $key => $value ) {
 			$settings[ $key ] = $value;
 
 			if ( 'api_key' === $key && ! empty( $value ) ) {
-				$openai    = new OpenAI( $value );
-				$valid_api = $openai->moderate( 'This is a test message.' );
+				$openai = new OpenAI( $value );
 
-				if ( is_wp_error( $valid_api ) ) {
-					return rest_ensure_response( [ 'error' => $this->get_error_message( $valid_api ) ] );
+				// Validate against the embeddings endpoint. Suppress automatic
+				// persistence: the dashboard notice is reconciled after the save
+				// actually lands, so it can never reflect a key that was not
+				// stored. See Codeinwp/hyve#149.
+				$validation    = $openai->set_error_persistence( false )->create_embeddings( 'Test connection.' );
+				$key_validated = true;
+
+				if ( is_wp_error( $validation ) && $this->is_auth_error( $validation->get_error_code() ) ) {
+					// The key itself is invalid — block the save.
+					return $this->settings_response( [ 'error' => $this->get_error_message( $validation ) ] );
+				}
+
+				if ( is_wp_error( $validation ) ) {
+					// The key is well-formed but the account is rate-limited or
+					// has no credits (new, unfunded accounts return a 429). Save
+					// the key but warn; the notice is recorded after the save.
+					$api_warning   = $this->get_error_message( $validation );
+					$api_key_error = $validation;
 				}
 			}
 
@@ -482,13 +487,63 @@ class API extends BaseAPI {
 			$init   = $qdrant->init();
 
 			if ( is_wp_error( $init ) ) {
-				return rest_ensure_response( [ 'error' => $this->get_error_message( $init ) ] );
+				return $this->settings_response( [ 'error' => $this->get_error_message( $init ) ] );
 			}
 		}
 
 		update_option( 'hyve_settings', $settings );
 
-		return rest_ensure_response( __( 'Settings updated.', 'hyve-lite' ) );
+		// Reconcile the dashboard service-error notice with the key that was just
+		// saved — only now that the save has actually landed (no earlier exit can
+		// leave a notice for an unsaved key). Clear any stale notice first, then
+		// re-record one for the new key when its error is actionable (a no-op for
+		// transient codes such as rate limits). See Codeinwp/hyve#149.
+		if ( $key_validated ) {
+			delete_option( OpenAI::ERROR_OPTION_KEY );
+
+			if ( null !== $api_key_error ) {
+				OpenAI::instance()->save_service_error( $api_key_error );
+			}
+		}
+
+		if ( ! empty( $api_warning ) ) {
+			return $this->settings_response( [ 'warning' => $api_warning ] );
+		}
+
+		return $this->settings_response( [ 'success' => __( 'Settings updated.', 'hyve-lite' ) ] );
+	}
+
+	/**
+	 * Build a settings REST response carrying the current service errors.
+	 *
+	 * Returning the freshly-computed service errors lets the dashboard notice
+	 * update immediately after a save, without a page reload. See Codeinwp/hyve#200.
+	 *
+	 * @param array<string, mixed> $payload The response payload.
+	 *
+	 * @return \WP_REST_Response
+	 */
+	private function settings_response( $payload ) {
+		$options = apply_filters( 'hyve_options_data', [] );
+
+		$payload['serviceErrors'] = ( is_array( $options ) && isset( $options['serviceErrors'] ) ) ? $options['serviceErrors'] : [];
+
+		return rest_ensure_response( $payload );
+	}
+
+	/**
+	 * Whether an error code means the API key itself is invalid.
+	 *
+	 * These block a key from being saved. Account-level problems (no credits,
+	 * billing, rate limits) do not: the key is valid, the account just needs
+	 * attention, so we save it and warn instead of blocking. See Codeinwp/hyve#149.
+	 *
+	 * @param int|string $code The error code.
+	 *
+	 * @return bool
+	 */
+	private function is_auth_error( $code ) {
+		return in_array( $code, OpenAI::AUTH_ERROR_CODES, true );
 	}
 
 	/**
@@ -523,12 +578,11 @@ class API extends BaseAPI {
 	 */
 	public function get_data( $request ) {
 		$args = [
-			'post_type'      => $request->get_param( 'type' ),
-			'post_status'    => [ 'publish', 'private' ],
-			'posts_per_page' => 20,
-			'fields'         => 'ids',
-			'offset'         => $request->get_param( 'offset' ),
-			'meta_query'     => [
+			'post_type'   => $request->get_param( 'type' ),
+			'post_status' => [ 'publish', 'private' ],
+			'fields'      => 'ids',
+			'offset'      => $request->get_param( 'offset' ),
+			'meta_query'  => [
 				[
 					'key'     => '_hyve_added',
 					'compare' => 'NOT EXISTS',
@@ -588,40 +642,44 @@ class API extends BaseAPI {
 			];
 		}
 
-		$query = new \WP_Query( $args );
+		$page = $this->query_page( $args );
 
 		$posts_data = [];
 
-		if ( $query->have_posts() ) {
-			foreach ( $query->posts as $post_id ) {
-				/**
-				 * The post id.
-				 *
-				 * @var int $post_id
-				 */
-				$post_data = [
-					'ID'         => $post_id,
-					'title'      => html_entity_decode( get_the_title( $post_id ), ENT_QUOTES, 'UTF-8' ),
-					'visibility' => $this->get_post_visibility( $post_id ),
-				];
+		foreach ( $page['posts'] as $post_id ) {
+			/**
+			 * The post id.
+			 *
+			 * @var int $post_id
+			 */
+			$post_data = [
+				'ID'         => $post_id,
+				'title'      => html_entity_decode( get_the_title( $post_id ), ENT_QUOTES, 'UTF-8' ),
+				'visibility' => $this->get_post_visibility( $post_id ),
+			];
 
-				if ( 'moderation' === $status ) {
-					$review = get_post_meta( $post_id, '_hyve_moderation_review', true );
+			if ( 'moderation' === $status ) {
+				$review = get_post_meta( $post_id, '_hyve_moderation_review', true );
 
-					if ( ! is_array( $review ) || empty( $review ) ) {
-						$review = [];
-					}
-
-					$post_data['review'] = $review;
+				if ( ! is_array( $review ) || empty( $review ) ) {
+					$review = [];
 				}
 
-				$posts_data[] = $post_data;
+				$post_data['review'] = $review;
 			}
+
+			$processing_error = get_post_meta( $post_id, '_hyve_processing_error', true );
+
+			if ( ! empty( $processing_error ) && get_post_meta( $post_id, '_hyve_added', true ) ) {
+				$post_data['error'] = $processing_error;
+			}
+
+			$posts_data[] = $post_data;
 		}
 
 		$posts = [
 			'posts'       => $posts_data,
-			'more'        => $query->found_posts > 20,
+			'more'        => $page['more'],
 			'totalChunks' => $this->table->get_count(),
 		];
 
@@ -659,6 +717,20 @@ class API extends BaseAPI {
 			return rest_ensure_response( [ 'error' => $this->get_error_message( $process ) ] );
 		}
 
+		// The content was stored, but the synchronous indexing attempt may have
+		// failed (e.g. rate limit, no credits). Surface that as a non-blocking
+		// warning so the admin sees it immediately, not only as a list badge.
+		$processing_error = get_post_meta( $post_id, '_hyve_processing_error', true );
+
+		if ( ! empty( $processing_error ) ) {
+			return rest_ensure_response(
+				[
+					'success' => true,
+					'warning' => $processing_error,
+				]
+			);
+		}
+
 		return rest_ensure_response( true );
 	}
 
@@ -677,8 +749,8 @@ class API extends BaseAPI {
 			try {
 				$delete_result = Qdrant_API::instance()->delete_point( $id );
 
-				if ( ! $delete_result ) {
-					throw new \Exception( __( 'Failed to delete point in Qdrant.', 'hyve-lite' ) );
+				if ( is_wp_error( $delete_result ) || ! $delete_result ) {
+					throw new \Exception( is_wp_error( $delete_result ) ? $delete_result->get_error_message() : __( 'Failed to delete point in Qdrant.', 'hyve-lite' ) );
 				}
 			} catch ( \Exception $e ) {
 				return rest_ensure_response( [ 'error' => $e->getMessage() ] );
@@ -691,6 +763,7 @@ class API extends BaseAPI {
 		delete_post_meta( $id, '_hyve_needs_update' );
 		delete_post_meta( $id, '_hyve_moderation_failed' );
 		delete_post_meta( $id, '_hyve_moderation_review' );
+		delete_post_meta( $id, '_hyve_processing_error' );
 		return rest_ensure_response( true );
 	}
 
@@ -733,40 +806,37 @@ class API extends BaseAPI {
 		$pages = apply_filters( 'hyve_threads_per_page', 3 );
 
 		$args = [
-			'post_type'      => 'hyve_threads',
-			'post_status'    => 'publish',
-			'posts_per_page' => $pages,
-			'fields'         => 'ids',
-			'offset'         => $request->get_param( 'offset' ),
+			'post_type'   => 'hyve_threads',
+			'post_status' => 'publish',
+			'fields'      => 'ids',
+			'offset'      => $request->get_param( 'offset' ),
 		];
 
-		$query = new \WP_Query( $args );
+		$page = $this->query_page( $args, $pages );
 
 		$posts_data = [];
 
-		if ( $query->have_posts() ) {
-			foreach ( $query->posts as $post_id ) {
-				/**
-				 * The post id.
-				 *
-				 * @var int $post_id
-				 */
+		foreach ( $page['posts'] as $post_id ) {
+			/**
+			 * The post id.
+			 *
+			 * @var int $post_id
+			 */
 
-				$post_data = [
-					'ID'        => $post_id,
-					'title'     => html_entity_decode( get_the_title( $post_id ), ENT_QUOTES, 'UTF-8' ),
-					'date'      => get_the_date( 'c', $post_id ),
-					'thread'    => get_post_meta( $post_id, '_hyve_thread_data', true ),
-					'thread_id' => get_post_meta( $post_id, '_hyve_thread_id', true ),
-				];
+			$post_data = [
+				'ID'        => $post_id,
+				'title'     => html_entity_decode( get_the_title( $post_id ), ENT_QUOTES, 'UTF-8' ),
+				'date'      => get_the_date( 'c', $post_id ),
+				'thread'    => get_post_meta( $post_id, '_hyve_thread_data', true ),
+				'thread_id' => get_post_meta( $post_id, '_hyve_thread_id', true ),
+			];
 
-				$posts_data[] = $post_data;
-			}
+			$posts_data[] = $post_data;
 		}
 
 		$posts = [
 			'posts' => $posts_data,
-			'more'  => $query->found_posts > $pages,
+			'more'  => $page['more'],
 		];
 
 		return rest_ensure_response( $posts );
@@ -1059,7 +1129,12 @@ class API extends BaseAPI {
 		$prepared = $this->prepare_chat( $request );
 
 		if ( is_wp_error( $prepared ) ) {
-			return rest_ensure_response( [ 'error' => $this->get_error_message( $prepared ) ] );
+			return rest_ensure_response(
+				[
+					'error' => $this->get_error_message( $prepared ),
+					'code'  => $prepared->get_error_code(),
+				]
+			);
 		}
 
 		$is_test        = (bool) $request->get_param( 'is_test' );
@@ -1139,7 +1214,7 @@ class API extends BaseAPI {
 		$moderation = OpenAI::instance()->moderate_chunks( $message );
 
 		if ( true !== $moderation ) {
-			return new \WP_Error( 'flagged', __( 'Message was flagged.', 'hyve-lite' ) );
+			return new \WP_Error( 'content_flagged', __( 'Message was flagged.', 'hyve-lite' ) );
 		}
 
 		$openai         = OpenAI::instance();

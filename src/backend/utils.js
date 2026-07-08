@@ -152,10 +152,24 @@ export const onProcessData = async ( {
 			throw response;
 		}
 
-		createNotice( 'success', __( 'Post has been updated.', 'hyve-lite' ), {
-			type: 'snackbar',
-			isDismissible: true,
-		} );
+		if ( response.warning ) {
+			// Content was added, but indexing reported a problem (e.g. rate
+			// limit, no credits). Surface it immediately instead of a plain
+			// success notice.
+			createNotice( 'warning', response.warning, {
+				type: 'snackbar',
+				isDismissible: true,
+			} );
+		} else {
+			createNotice(
+				'success',
+				__( 'Post has been updated.', 'hyve-lite' ),
+				{
+					type: 'snackbar',
+					isDismissible: true,
+				}
+			);
+		}
 
 		onSuccess();
 	} catch ( error ) {
