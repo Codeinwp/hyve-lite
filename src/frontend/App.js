@@ -268,6 +268,10 @@ class App {
 			if ( 'completed' === response.status ) {
 				this.add( response.message, 'bot' );
 				this.setLoading( false );
+
+				// Contextual follow-ups on the poll path (Pro), mirroring the
+				// streaming flow. Present only on a successful, grounded answer.
+				this.renderSuggestions( response.follow_ups );
 			}
 
 			if ( 'failed' === response.status ) {
@@ -633,6 +637,9 @@ class App {
 		const message = data?.message ?? strings.tryAgain;
 		this.add( message, 'bot' );
 		this.setLoading( false );
+		// Contextual follow-ups ride on the terminal event (Pro). They are only
+		// present on a successful, grounded answer.
+		this.renderSuggestions( data?.follow_ups );
 	}
 
 	/**
@@ -913,31 +920,55 @@ class App {
 	}
 
 	addSuggestions() {
-		const questions = window.hyveClient?.predefinedQuestions;
+		this.renderSuggestions( window.hyveClient?.predefinedQuestions );
+	}
 
+	/**
+	 * Render a row of clickable suggestion chips under the latest message.
+	 *
+	 * Shared by the pre-conversation predefined questions and the per-turn
+	 * follow-up questions. Clicking a chip sends it as the next message; any
+	 * previous chip row is cleared first so only the latest set is shown.
+	 *
+	 * @param {Array<string>} questions The suggestions to render.
+	 * @return {void}
+	 */
+	renderSuggestions( questions ) {
 		if ( ! Array.isArray( questions ) ) {
 			return;
 		}
 
-		const filteredQuestions = questions.filter(
-			( question ) => '' !== question.trim()
-		);
+		const filteredQuestions = questions
+			.filter( ( question ) => 'string' === typeof question )
+			.map( ( question ) => question.trim() )
+			.filter( ( question ) => '' !== question );
 
 		if ( 0 === filteredQuestions.length ) {
 			return;
 		}
 
+		// Clear any prior chip row so only the latest set is on screen.
+		this.removeSuggestions();
+
 		const chatMessageBox = document.getElementById( 'hyve-message-box' );
-
-		const suggestions = [ `<span>${ strings.suggestions }</span>` ];
-
-		filteredQuestions.forEach( ( question ) => {
-			suggestions.push( `<button>${ question }</button>` );
-		} );
 
 		const messageDiv = this.createElement( 'div', {
 			className: 'hyve-suggestions',
-			innerHTML: suggestions.join( '' ),
+		} );
+
+		const label = this.createElement( 'span' );
+		label.textContent = strings.suggestions;
+		messageDiv.appendChild( label );
+
+		// Build buttons with textContent (not innerHTML) so model-generated
+		// follow-ups cannot inject markup into the widget.
+		filteredQuestions.forEach( ( question ) => {
+			const button = this.createElement( 'button' );
+			button.textContent = question;
+			button.addEventListener( 'click', () => {
+				this.add( question, 'user' );
+			} );
+			messageDiv.appendChild( button );
 		} );
 
 		if ( window.hyveClient.colors?.user_background ) {
@@ -951,15 +982,13 @@ class App {
 			messageDiv.classList.add( 'is-light' );
 		}
 
-		const suggestionButtons = messageDiv.querySelectorAll( 'button' );
-
-		suggestionButtons.forEach( ( button ) => {
-			button.addEventListener( 'click', () => {
-				this.add( button.textContent, 'user' );
-			} );
-		} );
-
 		chatMessageBox?.appendChild( messageDiv );
+
+		// The reply already scrolled to its own bottom before the chips were
+		// appended, so bring the freshly added chips into view too.
+		if ( chatMessageBox ) {
+			chatMessageBox.scrollTop = chatMessageBox.scrollHeight;
+		}
 
 		this.hasSuggestions = true;
 	}
