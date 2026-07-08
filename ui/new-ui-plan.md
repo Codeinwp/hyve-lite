@@ -15,7 +15,7 @@ Parent issue: [hyve#223 — Refresh Dashboard UI](https://github.com/Codeinwp/hy
 
 - **Chat**: Behavior (default panel), Appearance
 - **AI**: Provider & model, Advanced (Tools stays mockup-only until #195)
-- **Connections**: Integrations (Qdrant, Hyve Connect, Webhooks slot)
+- **Integrations**: Qdrant, API Access (Webhooks joins the group when #192 is real)
 - **Plugin**: General (license, site integration)
 
 Consequences: the Settings tab is reachable WITHOUT an API key (the key lives there now); with no key, sidebar items other than the AI pair are muted, and gated panels redirect to Provider & model. Deep links use `?nav=settings&sub=chat-behavior` style keys. Per-section content is specified item by item in [`new-ui.md`](new-ui.md); the superseded 7-tab v1 layout is not documented here (see git history if ever needed).
@@ -38,7 +38,7 @@ Hardeep's direction: **NUX, not onboarding** — no wizard or modal flow; the de
 2. **Nav pattern**: top tab bar + sticky plugin header bar (logo, version, status, docs, upgrade). Sub-sections render as a subnav inside the page. Maps 1:1 to PR #194's WP submenu entries.
 3. **Visual language**: **WP-native** — WP admin blues (#2271b1), flat 2px-radius cards, subsubsub-style subnavs. Explicitly considered and rejected Chakra UI (third styling paradigm, CSS-in-JS runtime, fights WP admin CSS/wp-components); Hyve brand appears only in the logo mark and the chat-widget preview.
 4. **Component strategy**: keep `@wordpress/components` for controls (a11y, native look), build our own small layout kit (cards, stat tiles, chips, subnav, tables). REVISED during build: the kit is styled with plain scoped CSS (BEM classes + `--hyve-*` custom-property tokens in `next/style.scss`), deliberately NOT Tailwind, so deleting the old UI at W7 also drops Tailwind from the plugin. Unify the bespoke FAQ/Sitemap tables onto the shared table component.
-5. **Dashboard metrics**: **UI-first, slots reserved** — render existing `stats`/`chart` data; recent-conversations feed mocked in the prototype; deltas/sparklines/answer-rate only if trivially derivable, otherwise follow-up backend issues. A dashed placeholder card reserves the Hyve Agent quota slot.
+5. **Dashboard metrics**: **UI-first, slots reserved** — render existing `stats`/`chart` data; recent-conversations feed mocked in the prototype; deltas/sparklines/answer-rate only if trivially derivable, otherwise follow-up backend issues. A dashed placeholder card reserves the Hyve Connect quota slot.
 6. **Upsell presentation** (as shipped): the REAL controls render disabled (greyed) on free with small PRO chips on the locked rows; the pitch is a blue note block when the whole card is pro (Suggestions), or a muted line + secondary "Unlock with Pro" button inside the card footer when the card mixes free and pro fields (Appearance). List-style upsells (Recent conversations, Messages) use the blue note. Existing UTM campaign names are preserved.
 7. **New extension surface for Pro** (recommendation, finalize in Phase 5): replace the one-off filter-per-upsell pattern with a declarative section registry — screens and settings sections declared as data (like `ROUTE_TREE`), Pro registers/overrides entries rather than adding new filters.
 8. **Lite/Pro code split — DECIDED 2026-07-08**: hybrid, with one rule: *whoever owns the endpoint owns the UI code.*
@@ -46,6 +46,7 @@ Hardeep's direction: **NUX, not onboarding** — no wizard or modal flow; the de
    - **Pro-only surfaces live in pro, registered via filters** (KB sources: custom/URL/sitemap/documents, FAQ, access tokens, license card): their REST endpoints exist only in pro, so lite ships only a locked placeholder/upsell in the slot.
    - **One registration surface, not nine ad-hoc filters**: pro extends through `hyve.next.routes` (screens/subs) plus at most one component-slot filter. That is the whole P1 contract.
    - **Gate semantics**: `window.hyve.license` (pro plugin installed) unlocks the UI, matching the old UI's behavior; `window.hyve.hasPro` (license validity) stays a server-side/update concern.
+9. **Naming — DECIDED 2026-07-09**: **"Hyve Connect" is reserved for the hosted AI provider** (#164, still titled "Hyve Agent" on GitHub): "Connect" fits a service you connect your site to, and "agent" will collide with tool calling (#195). The external-search/access-token feature (old UI's "Hyve Connect") is **"API Access"** in the new UI (`?nav=settings&sub=api-access`, Integrations group), a descriptive name for its developer audience; copy refers to "the Hyve API". Its panel shows the old UI's curl request preview on both tiers to make the feature concrete.
 
 ## Delivery approach: `?new=true` parallel app
 
@@ -69,7 +70,7 @@ Hardeep's direction: **NUX, not onboarding** — no wizard or modal flow; the de
 - **NUX from #202** folded in: setup checklist on Dashboard, no wizard (see "New user experience" section).
 - The mockup has a floating **preview-state switcher** (bottom-right eye button) to flip between Free/Pro, Admin/Messages-only, and API connected/not set.
 - **Visibility is not its own sub-tab**: the "Where should Hyve appear?" card sits at the top of the Behavior panel (now Settings > Behavior); the Dashboard "Manage visibility" shortcut deep-links there.
-- **Header status pill is just the API connection indicator** (API connected / not connected), provider-agnostic for Hyve Agent later; no chat-visibility wording in the header.
+- **Header status pill is just the API connection indicator** (API connected / not connected), provider-agnostic for Hyve Connect later; no chat-visibility wording in the header.
 - **No count badge on the Messages tab**, and **no PRO chips in nav or subnav**: pro features are discovered by clicking through to an in-screen upsell (upsell design happens later). With no API key, api-required tabs are muted but Dashboard stays open showing ONLY the NUX checklist (all steps locked except "Add API key"); Settings stays open with only the AI panels enabled, so the key can be entered.
 - **Full flow coverage** added after review ("not all UI parts are made"): the 5 Knowledge Base source drill-in views (WordPress import with a restricted-content case, Custom data, Website URL, Sitemap, Documents with import-queue statuses), the Messages conversation thread view (bubbles + delete), Qdrant's three connection states (not connected / migrating with progress / connected), 8 modals (add-edit data, restricted content, moderation review with score bars, sensitive-data review, sitemap add with link picker, sitemap details, Qdrant disconnect confirm, token delete confirm), and a snackbar so every Save/action gives feedback.
 

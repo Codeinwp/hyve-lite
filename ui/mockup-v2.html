@@ -442,12 +442,12 @@
         <div class="top"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg><span class="lbl">Knowledge base</span></div>
         <div class="num tnum">412 <small>/ 500 chunks</small></div>
         <div class="meter"><i style="width:82%"></i></div>
-        <div class="foot">82% of the free limit used · <a href="#" data-goto="settings" data-panel="int-hub">Need more storage?</a></div>
+        <div class="foot">82% of the free limit used · <a href="#" data-goto="settings" data-panel="int-qdrant">Need more storage?</a></div>
       </div>
       <div class="stat planned">
-        <div class="top"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></svg><span class="lbl">Hyve Agent usage</span><span class="chip planned">PLANNED</span></div>
+        <div class="top"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></svg><span class="lbl">Hyve Connect usage</span><span class="chip planned">PLANNED</span></div>
         <div class="num" style="color:var(--faint)">N/A</div>
-        <div class="foot">Reserved for hosted-AI quota once Hyve Agent ships (#164)</div>
+        <div class="foot">Reserved for hosted-AI quota once Hyve Connect ships (#164)</div>
       </div>
     </div>
 
@@ -712,8 +712,9 @@
         <button data-panel="ai-provider">Provider &amp; model</button>
         <button data-panel="ai-advanced">Advanced</button>
         <button data-panel="ai-tools">Tools <span class="chip planned">PLANNED</span></button>
-        <div class="sgroup">Connections</div>
-        <button data-panel="int-hub">Integrations</button>
+        <div class="sgroup">Integrations</div>
+        <button data-panel="int-qdrant">Qdrant</button>
+        <button data-panel="int-connect">API Access</button>
         <div class="sgroup">Plugin</div>
         <button data-panel="set-general">General</button>
       </nav>
@@ -820,8 +821,8 @@
     <div class="panel" id="ai-provider">
       <div class="card">
         <div class="card-h"><h2>AI provider</h2></div>
-        <div class="field row"><div><div class="lab">Provider</div><div class="desc">Where chat and embeddings run. Hyve Agent will offer a hosted, zero-key option (#164).</div></div>
-          <div><div class="seg"><button class="on">OpenAI</button><button disabled>Hyve Agent (coming soon)</button></div></div></div>
+        <div class="field row"><div><div class="lab">Provider</div><div class="desc">Where chat and embeddings run. Hyve Connect will offer a hosted, zero-key option (#164).</div></div>
+          <div><div class="seg"><button class="on">OpenAI</button><button disabled>Hyve Connect (coming soon)</button></div></div></div>
         <div class="field row"><div><div class="lab">OpenAI API key</div><div class="desc">Used for chat, embeddings and moderation.</div></div>
           <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><input class="inp" type="password" value="sk-....................." style="max-width:320px" aria-label="OpenAI API key" id="openai-key"><span class="chip ok api-on"><span class="d"></span>Connected</span><span class="chip warn api-off"><span class="d"></span>Not connected</span></div></div>
         <div class="field row"><div><div class="lab">Model <span class="chip incoming">INCOMING</span></div><div class="desc">Refreshed list from PR lite#174; GPT-3.5 removed.</div></div>
@@ -862,7 +863,7 @@
       </div></div>
     </div>
 
-    <div class="panel" id="int-hub">
+    <div class="panel" id="int-qdrant">
     <div class="card qd" id="qd-1" style="margin-bottom:16px">
       <div class="card-h"><h2>Qdrant</h2><span class="spacer"></span><span class="chip muted"><span class="d"></span>Not connected</span></div>
       <div class="field row"><div><div class="lab">Vector database</div><div class="desc">Store embeddings in your own Qdrant cluster and lift the local chunk limit.</div></div>
@@ -891,9 +892,22 @@
         </div></div>
     </div>
 
+    </div>
+
+    <div class="panel" id="int-connect">
     <div class="card" style="margin-bottom:16px">
-      <div class="card-h"><h2>Hyve Connect</h2><span class="chip pro">PRO</span><span class="spacer"></span><button class="btn sm primary" data-snack="New access token created.">Generate token</button></div>
-      <div class="field row"><div><div class="lab">Semantic search API</div><div class="desc">Query your knowledge base from outside WordPress with a Bearer token, for apps, scripts or other sites.</div></div>
+      <div class="card-h"><h2>API Access</h2><span class="chip pro">PRO</span><span class="spacer"></span><button class="btn sm primary" data-snack="New access token created.">Generate token</button></div>
+      <div class="card-b" style="border-bottom:1px solid var(--border)">
+        <p style="margin:0;font-size:12.5px">With an Access Token, you can securely search your content from any location using the API.</p>
+        <pre style="margin:12px 0 0;padding:12px 14px;background:var(--bg);border:1px solid var(--border);border-radius:4px;font-size:12px;line-height:1.6;overflow-x:auto">curl --request POST
+  --url https://example.com/wp-json/hyve/v1/knowledge-base/search
+  --header 'authorization: Bearer hyve_sk_MozAlDXXXXXXXXXXXXXXXX'
+  --header 'content-type: application/json'
+  --data '{
+        "query": "What is the cost of the phone?"
+}'</pre>
+      </div>
+      <div class="field row"><div><div class="lab">Access tokens</div><div class="desc">Query your knowledge base from outside WordPress with a Bearer token, for apps, scripts or other sites.</div></div>
         <div class="tbl-wrap"><table style="min-width:420px">
           <thead><tr><th>Token</th><th style="text-align:right">Actions</th></tr></thead>
           <tbody><tr><td><code style="font-size:12px">hyve_tok_a81f2*********</code></td><td style="text-align:right"><button class="btn sm" data-snack="Token revealed.">Show</button> <button class="btn sm" data-snack="Token copied to clipboard.">Copy</button> <button class="btn sm danger" data-modal="modal-token-delete">Delete</button></td></tr></tbody>

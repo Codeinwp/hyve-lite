@@ -427,6 +427,7 @@ const ThreadView = ( { item } ) => {
 			{ isConfirmOpen && thread && (
 				<Modal
 					className="hyve-next-modal"
+					size="medium"
 					title={ __( 'Delete this conversation?', 'hyve-lite' ) }
 					onRequestClose={ () => setConfirmOpen( false ) }
 				>

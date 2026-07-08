@@ -60,7 +60,7 @@ const SetupChecklist = () => {
 			locked: ! hasAPI,
 			action: {
 				label: __( 'View integrations', 'hyve-lite' ),
-				onClick: () => navigate( 'settings', 'integrations' ),
+				onClick: () => navigate( 'settings', 'qdrant' ),
 			},
 		},
 	];

@@ -11,12 +11,17 @@ import { useSelect } from '@wordpress/data';
 import ChatBehavior from './ChatBehavior';
 import ChatAppearance from './ChatAppearance';
 import { ProviderPanel, AdvancedPanel } from './AI';
+import SettingsGeneral from './SettingsGeneral';
+import { QdrantPanel, ApiAccessPanel } from './Integrations';
 
 const PANELS = {
 	'chat-behavior': ChatBehavior,
 	'chat-appearance': ChatAppearance,
 	'ai-provider': ProviderPanel,
 	'ai-advanced': AdvancedPanel,
+	qdrant: QdrantPanel,
+	'api-access': ApiAccessPanel,
+	general: SettingsGeneral,
 };
 
 const Settings = ( { sub } ) => {

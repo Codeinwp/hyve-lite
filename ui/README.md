@@ -12,10 +12,8 @@ Working folder for [hyve#223 — Refresh Dashboard UI](https://github.com/Codein
 | [`current-ui-pro.md`](current-ui-pro.md) | How the Pro plugin extends the lite app: every filter, every Pro component and its controls, Pro REST endpoints and localized data, lite↔pro slot wiring. |
 | [`incoming-settings.md`](incoming-settings.md) | Settings arriving in still-open PRs (issues #176 system prompt, #232 capabilities, #221 model list) with exact keys and control types. Shipped items get removed from the page. |
 | [`future-features.md`](future-features.md) | Planned issues with no PR yet (#164, #168, #185, #192, #195) and where the new IA reserves room for them. |
-| [`reference-mockup.html`](reference-mockup.html) | Local copy of the baseline mockup artifact from the issue (treat as direction, not spec). |
-| [`mockup-v2.html`](mockup-v2.html) | **Current mockup**: the approved Chat/AI IA with all incoming/planned placeholders, all drill-in flows and modals, and a floating preview-state switcher (Free/Pro, Admin/Messages-only, API set/unset). Open directly in a browser. |
+| [`mockup-v2.html`](mockup-v2.html) | **Current mockup**: the 4-tab IA with the Settings sidebar, all incoming/planned placeholders, all drill-in flows and modals, and a floating preview-state switcher (Free/Pro, Admin/Messages-only, API set/unset). Open directly in a browser. |
 | [`QA.md`](QA.md) | Manual test checklist for everything built so far behind `?new=true`, including every state each card/screen can be in and how to force it. Update it whenever an item lands. |
-| [`variations-upsell-chart.html`](variations-upsell-chart.html) | Side-by-side design variations (conversations upsell, chart color pairings) used to pick the shipped treatments. Open directly in a browser. |
 
 ## Project rules
 

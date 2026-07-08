@@ -210,7 +210,7 @@ const StatsGrid = () => {
 								<Button
 									variant="link"
 									onClick={ () =>
-										navigate( 'settings', 'integrations' )
+										navigate( 'settings', 'qdrant' )
 									}
 								>
 									{ __( 'Need more storage?', 'hyve-lite' ) }
@@ -224,7 +224,7 @@ const StatsGrid = () => {
 			<StatCard
 				planned
 				icon={ cloud }
-				label={ __( 'Hyve Agent usage', 'hyve-lite' ) }
+				label={ __( 'Hyve Connect usage', 'hyve-lite' ) }
 				value={ __( 'N/A', 'hyve-lite' ) }
 				chip={
 					<Chip tone="planned" dot={ false }>
@@ -232,7 +232,7 @@ const StatsGrid = () => {
 					</Chip>
 				}
 				foot={ __(
-					'Reserved for hosted AI quota once Hyve Agent ships.',
+					'Reserved for hosted AI quota once Hyve Connect ships.',
 					'hyve-lite'
 				) }
 			/>

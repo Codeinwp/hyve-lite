@@ -123,9 +123,14 @@ const ROUTES = {
 				label: __( 'Advanced', 'hyve-lite' ),
 				group: __( 'AI', 'hyve-lite' ),
 			},
-			integrations: {
-				label: __( 'Integrations', 'hyve-lite' ),
-				group: __( 'Connections', 'hyve-lite' ),
+			qdrant: {
+				label: __( 'Qdrant', 'hyve-lite' ),
+				group: __( 'Integrations', 'hyve-lite' ),
+				requiresAPI: true,
+			},
+			'api-access': {
+				label: __( 'API Access', 'hyve-lite' ),
+				group: __( 'Integrations', 'hyve-lite' ),
 				requiresAPI: true,
 			},
 			general: {

@@ -10,7 +10,7 @@ Rules of engagement:
 
 Legend: `[ ]` todo · `[x]` done · `[~]` in progress
 
-**IA revision 2026-07-09**: the top nav flattened to Dashboard / Knowledge Base / Messages / Settings. The S4 (Chat), S5 (AI), S6 (Integrations) and S7 (Settings) surfaces all live as sidebar panels INSIDE the Settings screen now (`?nav=settings&sub=chat-behavior|chat-appearance|ai-provider|ai-advanced|integrations|general`). The item IDs below keep their original numbering; only the placement changed. Settings is reachable without an API key; gated sidebar panels are muted and redirect to Provider & model.
+**IA revision 2026-07-09**: the top nav flattened to Dashboard / Knowledge Base / Messages / Settings. The S4 (Chat), S5 (AI), S6 (Integrations) and S7 (Settings) surfaces all live as sidebar panels INSIDE the Settings screen now (`?nav=settings&sub=chat-behavior|chat-appearance|ai-provider|ai-advanced|qdrant|api-access|general`). The item IDs below keep their original numbering; only the placement changed. Settings is reachable without an API key; gated sidebar panels are muted and redirect to Provider & model.
 
 ## F. Foundations (shell and plumbing)
 
@@ -34,7 +34,7 @@ Legend: `[ ]` todo · `[x]` done · `[~]` in progress
   - [ ] F6.12 Steps (NUX checklist rows with done/locked states)
   - [ ] F6.13 Modal wrapper (use `@wordpress/components` Modal, styled to mockup)
   - [x] F6.14 Snackbar (`core/notices` snackbar; done 2026-07-08: `next/components/Notices.js` + `next/data/useSaveSettings.js` shared save hook with success/error notices)
-- [x] **F7. Header bar**: logo mark (the official plugin icon at `assets/images/icon.png` via `window.hyve.assets.images`), plugin name, real version pill (`window.hyve.version`, newly localized from `HYVE_LITE_VERSION`), API status pill (API connected / API not connected; provider-agnostic so it covers Hyve Agent later), Docs link, Upgrade CTA hidden when `window.hyve.license` exists (UTM campaign `header-upgrade`). (Done 2026-07-08: `next/components/HeaderBar.js`; App now bootstraps settings into the `hyve` store on mount, which starts F9.)
+- [x] **F7. Header bar**: logo mark (the official plugin icon at `assets/images/icon.png` via `window.hyve.assets.images`), plugin name, real version pill (`window.hyve.version`, newly localized from `HYVE_LITE_VERSION`), API status pill (API connected / API not connected; provider-agnostic so it covers Hyve Connect later), Docs link, Upgrade CTA hidden when `window.hyve.license` exists (UTM campaign `header-upgrade`). (Done 2026-07-08: `next/components/HeaderBar.js`; App now bootstraps settings into the `hyve` store on mount, which starts F9.)
 - [x] **F8. Tab nav**: 7 tabs with icons, active state synced with router; when no API key, api-required tabs are muted but Dashboard and AI stay usable, with a replace-redirect to Dashboard if the current screen requires the key (Dashboard then shows only the NUX checklist). No count badge on Messages (dropped). No PRO chips anywhere in nav or subnav: users click through and meet the upsell inside the screen (upsells designed later). Capability filtering stays data-only until PR lite#194 (W2). (Done 2026-07-08: `next/components/TabNav.js`.)
 - [ ] **F9. Store**: reuse the `hyve` data store (settings, hasAPI, totalChunks, serviceErrors); add route/subroute state for the new router. No second source of truth for settings.
 - [ ] **F10. ErrorSection + notices**: port service-error rendering and the `apiFetch` serviceErrors middleware into the new shell.
@@ -46,7 +46,7 @@ Legend: `[ ]` todo · `[x]` done · `[~]` in progress
 - [x] **S1.1 Status notice**: "Chat is live on all pages" wording driven by real `display_mode` (all/include/exclude/manual variants) + "Manage visibility" deep link to Chat > Visibility. (Done 2026-07-08: `VisibilityNotice` in `next/screens/Dashboard.js`; hidden while the knowledge base is empty since the chat is not live then.)
 - [x] **S1.2 NUX setup checklist** (#202): steps from real state (hasAPI, totalChunks > 0, isQdrantActive), steps 2 and 3 locked until step 1, Qdrant framed optional, card disappears when required steps done; strictly state-driven, not dismissible. (Done 2026-07-08: `next/components/SetupChecklist.js` + `next/screens/Dashboard.js`; totalChunks read from `window.hyve.stats` at load, live-wired in W1.)
 - [x] **S1.3 Stat cards**: Sessions (`stats.threads`), Messages (`stats.messages`), Knowledge base with meter + free-limit foot (`totalChunks`/`chunksLimit`, plain number when Qdrant active, "Need more storage?" link when > 400 and no Qdrant). (Done 2026-07-08: `StatsGrid` in `next/screens/Dashboard.js`; page-load snapshot from `window.hyve.stats`, live refresh stays W1.)
-- [~] **S1.4 Hyve Agent quota card** [decision]: dashed placeholder in production or behind a flag until #164. (Built 2026-07-08 as the dashed planned StatCard; the production-visibility decision stays open for the W7 flag flip.)
+- [~] **S1.4 Hyve Connect quota card** [decision]: dashed placeholder in production or behind a flag until #164. (Built 2026-07-08 as the dashed planned StatCard; renamed from Hyve Agent per plan decision #9; the production-visibility decision stays open for the W7 flag flip.)
 - [x] **S1.5 Chat usage chart**: real `window.hyve.chart` data (messages + sessions series, 7/14/30/90-day selector like today). DECIDED: chart.js (already bundled). (Done 2026-07-08: `next/components/UsageChart.js`, one combined line chart with both series per the mockup, replacing the old UI's two stacked bar charts; empty state note when there is no data yet. Card title is "Usage"; Messages is WP blue with light fill, Sessions is solid amber #dba617, picked from `ui/variations-upsell-chart.html`.)
 - [x] **S1.6 Recent conversations**: latest threads with title, message count, relative time; View all → Messages. DECIDED (2026-07-08): free shows 3 + an upsell block the height of the 2 missing rows (only when more conversations exist); Pro shows 5; empty state note when there are none. Uses `GET threads` first page as-is; a light "recent" endpoint stays optional [backend]. (Done 2026-07-08: `RecentConversations` in `next/screens/Dashboard.js`, upsell UTM campaign `messages-feature`. Upsell style: the "blue note" variant pinned to the card bottom, picked from `ui/variations-upsell-chart.html`; no avatars on rows.)
 - [x] **S1.7 Get started cards**: three cards with router links + tracking (`get-started-shortcut`, same featureValue ids as the old UI). (Done 2026-07-08 in `next/screens/Dashboard.js`; also added the shared page heading style `.hyve-next-pagehead`, currently used by Dashboard only.)
@@ -91,7 +91,7 @@ Legend: `[ ]` todo · `[x]` done · `[~]` in progress
 
 ## S5. AI screen
 
-- [ ] **S5.1 Provider selector**: OpenAI active, "Hyve Agent (coming soon)" disabled [decision: production visibility until #164].
+- [ ] **S5.1 Provider selector**: OpenAI active, "Hyve Connect (coming soon)" disabled [decision: production visibility until #164].
 - [x] **S5.2 API key field**: `api_key` password input, status chip (Connected/Not connected/Unsaved + "Get an API key" link when empty), Save posts real settings, updates `hasAPI` (unlocks tabs, ticks checklist step 1), surfaces endpoint warnings. (Done 2026-07-08: `next/screens/AI.js` ProviderPanel.)
 - [x] **S5.3 Model select** [PR-dep lite#174]: shipped with the CURRENT model list as a SelectControl (gpt-4o-mini recommended first, 4.1 family, 4o, 3.5 legacy); swap in the refreshed list when PR lite#174 merges. (Done 2026-07-08 in `next/screens/AI.js`.)
 - [ ] **S5.4 System prompt** [PRO][PR-dep lite#193 + hyve#252]: `system_prompt` textarea in Settings > AI. Per plan decision #8 this is settings-backed: build in lite gated by license (no filter slot), free tier disabled + upsell.
@@ -100,15 +100,15 @@ Legend: `[ ]` todo · `[x]` done · `[~]` in progress
 
 ## S6. Integrations screen
 
-- [ ] **S6.1 Qdrant card, three states**: not connected (key + endpoint + Connect via settings POST), migrating (progress from `GET {api}/qdrant`, 10s polling), connected (cluster shown, Disconnect).
-- [ ] **S6.2 Qdrant disconnect confirm modal**: `POST {api}/qdrant` deactivate, state returns to not connected.
-- [ ] **S6.3 Hyve Connect card** [PRO]: semantic search description + curl sample (`rest_url` + `knowledge-base/search`), token table (masked, Show/Copy), Generate token, Delete with confirm modal (`GET/POST/DELETE {api}/access-tokens`); free tier lock + upsell.
-- [ ] **S6.4 Webhooks planned card** (#192) [decision: production visibility].
+- [x] **S6.1 Qdrant card, three states**: not connected (key + endpoint + Connect via settings POST, docs link), migrating (warn chip, meter, chunks-moved count from `GET {api}/qdrant` with 10s polling, cleaned up on unmount), connected (ok chip, cluster host shown, Disconnect). Status chip lives in the card head. (Done 2026-07-09: `next/screens/Integrations.js`, wired as Settings > Integrations > Qdrant; API Access is its own sidebar item.)
+- [x] **S6.2 Qdrant disconnect confirm modal**: `POST {api}/qdrant` deactivate with Cancel/Disconnect, warning copy reused from the old UI, state returns to not connected. (Done 2026-07-09.)
+- [~] **S6.3 API Access card** [PRO] (renamed from Hyve Connect per plan decision #9): free tier DONE 2026-07-09; description + curl request preview (from the old ExternalSearch page, `window.hyve.rest_url`) render on BOTH tiers so the feature reads as real; free adds the PRO chip + blue note upsell (old Access Tokens paragraph, UTM `api-search`); pro shows a hint that the token manager lands here. The working pro panel (token table, Show/Copy, Generate, Delete confirm via `{api}/access-tokens`) is pro-owned and ships with P2.
+- [x] **S6.4 Webhooks planned card** (#192): mockup-only per the planned-things-don't-ship rule (same as Tools/Leads); enters the code when #192 is real.
 
 ## S7. Settings screen
 
-- [ ] **S7.1 License card** [PRO]: masked key, valid/expired/invalid states, Activate/Deactivate (`POST {api}/license`), renew/purchase-history links; absent in free tier.
-- [ ] **S7.2 Site integration card**: `post_row_addon_enabled` toggle, `telemetry_enabled` toggle (auto-save like today's OthersSection).
+- [ ] **S7.1 License card** [PRO]: masked key, valid/expired/invalid states, Activate/Deactivate (`POST {api}/license`), renew/purchase-history links; absent in free tier. Pro-owned endpoint, so this ships with the P1/P2 pro registration (plan decision #8), not in lite.
+- [x] **S7.2 Site integration card**: `post_row_addon_enabled` toggle, `telemetry_enabled` toggle, auto-saving on change like the old OthersSection (no Save button); descriptions reuse the old UI strings. (Done 2026-07-09: `next/screens/SettingsGeneral.js`, wired as the Settings > Plugin > General panel.)
 
 ## P. Pro plugin lockstep (Codeinwp/hyve)
 

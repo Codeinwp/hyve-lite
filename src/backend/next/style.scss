@@ -871,6 +871,19 @@ p.hyve-next-notice__text {
 	margin-bottom: 14px;
 }
 
+.hyve-next-code {
+	background: var(--hyve-surface-2);
+	border: 1px solid var(--hyve-border);
+	border-radius: var(--hyve-radius-in);
+	color: var(--hyve-text-2);
+	font-family: Consolas, Monaco, monospace;
+	font-size: 12px;
+	line-height: 1.6;
+	margin: 14px 0 0;
+	overflow-x: auto;
+	padding: 12px 14px;
+}
+
 .hyve-next-table-wrap {
 	overflow-x: auto;
 }
@@ -1012,6 +1025,27 @@ p.hyve-next-notice__text {
 
 .hyve-next-card__body {
 	padding: 16px;
+
+	:where(p) {
+		margin: 1em 0;
+	}
+
+	:where(p:first-child) {
+		margin-top: 0;
+	}
+
+	:where(p:last-child) {
+		margin-bottom: 0;
+	}
+}
+
+.hyve-next-card__intro {
+	border-bottom: 1px solid var(--hyve-border);
+	padding: 16px;
+
+	:where(p + p) {
+		margin-top: 8px;
+	}
 }
 
 /* Qualified with the element so the margin survives the .hyve-next p reset. */
@@ -1092,9 +1126,31 @@ p.hyve-next-card__hint {
 }
 
 .hyve-next-buttons {
+	align-items: center;
 	display: flex;
 	flex-wrap: wrap;
 	gap: 8px;
+}
+
+.hyve-next-endpoint {
+	color: var(--hyve-text);
+	font-size: 12.5px;
+	margin-right: 2px;
+}
+
+.hyve-next-meter {
+	background: var(--hyve-surface-2);
+	border-radius: 20px;
+	height: 6px;
+	margin: 10px 0 6px;
+	max-width: 420px;
+	overflow: hidden;
+
+	i {
+		background: var(--hyve-wp-blue);
+		display: block;
+		height: 100%;
+	}
 }
 
 /* Segmented controls follow the mockup: solid WP blue on the active option. */

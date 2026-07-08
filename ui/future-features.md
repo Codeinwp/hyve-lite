@@ -4,12 +4,14 @@ These are further out, but the new information architecture should reserve an ob
 
 Status snapshot: 2026-07-08.
 
-## Hyve Agent — hosted AI provider — [hyve#164](https://github.com/Codeinwp/hyve/issues/164)
+## Hyve Connect — hosted AI provider — [hyve#164](https://github.com/Codeinwp/hyve/issues/164)
 
 Zero-key hosted option on the Themeisle agents platform, covering both chat and embeddings.
 
+**Naming decision 2026-07-09**: the "Hyve Connect" name is reserved for THIS feature (you connect your site to Hyve's hosted service; matches Jetpack Connect style conventions). The issue still says "Hyve Agent", but "agent" will collide with tool calling (#195) and autonomous-bot vocabulary. The old external-search/token feature that previously used the Hyve Connect label is now called **API Access** in the new UI.
+
 Will need:
-- A **provider selector** in the AI settings: Hyve Agent / OpenAI (and possibly WP connectors later). This changes the Assistant/API-key area from "OpenAI settings" to "AI provider settings" — design the section as provider-scoped from day one.
+- A **provider selector** in the AI settings: Hyve Connect / OpenAI (and possibly WP connectors later). This changes the Assistant/API-key area from "OpenAI settings" to "AI provider settings" — design the section as provider-scoped from day one.
 - **Quota / usage UI** in the dashboard (free tier + pro tiers with monthly quotas): usage meters for chat messages and embedding tokens. The Dashboard's stat-card row should be able to host a quota card.
 - Account binding to the Themeisle account / license key (likely near the license field in pro).
 
@@ -44,7 +46,7 @@ Will need:
 - Contact form enable + field selection (name, email, message, …).
 - Webhook URL field (possibly multiple / per-event later).
 
-Placeholder home: webhook config belongs under **Integrations** (alongside Qdrant / Hyve Connect); the form config next to lead capture settings.
+Placeholder home: webhook config belongs under **Integrations** (alongside Qdrant / API Access); the form config next to lead capture settings.
 
 ## Tool / function calling (Abilities API) — [hyve#195](https://github.com/Codeinwp/hyve/issues/195)
 

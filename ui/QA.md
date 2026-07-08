@@ -20,7 +20,7 @@ How to force the common states:
 ## 2. Routing and URLs
 
 - [ ] Clicking each tab updates the URL (`?nav=...`) without a page reload.
-- [ ] Settings sidebar links update `&sub=...` (chat-behavior, chat-appearance, ai-provider, ai-advanced, integrations, general).
+- [ ] Settings sidebar links update `&sub=...` (chat-behavior, chat-appearance, ai-provider, ai-advanced, qdrant, api-access, general).
 - [ ] Opening a deep URL directly (for example `&nav=settings&sub=ai-advanced`) lands on that exact panel.
 - [ ] An unknown `nav` or `sub` value falls back gracefully (defaults to Dashboard / the screen's first panel) instead of a blank page.
 - [ ] Browser Back and Forward walk through previously visited views correctly.
@@ -46,7 +46,7 @@ How to force the common states:
 ## 5. Gating (no API key)
 
 - [ ] Without a key: Knowledge Base and Messages tabs are muted and unclickable; Dashboard and Settings stay usable.
-- [ ] In the Settings sidebar without a key: only Provider & model and Advanced are clickable; Behavior, Appearance, Integrations and General are muted.
+- [ ] In the Settings sidebar without a key: only Provider & model and Advanced are clickable; Behavior, Appearance, Qdrant, API Access and General are muted.
 - [ ] Opening Settings without a key lands on Provider & model (the default Behavior panel is gated, so it redirects).
 - [ ] Opening a gated screen's URL directly (for example `&nav=messages`) redirects to Dashboard, and a gated panel URL (for example `&nav=settings&sub=chat-behavior`) redirects to Provider & model; neither creates a Back loop.
 - [ ] After saving a valid key, all tabs and sidebar items unlock without a reload.
@@ -75,9 +75,9 @@ How to force the common states:
 - [ ] Sessions and Messages numbers match the old dashboard's Overview numbers.
 - [ ] Large numbers get thousands separators.
 - [ ] **Knowledge base, Qdrant OFF**: value reads "X / 500 chunks", a meter bar shows the fill, foot reads "N% of the free limit used."
-- [ ] **Knowledge base, Qdrant OFF, more than 400 chunks**: "Need more storage?" link appears in the foot and navigates to Settings > Integrations.
+- [ ] **Knowledge base, Qdrant OFF, more than 400 chunks**: "Need more storage?" link appears in the foot and navigates to Settings > Qdrant.
 - [ ] **Knowledge base, Qdrant ON**: plain number with a "chunks" suffix, no meter, foot reads "Stored in your Qdrant cluster."
-- [ ] Hyve Agent card: dashed border, PLANNED chip, faint "N/A" value.
+- [ ] Hyve Connect card: dashed border, PLANNED chip, faint "N/A" value.
 
 ## 9. Dashboard: Usage card
 
@@ -161,9 +161,17 @@ How to force the common states:
 
 ## 17. Settings sidebar and Chat > Behavior
 
-- [ ] Settings shows the sidebar left, panels right; groups labeled Chat, AI, Connections, Plugin (uppercase).
+- [ ] Settings shows the sidebar left, panels right; groups labeled Chat, AI, Integrations, Plugin (uppercase); the Integrations group holds Qdrant and API Access as separate items.
 - [ ] The active item has a blue left bar and tinted background; the sidebar sticks below the tabs while the panel scrolls.
-- [ ] Integrations and General show placeholder cards for now.
+- [ ] Qdrant panel with nothing configured: muted "Not connected" chip, API key + endpoint fields, Connect button, "Learn more about Qdrant" link.
+- [ ] Connecting with valid Qdrant credentials: success snackbar, card flips to "Migrating" (amber chip, progress meter, "X of Y chunks moved"), progress advances roughly every 10 seconds without a reload, then the card flips to "Connected".
+- [ ] Connected state: green chip, cluster host shown (no protocol), Disconnect button.
+- [ ] Disconnect opens the confirm modal; Cancel/Escape close it harmlessly; confirming disconnects (snackbar), returns the card to "Not connected", and the Dashboard knowledge base stat regains the "/ 500 chunks" meter after reload.
+- [ ] Leaving the panel mid-migration does not spam errors (polling stops on unmount).
+- [ ] API Access panel: description and the curl request preview render on both tiers; the preview URL uses this site's real REST URL and scrolls horizontally instead of overflowing the card.
+- [ ] API Access panel, free: PRO chip in the card head, blue upsell below the preview (UTM `api-search`). Pro: no chip, no upsell, a hint that the token manager arrives here (P2).
+- [ ] General panel: the "Add to Hyve" row action and Telemetry toggles save immediately on change (success snackbar, no Save button) and persist across reload.
+- [ ] Turning the row action off actually removes the "Add to Hyve" link from the Posts list table (and on brings it back).
 - [ ] Below roughly 980px the sidebar collapses above the content and wraps horizontally.
 - [ ] Every screen shows its heading and description above the content (Settings: "Configure the chat, the AI engine, integrations and the plugin.").
 - [ ] Visibility card: the saved `display_mode` is preselected; the selected radio card is highlighted in blue.
