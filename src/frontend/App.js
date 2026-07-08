@@ -1137,7 +1137,7 @@ class App {
 				'true' ===
 				window.localStorage.getItem( 'hyve-privacy-dismissed' )
 			);
-		} catch ( error ) {
+		} catch {
 			return false;
 		}
 	}
@@ -1168,7 +1168,7 @@ class App {
 
 		try {
 			window.localStorage.setItem( 'hyve-privacy-dismissed', 'true' );
-		} catch ( error ) {}
+		} catch {}
 	}
 
 	/**
