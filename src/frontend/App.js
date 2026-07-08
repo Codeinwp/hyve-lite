@@ -147,6 +147,10 @@ class App {
 			return;
 		}
 
+		// Sending a message is itself agreement, so retire the privacy notice
+		// (and remember it) once the visitor's first message goes out.
+		this.dismissPrivacyNotice();
+
 		this.sendRequest( message );
 
 		if ( this.hasSuggestions ) {
@@ -1144,6 +1148,129 @@ class App {
 		};
 	}
 
+	/**
+	 * Whether the visitor has dismissed the privacy notice in this browser.
+	 *
+	 * Dismissal is never persisted in the admin preview, so admins always see
+	 * the notice while configuring the widget.
+	 *
+	 * @return {boolean} True if the notice was dismissed.
+	 */
+	isPrivacyNoticeDismissed() {
+		if ( this.isPreview() ) {
+			return false;
+		}
+
+		try {
+			return (
+				'true' ===
+				window.localStorage.getItem( 'hyve-privacy-dismissed' )
+			);
+		} catch {
+			return false;
+		}
+	}
+
+	/**
+	 * Remember that the visitor dismissed the privacy notice and remove it.
+	 *
+	 * @return {void}
+	 */
+	dismissPrivacyNotice() {
+		const notice = document.querySelector( '.hyve-privacy-notice' );
+
+		if ( notice ) {
+			notice.remove();
+		}
+
+		// The "Powered by Hyve" credit is kept hidden while the notice shows
+		// (free version only); reveal it now that the notice is gone.
+		const credits = document.querySelector( '.hyve-credits' );
+
+		if ( credits ) {
+			credits.hidden = false;
+		}
+
+		if ( this.isPreview() ) {
+			return;
+		}
+
+		try {
+			window.localStorage.setItem( 'hyve-privacy-dismissed', 'true' );
+		} catch {}
+	}
+
+	/**
+	 * Build the dismissible privacy notice shown above the input box.
+	 *
+	 * The notice text carries a single `%s` placeholder marking where the
+	 * (optional) privacy-policy link goes; both halves are inserted as text
+	 * nodes so admin-supplied copy can never inject markup.
+	 *
+	 * @return {HTMLElement|null} The notice element, or null when it shouldn't show.
+	 */
+	renderPrivacyNotice() {
+		const notice = window.hyveClient?.privacyNotice;
+
+		// Skip entirely without a resolvable policy URL — a notice that points
+		// nowhere is worse than no notice. The admin dashboard warns when the
+		// toggle is on but no Privacy Policy page has been set.
+		if (
+			! notice?.enabled ||
+			! notice?.url ||
+			! strings.privacyNotice ||
+			this.isPrivacyNoticeDismissed()
+		) {
+			return null;
+		}
+
+		const icon = this.createElement( 'span', {
+			className: 'hyve-privacy-notice__icon',
+			innerHTML:
+				'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 3l7 3v5c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6l7-3z"/></svg>',
+		} );
+
+		const text = this.createElement( 'span', {
+			className: 'hyve-privacy-notice__text',
+		} );
+
+		const link = this.createElement( 'a', {
+			className: 'hyve-privacy-notice__link',
+			href: notice.url,
+			target: '_blank',
+			rel: 'noopener noreferrer',
+			textContent: strings.privacyPolicy || '',
+		} );
+
+		const [ before, after = '' ] = strings.privacyNotice.split( '%s' );
+
+		text.appendChild( document.createTextNode( before ) );
+		text.appendChild( link );
+		text.appendChild( document.createTextNode( after ) );
+
+		const dismiss = this.createElement( 'button', {
+			className: 'hyve-privacy-notice__dismiss',
+			ariaLabel: strings.dismissNotice ?? 'Dismiss',
+			innerHTML:
+				'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false"><path d="M12 13.06l3.712 3.713 1.061-1.06L13.061 12l3.712-3.712-1.06-1.06L12 10.938 8.288 7.227l-1.061 1.06L10.939 12l-3.712 3.712 1.06 1.061L12 13.061z"></path></svg>',
+		} );
+
+		dismiss.addEventListener( 'click', () => this.dismissPrivacyNotice() );
+
+		const container = this.createElement(
+			'div',
+			{ className: 'hyve-privacy-notice' },
+			icon,
+			text,
+			dismiss
+		);
+
+		if ( window.hyveClient.colors?.chat_background ) {
+			container.classList.add( 'is-dark' );
+		}
+
+		return container;
+	}
 	renderUI() {
 		// Whether the widget is anchored to the left side of the screen.
 		const isLeft = 'left' === window.hyveClient?.chatPosition;
@@ -1384,6 +1511,13 @@ class App {
 		}
 
 		chatWindow.appendChild( chatMessageBox );
+
+		const privacyNotice = this.renderPrivacyNotice();
+
+		if ( privacyNotice ) {
+			chatWindow.appendChild( privacyNotice );
+		}
+
 		chatWrite.appendChild( chatInputText );
 		chatInputBox.appendChild( chatWrite );
 		chatInputBox.appendChild( chatSendButton );

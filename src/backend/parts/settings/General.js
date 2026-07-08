@@ -8,6 +8,7 @@ import apiFetch from '@wordpress/api-fetch';
 import {
 	BaseControl,
 	Button,
+	Notice,
 	Panel,
 	PanelRow,
 	TextControl,
@@ -17,7 +18,7 @@ import {
 	__experimentalToggleGroupControlOption as ToggleGroupControlOption,
 } from '@wordpress/components';
 
-import { useState } from '@wordpress/element';
+import { createInterpolateElement, useState } from '@wordpress/element';
 
 import { useDispatch, useSelect } from '@wordpress/data';
 
@@ -80,6 +81,8 @@ const General = () => {
 	const { createNotice } = useDispatch( 'core/notices' );
 
 	const [ isSaving, setIsSaving ] = useState( false );
+	const privacySettingsUrl =
+		window.hyve?.privacySettings || 'options-privacy.php';
 
 	const onSave = async () => {
 		setIsSaving( true );
@@ -194,6 +197,82 @@ const General = () => {
 					<ToggleGroupControl
 						__nextHasNoMarginBottom
 						isBlock
+						label={ __( 'Privacy Notice', 'hyve-lite' ) }
+						value={ Boolean(
+							settings.privacy_notice_enabled ?? false
+						) }
+						onChange={ ( newValue ) =>
+							setSetting(
+								'privacy_notice_enabled',
+								Boolean( newValue )
+							)
+						}
+						help={ createInterpolateElement(
+							__(
+								'Show a short “By chatting, you agree to our Privacy Policy” notice above the chat input. The link points to the page set under <a>Settings → Privacy</a>.',
+								'hyve-lite'
+							),
+							{
+								a: (
+									// eslint-disable-next-line jsx-a11y/anchor-has-content
+									<a
+										href={ privacySettingsUrl }
+										target="_blank"
+										rel="noreferrer"
+									/>
+								),
+							}
+						) }
+					>
+						<ToggleGroupControlOption
+							aria-label={ __(
+								'Enable privacy notice',
+								'hyve-lite'
+							) }
+							label={ __( 'Enable', 'hyve-lite' ) }
+							showTooltip
+							value={ true }
+						/>
+						<ToggleGroupControlOption
+							aria-label={ __(
+								'Disable privacy notice',
+								'hyve-lite'
+							) }
+							label={ __( 'Disable', 'hyve-lite' ) }
+							showTooltip
+							value={ false }
+						/>
+					</ToggleGroupControl>
+				</PanelRow>
+
+				{ Boolean( settings.privacy_notice_enabled ) &&
+					! window.hyve?.hasPrivacyPage && (
+						<PanelRow>
+							<Notice status="warning" isDismissible={ false }>
+								{ createInterpolateElement(
+									__(
+										'No Privacy Policy page is set, so the notice won’t appear on your site yet. Choose one under <a>Settings → Privacy</a>.',
+										'hyve-lite'
+									),
+									{
+										a: (
+											// eslint-disable-next-line jsx-a11y/anchor-has-content
+											<a
+												href={ privacySettingsUrl }
+												target="_blank"
+												rel="noreferrer"
+											/>
+										),
+									}
+								) }
+							</Notice>
+						</PanelRow>
+					) }
+
+				<PanelRow>
+					<ToggleGroupControl
+						__nextHasNoMarginBottom
+						isBlock
 						label={ __(
 							'Show Source Link in Chat Responses',
 							'hyve-lite'
@@ -230,7 +309,6 @@ const General = () => {
 						/>
 					</ToggleGroupControl>
 				</PanelRow>
-
 				<PanelRow>
 					<TextControl
 						label={ __( 'Welcome Message', 'hyve-lite' ) }

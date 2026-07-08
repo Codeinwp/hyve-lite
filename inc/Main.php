@@ -203,6 +203,8 @@ class Main {
 							'images' => HYVE_LITE_URL . 'assets/images/',
 						],
 						'stats'             => $this->get_stats(),
+						'privacySettings'   => admin_url( 'options-privacy.php' ),
+						'hasPrivacyPage'    => '' !== get_privacy_policy_url(),
 						'docs'              => 'https://docs.themeisle.com/article/2009-hyve-documentation',
 						'qdrant_docs'       => 'https://docs.themeisle.com/article/2066-integrate-hyve-with-qdrant',
 						'pro'               => 'https://themeisle.com/plugins/hyve/',
@@ -278,6 +280,7 @@ class Main {
 				'post_row_addon_enabled'     => true,
 				'sound_enabled'              => true,
 				'show_timestamp'             => true,
+				'privacy_notice_enabled'     => false,
 				'chat_position'              => 'right',
 				'show_source_link'           => false,
 				'display_mode'               => 'all',
@@ -442,7 +445,7 @@ class Main {
 
 		wp_add_inline_script(
 			'hyve-lite-scripts',
-			'document.addEventListener("DOMContentLoaded", function() { const c = document.createElement("div"); c.className = "hyve-credits"; c.innerHTML = "<a href=\"https://themeisle.com/plugins/hyve/\" target=\"_blank\">Powered by Hyve</a>"; document.querySelector( ".hyve-input-box" ).before( c ); });'
+			'document.addEventListener("DOMContentLoaded", function() { const box = document.querySelector( ".hyve-input-box" ); if ( ! box ) { return; } const c = document.createElement("div"); c.className = "hyve-credits"; c.innerHTML = "<a href=\"https://themeisle.com/plugins/hyve/\" target=\"_blank\">Powered by Hyve</a>"; if ( document.querySelector( ".hyve-privacy-notice" ) ) { c.hidden = true; } box.before( c ); });'
 		);
 	}
 
@@ -499,6 +502,20 @@ class Main {
 				'soundEnabled'  => boolval( $settings['sound_enabled'] ?? true ),
 				'showTimestamp' => boolval( $settings['show_timestamp'] ?? true ),
 				'chatPosition'  => 'left' === ( $settings['chat_position'] ?? 'right' ) ? 'left' : 'right',
+				'privacyNotice' => [
+					'enabled' => boolval( $settings['privacy_notice_enabled'] ?? false ),
+					/**
+					 * Filters the URL the chat privacy notice links to.
+					 *
+					 * Defaults to the site's Privacy Policy page (Settings → Privacy).
+					 * Return an empty string to render the notice without a link.
+					 *
+					 * @since 1.5.0
+					 *
+					 * @param string $url The privacy policy URL.
+					 */
+					'url'     => (string) apply_filters( 'hyve_privacy_notice_url', get_privacy_policy_url() ),
+				],
 				'strings'       => [
 					'title'             => __( 'AI Assistant', 'hyve-lite' ),
 					'status'            => __( 'Online', 'hyve-lite' ),
@@ -513,6 +530,25 @@ class Main {
 					'closeChat'         => __( 'Close chat', 'hyve-lite' ),
 					'sendMessage'       => __( 'Send message', 'hyve-lite' ),
 					'previewNotice'     => __( 'Preview mode — test your assistant here. These messages aren\'t saved.', 'hyve-lite' ),
+					/**
+					 * Filters the chat privacy notice text. Use a single %s where the
+					 * privacy policy link should appear.
+					 *
+					 * @since 1.5.0
+					 *
+					 * @param string $text The notice text.
+					 */
+					// translators: %s: Privacy Policy link.
+					'privacyNotice'     => (string) apply_filters( 'hyve_privacy_notice_text', __( 'By chatting, you agree to our %s.', 'hyve-lite' ) ),
+					/**
+					 * Filters the linked label inside the chat privacy notice.
+					 *
+					 * @since 1.5.0
+					 *
+					 * @param string $label The link label.
+					 */
+					'privacyPolicy'     => (string) apply_filters( 'hyve_privacy_notice_link_text', __( 'Privacy Policy', 'hyve-lite' ) ),
+					'dismissNotice'     => __( 'Dismiss', 'hyve-lite' ),
 				],
 				'icons'         => self::get_inline_icons( $icon_slugs ),
 				'canShow'       => $should_show_chat,

@@ -344,6 +344,75 @@ body.wp-admin {
 		}
 	}
 
+	.hyve-privacy-notice {
+		display: flex;
+		align-items: center;
+		gap: 9px;
+		flex-shrink: 0;
+		margin: 0 16px 8px;
+		padding: 9px 8px 9px 11px;
+		font-size: 12px;
+		line-height: 1.4;
+		color: #64748b;
+		background-color: rgba(15, 23, 42, 0.035);
+		border-radius: 10px;
+
+		.hyve-privacy-notice__icon {
+			display: inline-flex;
+			flex-shrink: 0;
+			width: 15px;
+			height: 15px;
+			opacity: 0.75;
+
+			svg {
+				width: 15px;
+				height: 15px;
+				stroke: currentColor;
+			}
+		}
+
+		.hyve-privacy-notice__text {
+			flex-grow: 1;
+		}
+
+		.hyve-privacy-notice__link {
+			color: inherit;
+			font-weight: 600;
+			text-decoration: underline;
+
+			&:hover,
+			&:focus-visible {
+				color: #1155cc;
+			}
+		}
+
+		.hyve-privacy-notice__dismiss {
+			display: inline-flex;
+			align-items: center;
+			justify-content: center;
+			flex-shrink: 0;
+			width: 22px;
+			height: 22px;
+			padding: 0;
+			border: none;
+			border-radius: 6px;
+			background: transparent;
+			color: inherit;
+			opacity: 0.55;
+			cursor: pointer;
+			transition: opacity 0.15s ease, background-color 0.15s ease;
+
+			svg {
+				fill: currentColor;
+			}
+
+			&:hover,
+			&:focus-visible {
+				opacity: 1;
+				background-color: rgba(15, 23, 42, 0.06);
+			}
+		}
+	}
 	.hyve-input-box {
 		display: flex;
 		align-items: center;
@@ -498,6 +567,21 @@ body.wp-admin {
 		.hyve-credits,
 		.hyve-credits a {
 			color: #94a3b8;
+		}
+
+		.hyve-privacy-notice {
+			color: #cbd5e1;
+			background-color: rgba(255, 255, 255, 0.06);
+
+			.hyve-privacy-notice__link:hover,
+			.hyve-privacy-notice__link:focus-visible {
+				color: #fff;
+			}
+
+			.hyve-privacy-notice__dismiss:hover,
+			.hyve-privacy-notice__dismiss:focus-visible {
+				background-color: rgba(255, 255, 255, 0.1);
+			}
 		}
 
 		.hyve-input-box {
