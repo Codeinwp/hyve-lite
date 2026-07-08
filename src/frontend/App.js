@@ -278,7 +278,7 @@ class App {
 				this.add( strings.tryAgain, 'bot' );
 				this.setLoading( false );
 			}
-		} catch ( error ) {
+		} catch {
 			this.add( strings.tryAgain, 'bot' );
 			this.setLoading( false );
 		}
@@ -344,7 +344,7 @@ class App {
 			}
 
 			return true;
-		} catch ( error ) {
+		} catch {
 			return false;
 		}
 	}
@@ -359,7 +359,7 @@ class App {
 				'hyve-stream-unsupported',
 				String( Date.now() )
 			);
-		} catch ( error ) {}
+		} catch {}
 	}
 
 	/**
@@ -385,7 +385,7 @@ class App {
 		if ( dataLines.length ) {
 			try {
 				data = JSON.parse( dataLines.join( '\n' ) );
-			} catch ( error ) {
+			} catch {
 				data = null;
 			}
 		}
@@ -448,7 +448,7 @@ class App {
 			) {
 				this.setRecordID( setup.record_id );
 			}
-		} catch ( error ) {
+		} catch {
 			return false;
 		}
 
@@ -595,7 +595,7 @@ class App {
 			}
 
 			return false;
-		} catch ( error ) {
+		} catch {
 			clearTimeout( watchdog );
 
 			if ( started ) {
@@ -637,7 +637,6 @@ class App {
 		const message = data?.message ?? strings.tryAgain;
 		this.add( message, 'bot' );
 		this.setLoading( false );
-
 		// Contextual follow-ups ride on the terminal event (Pro). They are only
 		// present on a successful, grounded answer.
 		this.renderSuggestions( data?.follow_ups );
@@ -672,7 +671,12 @@ class App {
 			this.removeMessage( 'hyve-preloader' );
 
 			if ( response.error ) {
-				this.add( strings.tryAgain, 'bot' );
+				this.add(
+					'content_flagged' === response.code
+						? strings.flagged
+						: strings.tryAgain,
+					'bot'
+				);
 				this.setLoading( false );
 				return;
 			}
@@ -692,7 +696,7 @@ class App {
 			this.addPreloaderMessage( response.query_run );
 
 			await this.getResponse( message );
-		} catch ( error ) {
+		} catch {
 			this.removeMessage( 'hyve-preloader' );
 			this.add( strings.tryAgain, 'bot' );
 			this.setLoading( false );

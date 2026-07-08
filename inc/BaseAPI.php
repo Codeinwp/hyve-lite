@@ -51,12 +51,10 @@ class BaseAPI {
 	 * @return string
 	 */
 	public function get_error_message( $error ) {
-		$errors = [
-			'invalid_api_key' => __( 'Incorrect API key provided.', 'hyve-lite' ),
-			'missing_scope'   => __( 'You have insufficient permissions for this operation.', 'hyve-lite' ),
-		];
-		if ( isset( $errors[ $error->get_error_code() ] ) ) {
-			return $errors[ $error->get_error_code() ];
+		$message = OpenAI::get_error_message_for_code( $error->get_error_code() );
+
+		if ( null !== $message ) {
+			return $message;
 		}
 
 		return $error->get_error_message();
@@ -64,10 +62,37 @@ class BaseAPI {
 
 	/**
 	 * Get endpoint.
-	 * 
+	 *
 	 * @return string
 	 */
 	public function get_endpoint() {
 		return $this->namespace . '/' . $this->version;
+	}
+
+	/**
+	 * Run a paginated query and detect whether more rows exist.
+	 *
+	 * Fetches one row beyond the page size to tell whether there is a next page,
+	 * which avoids the found-rows count (SQL_CALC_FOUND_ROWS) that
+	 * WP_Query::$found_posts otherwise requires. The extra row is trimmed off the
+	 * returned set.
+	 *
+	 * @param array<string, mixed> $args     WP_Query arguments, without paging.
+	 * @param int                  $per_page Page size.
+	 *
+	 * @return array{posts: array<int, mixed>, more: bool}
+	 */
+	protected function query_page( $args, $per_page = 20 ) {
+		$args['posts_per_page'] = $per_page + 1;
+		$args['no_found_rows']  = true;
+
+		$query = new \WP_Query( $args );
+		$posts = $query->posts;
+		$more  = count( $posts ) > $per_page;
+
+		return [
+			'posts' => array_slice( $posts, 0, $per_page ),
+			'more'  => $more,
+		];
 	}
 }

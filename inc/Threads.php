@@ -14,6 +14,8 @@ class Threads {
 
 	public const CHART_DATA_TRANSIENT = 'hyve_charts_data';
 
+	public const MESSAGES_COUNT_TRANSIENT = 'hyve_messages_count';
+
 	/**
 	 * Constructor.
 	 */
@@ -156,7 +158,22 @@ class Threads {
 		update_post_meta( $post_id, '_hyve_thread_count', 1 );
 		update_post_meta( $post_id, '_hyve_thread_id', $data['thread_id'] );
 
+		self::flush_stats_cache();
+
 		return $post_id;
+	}
+
+	/**
+	 * Invalidate the cached dashboard stats after a thread or message changes.
+	 *
+	 * Both the per-day chart and the total messages count are cached; both must
+	 * be cleared together so the Overview totals and the chart stay in sync.
+	 *
+	 * @return void
+	 */
+	private static function flush_stats_cache() {
+		delete_transient( self::CHART_DATA_TRANSIENT );
+		delete_transient( self::MESSAGES_COUNT_TRANSIENT );
 	}
 
 	/**
@@ -193,7 +210,7 @@ class Threads {
 			]
 		);
 
-		delete_transient( self::CHART_DATA_TRANSIENT );
+		self::flush_stats_cache();
 		return $post_id;
 	}
 
@@ -213,7 +230,7 @@ class Threads {
 	 * @return int
 	 */
 	public static function get_messages_count() {
-		$messages = get_transient( 'hyve_messages_count' );
+		$messages = get_transient( self::MESSAGES_COUNT_TRANSIENT );
 
 		if ( ! $messages ) {
 			global $wpdb;
@@ -224,7 +241,7 @@ class Threads {
 				$messages = 0;
 			}
 
-			set_transient( 'hyve_messages_count', $messages, HOUR_IN_SECONDS );
+			set_transient( self::MESSAGES_COUNT_TRANSIENT, $messages, HOUR_IN_SECONDS );
 		}
 
 		return $messages;
