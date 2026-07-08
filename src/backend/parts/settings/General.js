@@ -81,6 +81,8 @@ const General = () => {
 	const { createNotice } = useDispatch( 'core/notices' );
 
 	const [ isSaving, setIsSaving ] = useState( false );
+	const privacySettingsUrl =
+		window.hyve?.privacySettings || 'options-privacy.php';
 
 	const onSave = async () => {
 		setIsSaving( true );
@@ -214,10 +216,7 @@ const General = () => {
 								a: (
 									// eslint-disable-next-line jsx-a11y/anchor-has-content
 									<a
-										href={
-											window.hyve?.privacySettings ||
-											'options-privacy.php'
-										}
+										href={ privacySettingsUrl }
 										target="_blank"
 										rel="noreferrer"
 									/>
@@ -259,11 +258,7 @@ const General = () => {
 										a: (
 											// eslint-disable-next-line jsx-a11y/anchor-has-content
 											<a
-												href={
-													window.hyve
-														?.privacySettings ||
-													'options-privacy.php'
-												}
+												href={ privacySettingsUrl }
 												target="_blank"
 												rel="noreferrer"
 											/>
@@ -274,6 +269,46 @@ const General = () => {
 						</PanelRow>
 					) }
 
+				<PanelRow>
+					<ToggleGroupControl
+						__nextHasNoMarginBottom
+						isBlock
+						label={ __(
+							'Show Source Link in Chat Responses',
+							'hyve-lite'
+						) }
+						value={ Boolean( settings.show_source_link ) }
+						onChange={ ( newValue ) =>
+							setSetting(
+								'show_source_link',
+								Boolean( newValue )
+							)
+						}
+						help={ __(
+							'When enabled, chat responses include a link to the source content they were based on. The link is only added for publicly accessible sources.',
+							'hyve-lite'
+						) }
+					>
+						<ToggleGroupControlOption
+							aria-label={ __(
+								'Enable source links',
+								'hyve-lite'
+							) }
+							label={ __( 'Enable', 'hyve-lite' ) }
+							showTooltip
+							value={ true }
+						/>
+						<ToggleGroupControlOption
+							aria-label={ __(
+								'Disable source links',
+								'hyve-lite'
+							) }
+							label={ __( 'Disable', 'hyve-lite' ) }
+							showTooltip
+							value={ false }
+						/>
+					</ToggleGroupControl>
+				</PanelRow>
 				<PanelRow>
 					<TextControl
 						label={ __( 'Welcome Message', 'hyve-lite' ) }

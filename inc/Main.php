@@ -282,6 +282,7 @@ class Main {
 				'show_timestamp'             => true,
 				'privacy_notice_enabled'     => false,
 				'chat_position'              => 'right',
+				'show_source_link'           => false,
 				'display_mode'               => 'all',
 				'display_rules'              => [],
 			]
