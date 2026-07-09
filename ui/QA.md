@@ -292,3 +292,28 @@ How to force the states: edit an already-indexed post to get "Edited since index
 - [ ] Clicking the plan pill navigates to Settings > License.
 - [ ] With pro active but an outdated pro build, the sidebar simply has no License entry and the plan pill still renders from the localized license data (nothing breaks).
 - [ ] With an inactive or expired license, the SDK's red "add your license code" admin notice does NOT show anywhere on the Hyve dashboard (old or new UI); it still shows on other wp-admin pages.
+
+## 25. Custom Data drill-in and the shared add/edit modal (needs the pro plugin active)
+
+- [ ] Knowledge Base > Add a source > Custom Data opens the working panel (no locked view, no "on its way" hint); the back link returns to All sources.
+- [ ] On free lite, the locked Custom Data drill shows the faded dummy preview table (six sample titles, disabled Edit buttons) between the intro and the upsell, like the FAQ preview.
+- [ ] The list loads knowledge entries with numbered pagination (Previous / "Page X of Y" / Next) and a results count; search filters with a debounce and no flicker from out-of-order responses.
+- [ ] **Add Data** (primary, top right) opens the modal empty; Add is disabled until both title and content are filled; the character counter tracks the content against the 4,000 limit and typing stops at the limit.
+- [ ] Saving a new entry: busy state, success snackbar, the modal closes and the list refreshes with the new entry.
+- [ ] **Edit** on a row opens the modal prefilled; Save updates the entry.
+- [ ] **Delete** inside the edit modal asks for confirmation (medium modal, "Hyve will stop using ... permanently"); Cancel keeps the entry, confirming removes it and refreshes the list.
+- [ ] Deleting the last entry of the final page steps the pager back instead of showing an empty page.
+- [ ] Content that fails moderation escalates to the review modal (category rows, score bars); Override Moderation adds the entry anyway; closing the review returns to the edit modal with the content intact.
+- [ ] With the chunk limit reached (free tier limits, Qdrant off): the warning notice shows and Add Data is disabled.
+- [ ] The Needs attention badge updates after moderation-related saves without a reload.
+- [ ] The old dashboard's Custom Data page still works against the same endpoint (its infinite Load More is unaffected by the pagination fields).
+
+## 26. FAQ pro panel (needs the pro plugin active)
+
+- [ ] Knowledge Base > FAQ shows the working panel (no PRO chip, no preview, no upsell): intro copy + a table of unanswered questions with an Asked count, newest data from `GET {api}/faq`.
+- [ ] Empty state reads "No data found." when there are no captured questions.
+- [ ] **Answer** opens the shared add/edit modal with the question prefilled as the title; saving an answer removes the question from the list (it is now in the Knowledge Base) and shows the success snackbar.
+- [ ] Cancelling the modal keeps the question in the list.
+- [ ] An answer that fails moderation escalates to the review modal; Override adds it and the question still leaves the list.
+- [ ] **Delete** asks for confirmation first (medium modal); Cancel keeps the question, confirming removes it with a snackbar.
+- [ ] With the chunk limit reached, the warning notice shows and Answer is disabled (Delete stays available).

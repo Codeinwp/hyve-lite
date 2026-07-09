@@ -725,7 +725,7 @@ class API extends BaseAPI {
 	/**
 	 * Count posts matching a meta query.
 	 *
-	 * @param array<int, array<string, string>> $meta_query Meta query.
+	 * @param array<int|string, array<string, string>|string> $meta_query Meta query, including an optional `relation` key.
 	 *
 	 * @return int
 	 */

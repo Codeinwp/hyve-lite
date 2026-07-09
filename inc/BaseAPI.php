@@ -82,7 +82,7 @@ class BaseAPI {
 	 * @param int                  $per_page   Page size.
 	 * @param bool                 $with_total Also count all matching rows.
 	 *
-	 * @return array{posts: array<int, mixed>, more: bool, total?: int}
+	 * @return ($with_total is true ? array{posts: array<int, mixed>, more: bool, total: int} : array{posts: array<int, mixed>, more: bool})
 	 */
 	protected function query_page( $args, $per_page = 20, $with_total = false ) {
 		if ( $with_total ) {

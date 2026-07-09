@@ -1305,6 +1305,34 @@ const LOCKED_COPY = {
 	},
 };
 
+// Dummy rows from the old lite Custom Data page, previewing the pro panel.
+const CUSTOM_PREVIEW = [
+	{
+		ID: 1,
+		title: __( 'Halloween Limited Time Deal Information', 'hyve-lite' ),
+	},
+	{
+		ID: 2,
+		title: __( 'What to do if my order is missing an item?', 'hyve-lite' ),
+	},
+	{
+		ID: 3,
+		title: __( 'How do I return an item?', 'hyve-lite' ),
+	},
+	{
+		ID: 4,
+		title: __( 'How do I track my order?', 'hyve-lite' ),
+	},
+	{
+		ID: 5,
+		title: __( 'How do I change my delivery address?', 'hyve-lite' ),
+	},
+	{
+		ID: 6,
+		title: __( 'How do I cancel my order?', 'hyve-lite' ),
+	},
+];
+
 const LockedSource = ( { subKey } ) => {
 	const isPro = Boolean( window.hyve?.license );
 
@@ -1343,6 +1371,38 @@ const LockedSource = ( { subKey } ) => {
 						</p>
 					) }
 				</div>
+
+				{ ! isPro && 'source-custom' === subKey && (
+					<div className="hyve-next-preview">
+						<DataTable
+							columns={ [
+								{
+									key: 'title',
+									label: __( 'Title', 'hyve-lite' ),
+									render: ( row ) => (
+										<div className="hyve-next-table__main">
+											<span className="hyve-next-table__title">
+												{ row.title }
+											</span>
+										</div>
+									),
+								},
+								{
+									key: 'actions',
+									label: __( 'Actions', 'hyve-lite' ),
+									align: 'actions',
+									render: () => (
+										<Button variant="secondary" disabled>
+											{ __( 'Edit', 'hyve-lite' ) }
+										</Button>
+									),
+								},
+							] }
+							rows={ CUSTOM_PREVIEW }
+							rowKey={ ( row ) => row.ID }
+						/>
+					</div>
+				) }
 
 				{ ! isPro && copy && (
 					<div className="hyve-next-act__upsell">

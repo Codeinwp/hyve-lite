@@ -1157,6 +1157,11 @@ p.hyve-next-notice__text {
 	margin-top: 20px;
 }
 
+/* Pushes actions after it to the right edge (e.g. a left-aligned Delete). */
+.hyve-next-modal__spacer {
+	flex: 1;
+}
+
 .hyve-next-bubble {
 	--hyve-bubble-bg: #ecf1fb;
 	--hyve-bubble-color: var(--hyve-text);

@@ -188,7 +188,19 @@ class Main {
 
 		add_filter(
 			'hyve_options_data',
+			/**
+			 * Localize the dashboard data.
+			 *
+			 * @param array<string, mixed> $data Localized dashboard data.
+			 *
+			 * @return array<string, mixed>
+			 */
 			function ( $data ) use ( $settings, $post_types_for_js ) {
+				/**
+				 * PHPStan false positive: the return type is an array, but PHPStan cannot infer it because of the dynamic nature of the filter.
+				 * 
+				 * @phpstan-ignore return.type
+				 */
 				return array_merge(
 					$data,
 					[
