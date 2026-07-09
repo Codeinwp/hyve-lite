@@ -667,6 +667,10 @@
 		border-left-color: var(--hyve-warn-dot);
 	}
 
+	&.is-bad {
+		border-left-color: var(--hyve-bad-dot);
+	}
+
 	&.is-compact {
 		box-shadow: none;
 		margin: 10px 0 0;

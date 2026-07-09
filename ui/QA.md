@@ -258,3 +258,12 @@ How to force the states: edit an already-indexed post to get "Edited since index
 - [ ] **Retry** on a flagged item re-runs moderation: clean content passes and leaves the list; still-flagged content reopens the modal with fresh scores.
 - [ ] In the WordPress drill-in, adding a post that fails moderation now opens the same review modal (not just a snackbar); overriding from there flips the row to Added.
 - [ ] Escape and Cancel close the modal harmlessly from every entry point.
+
+## 22. Service errors (F10) and tracking (F12)
+
+- [ ] With a service error present (for example an OpenAI key with no credits after a chat attempt), a red-left-bordered notice appears above the page heading on EVERY screen: provider tag, message, code, timestamp, and the "test the chat after solving" instruction.
+- [ ] Saving settings refreshes the notice list without a reload (the settings response carries fresh service errors).
+- [ ] The notice disappears after a successful chat interaction (matches the old dashboard behavior).
+- [ ] Tracking (needs telemetry enabled, watch the tiTrk network calls): switching tabs/panels queues `dashboard / route / <screen>/<sub>` events; programmatic redirects (gating) do not.
+- [ ] Saving a non-empty API key queues `openai / api-key / added`.
+- [ ] Themeisle campaign banners (when a campaign is live, or with the SDK banner test mode) inject at the top of the content area, above the page heading; with a valid pro license the slot stays hidden.

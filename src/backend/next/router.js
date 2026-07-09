@@ -293,6 +293,15 @@ export const navigate = (
 	notify();
 
 	window.scrollTo( 0, 0 );
+
+	// Replace navigations are programmatic redirects, not user intent.
+	if ( ! replace ) {
+		window.hyveTrk?.add?.( {
+			feature: 'dashboard',
+			featureComponent: 'route',
+			featureValue: resolved ? `${ screen }/${ resolved }` : screen,
+		} );
+	}
 };
 
 /**

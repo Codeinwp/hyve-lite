@@ -18,6 +18,7 @@ import HeaderBar from './components/HeaderBar';
 import TabNav from './components/TabNav';
 import SideNav from './components/SideNav';
 import Notices from './components/Notices';
+import ServiceErrors from './components/ServiceErrors';
 import Dashboard from './screens/Dashboard';
 import KnowledgeBase from './screens/KnowledgeBase';
 import Messages from './screens/Messages';
@@ -49,9 +50,15 @@ const App = () => {
 
 			setSettings( response );
 			setLoading();
+
+			// The Themeisle SDK waits for this before injecting campaign
+			// banners into #tsdk_banner.
+			document.dispatchEvent( new Event( 'themeisle:banner:init' ) );
 		};
 
 		fetchSettings();
+
+		window.tsdk_reposition_notice?.();
 	}, [ setSettings, setLoading ] );
 
 	const routes = getRoutes();
@@ -108,6 +115,18 @@ const App = () => {
 			<TabNav />
 
 			<div className="hyve-next__wrap">
+				{ /* Campaign banner slot, hidden for licensed pro users. */ }
+				<div
+					id="tsdk_banner"
+					style={
+						'valid' === window.hyve?.hasPro
+							? { display: 'none' }
+							: undefined
+					}
+				></div>
+
+				<ServiceErrors />
+
 				{ current && (
 					<div className="hyve-next-pagehead">
 						<h1>{ current.label }</h1>

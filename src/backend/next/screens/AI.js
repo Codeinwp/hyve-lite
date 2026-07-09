@@ -102,6 +102,14 @@ export const ProviderPanel = () => {
 
 		setHasAPI( hasKey );
 
+		if ( hasKey ) {
+			window.hyveTrk?.add?.( {
+				feature: 'openai',
+				featureComponent: 'api-key',
+				featureValue: 'added',
+			} );
+		}
+
 		if ( response.warning ) {
 			createNotice( 'warning', response.warning, {
 				type: 'snackbar',
