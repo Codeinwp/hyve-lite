@@ -342,3 +342,14 @@ How to force the states: edit an already-indexed post to get "Edited since index
 - [ ] A URL row whose crawled page had no title falls back to showing the URL.
 - [ ] On free lite, the card is unchanged: WordPress-only rows, dropdown shows only WP post types.
 - [ ] The OLD dashboard's Knowledge Base listings still show WordPress content only (no pro rows leaked in).
+
+## 29. Documents drill-in (needs the pro plugin active)
+
+- [ ] Knowledge Base > Add a source > Documents opens the working panel; the back link returns to All sources.
+- [ ] **Select Files** opens the Media Library modal filtered to PDF/DOCX/TXT/CSV and allows multi-select; it is disabled at the chunk limit and while a batch runs.
+- [ ] Importing several files: rows appear at the top with chip statuses, one file processes at a time (Queued, then Processing with a spinner, then Done), and the batch ends with the list refreshed and finished rows folded into it.
+- [ ] A file with sensitive data pauses the queue on "Needs review" and opens the review modal (file name, summary, detected categories); Cancel skips that file and the queue continues; "Import anyway" imports it and continues.
+- [ ] A file that cannot be processed shows the red Failed chip with the error under the title and stays visible after the batch.
+- [ ] Indexed rows show an Indexed chip (or "Indexing failed" with the stored error) and paginate at 20 with step-back on the last delete.
+- [ ] **Delete** asks for confirmation (the file stays in the Media Library); confirming removes the entry with a snackbar.
+- [ ] Imported documents appear in the unified Indexed content list with the Document source label.
