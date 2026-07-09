@@ -1225,6 +1225,103 @@ class API extends BaseAPI {
 	}
 
 	/**
+	 * Build the text used for knowledge base retrieval.
+	 *
+	 * Retrieval embeds this text and searches the knowledge base with it. For the
+	 * first message it is just the question. For follow-ups it also blends in the
+	 * most recent turns of the conversation, so a topic-less question such as
+	 * "How difficult is it?" still carries the subject ("pickleball") into the
+	 * search and matches the relevant content, instead of embedding a query with
+	 * no topic that finds nothing. The model already receives the conversation
+	 * history through the OpenAI conversation; this closes the same gap for
+	 * retrieval.
+	 *
+	 * @param string     $message   The current user message.
+	 * @param int|string $record_id The thread post ID, when the conversation exists.
+	 * @param string     $thread_id The OpenAI conversation ID, when one exists.
+	 *
+	 * @return string
+	 */
+	private function build_retrieval_query( $message, $record_id, $thread_id = '' ) {
+		$history = [];
+
+		if ( ! empty( $record_id ) && 'hyve_threads' === get_post_type( (int) $record_id ) ) {
+			$thread_data = get_post_meta( (int) $record_id, '_hyve_thread_data', true );
+
+			if ( is_array( $thread_data ) ) {
+				$history = $thread_data;
+			}
+		}
+
+		/**
+		 * Filters how many recent messages are blended into the retrieval query.
+		 *
+		 * Set to 0 to disable conversation-aware retrieval and search with the
+		 * current message only.
+		 *
+		 * @since 1.5.0
+		 *
+		 * @param int    $count     Number of most recent messages to include. Default 6.
+		 * @param string $thread_id The OpenAI conversation ID, when one exists.
+		 */
+		$count = (int) apply_filters( 'hyve_retrieval_history_count', 6, $thread_id );
+
+		/**
+		 * Filters the per-message character cap for the retrieval query.
+		 *
+		 * Keeps a single long turn from dominating or bloating the embedded query.
+		 *
+		 * @since 1.5.0
+		 *
+		 * @param int $length Maximum characters kept per message. Default 500.
+		 */
+		$length = (int) apply_filters( 'hyve_retrieval_history_message_length', 500 );
+
+		$parts = [];
+
+		if ( $count > 0 && ! empty( $history ) ) {
+			$recent = array_slice( $history, - $count );
+
+			foreach ( $recent as $entry ) {
+				if ( empty( $entry['message'] ) ) {
+					continue;
+				}
+
+				$text = trim( wp_strip_all_tags( (string) $entry['message'] ) );
+
+				if ( '' === $text ) {
+					continue;
+				}
+
+				if ( mb_strlen( $text ) > $length ) {
+					$text = mb_substr( $text, 0, $length );
+				}
+
+				$parts[] = $text;
+			}
+		}
+
+		// The current question goes last so it carries the most weight.
+		$parts[] = $message;
+
+		$query = implode( "\n", $parts );
+
+		/**
+		 * Filters the final text used for knowledge base retrieval.
+		 *
+		 * Allows replacing the assembled query, for example with a rewritten
+		 * standalone question, before it is embedded and searched.
+		 *
+		 * @since 1.5.0
+		 *
+		 * @param string                            $query   The assembled retrieval query.
+		 * @param string                            $message The current user message.
+		 * @param array<int, array<string, mixed>>  $history The thread history considered.
+		 */
+		return apply_filters( 'hyve_retrieval_query', $query, $message, $history );
+	}
+
+	/**
 	 * Resolve a public source link for a knowledge base source post.
 	 *
 	 * Returns a link only for publicly accessible content. Regular WordPress
@@ -1482,8 +1579,11 @@ class API extends BaseAPI {
 			return new \WP_Error( 'content_flagged', __( 'Message was flagged.', 'hyve-lite' ) );
 		}
 
-		$openai         = OpenAI::instance();
-		$message_vector = $openai->create_embeddings( $message );
+		$openai          = OpenAI::instance();
+		$record_id       = $request->get_param( 'record_id' );
+		$record_id       = $record_id ? $record_id : null;
+		$retrieval_query = $this->build_retrieval_query( $message, $record_id, $request->get_param( 'thread_id' ) );
+		$message_vector  = $openai->create_embeddings( $retrieval_query );
 
 		if ( is_wp_error( $message_vector ) ) {
 			return new \WP_Error( 'no_embeddings', __( 'No embeddings found.', 'hyve-lite' ) );
