@@ -2,7 +2,14 @@
  * New dashboard styles, scoped under .hyve-next so they never leak into the
  * current UI. Palette values mirror ui/mockup-v2.html.
  */
-.hyve-next {
+
+/*
+ * Tokens, wp-components accent overrides (WP admin blue instead of the
+ * Gutenberg indigo) and compact control sizing. Modals portal to <body>,
+ * so they get all of it via the .hyve-next-modal class.
+ */
+.hyve-next,
+.hyve-next-modal {
 	--hyve-wp-blue: #2271b1;
 	--hyve-wp-blue-h: #135e96;
 	--hyve-brand-a: #4d8af5;
@@ -28,27 +35,6 @@
 	--hyve-radius: 2px;
 	--hyve-radius-in: 4px;
 	--hyve-shadow: 0 1px 1px rgba(0, 0, 0, 0.04);
-
-	min-height: 100vh;
-	background: var(--hyve-bg);
-	color: var(--hyve-text-2);
-	font-size: 13px;
-	line-height: 1.5;
-	-webkit-font-smoothing: antialiased;
-
-	/* Zero-specificity reset via :where() so any single class beats it. */
-	:where(h1, h2, h3, p) {
-		margin: 0;
-	}
-}
-
-/*
- * wp-components polish: WP admin blue instead of the Gutenberg indigo, and
- * compact control sizing. Modals portal to <body>, so they get the same
- * treatment via the .hyve-next-modal class.
- */
-.hyve-next,
-.hyve-next-modal {
 	--wp-admin-theme-color: #2271b1;
 	--wp-admin-theme-color-darker-10: #135e96;
 	--wp-admin-theme-color-darker-20: #0a4b78;
@@ -70,11 +56,25 @@
 		min-height: 30px;
 
 		&:disabled {
-			background: var(--hyve-surface-2, #f6f7f7);
-			color: var(--hyve-muted, #757575);
+			background: var(--hyve-surface-2);
+			color: var(--hyve-muted);
 			cursor: default;
 			opacity: 0.7;
 		}
+	}
+}
+
+.hyve-next {
+	min-height: 100vh;
+	background: var(--hyve-bg);
+	color: var(--hyve-text-2);
+	font-size: 13px;
+	line-height: 1.5;
+	-webkit-font-smoothing: antialiased;
+
+	/* Zero-specificity reset via :where() so any single class beats it. */
+	:where(h1, h2, h3, p) {
+		margin: 0;
 	}
 }
 
@@ -1016,6 +1016,25 @@ p.hyve-next-notice__text {
 	}
 }
 
+.hyve-next__subbadge {
+	background: var(--hyve-warn-bg);
+	border: 1px solid #eadb9a;
+	border-radius: 20px;
+	color: var(--hyve-warn);
+	font-size: 11px;
+	font-variant-numeric: tabular-nums;
+	font-weight: 700;
+	margin-left: 6px;
+	padding: 0 6px;
+}
+
+/* Non-interactive preview of a pro surface, shown above its upsell. */
+.hyve-next-preview {
+	opacity: 0.75;
+	pointer-events: none;
+	user-select: none;
+}
+
 .hyve-next-toolbar {
 	align-items: center;
 	display: flex;
@@ -1246,6 +1265,17 @@ p.hyve-next-card__hint {
 	gap: 8px;
 }
 
+/* Grouped row actions keep the table's right alignment. */
+.hyve-next-table__actions .hyve-next-buttons {
+	justify-content: flex-end;
+}
+
+/* Preview rows read as sample data, not real content. */
+.hyve-next-preview .hyve-next-table__title {
+	color: var(--hyve-faint);
+	font-weight: 400;
+}
+
 .hyve-next-endpoint {
 	color: var(--hyve-text);
 	font-size: 12.5px;
@@ -1265,6 +1295,47 @@ p.hyve-next-card__hint {
 		display: block;
 		height: 100%;
 	}
+}
+
+.hyve-next-modrows {
+	border: 1px solid var(--hyve-border);
+	border-radius: var(--hyve-radius);
+	margin: 14px 0;
+}
+
+.hyve-next-modrow {
+	align-items: center;
+	border-bottom: 1px solid var(--hyve-border);
+	display: flex;
+	gap: 14px;
+	padding: 8px 14px;
+
+	&:last-child {
+		border-bottom: 0;
+	}
+
+	.hyve-next-meter {
+		flex: 1;
+		margin: 0;
+		max-width: none;
+	}
+}
+
+.hyve-next-modrow__label {
+	align-items: center;
+	color: var(--hyve-text);
+	display: flex;
+	font-size: 12.5px;
+	font-weight: 500;
+	gap: 2px;
+	width: 220px;
+}
+
+.hyve-next-modrow__pct {
+	font-size: 12px;
+	font-variant-numeric: tabular-nums;
+	text-align: right;
+	width: 40px;
 }
 
 /* Segmented controls follow the mockup: solid WP blue on the active option. */

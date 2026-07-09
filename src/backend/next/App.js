@@ -35,6 +35,10 @@ const App = () => {
 
 	const hasAPI = useSelect( ( select ) => select( 'hyve' ).hasAPI() );
 
+	const attentionCount = useSelect( ( select ) =>
+		select( 'hyve' ).getAttentionCount()
+	);
+
 	const { setSettings, setLoading } = useDispatch( 'hyve' );
 
 	useEffect( () => {
@@ -140,6 +144,11 @@ const App = () => {
 										}
 									>
 										{ entry.label }
+										{ entry.badge && 0 < attentionCount && (
+											<span className="hyve-next__subbadge">
+												{ attentionCount }
+											</span>
+										) }
 									</button>
 								) ) }
 							</div>

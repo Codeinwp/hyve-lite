@@ -97,7 +97,7 @@ class API extends BaseAPI {
 		}
 
 		$routes = [
-			'settings' => [
+			'settings'    => [
 				[
 					'methods'  => \WP_REST_Server::READABLE,
 					'callback' => [ $this, 'get_settings' ],
@@ -116,7 +116,7 @@ class API extends BaseAPI {
 					'callback' => [ $this, 'update_settings' ],
 				],
 			],
-			'data'     => [
+			'data'        => [
 				[
 					'methods'  => \WP_REST_Server::READABLE,
 					'args'     => [
@@ -166,7 +166,13 @@ class API extends BaseAPI {
 					'callback' => [ $this, 'delete_data' ],
 				],
 			],
-			'threads'  => [
+			'data/counts' => [
+				[
+					'methods'  => \WP_REST_Server::READABLE,
+					'callback' => [ $this, 'get_data_counts' ],
+				],
+			],
+			'threads'     => [
 				[
 					'methods'  => \WP_REST_Server::READABLE,
 					'args'     => [
@@ -189,7 +195,7 @@ class API extends BaseAPI {
 					'callback' => [ $this, 'delete_thread' ],
 				],
 			],
-			'qdrant'   => [
+			'qdrant'      => [
 				[
 					'methods'  => \WP_REST_Server::READABLE,
 					'callback' => [ $this, 'qdrant_status' ],
@@ -199,7 +205,7 @@ class API extends BaseAPI {
 					'callback' => [ $this, 'qdrant_deactivate' ],
 				],
 			],
-			'chat'     => [
+			'chat'        => [
 				[
 					'methods'             => \WP_REST_Server::READABLE,
 					'args'                => [
@@ -714,6 +720,67 @@ class API extends BaseAPI {
 		];
 
 		return rest_ensure_response( $posts );
+	}
+
+	/**
+	 * Count posts matching a meta query.
+	 *
+	 * @param array<int, array<string, string>> $meta_query Meta query.
+	 *
+	 * @return int
+	 */
+	private function count_posts_by_meta( $meta_query ) {
+		$query = new \WP_Query(
+			[
+				'post_type'      => 'any',
+				'post_status'    => [ 'publish', 'private' ],
+				'fields'         => 'ids',
+				'posts_per_page' => 1,
+				'no_found_rows'  => false,
+				'meta_query'     => $meta_query,
+			]
+		);
+
+		return intval( $query->found_posts );
+	}
+
+	/**
+	 * Get the counts feeding the Needs Attention badge.
+	 *
+	 * @return \WP_REST_Response
+	 */
+	public function get_data_counts() {
+		$pending = $this->count_posts_by_meta(
+			[
+				'relation' => 'AND',
+				[
+					'key'     => '_hyve_needs_update',
+					'value'   => '1',
+					'compare' => '=',
+				],
+				[
+					'key'     => '_hyve_moderation_failed',
+					'compare' => 'NOT EXISTS',
+				],
+			]
+		);
+
+		$moderation = $this->count_posts_by_meta(
+			[
+				[
+					'key'     => '_hyve_moderation_failed',
+					'value'   => '1',
+					'compare' => '=',
+				],
+			]
+		);
+
+		return rest_ensure_response(
+			[
+				'pending'    => $pending,
+				'moderation' => $moderation,
+			]
+		);
 	}
 
 	/**

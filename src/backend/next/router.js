@@ -51,6 +51,7 @@ const ROUTES = {
 			},
 			attention: {
 				label: __( 'Needs attention', 'hyve-lite' ),
+				badge: true,
 			},
 			faq: {
 				label: __( 'FAQ', 'hyve-lite' ),

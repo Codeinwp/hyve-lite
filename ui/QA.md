@@ -216,7 +216,9 @@ How to force the common states:
 
 ## 20. Knowledge Base (slice 1)
 
-- [ ] The Knowledge Base tab shows the subnav (All sources / Needs attention / FAQ); Needs attention and FAQ show a placeholder card for now (slices 2 and 3).
+- [ ] The Knowledge Base tab shows the subnav (All sources / Needs attention / FAQ).
+- [ ] FAQ, free: PRO chip in the card head, the FAQ description, a faded non-interactive preview table (6 dummy questions in greyed text so they read as sample data, Asked counts, disabled Delete/Answer buttons per row; nothing clickable or tabbable), and the blue "FAQ is a Premium feature" upsell (UTM `faq-feature`, opens in a new tab). Pro: description plus a hint that the working panel arrives here (P2); no chip, no preview, no upsell.
+- [ ] In both Needs attention and the FAQ preview, grouped row actions sit flush right like every other table.
 - [ ] **Add a source grid**: five cards (WordPress, Custom Data, Website URL, Sitemap, Documents) with icon, title, description; free shows PRO chips on the four pro cards; pro shows no chips.
 - [ ] Clicking a source card drills in (`&sub=source-...` in the URL) and browser Back returns to All sources.
 - [ ] **Locked source drill (free)**: back link, card with the feature description, PRO chip, blue upsell block with the old title ("... is a Premium feature") and an "Unlock with Pro" button using the source's own UTM campaign (`custom-data-feature`, `website-crawling-feature`, `sitemap-crawling-feature`, `document-import-feature`).
@@ -239,3 +241,20 @@ How to force the common states:
 - [ ] A post that fails moderation shows an error snackbar (the review modal ships with slice 2).
 - [ ] **Chunk limit** (free, 500 chunks reached, Qdrant off): a warning notice shows in the drill-in and every Add button is disabled; with Qdrant connected the limit never triggers.
 - [ ] Adding or removing content updates the chunk-count chip on the next fetch and keeps the Dashboard KB stat consistent after reload.
+
+## 21. Knowledge Base (slice 2): Needs attention
+
+How to force the states: edit an already-indexed post to get "Edited since indexing"; add a post with policy-violating content (or temporarily lower the moderation threshold) to get "Failed moderation".
+
+- [ ] The subnav shows an amber count badge on "Needs attention" equal to pending + failed-moderation items; no badge when the count is zero.
+- [ ] The badge updates without a reload after actions that change it (update, override, remove, a failed add).
+- [ ] The panel merges both lists into one table: Title, Source, Issue chip (amber "Edited since indexing" / red "Failed moderation").
+- [ ] Empty state reads "Nothing needs your attention right now."
+- [ ] **Update** on an edited item: busy state, success snackbar, the row leaves the list and the badge drops.
+- [ ] **Update all** appears only when edited items exist; it counts up ("Updating X of Y"), row actions are disabled during the run, and one summary snackbar reports the result.
+- [ ] If an update fails moderation (item content now violates policies), the review modal opens and the item shows under Failed moderation after the refresh.
+- [ ] **Review** on a flagged item opens the moderation modal: intro copy, one row per flagged category with an info tooltip, a score bar, and a percentage.
+- [ ] **Override Moderation** in the modal: busy state, success snackbar, item leaves the list (its content gets indexed), badge drops.
+- [ ] **Retry** on a flagged item re-runs moderation: clean content passes and leaves the list; still-flagged content reopens the modal with fresh scores.
+- [ ] In the WordPress drill-in, adding a post that fails moderation now opens the same review modal (not just a snackbar); overriding from there flips the row to Added.
+- [ ] Escape and Cancel close the modal harmlessly from every entry point.

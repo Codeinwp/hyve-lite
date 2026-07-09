@@ -28,7 +28,25 @@ import Card from '../components/Card';
 import Chip from '../components/Chip';
 import ChunkLimitNotice from '../components/ChunkLimitNotice';
 import DataTable from '../components/DataTable';
+import ModerationModal from '../components/ModerationModal';
 import Pagination from '../components/Pagination';
+
+/**
+ * Refresh the pending + moderation count behind the Needs Attention badge.
+ *
+ * @param {Function} setAttentionCount Store action.
+ */
+const fetchAttentionCount = async ( setAttentionCount ) => {
+	try {
+		const response = await apiFetch( {
+			path: `${ window.hyve.api }/data/counts`,
+		} );
+
+		setAttentionCount(
+			Number( response.pending ?? 0 ) + Number( response.moderation ?? 0 )
+		);
+	} catch ( error ) {}
+};
 
 const getSources = () =>
 	Object.entries( getRoutes().kb?.subs ?? {} ).filter( ( [ key ] ) =>
@@ -91,7 +109,7 @@ const IndexedContent = () => {
 		select( 'hyve' ).getTotalChunks()
 	);
 
-	const { setTotalChunks } = useDispatch( 'hyve' );
+	const { setTotalChunks, setAttentionCount } = useDispatch( 'hyve' );
 	const { createNotice } = useDispatch( 'core/notices' );
 
 	useEffect( () => {
@@ -148,6 +166,9 @@ const IndexedContent = () => {
 			} else {
 				setRefresh( ( prev ) => prev + 1 );
 			}
+
+			// The removed post may have been counted as needing an update.
+			fetchAttentionCount( setAttentionCount );
 		} catch ( error ) {
 			createNotice( 'error', error?.message ?? String( error ), {
 				type: 'snackbar',
@@ -347,6 +368,7 @@ const WordPressDrill = () => {
 	const [ selected, setSelected ] = useState( {} );
 	const [ bulk, setBulk ] = useState( null );
 	const [ isBulkConfirmOpen, setBulkConfirmOpen ] = useState( false );
+	const [ reviewPost, setReviewPost ] = useState( null );
 
 	// Guards against out-of-order responses when the query changes mid-fetch.
 	const requestRef = useRef( 0 );
@@ -354,7 +376,7 @@ const WordPressDrill = () => {
 	// Page size comes from the endpoint.
 	const perPageRef = useRef( 20 );
 
-	const { setTotalChunks } = useDispatch( 'hyve' );
+	const { setTotalChunks, setAttentionCount } = useDispatch( 'hyve' );
 	const { createNotice } = useDispatch( 'core/notices' );
 	const hasReachedLimit = useSelect( ( select ) =>
 		select( 'hyve' ).hasReachedLimit()
@@ -426,9 +448,18 @@ const WordPressDrill = () => {
 					featureValue: 'import-wordpress-data',
 				} );
 			},
-			// Moderation-failure review escalation arrives with S2.5; until
-			// then onProcessData surfaces the error as a snackbar.
-			onError: () => {
+			onError: ( error ) => {
+				if (
+					'content_failed_moderation' === error?.code &&
+					undefined !== error.review
+				) {
+					setReviewPost( {
+						...currentPost,
+						review: error.review,
+					} );
+				}
+
+				fetchAttentionCount( setAttentionCount );
 				setUpdating( ( prev ) =>
 					prev.filter( ( postId ) => postId !== id )
 				);
@@ -526,6 +557,7 @@ const WordPressDrill = () => {
 		}
 
 		setBulk( null );
+		fetchAttentionCount( setAttentionCount );
 
 		const failed = items.length - added;
 
@@ -882,6 +914,340 @@ const WordPressDrill = () => {
 					</div>
 				</Modal>
 			) }
+
+			{ reviewPost && (
+				<ModerationModal
+					post={ reviewPost }
+					onClose={ () => setReviewPost( null ) }
+					onSuccess={ () => {
+						setProcessedPosts( ( prev ) => [
+							...prev,
+							reviewPost.ID,
+						] );
+						setReviewPost( null );
+						fetchAttentionCount( setAttentionCount );
+					} }
+				/>
+			) }
+		</>
+	);
+};
+
+const ISSUE_CHIPS = {
+	pending: (
+		<Chip tone="warn">{ __( 'Edited since indexing', 'hyve-lite' ) }</Chip>
+	),
+	moderation: (
+		<Chip tone="bad">{ __( 'Failed moderation', 'hyve-lite' ) }</Chip>
+	),
+};
+
+const AttentionPanel = () => {
+	const [ rows, setRows ] = useState( [] );
+	const [ isLoading, setLoading ] = useState( true );
+	const [ isUpdating, setUpdating ] = useState( [] );
+	const [ reviewPost, setReviewPost ] = useState( null );
+	const [ bulkUpdate, setBulkUpdate ] = useState( null );
+	const [ refresh, setRefresh ] = useState( 0 );
+
+	const { setTotalChunks, setAttentionCount } = useDispatch( 'hyve' );
+	const { createNotice } = useDispatch( 'core/notices' );
+
+	useEffect( () => {
+		let isStale = false;
+
+		// Fetches every page of a status; these queues stay small in
+		// practice, so a merged full list beats a paginated two-source table.
+		const fetchAll = async ( status ) => {
+			const collected = [];
+			let offset = 0;
+
+			for ( let guard = 0; 10 > guard; guard++ ) {
+				const response = await apiFetch( {
+					path: addQueryArgs( `${ window.hyve.api }/data`, {
+						offset,
+						status,
+					} ),
+				} );
+
+				collected.push(
+					...( response.posts ?? [] ).map( ( post ) => ( {
+						...post,
+						issue: status,
+					} ) )
+				);
+
+				setTotalChunks( response?.totalChunks );
+
+				if ( ! response.more ) {
+					break;
+				}
+
+				offset = collected.length;
+			}
+
+			return collected;
+		};
+
+		const fetchLists = async () => {
+			setLoading( true );
+
+			try {
+				const [ pending, moderation ] = await Promise.all( [
+					fetchAll( 'pending' ),
+					fetchAll( 'moderation' ),
+				] );
+
+				if ( isStale ) {
+					return;
+				}
+
+				setRows( [ ...pending, ...moderation ] );
+				setAttentionCount( pending.length + moderation.length );
+			} catch ( error ) {}
+
+			setLoading( false );
+		};
+
+		fetchLists();
+
+		return () => {
+			isStale = true;
+		};
+	}, [ refresh, setTotalChunks, setAttentionCount ] );
+
+	const pendingRows = rows.filter( ( row ) => 'pending' === row.issue );
+
+	const removeRow = ( id ) => {
+		setRows( ( prev ) => prev.filter( ( row ) => row.ID !== id ) );
+		setAttentionCount( rows.length - 1 );
+	};
+
+	const onUpdate = async ( id ) => {
+		setUpdating( ( prev ) => [ ...prev, id ] );
+
+		const currentPost = rows.find( ( row ) => row.ID === id );
+
+		await onProcessData( {
+			post: currentPost,
+			params: {
+				action: 'update',
+			},
+			onSuccess: () => {
+				removeRow( id );
+			},
+			onError: ( error ) => {
+				if (
+					'content_failed_moderation' === error?.code &&
+					undefined !== error.review
+				) {
+					setReviewPost( {
+						...currentPost,
+						review: error.review,
+					} );
+				}
+			},
+		} );
+
+		setUpdating( ( prev ) => prev.filter( ( postId ) => postId !== id ) );
+	};
+
+	const onUpdateAll = async () => {
+		const queue = pendingRows;
+
+		setBulkUpdate( { done: 0, total: queue.length } );
+
+		let updated = 0;
+
+		for ( const item of queue ) {
+			try {
+				const response = await apiFetch( {
+					path: `${ window.hyve.api }/data`,
+					method: 'POST',
+					data: {
+						action: 'update',
+						data: item,
+					},
+				} );
+
+				if ( response.error ) {
+					throw new Error( response.error );
+				}
+
+				updated++;
+			} catch ( error ) {
+				// Failures stay listed; moderation ones move to Review after
+				// the refresh below.
+			}
+
+			setBulkUpdate( ( prev ) =>
+				prev ? { ...prev, done: prev.done + 1 } : prev
+			);
+		}
+
+		setBulkUpdate( null );
+		setRefresh( ( prev ) => prev + 1 );
+
+		const failed = queue.length - updated;
+
+		if ( failed ) {
+			createNotice(
+				'warning',
+				sprintf(
+					/* translators: 1: number of items updated, 2: number of items that failed. */
+					__( '%1$s items updated, %2$s failed.', 'hyve-lite' ),
+					updated,
+					failed
+				),
+				{ type: 'snackbar', isDismissible: true }
+			);
+			return;
+		}
+
+		createNotice(
+			'success',
+			sprintf(
+				/* translators: %s: number of items updated. */
+				_n(
+					'%s item updated.',
+					'%s items updated.',
+					updated,
+					'hyve-lite'
+				),
+				updated
+			),
+			{ type: 'snackbar', isDismissible: true }
+		);
+	};
+
+	return (
+		<>
+			<Card
+				title={ __( 'Needs attention', 'hyve-lite' ) }
+				actions={
+					0 < pendingRows.length && (
+						<Button
+							variant="primary"
+							isBusy={ Boolean( bulkUpdate ) }
+							disabled={ Boolean( bulkUpdate ) }
+							onClick={ onUpdateAll }
+						>
+							{ bulkUpdate
+								? sprintf(
+										/* translators: 1: items processed so far, 2: total items in the queue. */
+										__(
+											'Updating %1$s of %2$s',
+											'hyve-lite'
+										),
+										Math.min(
+											bulkUpdate.done + 1,
+											bulkUpdate.total
+										),
+										bulkUpdate.total
+								  )
+								: __( 'Update all', 'hyve-lite' ) }
+						</Button>
+					)
+				}
+			>
+				<div className="hyve-next-card__intro">
+					<p>
+						{ __(
+							'One inbox for content that needs a decision: items edited since they were indexed, and items that failed moderation. Review shows the flagged categories and lets you override a false positive.',
+							'hyve-lite'
+						) }
+					</p>
+				</div>
+
+				<DataTable
+					columns={ [
+						{
+							key: 'title',
+							label: __( 'Title', 'hyve-lite' ),
+							render: ( row ) => (
+								<div className="hyve-next-table__main">
+									<span className="hyve-next-table__title">
+										{ row.title }
+									</span>
+								</div>
+							),
+						},
+						{
+							key: 'type',
+							label: __( 'Source', 'hyve-lite' ),
+						},
+						{
+							key: 'issue',
+							label: __( 'Issue', 'hyve-lite' ),
+							render: ( row ) => ISSUE_CHIPS[ row.issue ],
+						},
+						{
+							key: 'actions',
+							label: __( 'Actions', 'hyve-lite' ),
+							align: 'actions',
+							render: ( row ) =>
+								'pending' === row.issue ? (
+									<Button
+										variant="secondary"
+										isBusy={ isUpdating.includes( row.ID ) }
+										disabled={
+											isUpdating.includes( row.ID ) ||
+											Boolean( bulkUpdate )
+										}
+										onClick={ () => onUpdate( row.ID ) }
+									>
+										{ __( 'Update', 'hyve-lite' ) }
+									</Button>
+								) : (
+									<div className="hyve-next-buttons">
+										<Button
+											variant="secondary"
+											disabled={
+												isUpdating.includes( row.ID ) ||
+												Boolean( bulkUpdate )
+											}
+											onClick={ () =>
+												setReviewPost( row )
+											}
+										>
+											{ __( 'Review', 'hyve-lite' ) }
+										</Button>
+										<Button
+											variant="secondary"
+											isBusy={ isUpdating.includes(
+												row.ID
+											) }
+											disabled={
+												isUpdating.includes( row.ID ) ||
+												Boolean( bulkUpdate )
+											}
+											onClick={ () => onUpdate( row.ID ) }
+										>
+											{ __( 'Retry', 'hyve-lite' ) }
+										</Button>
+									</div>
+								),
+						},
+					] }
+					rows={ rows }
+					isLoading={ isLoading }
+					empty={ __(
+						'Nothing needs your attention right now.',
+						'hyve-lite'
+					) }
+				/>
+			</Card>
+
+			{ reviewPost && (
+				<ModerationModal
+					post={ reviewPost }
+					onClose={ () => setReviewPost( null ) }
+					onSuccess={ () => {
+						setReviewPost( null );
+						setRefresh( ( prev ) => prev + 1 );
+					} }
+				/>
+			) }
 		</>
 	);
 };
@@ -996,13 +1362,144 @@ const LockedSource = ( { subKey } ) => {
 	);
 };
 
-const Placeholder = () => (
-	<div className="hyve-next__card">
-		<p>{ __( 'This panel is on its way here.', 'hyve-lite' ) }</p>
-	</div>
-);
+// Dummy rows from the old lite FAQ page, previewing how the pro panel looks.
+const FAQ_PREVIEW = [
+	{
+		question: __( 'How do I reset my password?', 'hyve-lite' ),
+		count: 5,
+	},
+	{
+		question: __( 'How do I change my email address?', 'hyve-lite' ),
+		count: 3,
+	},
+	{
+		question: __( 'How do I update my payment method?', 'hyve-lite' ),
+		count: 2,
+	},
+	{
+		question: __( 'How do I cancel my subscription?', 'hyve-lite' ),
+		count: 1,
+	},
+	{
+		question: __( 'How do I change my plan?', 'hyve-lite' ),
+		count: 1,
+	},
+	{
+		question: __( 'How do I update my billing information?', 'hyve-lite' ),
+		count: 1,
+	},
+];
+
+// The working FAQ panel is pro-owned (`GET {api}/faq`) and ships with P2.
+const FaqPanel = () => {
+	const isPro = Boolean( window.hyve?.license );
+
+	return (
+		<Card
+			title={ __( 'FAQ', 'hyve-lite' ) }
+			actions={
+				! isPro && (
+					<Chip tone="pro" dot={ false }>
+						{ __( 'Pro', 'hyve-lite' ) }
+					</Chip>
+				)
+			}
+		>
+			<div className="hyve-next-card__body">
+				<p>
+					{ __(
+						"The FAQ captures frequently asked questions that went unanswered by our chatbot, providing you with a valuable insight into what your users are seeking. This feature allows you to review these queries and decide whether to incorporate them into your bot's knowledge base. By actively updating your FAQ, you can continuously refine your chatbot's ability to address user needs effectively and enhance their interactive experience. These aren't updated instantly.",
+						'hyve-lite'
+					) }
+				</p>
+				{ isPro && (
+					<p className="hyve-next-card__hint">
+						{ __( 'This panel is on its way here.', 'hyve-lite' ) }
+					</p>
+				) }
+			</div>
+
+			{ ! isPro && (
+				<>
+					<div className="hyve-next-preview">
+						<DataTable
+							columns={ [
+								{
+									key: 'question',
+									label: __( 'Question', 'hyve-lite' ),
+									render: ( row ) => (
+										<div className="hyve-next-table__main">
+											<span className="hyve-next-table__title">
+												{ row.question }
+											</span>
+										</div>
+									),
+								},
+								{
+									key: 'count',
+									label: __( 'Asked', 'hyve-lite' ),
+									align: 'num',
+								},
+								{
+									key: 'actions',
+									label: __( 'Actions', 'hyve-lite' ),
+									align: 'actions',
+									render: () => (
+										<div className="hyve-next-buttons">
+											<Button
+												variant="secondary"
+												isDestructive
+												disabled
+											>
+												{ __( 'Delete', 'hyve-lite' ) }
+											</Button>
+											<Button
+												variant="secondary"
+												disabled
+											>
+												{ __( 'Answer', 'hyve-lite' ) }
+											</Button>
+										</div>
+									),
+								},
+							] }
+							rows={ FAQ_PREVIEW }
+							rowKey={ ( row ) => row.question }
+						/>
+					</div>
+
+					<div className="hyve-next-act__upsell">
+						<strong>
+							{ __( 'FAQ is a Premium feature', 'hyve-lite' ) }
+						</strong>
+						<p>
+							{ __(
+								"Review unanswered questions, enhance your bot's knowledge base, and refine your users' interactive experience. Upgrade now!",
+								'hyve-lite'
+							) }
+						</p>
+						<Button
+							variant="primary"
+							href={ setUtm( window.hyve?.pro, 'faq-feature' ) }
+							target="_blank"
+						>
+							{ __( 'Unlock with Pro', 'hyve-lite' ) }
+						</Button>
+					</div>
+				</>
+			) }
+		</Card>
+	);
+};
 
 const KnowledgeBase = ( { sub } ) => {
+	const { setAttentionCount } = useDispatch( 'hyve' );
+
+	// Keeps the Needs Attention badge current on every panel of the screen.
+	useEffect( () => {
+		fetchAttentionCount( setAttentionCount );
+	}, [ setAttentionCount ] );
+
 	if ( 'source-wordpress' === sub ) {
 		return <WordPressDrill />;
 	}
@@ -1011,8 +1508,12 @@ const KnowledgeBase = ( { sub } ) => {
 		return <LockedSource subKey={ sub } />;
 	}
 
-	if ( 'attention' === sub || 'faq' === sub ) {
-		return <Placeholder />;
+	if ( 'attention' === sub ) {
+		return <AttentionPanel />;
+	}
+
+	if ( 'faq' === sub ) {
+		return <FaqPanel />;
 	}
 
 	return (

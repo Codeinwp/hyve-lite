@@ -11,6 +11,7 @@ const DEFAULT_STATE = {
 	hasAPI: Boolean( window.hyve.hasAPIKey ),
 	isQdrantActive: Boolean( window.hyve.isQdrantActive ),
 	totalChunks: 0,
+	attentionCount: null,
 	serviceErrors: window.hyve.serviceErrors || [],
 };
 
@@ -57,6 +58,12 @@ const actions = {
 			isQdrantActive,
 		};
 	},
+	setAttentionCount( attentionCount ) {
+		return {
+			type: 'SET_ATTENTION_COUNT',
+			attentionCount,
+		};
+	},
 	setServiceErrors( serviceErrors ) {
 		return {
 			type: 'SET_SERVICE_ERRORS',
@@ -89,6 +96,9 @@ const selectors = {
 	},
 	isQdrantActive( state ) {
 		return state.isQdrantActive;
+	},
+	getAttentionCount( state ) {
+		return state.attentionCount;
 	},
 	getServiceErrors( state ) {
 		return state.serviceErrors;
@@ -134,6 +144,11 @@ const reducer = ( state = DEFAULT_STATE, action ) => {
 			return {
 				...state,
 				isQdrantActive: action.isQdrantActive,
+			};
+		case 'SET_ATTENTION_COUNT':
+			return {
+				...state,
+				attentionCount: action.attentionCount,
 			};
 		case 'SET_SERVICE_ERRORS':
 			return {
