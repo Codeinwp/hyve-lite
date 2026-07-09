@@ -1,7 +1,7 @@
 /**
  * WordPress dependencies.
  */
-import { __ } from '@wordpress/i18n';
+import { __, sprintf } from '@wordpress/i18n';
 
 import { Icon } from '@wordpress/components';
 
@@ -12,7 +12,43 @@ import { help } from '@wordpress/icons';
 /**
  * Internal dependencies.
  */
+import { navigate } from '../router';
 import { setUtm } from '../../utils';
+
+// Pro localizes `window.hyve.license`; without it there is nothing to show.
+const getLicenseStatus = () => {
+	const license = window.hyve?.license;
+
+	if ( ! license ) {
+		return null;
+	}
+
+	if ( 'valid' === license.valid || 'valid' === license.license ) {
+		return {
+			tone: 'ok',
+			label: __( 'Pro', 'hyve-lite' ),
+			title: license.expiration
+				? sprintf(
+						/* translators: %s is the expiration date. */
+						__( 'Expires %s', 'hyve-lite' ),
+						license.expiration
+				  )
+				: undefined,
+		};
+	}
+
+	if ( 'active_expired' === license.valid ) {
+		return {
+			tone: 'bad',
+			label: __( 'Pro · Expired', 'hyve-lite' ),
+		};
+	}
+
+	return {
+		tone: 'warn',
+		label: __( 'Pro · Inactive', 'hyve-lite' ),
+	};
+};
 
 const HeaderBar = () => {
 	const hasAPI = useSelect( ( select ) => select( 'hyve' ).hasAPI() );
@@ -20,6 +56,8 @@ const HeaderBar = () => {
 	const status = hasAPI
 		? { tone: 'live', label: __( 'API connected', 'hyve-lite' ) }
 		: { tone: 'setup', label: __( 'API not connected', 'hyve-lite' ) };
+
+	const licenseStatus = getLicenseStatus();
 
 	return (
 		<div className="hyve-next__bar">
@@ -36,6 +74,17 @@ const HeaderBar = () => {
 				<span className="hyve-next__pill">
 					{ `v${ window.hyve.version }` }
 				</span>
+			) }
+
+			{ licenseStatus && (
+				<button
+					type="button"
+					className={ `hyve-next__plan is-${ licenseStatus.tone }` }
+					title={ licenseStatus.title }
+					onClick={ () => navigate( 'settings', 'license' ) }
+				>
+					{ licenseStatus.label }
+				</button>
 			) }
 
 			<span className="hyve-next__spacer"></span>

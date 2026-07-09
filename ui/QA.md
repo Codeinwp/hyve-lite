@@ -277,3 +277,18 @@ How to force the states: edit an already-indexed post to get "Edited since index
 - [ ] Delete opens the confirm modal (medium, two warning paragraphs); Cancel/Escape close harmlessly; confirming deletes the row with a snackbar.
 - [ ] Tokens work end to end: a generated token authorizes `POST {rest}/knowledge-base/search` per the curl preview; a deleted token stops working.
 - [ ] Deactivating pro flips the panel back to the free view (chip, upsell) without errors.
+
+## 24. License (needs the pro plugin active)
+
+- [ ] With pro active, the Settings sidebar shows "License" under the Plugin group, right after General; without pro the entry does not exist.
+- [ ] The License panel works without an OpenAI API key (it is not key-gated).
+- [ ] **Not active**: muted "Not active" chip, editable key field, "Get license from Purchase History" link, Activate button (disabled while the field is empty).
+- [ ] Activating a valid key: busy state, then the page reloads and the panel shows the Active state (license gates localized flags, so the reload is expected).
+- [ ] Activating an invalid key: error snackbar with the SDK message, no reload, the field stays editable.
+- [ ] **Active**: green "Active" chip, masked key (asterisks + last 5 characters), disabled field, "Valid - Expires <date>" hint sitting tight under the field (no extra gap), Deactivate button (secondary, destructive).
+- [ ] Deactivate opens a confirm modal (medium): Cancel/Escape close harmlessly, confirming deactivates and reloads into the Not active state.
+- [ ] **Expired** (license past its renewal date): red "Expired" chip, the old renewal warning text, and a "Renew License" link pointing at the store with the key attached.
+- [ ] **Header plan pill** (pro only): a tinted pill next to the version reads "Pro" (green, hover shows the expiration date), "Pro · Inactive" (amber), or "Pro · Expired" (red); the right side keeps only the API chip; free lite shows no pill.
+- [ ] Clicking the plan pill navigates to Settings > License.
+- [ ] With pro active but an outdated pro build, the sidebar simply has no License entry and the plan pill still renders from the localized license data (nothing breaks).
+- [ ] With an inactive or expired license, the SDK's red "add your license code" admin notice does NOT show anywhere on the Hyve dashboard (old or new UI); it still shows on other wp-admin pages.

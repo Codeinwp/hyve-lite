@@ -143,6 +143,37 @@
 
 }
 
+/* License plan pill, sits with the name and version. */
+.hyve-next__plan {
+	background: var(--hyve-ok-bg);
+	border: 1px solid #b8e6c1;
+	border-radius: 20px;
+	color: var(--hyve-ok);
+	cursor: pointer;
+	font-family: inherit;
+	font-size: 11px;
+	font-weight: 600;
+	line-height: 1.5;
+	padding: 1px 8px;
+	white-space: nowrap;
+
+	&.is-warn {
+		background: var(--hyve-warn-bg);
+		border-color: #ecd9a2;
+		color: var(--hyve-warn);
+	}
+
+	&.is-bad {
+		background: var(--hyve-bad-bg);
+		border-color: #f2c8c9;
+		color: var(--hyve-bad);
+	}
+
+	&:hover {
+		border-color: currentcolor;
+	}
+}
+
 .hyve-next__doclink {
 	align-items: center;
 	color: var(--hyve-wp-blue);
@@ -1195,6 +1226,11 @@ p.hyve-next-card__hint {
 	color: var(--hyve-muted);
 	font-size: 12px;
 	margin-top: 14px;
+}
+
+/* Inside a stack the flex gap already provides the spacing. */
+.hyve-next-stack p.hyve-next-card__hint {
+	margin-top: 0;
 }
 
 .hyve-next-rcards {
