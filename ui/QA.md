@@ -296,7 +296,7 @@ How to force the states: edit an already-indexed post to get "Edited since index
 ## 25. Custom Data drill-in and the shared add/edit modal (needs the pro plugin active)
 
 - [ ] Knowledge Base > Add a source > Custom Data opens the working panel (no locked view, no "on its way" hint); the back link returns to All sources.
-- [ ] On free lite, the locked Custom Data drill shows the faded dummy preview table (six sample titles, disabled Edit buttons) between the intro and the upsell, like the FAQ preview.
+- [ ] On free lite, every locked source drill shows a faded dummy preview table between the intro and the upsell, like the FAQ preview: Custom Data (six sample titles + Edit), Website URL (example.com pages + Delete), Sitemap (sitemap.xml rows with Queued/Completed chips + Details), Documents (sample PDFs + Delete). All buttons look and are disabled.
 - [ ] The list loads knowledge entries with numbered pagination (Previous / "Page X of Y" / Next) and a results count; search filters with a debounce and no flicker from out-of-order responses.
 - [ ] **Add Data** (primary, top right) opens the modal empty; Add is disabled until both title and content are filled; the character counter tracks the content against the 4,000 limit and typing stops at the limit.
 - [ ] Saving a new entry: busy state, success snackbar, the modal closes and the list refreshes with the new entry.
@@ -317,3 +317,28 @@ How to force the states: edit an already-indexed post to get "Edited since index
 - [ ] An answer that fails moderation escalates to the review modal; Override adds it and the question still leaves the list.
 - [ ] **Delete** asks for confirmation first (medium modal); Cancel keeps the question, confirming removes it with a snackbar.
 - [ ] With the chunk limit reached, the warning notice shows and Answer is disabled (Delete stays available).
+
+## 27. Website URL drill-in (needs the pro plugin active)
+
+- [ ] Knowledge Base > Add a source > Website URL opens the working panel; the back link returns to All sources.
+- [ ] Crawl URL is disabled while the field is empty; a value without http(s):// shows the "Please enter a valid URL." snackbar without a request.
+- [ ] Crawling a valid URL: busy state, success snackbar, the field clears and the URL appears in the list (first page).
+- [ ] A URL that cannot be fetched or fails moderation shows an error snackbar with the backend message; nothing is added.
+- [ ] The list paginates at 20 with Previous / "Page X of Y" / Next; deleting the last row of the final page steps back.
+- [ ] **Update** re-crawls the row (per-row busy state) and reports success or the error message.
+- [ ] **Delete** asks for confirmation (medium modal, "You can crawl it again later"); confirming removes the row with a snackbar.
+- [ ] With the chunk limit reached: warning notice, Crawl URL and Update disabled (Delete stays available).
+- [ ] The old dashboard's Website URL page keeps working (its Load More ignores the new pagination fields).
+
+## 28. Unified Indexed content (needs the pro plugin active)
+
+- [ ] Knowledge Base > All sources > Indexed content lists WordPress content AND pro entries together, with correct Source labels: Post/Page types, Custom Data, URL, Sitemap, Document.
+- [ ] The Source dropdown filters the list (All, each WP post type, Custom Data, Website URL, Sitemap, Documents); switching resets to page 1 and the results count updates.
+- [ ] Pagination stays at 20 per page across mixed sources.
+- [ ] Chunks counts are correct for pro rows too.
+- [ ] Removing a WordPress row keeps the old copy ("stays on your site") and only un-indexes it.
+- [ ] Removing a pro row (Custom Data/URL/Sitemap/Document) shows the permanent-deletion copy; confirming deletes the entry entirely (it disappears from its drill-in too, e.g. Custom Data or the sitemap Details view).
+- [ ] Sitemap-imported pages appear as individual rows and can be removed one by one.
+- [ ] A URL row whose crawled page had no title falls back to showing the URL.
+- [ ] On free lite, the card is unchanged: WordPress-only rows, dropdown shows only WP post types.
+- [ ] The OLD dashboard's Knowledge Base listings still show WordPress content only (no pro rows leaked in).

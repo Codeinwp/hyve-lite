@@ -670,6 +670,18 @@ class API extends BaseAPI {
 			];
 		}
 
+		/**
+		 * Filters the WP_Query arguments of the dashboard data listings.
+		 *
+		 * Lets Pro include its own sources (custom data, links, documents) in
+		 * the unified Knowledge Base listing.
+		 *
+		 * @param array<string, mixed> $args   WP_Query arguments.
+		 * @param string               $status Requested listing status.
+		 * @param string               $type   Requested type filter.
+		 */
+		$args = apply_filters( 'hyve_data_query_args', $args, (string) $status, (string) $request->get_param( 'type' ) );
+
 		$page = $this->query_page( $args, 20, true );
 
 		$posts_data   = [];
@@ -708,7 +720,16 @@ class API extends BaseAPI {
 				$post_data['error'] = $processing_error;
 			}
 
-			$posts_data[] = $post_data;
+			/**
+			 * Filters a row of the dashboard data listings.
+			 *
+			 * Pro decorates its own sources with their source label and the
+			 * `permanent` deletion flag.
+			 *
+			 * @param array<string, mixed> $post_data Row payload.
+			 * @param int                  $post_id   Post ID.
+			 */
+			$posts_data[] = apply_filters( 'hyve_data_post', $post_data, $post_id );
 		}
 
 		$posts = [
@@ -861,6 +882,17 @@ class API extends BaseAPI {
 		delete_post_meta( $id, '_hyve_moderation_failed' );
 		delete_post_meta( $id, '_hyve_moderation_review' );
 		delete_post_meta( $id, '_hyve_processing_error' );
+
+		/**
+		 * Fires after content is removed from the Knowledge Base.
+		 *
+		 * Pro uses it to delete its own entries (custom data, links,
+		 * documents), which have no life outside the Knowledge Base.
+		 *
+		 * @param int $id Post ID.
+		 */
+		do_action( 'hyve_data_deleted', (int) $id );
+
 		return rest_ensure_response( true );
 	}
 

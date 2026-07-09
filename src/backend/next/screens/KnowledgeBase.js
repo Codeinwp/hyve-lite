@@ -92,6 +92,29 @@ const SourcesGrid = () => {
 	);
 };
 
+// Pro sources join the Source filter of the unified listing; their values are
+// resolved server-side by pro through the `hyve_data_query_args` filter.
+const getIndexedSources = () => {
+	const options = getPostTypes();
+
+	if ( ! window.hyve?.license ) {
+		return options;
+	}
+
+	getSources().forEach( ( [ key, source ] ) => {
+		if ( 'source-wordpress' === key || ! source.track ) {
+			return;
+		}
+
+		options.push( {
+			label: source.label,
+			value: `hyve:${ source.track }`,
+		} );
+	} );
+
+	return options;
+};
+
 const IndexedContent = () => {
 	const [ rows, setRows ] = useState( [] );
 	const [ hasMore, setHasMore ] = useState( false );
@@ -101,6 +124,7 @@ const IndexedContent = () => {
 	const [ page, setPage ] = useState( 0 );
 	const [ total, setTotal ] = useState( 0 );
 	const [ refresh, setRefresh ] = useState( 0 );
+	const [ sourceType, setSourceType ] = useState( 'any' );
 
 	// Page size comes from the endpoint.
 	const perPageRef = useRef( 20 );
@@ -117,10 +141,19 @@ const IndexedContent = () => {
 			setLoading( true );
 
 			try {
+				// `hyve:all` asks pro to include its sources in the union;
+				// plain `any` stays WordPress-only so the old dashboard's
+				// listings keep their behavior.
+				const type =
+					'any' === sourceType && window.hyve?.license
+						? 'hyve:all'
+						: sourceType;
+
 				const response = await apiFetch( {
 					path: addQueryArgs( `${ window.hyve.api }/data`, {
 						offset: page * perPageRef.current,
 						status: 'included',
+						type,
 					} ),
 				} );
 
@@ -140,7 +173,7 @@ const IndexedContent = () => {
 		};
 
 		fetchPosts();
-	}, [ page, refresh, setTotalChunks ] );
+	}, [ page, refresh, sourceType, setTotalChunks ] );
 
 	const onDelete = async ( id ) => {
 		setDeleting( ( prev ) => [ ...prev, id ] );
@@ -208,10 +241,41 @@ const IndexedContent = () => {
 			<div className="hyve-next-card__intro">
 				<p>
 					{ __(
-						'All the content from your WordPress site that has been added to the Knowledge Base.',
+						'All the content that has been added to the Knowledge Base.',
 						'hyve-lite'
 					) }
 				</p>
+			</div>
+
+			<div className="hyve-next-card__body">
+				<div className="hyve-next-toolbar">
+					<SelectControl
+						__nextHasNoMarginBottom
+						hideLabelFromVision
+						label={ __( 'Source', 'hyve-lite' ) }
+						options={ getIndexedSources() }
+						value={ sourceType }
+						onChange={ ( value ) => {
+							setSourceType( value );
+							setPage( 0 );
+						} }
+					/>
+					<span className="hyve-next-toolbar__grow"></span>
+					{ ! isLoading && (
+						<span className="hyve-next-toolbar__count">
+							{ sprintf(
+								/* translators: %s: number of matching items. */
+								_n(
+									'%s result',
+									'%s results',
+									total,
+									'hyve-lite'
+								),
+								total.toLocaleString()
+							) }
+						</span>
+					) }
+				</div>
 			</div>
 
 			<DataTable
@@ -300,14 +364,23 @@ const IndexedContent = () => {
 					onRequestClose={ () => setConfirmRemove( null ) }
 				>
 					<p>
-						{ sprintf(
-							/* translators: %s: title of the content being removed. */
-							__(
-								'Hyve will stop using "%s" in its answers. The content itself stays on your site, and you can add it back at any time.',
-								'hyve-lite'
-							),
-							confirmRemove.title
-						) }
+						{ confirmRemove.permanent
+							? sprintf(
+									/* translators: %s: title of the entry being removed. */
+									__(
+										'Hyve will stop using "%s" in its answers. The entry is deleted permanently.',
+										'hyve-lite'
+									),
+									confirmRemove.title
+							  )
+							: sprintf(
+									/* translators: %s: title of the content being removed. */
+									__(
+										'Hyve will stop using "%s" in its answers. The content itself stays on your site, and you can add it back at any time.',
+										'hyve-lite'
+									),
+									confirmRemove.title
+							  ) }
 					</p>
 					<div className="hyve-next-modal__actions">
 						<Button
@@ -1305,33 +1378,86 @@ const LOCKED_COPY = {
 	},
 };
 
-// Dummy rows from the old lite Custom Data page, previewing the pro panel.
-const CUSTOM_PREVIEW = [
-	{
-		ID: 1,
-		title: __( 'Halloween Limited Time Deal Information', 'hyve-lite' ),
+const previewTitleColumn = ( key, label ) => ( {
+	key,
+	label,
+	render: ( row ) => (
+		<div className="hyve-next-table__main">
+			<span className="hyve-next-table__title">{ row[ key ] }</span>
+		</div>
+	),
+} );
+
+const previewActionColumn = ( label, isDestructive = false ) => ( {
+	key: 'actions',
+	label: __( 'Actions', 'hyve-lite' ),
+	align: 'actions',
+	render: () => (
+		<Button variant="secondary" isDestructive={ isDestructive } disabled>
+			{ label }
+		</Button>
+	),
+} );
+
+// Dummy rows from the old lite locked pages, previewing the pro panels.
+const LOCKED_PREVIEWS = {
+	'source-custom': {
+		columns: [
+			previewTitleColumn( 'title', __( 'Title', 'hyve-lite' ) ),
+			previewActionColumn( __( 'Edit', 'hyve-lite' ) ),
+		],
+		rows: [
+			__( 'Halloween Limited Time Deal Information', 'hyve-lite' ),
+			__( 'What to do if my order is missing an item?', 'hyve-lite' ),
+			__( 'How do I return an item?', 'hyve-lite' ),
+			__( 'How do I track my order?', 'hyve-lite' ),
+			__( 'How do I change my delivery address?', 'hyve-lite' ),
+			__( 'How do I cancel my order?', 'hyve-lite' ),
+		].map( ( title, index ) => ( { ID: index + 1, title } ) ),
 	},
-	{
-		ID: 2,
-		title: __( 'What to do if my order is missing an item?', 'hyve-lite' ),
+	'source-url': {
+		columns: [
+			previewTitleColumn( 'title', __( 'URL', 'hyve-lite' ) ),
+			previewActionColumn( __( 'Delete', 'hyve-lite' ), true ),
+		],
+		rows: Array.from( { length: 5 }, ( _, index ) => ( {
+			ID: index + 1,
+			title: `https://example.com/page${ index + 1 }`,
+		} ) ),
 	},
-	{
-		ID: 3,
-		title: __( 'How do I return an item?', 'hyve-lite' ),
+	'source-sitemap': {
+		columns: [
+			previewTitleColumn( 'url', __( 'Sitemap URL', 'hyve-lite' ) ),
+			{
+				key: 'status',
+				label: __( 'Status', 'hyve-lite' ),
+				render: ( row ) => (
+					<Chip tone={ row.done ? 'ok' : 'warn' }>
+						{ row.done
+							? __( 'Completed', 'hyve-lite' )
+							: __( 'Queued', 'hyve-lite' ) }
+					</Chip>
+				),
+			},
+			previewActionColumn( __( 'Details', 'hyve-lite' ) ),
+		],
+		rows: [ false, true, true ].map( ( done, index ) => ( {
+			ID: index + 1,
+			url: 'https://example.com/sitemap.xml',
+			done,
+		} ) ),
 	},
-	{
-		ID: 4,
-		title: __( 'How do I track my order?', 'hyve-lite' ),
+	'source-documents': {
+		columns: [
+			previewTitleColumn( 'title', __( 'Title', 'hyve-lite' ) ),
+			previewActionColumn( __( 'Delete', 'hyve-lite' ), true ),
+		],
+		rows: Array.from( { length: 5 }, ( _, index ) => ( {
+			ID: index + 1,
+			title: `document-${ index + 1 }.pdf`,
+		} ) ),
 	},
-	{
-		ID: 5,
-		title: __( 'How do I change my delivery address?', 'hyve-lite' ),
-	},
-	{
-		ID: 6,
-		title: __( 'How do I cancel my order?', 'hyve-lite' ),
-	},
-];
+};
 
 const LockedSource = ( { subKey } ) => {
 	const isPro = Boolean( window.hyve?.license );
@@ -1372,33 +1498,11 @@ const LockedSource = ( { subKey } ) => {
 					) }
 				</div>
 
-				{ ! isPro && 'source-custom' === subKey && (
+				{ ! isPro && LOCKED_PREVIEWS[ subKey ] && (
 					<div className="hyve-next-preview">
 						<DataTable
-							columns={ [
-								{
-									key: 'title',
-									label: __( 'Title', 'hyve-lite' ),
-									render: ( row ) => (
-										<div className="hyve-next-table__main">
-											<span className="hyve-next-table__title">
-												{ row.title }
-											</span>
-										</div>
-									),
-								},
-								{
-									key: 'actions',
-									label: __( 'Actions', 'hyve-lite' ),
-									align: 'actions',
-									render: () => (
-										<Button variant="secondary" disabled>
-											{ __( 'Edit', 'hyve-lite' ) }
-										</Button>
-									),
-								},
-							] }
-							rows={ CUSTOM_PREVIEW }
+							columns={ LOCKED_PREVIEWS[ subKey ].columns }
+							rows={ LOCKED_PREVIEWS[ subKey ].rows }
 							rowKey={ ( row ) => row.ID }
 						/>
 					</div>
