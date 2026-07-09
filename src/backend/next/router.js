@@ -22,7 +22,7 @@ import {
  * Route registry. The URL is the source of truth
  * (`&nav=<screen>&sub=<panel>&item=<id>`). Sub-panels: `default` is the
  * landing panel, `hidden` keeps drill-ins out of the subnav. Pro extends
- * entries via the `hyve.next.routes` filter.
+ * entries via the `hyve.routes` filter.
  */
 const ROUTES = {
 	dashboard: {
@@ -182,7 +182,7 @@ const ROUTES = {
 	},
 };
 
-export const getRoutes = () => applyFilters( 'hyve.next.routes', ROUTES );
+export const getRoutes = () => applyFilters( 'hyve.routes', ROUTES );
 
 /**
  * Resolve a screen's sub-panel, falling back to its default panel.

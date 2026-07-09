@@ -23,6 +23,7 @@ import { setUtm } from '../../utils';
 import Card from '../components/Card';
 import Chip from '../components/Chip';
 import FieldRow from '../components/FieldRow';
+import Slot from '../components/Slot';
 import useSaveSettings from '../data/useSaveSettings';
 
 export const QdrantPanel = () => {
@@ -327,77 +328,86 @@ export const ApiAccessPanel = () => {
 	const isPro = Boolean( window.hyve?.license );
 
 	return (
-		<Card
-			title={ __( 'API Access', 'hyve-lite' ) }
-			actions={
-				! isPro && (
-					<Chip tone="pro" dot={ false }>
-						{ __( 'Pro', 'hyve-lite' ) }
-					</Chip>
-				)
-			}
-		>
-			<div className="hyve-next-card__body">
-				<p>
-					{ __(
-						'Enable external services to search your Knowledge Base using advanced semantic search powered by Retrieval-Augmented Generation (RAG) and OpenAI embeddings.',
-						'hyve-lite'
-					) }{ ' ' }
-					{ __(
-						'Integrate automation tools (Zapier, n8n, etc.) with a secure API endpoint to perform intelligent content searches via simple API requests.',
-						'hyve-lite'
-					) }
-				</p>
-				<p>
-					{ __(
-						'With an Access Token, you can securely search your content from any location using the API.',
-						'hyve-lite'
-					) }
-				</p>
-				<pre className="hyve-next-code">
-					{ [
-						'curl --request POST',
-						`  --url ${ window.hyve?.rest_url }/knowledge-base/search`,
-						"  --header 'authorization: Bearer hyve_sk_MozAlDXXXXXXXXXXXXXXXX'",
-						"  --header 'content-type: application/json'",
-						"  --data '{",
-						'        "query": "What is the cost of the phone?"',
-						"}'",
-					].join( '\n' ) }
-				</pre>
-				{ isPro && (
-					// The working tokens panel is pro-owned and arrives with P2.
-					<p className="hyve-next-card__hint">
-						{ __(
-							'The access token manager is on its way here.',
-							'hyve-lite'
-						) }
-					</p>
-				) }
-			</div>
-			{ ! isPro && (
-				<div className="hyve-next-act__upsell">
-					<strong>
-						{ __(
-							'Search your knowledge base from anywhere',
-							'hyve-lite'
-						) }
-					</strong>
+		<>
+			<Card
+				title={ __( 'API Access', 'hyve-lite' ) }
+				actions={
+					! isPro && (
+						<Chip tone="pro" dot={ false }>
+							{ __( 'Pro', 'hyve-lite' ) }
+						</Chip>
+					)
+				}
+			>
+				<div className="hyve-next-card__body">
 					<p>
 						{ __(
-							'Upgrade to Pro to unlock advanced access management: generate and manage secure API tokens, and control who can access your Knowledge Base via external integrations. Empower your team and automate workflows with confidence and security.',
+							'Enable external services to search your Knowledge Base using advanced semantic search powered by Retrieval-Augmented Generation (RAG) and OpenAI embeddings.',
+							'hyve-lite'
+						) }{ ' ' }
+						{ __(
+							'Integrate automation tools (Zapier, n8n, etc.) with a secure API endpoint to perform intelligent content searches via simple API requests.',
 							'hyve-lite'
 						) }
 					</p>
-					<Button
-						variant="primary"
-						href={ setUtm( window.hyve?.pro, 'api-search' ) }
-						target="_blank"
-					>
-						{ __( 'Unlock with Pro', 'hyve-lite' ) }
-					</Button>
+					<p>
+						{ __(
+							'With an Access Token, you can securely search your content from any location using the API.',
+							'hyve-lite'
+						) }
+					</p>
+					<pre className="hyve-next-code">
+						{ [
+							'curl --request POST',
+							`  --url ${ window.hyve?.rest_url }/knowledge-base/search`,
+							"  --header 'authorization: Bearer hyve_sk_MozAlDXXXXXXXXXXXXXXXX'",
+							"  --header 'content-type: application/json'",
+							"  --data '{",
+							'        "query": "What is the cost of the phone?"',
+							"}'",
+						].join( '\n' ) }
+					</pre>
 				</div>
+				{ ! isPro && (
+					<div className="hyve-next-act__upsell">
+						<strong>
+							{ __(
+								'Search your knowledge base from anywhere',
+								'hyve-lite'
+							) }
+						</strong>
+						<p>
+							{ __(
+								'Upgrade to Pro to unlock advanced access management: generate and manage secure API tokens, and control who can access your Knowledge Base via external integrations. Empower your team and automate workflows with confidence and security.',
+								'hyve-lite'
+							) }
+						</p>
+						<Button
+							variant="primary"
+							href={ setUtm( window.hyve?.pro, 'api-search' ) }
+							target="_blank"
+						>
+							{ __( 'Unlock with Pro', 'hyve-lite' ) }
+						</Button>
+					</div>
+				) }
+			</Card>
+
+			{ isPro && (
+				<Slot
+					name="api-access-tokens"
+					fallback={
+						<div className="hyve-next__card">
+							<p>
+								{ __(
+									'The access token manager is on its way here.',
+									'hyve-lite'
+								) }
+							</p>
+						</div>
+					}
+				/>
 			) }
-		</Card>
+		</>
 	);
 };

@@ -41,7 +41,9 @@ apiFetch.use( async ( options, next ) => {
 	return response;
 } );
 
-window.hyveComponents = {};
+// The next/ bundle registers its layout kit on the same object at import
+// time, so extend it instead of replacing it.
+window.hyveComponents = window.hyveComponents || {};
 
 window.hyveComponents.PostsTable = PostsTable;
 window.hyveComponents.PostModal = PostModal;

@@ -267,3 +267,13 @@ How to force the states: edit an already-indexed post to get "Edited since index
 - [ ] Tracking (needs telemetry enabled, watch the tiTrk network calls): switching tabs/panels queues `dashboard / route / <screen>/<sub>` events; programmatic redirects (gating) do not.
 - [ ] Saving a non-empty API key queues `openai / api-key / added`.
 - [ ] Themeisle campaign banners (when a campaign is live, or with the SDK banner test mode) inject at the top of the content area, above the page heading; with a valid pro license the slot stays hidden.
+
+## 23. Pro extension contract (P1) and Access Tokens (needs the pro plugin active)
+
+- [ ] With pro active, Settings > Integrations > API Access shows the description + curl preview card AND the Access Tokens card below it (no "on its way" hint, no PRO chip, no upsell).
+- [ ] With pro active but an outdated pro build, the "The access token manager is on its way here." fallback card shows instead (nothing breaks).
+- [ ] Generate New Token: busy state, new masked row appears (first 14 characters + asterisks), success snackbar.
+- [ ] Show reveals the full token (button flips to Hide); Copy puts the full token on the clipboard with a snackbar even while masked.
+- [ ] Delete opens the confirm modal (medium, two warning paragraphs); Cancel/Escape close harmlessly; confirming deletes the row with a snackbar.
+- [ ] Tokens work end to end: a generated token authorizes `POST {rest}/knowledge-base/search` per the curl preview; a deleted token stops working.
+- [ ] Deactivating pro flips the panel back to the free view (chip, upsell) without errors.

@@ -8,6 +8,7 @@ import { useSelect } from '@wordpress/data';
 /**
  * Internal dependencies.
  */
+import { getRoutes } from '../router';
 import ChatBehavior from './ChatBehavior';
 import ChatAppearance from './ChatAppearance';
 import { ProviderPanel, AdvancedPanel } from './AI';
@@ -31,7 +32,9 @@ const Settings = ( { sub } ) => {
 		return null;
 	}
 
-	const Panel = PANELS[ sub ];
+	// Pro swaps whole panels by attaching `component` to a route sub entry.
+	const Panel =
+		getRoutes().settings?.subs?.[ sub ]?.component ?? PANELS[ sub ];
 
 	if ( Panel ) {
 		return <Panel />;

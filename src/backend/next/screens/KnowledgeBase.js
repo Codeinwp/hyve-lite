@@ -1253,7 +1253,7 @@ const AttentionPanel = () => {
 };
 
 // Body copy and upsell blocks reuse the old drill-in strings; the pro-owned
-// working panels replace these routes via `hyve.next.routes` (P1).
+// working panels replace these routes via the `hyve.routes` filter.
 const LOCKED_COPY = {
 	'source-custom': {
 		body: __(
@@ -1499,6 +1499,13 @@ const KnowledgeBase = ( { sub } ) => {
 	useEffect( () => {
 		fetchAttentionCount( setAttentionCount );
 	}, [ setAttentionCount ] );
+
+	// Pro swaps whole panels by attaching `component` to a route sub entry.
+	const ProPanel = sub ? getRoutes().kb?.subs?.[ sub ]?.component : null;
+
+	if ( ProPanel ) {
+		return <ProPanel />;
+	}
 
 	if ( 'source-wordpress' === sub ) {
 		return <WordPressDrill />;

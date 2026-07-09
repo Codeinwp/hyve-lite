@@ -19,10 +19,31 @@ import TabNav from './components/TabNav';
 import SideNav from './components/SideNav';
 import Notices from './components/Notices';
 import ServiceErrors from './components/ServiceErrors';
+import Card from './components/Card';
+import Chip from './components/Chip';
+import ChunkLimitNotice from './components/ChunkLimitNotice';
+import DataTable from './components/DataTable';
+import FieldRow from './components/FieldRow';
+import ModerationModal from './components/ModerationModal';
+import Pagination from './components/Pagination';
 import Dashboard from './screens/Dashboard';
 import KnowledgeBase from './screens/KnowledgeBase';
 import Messages from './screens/Messages';
 import Settings from './screens/Settings';
+
+// The layout kit and router, bridged for the pro bundle: panels registered
+// via `hyve.routes` / `hyve.slot` build on these.
+window.hyveComponents = window.hyveComponents || {};
+window.hyveComponents.ui = {
+	Card,
+	Chip,
+	ChunkLimitNotice,
+	DataTable,
+	FieldRow,
+	ModerationModal,
+	Pagination,
+	navigate,
+};
 
 const SCREENS = {
 	dashboard: Dashboard,
