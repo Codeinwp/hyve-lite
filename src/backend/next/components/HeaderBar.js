@@ -89,9 +89,14 @@ const HeaderBar = () => {
 
 			<span className="hyve-next__spacer"></span>
 
-			<span className={ `hyve-next__status is-${ status.tone }` }>
+			<span
+				className={ `hyve-next__status is-${ status.tone }` }
+				title={ status.label }
+			>
 				<span className="hyve-next__status-dot"></span>
-				{ status.label }
+				<span className="hyve-next__status-label">
+					{ status.label }
+				</span>
 			</span>
 
 			<a

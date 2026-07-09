@@ -237,7 +237,7 @@ const ConversationCard = () => {
 			<FieldRow
 				label={ __( 'Default message', 'hyve-lite' ) }
 				description={ __(
-					"Shown when Hyve can't find an answer in the knowledge base.",
+					"Shown when Hyve can't find an answer in the Knowledge Base.",
 					'hyve-lite'
 				) }
 			>
@@ -343,7 +343,7 @@ const SuggestionsCard = () => {
 			<FieldRow
 				label={ __( 'Follow-up questions', 'hyve-lite' ) }
 				description={ __(
-					'After each answer, suggest a few related questions the visitor can click to keep the conversation going. Only questions the knowledge base can answer get suggested.',
+					'After each answer, suggest a few related questions the visitor can click to keep the conversation going. Only questions the Knowledge Base can answer get suggested.',
 					'hyve-lite'
 				) }
 			>

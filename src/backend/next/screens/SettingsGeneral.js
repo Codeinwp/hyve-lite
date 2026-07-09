@@ -69,7 +69,7 @@ const SettingsGeneral = () => {
 			<FieldRow
 				label={ __( 'Telemetry', 'hyve-lite' ) }
 				description={ __(
-					'Enable telemetry to help us improve the plugin by sending anonymous usage data. Data is private and not shared third-party entities.',
+					'Enable telemetry to help us improve the plugin by sending anonymous usage data. Data is private and not shared with third-party entities.',
 					'hyve-lite'
 				) }
 			>

@@ -368,7 +368,7 @@ const IndexedContent = () => {
 							? sprintf(
 									/* translators: %s: title of the entry being removed. */
 									__(
-										'Hyve will stop using "%s" in its answers. The entry is deleted permanently.',
+										'Hyve will stop using "%s" in its answers. The entry is removed permanently.',
 										'hyve-lite'
 									),
 									confirmRemove.title
@@ -761,7 +761,7 @@ const WordPressDrill = () => {
 									: sprintf(
 											/* translators: %s: number of selected items. */
 											__(
-												'Add %s to Knowledge Base',
+												'Add %s to the Knowledge Base',
 												'hyve-lite'
 											),
 											selectedRows.length
@@ -774,7 +774,7 @@ const WordPressDrill = () => {
 						<SelectControl
 							__nextHasNoMarginBottom
 							hideLabelFromVision
-							label={ __( 'Post Type', 'hyve-lite' ) }
+							label={ __( 'Post type', 'hyve-lite' ) }
 							options={ getPostTypes() }
 							value={ query.type }
 							onChange={ ( value ) =>
@@ -784,7 +784,7 @@ const WordPressDrill = () => {
 						<SearchControl
 							__nextHasNoMarginBottom
 							className="hyve-next-toolbar__grow"
-							label={ __( 'Search for Posts', 'hyve-lite' ) }
+							label={ __( 'Search for posts', 'hyve-lite' ) }
 							value={ query.search }
 							onChange={ ( value ) =>
 								onChangeQuery( 'search', value )
@@ -1330,12 +1330,12 @@ const AttentionPanel = () => {
 const LOCKED_COPY = {
 	'source-custom': {
 		body: __(
-			'Custom Data allows you to privately feed specific data directly into your chat bot without displaying this information on your public website. With this, you can equip your bot with unique, specialized knowledge that aligns with your business needs and customer queries.',
+			'Custom Data allows you to privately feed specific data directly into your chatbot without displaying this information on your public website. With this, you can equip your bot with unique, specialized knowledge that aligns with your business needs and customer queries.',
 			'hyve-lite'
 		),
 		title: __( 'Custom Data is a Premium feature', 'hyve-lite' ),
 		text: __(
-			'Privately feed specific data directly into your chatbot, equipping specialized knowledge that aligns with your business needs and customer queries. Upgrade now!',
+			'Privately feed specific data directly into your chatbot, equipping it with specialized knowledge that aligns with your business needs and customer queries. Upgrade now!',
 			'hyve-lite'
 		),
 		campaign: 'custom-data-feature',
@@ -1347,7 +1347,7 @@ const LOCKED_COPY = {
 		),
 		title: __( 'URL Crawling is a Premium feature', 'hyve-lite' ),
 		text: __(
-			'Use this tool to crawl a website and add its content to the Knowledge Base using the sitemap. Upgrade now!',
+			'Crawl any web page and add its content to the Knowledge Base. Upgrade now!',
 			'hyve-lite'
 		),
 		campaign: 'website-crawling-feature',
@@ -1499,7 +1499,7 @@ const LockedSource = ( { subKey } ) => {
 				</div>
 
 				{ ! isPro && LOCKED_PREVIEWS[ subKey ] && (
-					<div className="hyve-next-preview">
+					<div className="hyve-next-preview" aria-hidden="true">
 						<DataTable
 							columns={ LOCKED_PREVIEWS[ subKey ].columns }
 							rows={ LOCKED_PREVIEWS[ subKey ].rows }
@@ -1585,7 +1585,7 @@ const FaqPanel = () => {
 
 			{ ! isPro && (
 				<>
-					<div className="hyve-next-preview">
+					<div className="hyve-next-preview" aria-hidden="true">
 						<DataTable
 							columns={ [
 								{

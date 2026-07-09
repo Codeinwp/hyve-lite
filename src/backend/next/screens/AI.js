@@ -265,7 +265,7 @@ export const AdvancedPanel = () => {
 			<FieldRow
 				label={ __( 'Similarity threshold', 'hyve-lite' ) }
 				description={ __(
-					'How closely knowledge base content must match a question to be used.',
+					'How closely Knowledge Base content must match a question to be used.',
 					'hyve-lite'
 				) }
 			>

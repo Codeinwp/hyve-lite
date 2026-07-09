@@ -107,7 +107,7 @@ const DataTable = ( {
 			{ hasMore && ! isLoading && (
 				<div className="hyve-next-table__more">
 					<Button variant="secondary" onClick={ onLoadMore }>
-						{ __( 'Load More', 'hyve-lite' ) }
+						{ __( 'Load more', 'hyve-lite' ) }
 					</Button>
 				</div>
 			) }

@@ -27,7 +27,7 @@ const StatCard = ( {
 			</div>
 
 			{ undefined !== meter && (
-				<div className="hyve-next-stat__meter">
+				<div className="hyve-next-stat__meter" aria-hidden="true">
 					<i
 						style={ {
 							width: `${ Math.min(

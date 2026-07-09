@@ -10,7 +10,9 @@ const DEFAULT_STATE = {
 	processed: [],
 	hasAPI: Boolean( window.hyve.hasAPIKey ),
 	isQdrantActive: Boolean( window.hyve.isQdrantActive ),
-	totalChunks: 0,
+	stats: window.hyve.stats || {},
+	chart: window.hyve.chart || null,
+	totalChunks: Number( window.hyve.stats?.totalChunks ?? 0 ),
 	attentionCount: null,
 	serviceErrors: window.hyve.serviceErrors || [],
 };
@@ -52,6 +54,18 @@ const actions = {
 			totalChunks,
 		};
 	},
+	setStats( stats ) {
+		return {
+			type: 'SET_STATS',
+			stats,
+		};
+	},
+	setChart( chart ) {
+		return {
+			type: 'SET_CHART',
+			chart,
+		};
+	},
 	setQdrantStatus( isQdrantActive ) {
 		return {
 			type: 'SET_QDRANT_STATUS',
@@ -88,10 +102,16 @@ const selectors = {
 	getTotalChunks( state ) {
 		return state.totalChunks;
 	},
+	getStats( state ) {
+		return state.stats;
+	},
+	getChart( state ) {
+		return state.chart;
+	},
 	hasReachedLimit( state ) {
 		return (
 			window.hyve.chunksLimit <= Number( state.totalChunks ) &&
-			! Boolean( window.hyve.isQdrantActive )
+			! state.isQdrantActive
 		);
 	},
 	isQdrantActive( state ) {
@@ -139,6 +159,16 @@ const reducer = ( state = DEFAULT_STATE, action ) => {
 			return {
 				...state,
 				totalChunks: action.totalChunks,
+			};
+		case 'SET_STATS':
+			return {
+				...state,
+				stats: action.stats,
+			};
+		case 'SET_CHART':
+			return {
+				...state,
+				chart: action.chart,
 			};
 		case 'SET_QDRANT_STATUS':
 			return {

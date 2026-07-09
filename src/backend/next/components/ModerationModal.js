@@ -90,7 +90,10 @@ const ModerationModal = ( { post, type = '', onClose, onSuccess } ) => {
 									}
 								/>
 							</span>
-							<span className="hyve-next-meter">
+							<span
+								className="hyve-next-meter"
+								aria-hidden="true"
+							>
 								<i style={ { width: `${ percent }%` } }></i>
 							</span>
 							<span className="hyve-next-modrow__pct">
@@ -122,7 +125,7 @@ const ModerationModal = ( { post, type = '', onClose, onSuccess } ) => {
 					disabled={ isBusy }
 					onClick={ onOverride }
 				>
-					{ __( 'Override Moderation', 'hyve-lite' ) }
+					{ __( 'Override moderation', 'hyve-lite' ) }
 				</Button>
 			</div>
 		</Modal>

@@ -172,6 +172,12 @@ class API extends BaseAPI {
 					'callback' => [ $this, 'get_data_counts' ],
 				],
 			],
+			'stats'       => [
+				[
+					'methods'  => \WP_REST_Server::READABLE,
+					'callback' => [ $this, 'get_stats' ],
+				],
+			],
 			'threads'     => [
 				[
 					'methods'  => \WP_REST_Server::READABLE,
@@ -800,6 +806,20 @@ class API extends BaseAPI {
 			[
 				'pending'    => $pending,
 				'moderation' => $moderation,
+			]
+		);
+	}
+
+	/**
+	 * Get the dashboard stats and chart data.
+	 *
+	 * @return \WP_REST_Response
+	 */
+	public function get_stats() {
+		return rest_ensure_response(
+			[
+				'stats' => apply_filters( 'hyve_stats', [] ),
+				'chart' => apply_filters( 'hyve_chart_data', [] ),
 			]
 		);
 	}

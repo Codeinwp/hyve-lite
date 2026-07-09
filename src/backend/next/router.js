@@ -169,7 +169,7 @@ const ROUTES = {
 				requiresAPI: true,
 			},
 			'api-access': {
-				label: __( 'API Access', 'hyve-lite' ),
+				label: __( 'API access', 'hyve-lite' ),
 				group: __( 'Integrations', 'hyve-lite' ),
 				requiresAPI: true,
 			},

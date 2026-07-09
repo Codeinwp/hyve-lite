@@ -7,7 +7,7 @@ import apiFetch from '@wordpress/api-fetch';
 
 import { Button, Icon, SelectControl, Spinner } from '@wordpress/components';
 
-import { useSelect } from '@wordpress/data';
+import { useDispatch, useSelect } from '@wordpress/data';
 
 import { useEffect, useState } from '@wordpress/element';
 
@@ -66,7 +66,7 @@ const GET_STARTED = [
 	{
 		id: 'knowledge-base',
 		icon: archive,
-		title: __( 'Grow the knowledge base', 'hyve-lite' ),
+		title: __( 'Grow the Knowledge Base', 'hyve-lite' ),
 		text: __(
 			'Add posts, pages and other sources so Hyve answers more accurately.',
 			'hyve-lite'
@@ -143,19 +143,23 @@ const VisibilityNotice = ( { mode } ) => {
 };
 
 const StatsGrid = () => {
-	const stats = window.hyve?.stats ?? {};
+	const { stats, totalChunks, isQdrantActive } = useSelect( ( select ) => ( {
+		stats: select( 'hyve' ).getStats(),
+		totalChunks: select( 'hyve' ).getTotalChunks(),
+		isQdrantActive: select( 'hyve' ).isQdrantActive(),
+	} ) );
+
 	const sessions = Number( stats.threads ?? 0 );
 	const messages = Number( stats.messages ?? 0 );
-	const totalChunks = Number( stats.totalChunks ?? 0 );
+	const chunks = Number( totalChunks ?? 0 );
 	const chunksLimit = Number( window.hyve?.chunksLimit ?? 500 );
-	const isQdrantActive = Boolean( window.hyve?.isQdrantActive );
 
 	const usedPercent = Math.min(
 		100,
-		Math.round( ( totalChunks / chunksLimit ) * 100 )
+		Math.round( ( chunks / chunksLimit ) * 100 )
 	);
 
-	const needsStorage = ! isQdrantActive && 400 < totalChunks;
+	const needsStorage = ! isQdrantActive && 400 < chunks;
 
 	return (
 		<div className="hyve-next-stats">
@@ -181,8 +185,8 @@ const StatsGrid = () => {
 
 			<StatCard
 				icon={ archive }
-				label={ __( 'Knowledge base', 'hyve-lite' ) }
-				value={ totalChunks.toLocaleString() }
+				label={ __( 'Knowledge Base', 'hyve-lite' ) }
+				value={ chunks.toLocaleString() }
 				suffix={
 					isQdrantActive
 						? __( 'chunks', 'hyve-lite' )
@@ -243,7 +247,7 @@ const StatsGrid = () => {
 const UsageCard = () => {
 	const [ range, setRange ] = useState( 30 );
 
-	const chart = window.hyve?.chart;
+	const chart = useSelect( ( select ) => select( 'hyve' ).getChart() );
 	const hasData = 0 < ( chart?.data?.messages?.length ?? 0 );
 
 	return (
@@ -435,8 +439,34 @@ const GetStarted = () => {
 const Dashboard = () => {
 	const hasAPI = useSelect( ( select ) => select( 'hyve' ).hasAPI() );
 	const settings = useSelect( ( select ) => select( 'hyve' ).getSettings() );
+	const chunks = useSelect( ( select ) => select( 'hyve' ).getTotalChunks() );
 
-	const totalChunks = Number( window.hyve?.stats?.totalChunks ?? 0 );
+	const { setStats, setChart, setTotalChunks } = useDispatch( 'hyve' );
+
+	useEffect( () => {
+		const fetchStats = async () => {
+			try {
+				const response = await apiFetch( {
+					path: `${ window.hyve.api }/stats`,
+				} );
+
+				if ( response?.stats ) {
+					setStats( response.stats );
+					setTotalChunks( Number( response.stats.totalChunks ?? 0 ) );
+				}
+
+				if ( response?.chart ) {
+					setChart( response.chart );
+				}
+			} catch ( error ) {
+				// Keep the page-load snapshot on failure.
+			}
+		};
+
+		fetchStats();
+	}, [ setStats, setChart, setTotalChunks ] );
+
+	const totalChunks = Number( chunks ?? 0 );
 	const showChecklist = ! hasAPI || 0 === totalChunks;
 
 	return (

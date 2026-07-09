@@ -62,6 +62,7 @@ class Main {
 
 		add_filter( 'hyve_global_chat_enabled', [ $this, 'is_global_chat_enabled' ] );
 		add_filter( 'hyve_stats', [ $this, 'get_stats' ] );
+		add_filter( 'hyve_chart_data', [ $this, 'get_chart_data' ] );
 		add_filter( 'hyve_options_data', [ $this, 'append_services_error' ] );
 		add_filter( 'hyve_similarity_score_threshold', [ $this, 'get_similarity_threshold_score' ] );
 

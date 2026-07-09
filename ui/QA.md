@@ -375,3 +375,13 @@ How to force the states: edit an already-indexed post to get "Edited since index
 - [ ] A permanently unreachable page is given up after three passes; the import still completes and the Details modal shows a quiet amber text line ("N pages could not be imported...") right under the progress caption while importing, or standalone once completed.
 - [ ] The math always adds up: the progress total equals imported + queued + failed at all times; deleting pages (from the sitemap modal OR the unified Indexed content) shrinks the total accordingly, so "X of Y" reflects what is actually still in scope.
 - [ ] The old dashboard's Sitemap page keeps working unchanged.
+
+## 31. Live-data wiring (W1)
+
+- [ ] Dashboard stat cards (Sessions, Messages, Knowledge base) show fresh numbers on every visit to the Dashboard: chat on the front end in another tab, navigate away and back, and the counts update without a page reload.
+- [ ] The Usage chart refreshes the same way (a new front-end message shows up in today's bar after re-entering the Dashboard).
+- [ ] Adding or deleting Knowledge Base content updates the Knowledge base stat card and the chunk meter when returning to the Dashboard, without a reload.
+- [ ] The setup checklist reacts live: on a fresh install, adding the first content flips step 2 to done (and hides the checklist once both required steps are complete) after returning to the Dashboard, no reload needed.
+- [ ] Connecting Qdrant in-session lifts the chunk-limit lockouts (Add buttons re-enable) without a reload.
+- [ ] If the stats request fails, the Dashboard silently keeps the page-load numbers (no error UI, no empty cards).
+

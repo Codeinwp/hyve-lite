@@ -160,11 +160,11 @@ export const QdrantPanel = () => {
 					<div className="hyve-next-card__body">
 						<p>
 							{ __(
-								'Moving your knowledge base chunks to your cluster. This runs in the background; you can keep working.',
+								'Moving your Knowledge Base chunks to your cluster. This runs in the background; you can keep working.',
 								'hyve-lite'
 							) }
 						</p>
-						<div className="hyve-next-meter">
+						<div className="hyve-next-meter" aria-hidden="true">
 							<i
 								style={ { width: `${ migrationPercent }%` } }
 							></i>
@@ -330,7 +330,7 @@ export const ApiAccessPanel = () => {
 	return (
 		<>
 			<Card
-				title={ __( 'API Access', 'hyve-lite' ) }
+				title={ __( 'API access', 'hyve-lite' ) }
 				actions={
 					! isPro && (
 						<Chip tone="pro" dot={ false }>
@@ -372,7 +372,7 @@ export const ApiAccessPanel = () => {
 					<div className="hyve-next-act__upsell">
 						<strong>
 							{ __(
-								'Search your knowledge base from anywhere',
+								'Search your Knowledge Base from anywhere',
 								'hyve-lite'
 							) }
 						</strong>

@@ -15,12 +15,13 @@ import { check } from '@wordpress/icons';
 import { navigate } from '../router';
 
 const SetupChecklist = () => {
-	const { hasAPI, isQdrantActive } = useSelect( ( select ) => ( {
+	const { hasAPI, isQdrantActive, chunks } = useSelect( ( select ) => ( {
 		hasAPI: select( 'hyve' ).hasAPI(),
 		isQdrantActive: select( 'hyve' ).isQdrantActive(),
+		chunks: select( 'hyve' ).getTotalChunks(),
 	} ) );
 
-	const totalChunks = Number( window.hyve?.stats?.totalChunks ?? 0 );
+	const totalChunks = Number( chunks ?? 0 );
 
 	const steps = [
 		{
@@ -53,7 +54,7 @@ const SetupChecklist = () => {
 			title: __( 'Connect Qdrant', 'hyve-lite' ),
 			optional: true,
 			description: __(
-				'Only worth it for large sites: lifts the local limit on knowledge base size.',
+				'Only worth it for large sites: lifts the local limit on Knowledge Base size.',
 				'hyve-lite'
 			),
 			done: isQdrantActive,
@@ -92,7 +93,12 @@ const SetupChecklist = () => {
 				>
 					<span className="hyve-next-checklist__num">
 						{ step.done ? (
-							<Icon icon={ check } size={ 16 } />
+							<>
+								<Icon icon={ check } size={ 16 } />
+								<span className="screen-reader-text">
+									{ __( 'Done', 'hyve-lite' ) }
+								</span>
+							</>
 						) : (
 							index + 1
 						) }
