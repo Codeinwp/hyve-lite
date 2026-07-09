@@ -26,6 +26,16 @@ class API extends BaseAPI {
 	private static $instance = null;
 
 	/**
+	 * Source post IDs from the last knowledge base search, ordered by relevance
+	 * (highest score first) and de-duplicated per source.
+	 *
+	 * Used to optionally append source links to the chat response.
+	 *
+	 * @var array<int, int|string>
+	 */
+	private $source_post_ids = [];
+
+	/**
 	 * Ensures only one instance of the class is loaded.
 	 *
 	 * @return API An instance of the class.
@@ -212,6 +222,10 @@ class API extends BaseAPI {
 							'required' => false,
 							'type'     => 'string',
 						],
+						'is_test'   => [
+							'required' => false,
+							'type'     => 'boolean',
+						],
 					],
 					'callback'            => [ $this, 'get_chat' ],
 					'permission_callback' => function ( $request ) {
@@ -223,7 +237,7 @@ class API extends BaseAPI {
 					'methods'             => \WP_REST_Server::CREATABLE,
 					'args'                => [
 						'message'   => [
-							'required' => true,
+							'required' => false,
 							'type'     => 'string',
 						],
 						'thread_id' => [
@@ -236,6 +250,15 @@ class API extends BaseAPI {
 								'string',
 								'integer',
 							],
+						],
+						'is_test'   => [
+							'required' => false,
+							'type'     => 'boolean',
+						],
+						'mode'      => [
+							'required' => false,
+							'type'     => 'string',
+							'enum'     => [ 'stream', 'background' ],
 						],
 					],
 					'callback'            => [ $this, 'send_chat' ],
@@ -292,7 +315,7 @@ class API extends BaseAPI {
 		}
 
 		if ( empty( $updated ) ) {
-			return rest_ensure_response( [ 'error' => __( 'No settings to update.', 'hyve-lite' ) ] );
+			return $this->settings_response( [ 'success' => __( 'Settings are already up to date.', 'hyve-lite' ) ] );
 		}
 
 		$validation = apply_filters(
@@ -379,20 +402,6 @@ class API extends BaseAPI {
 					},
 					'sanitize' => 'floatval',
 				],
-				'moderation_threshold'       => [
-					'validate' => function ( $value ) {
-						return is_array( $value ) && array_reduce(
-							$value,
-							function ( $carry, $item ) {
-								return $carry && is_int( $item );
-							},
-							true
-						);
-					},
-					'sanitize' => function ( $value ) {
-						return array_map( 'intval', $value );
-					},
-				],
 				'similarity_score_threshold' => [
 					'validate' => function ( $value ) {
 						return is_numeric( $value );
@@ -401,7 +410,37 @@ class API extends BaseAPI {
 				],
 				'post_row_addon_enabled'     => [
 					'validate' => function ( $value ) {
-							return is_bool( $value );
+						return is_bool( $value );
+					},
+					'sanitize' => 'rest_sanitize_boolean',
+				],
+				'sound_enabled'              => [
+					'validate' => function ( $value ) {
+						return is_bool( $value );
+					},
+					'sanitize' => 'rest_sanitize_boolean',
+				],
+				'show_timestamp'             => [
+					'validate' => function ( $value ) {
+						return is_bool( $value );
+					},
+					'sanitize' => 'rest_sanitize_boolean',
+				],
+				'privacy_notice_enabled'     => [
+					'validate' => function ( $value ) {
+						return is_bool( $value );
+					},
+					'sanitize' => 'rest_sanitize_boolean',
+				],
+				'chat_position'              => [
+					'validate' => function ( $value ) {
+						return in_array( $value, [ 'left', 'right' ], true );
+					},
+					'sanitize' => 'sanitize_text_field',
+				],
+				'show_source_link'           => [
+					'validate' => function ( $value ) {
+						return is_bool( $value );
 					},
 					'sanitize' => 'rest_sanitize_boolean',
 				],
@@ -418,7 +457,7 @@ class API extends BaseAPI {
 
 		foreach ( $updated as $key => $value ) {
 			if ( ! $validation[ $key ]['validate']( $value ) ) {
-				return rest_ensure_response(
+				return $this->settings_response(
 					[
 						// translators: %s: option key.
 						'error' => sprintf( __( 'Invalid value: %s', 'hyve-lite' ), $key ),
@@ -429,15 +468,34 @@ class API extends BaseAPI {
 			$updated[ $key ] = $validation[ $key ]['sanitize']( $value );
 		}
 
+		$api_warning   = '';
+		$api_key_error = null;
+		$key_validated = false;
+
 		foreach ( $updated as $key => $value ) {
 			$settings[ $key ] = $value;
 
 			if ( 'api_key' === $key && ! empty( $value ) ) {
-				$openai    = new OpenAI( $value );
-				$valid_api = $openai->moderate( 'This is a test message.' );
+				$openai = new OpenAI( $value );
 
-				if ( is_wp_error( $valid_api ) ) {
-					return rest_ensure_response( [ 'error' => $this->get_error_message( $valid_api ) ] );
+				// Validate against the embeddings endpoint. Suppress automatic
+				// persistence: the dashboard notice is reconciled after the save
+				// actually lands, so it can never reflect a key that was not
+				// stored. See Codeinwp/hyve#149.
+				$validation    = $openai->set_error_persistence( false )->create_embeddings( 'Test connection.' );
+				$key_validated = true;
+
+				if ( is_wp_error( $validation ) && $this->is_auth_error( $validation->get_error_code() ) ) {
+					// The key itself is invalid — block the save.
+					return $this->settings_response( [ 'error' => $this->get_error_message( $validation ) ] );
+				}
+
+				if ( is_wp_error( $validation ) ) {
+					// The key is well-formed but the account is rate-limited or
+					// has no credits (new, unfunded accounts return a 429). Save
+					// the key but warn; the notice is recorded after the save.
+					$api_warning   = $this->get_error_message( $validation );
+					$api_key_error = $validation;
 				}
 			}
 
@@ -451,13 +509,63 @@ class API extends BaseAPI {
 			$init   = $qdrant->init();
 
 			if ( is_wp_error( $init ) ) {
-				return rest_ensure_response( [ 'error' => $this->get_error_message( $init ) ] );
+				return $this->settings_response( [ 'error' => $this->get_error_message( $init ) ] );
 			}
 		}
 
 		update_option( 'hyve_settings', $settings );
 
-		return rest_ensure_response( __( 'Settings updated.', 'hyve-lite' ) );
+		// Reconcile the dashboard service-error notice with the key that was just
+		// saved — only now that the save has actually landed (no earlier exit can
+		// leave a notice for an unsaved key). Clear any stale notice first, then
+		// re-record one for the new key when its error is actionable (a no-op for
+		// transient codes such as rate limits). See Codeinwp/hyve#149.
+		if ( $key_validated ) {
+			delete_option( OpenAI::ERROR_OPTION_KEY );
+
+			if ( null !== $api_key_error ) {
+				OpenAI::instance()->save_service_error( $api_key_error );
+			}
+		}
+
+		if ( ! empty( $api_warning ) ) {
+			return $this->settings_response( [ 'warning' => $api_warning ] );
+		}
+
+		return $this->settings_response( [ 'success' => __( 'Settings updated.', 'hyve-lite' ) ] );
+	}
+
+	/**
+	 * Build a settings REST response carrying the current service errors.
+	 *
+	 * Returning the freshly-computed service errors lets the dashboard notice
+	 * update immediately after a save, without a page reload. See Codeinwp/hyve#200.
+	 *
+	 * @param array<string, mixed> $payload The response payload.
+	 *
+	 * @return \WP_REST_Response
+	 */
+	private function settings_response( $payload ) {
+		$options = apply_filters( 'hyve_options_data', [] );
+
+		$payload['serviceErrors'] = ( is_array( $options ) && isset( $options['serviceErrors'] ) ) ? $options['serviceErrors'] : [];
+
+		return rest_ensure_response( $payload );
+	}
+
+	/**
+	 * Whether an error code means the API key itself is invalid.
+	 *
+	 * These block a key from being saved. Account-level problems (no credits,
+	 * billing, rate limits) do not: the key is valid, the account just needs
+	 * attention, so we save it and warn instead of blocking. See Codeinwp/hyve#149.
+	 *
+	 * @param int|string $code The error code.
+	 *
+	 * @return bool
+	 */
+	private function is_auth_error( $code ) {
+		return in_array( $code, OpenAI::AUTH_ERROR_CODES, true );
 	}
 
 	/**
@@ -492,12 +600,11 @@ class API extends BaseAPI {
 	 */
 	public function get_data( $request ) {
 		$args = [
-			'post_type'      => $request->get_param( 'type' ),
-			'post_status'    => [ 'publish', 'private' ],
-			'posts_per_page' => 20,
-			'fields'         => 'ids',
-			'offset'         => $request->get_param( 'offset' ),
-			'meta_query'     => [
+			'post_type'   => $request->get_param( 'type' ),
+			'post_status' => [ 'publish', 'private' ],
+			'fields'      => 'ids',
+			'offset'      => $request->get_param( 'offset' ),
+			'meta_query'  => [
 				[
 					'key'     => '_hyve_added',
 					'compare' => 'NOT EXISTS',
@@ -557,40 +664,44 @@ class API extends BaseAPI {
 			];
 		}
 
-		$query = new \WP_Query( $args );
+		$page = $this->query_page( $args );
 
 		$posts_data = [];
 
-		if ( $query->have_posts() ) {
-			foreach ( $query->posts as $post_id ) {
-				/**
-				 * The post id.
-				 *
-				 * @var int $post_id
-				 */
-				$post_data = [
-					'ID'         => $post_id,
-					'title'      => html_entity_decode( get_the_title( $post_id ), ENT_QUOTES, 'UTF-8' ),
-					'visibility' => $this->get_post_visibility( $post_id ),
-				];
+		foreach ( $page['posts'] as $post_id ) {
+			/**
+			 * The post id.
+			 *
+			 * @var int $post_id
+			 */
+			$post_data = [
+				'ID'         => $post_id,
+				'title'      => html_entity_decode( get_the_title( $post_id ), ENT_QUOTES, 'UTF-8' ),
+				'visibility' => $this->get_post_visibility( $post_id ),
+			];
 
-				if ( 'moderation' === $status ) {
-					$review = get_post_meta( $post_id, '_hyve_moderation_review', true );
+			if ( 'moderation' === $status ) {
+				$review = get_post_meta( $post_id, '_hyve_moderation_review', true );
 
-					if ( ! is_array( $review ) || empty( $review ) ) {
-						$review = [];
-					}
-
-					$post_data['review'] = $review;
+				if ( ! is_array( $review ) || empty( $review ) ) {
+					$review = [];
 				}
 
-				$posts_data[] = $post_data;
+				$post_data['review'] = $review;
 			}
+
+			$processing_error = get_post_meta( $post_id, '_hyve_processing_error', true );
+
+			if ( ! empty( $processing_error ) && get_post_meta( $post_id, '_hyve_added', true ) ) {
+				$post_data['error'] = $processing_error;
+			}
+
+			$posts_data[] = $post_data;
 		}
 
 		$posts = [
 			'posts'       => $posts_data,
-			'more'        => $query->found_posts > 20,
+			'more'        => $page['more'],
 			'totalChunks' => $this->table->get_count(),
 		];
 
@@ -628,6 +739,20 @@ class API extends BaseAPI {
 			return rest_ensure_response( [ 'error' => $this->get_error_message( $process ) ] );
 		}
 
+		// The content was stored, but the synchronous indexing attempt may have
+		// failed (e.g. rate limit, no credits). Surface that as a non-blocking
+		// warning so the admin sees it immediately, not only as a list badge.
+		$processing_error = get_post_meta( $post_id, '_hyve_processing_error', true );
+
+		if ( ! empty( $processing_error ) ) {
+			return rest_ensure_response(
+				[
+					'success' => true,
+					'warning' => $processing_error,
+				]
+			);
+		}
+
 		return rest_ensure_response( true );
 	}
 
@@ -646,8 +771,8 @@ class API extends BaseAPI {
 			try {
 				$delete_result = Qdrant_API::instance()->delete_point( $id );
 
-				if ( ! $delete_result ) {
-					throw new \Exception( __( 'Failed to delete point in Qdrant.', 'hyve-lite' ) );
+				if ( is_wp_error( $delete_result ) || ! $delete_result ) {
+					throw new \Exception( is_wp_error( $delete_result ) ? $delete_result->get_error_message() : __( 'Failed to delete point in Qdrant.', 'hyve-lite' ) );
 				}
 			} catch ( \Exception $e ) {
 				return rest_ensure_response( [ 'error' => $e->getMessage() ] );
@@ -660,6 +785,7 @@ class API extends BaseAPI {
 		delete_post_meta( $id, '_hyve_needs_update' );
 		delete_post_meta( $id, '_hyve_moderation_failed' );
 		delete_post_meta( $id, '_hyve_moderation_review' );
+		delete_post_meta( $id, '_hyve_processing_error' );
 		return rest_ensure_response( true );
 	}
 
@@ -702,40 +828,37 @@ class API extends BaseAPI {
 		$pages = apply_filters( 'hyve_threads_per_page', 3 );
 
 		$args = [
-			'post_type'      => 'hyve_threads',
-			'post_status'    => 'publish',
-			'posts_per_page' => $pages,
-			'fields'         => 'ids',
-			'offset'         => $request->get_param( 'offset' ),
+			'post_type'   => 'hyve_threads',
+			'post_status' => 'publish',
+			'fields'      => 'ids',
+			'offset'      => $request->get_param( 'offset' ),
 		];
 
-		$query = new \WP_Query( $args );
+		$page = $this->query_page( $args, $pages );
 
 		$posts_data = [];
 
-		if ( $query->have_posts() ) {
-			foreach ( $query->posts as $post_id ) {
-				/**
-				 * The post id.
-				 *
-				 * @var int $post_id
-				 */
+		foreach ( $page['posts'] as $post_id ) {
+			/**
+			 * The post id.
+			 *
+			 * @var int $post_id
+			 */
 
-				$post_data = [
-					'ID'        => $post_id,
-					'title'     => html_entity_decode( get_the_title( $post_id ), ENT_QUOTES, 'UTF-8' ),
-					'date'      => get_the_date( 'c', $post_id ),
-					'thread'    => get_post_meta( $post_id, '_hyve_thread_data', true ),
-					'thread_id' => get_post_meta( $post_id, '_hyve_thread_id', true ),
-				];
+			$post_data = [
+				'ID'        => $post_id,
+				'title'     => html_entity_decode( get_the_title( $post_id ), ENT_QUOTES, 'UTF-8' ),
+				'date'      => get_the_date( 'c', $post_id ),
+				'thread'    => get_post_meta( $post_id, '_hyve_thread_data', true ),
+				'thread_id' => get_post_meta( $post_id, '_hyve_thread_id', true ),
+			];
 
-				$posts_data[] = $post_data;
-			}
+			$posts_data[] = $post_data;
 		}
 
 		$posts = [
 			'posts' => $posts_data,
-			'more'  => $query->found_posts > $pages,
+			'more'  => $page['more'],
 		];
 
 		return rest_ensure_response( $posts );
@@ -835,31 +958,45 @@ class API extends BaseAPI {
 			return rest_ensure_response( [ 'error' => __( 'No messages found.', 'hyve-lite' ) ] );
 		}
 
-		$message = reset( $message )->content[0]->text;
-		$message = json_decode( $message, true );
+		$text = reset( $message )->content[0]->text;
 
-		if ( json_last_error() !== JSON_ERROR_NONE ) {
-			return rest_ensure_response( [ 'error' => __( 'No messages found.', 'hyve-lite' ) ] );
-		}
-		
 		Main::add_labels_to_default_settings();
 		$settings = Main::get_settings();
 
-		if ( isset( $message['properties'] ) ) {
-			$message = $message['properties'];
+		$interpreted = OpenAI::interpret_chat_payload( $text, $settings['default_message'] );
+
+		if ( ! $interpreted['decoded'] ) {
+			return rest_ensure_response( [ 'error' => __( 'No messages found.', 'hyve-lite' ) ] );
 		}
 
-		$response = ( isset( $message['success'] ) && true === $message['success'] && isset( $message['response'] ) ) ? $message['response'] : esc_html( $settings['default_message'] );
+		$payload  = $interpreted['payload'];
+		$response = $interpreted['final'];
+		$answered = $interpreted['answered'];
 
-		do_action( 'hyve_chat_response', $run_id, $thread_id, $query, $record_id, $message, $response );
+		if ( ! empty( $settings['show_source_link'] ) && $answered ) {
+			$response = $this->append_source_link( $response, $run_id );
+		}
+		// Skip recording for admin live-preview test chats (see send_chat).
+		if ( ! $request->get_param( 'is_test' ) ) {
+			do_action( 'hyve_chat_response', $run_id, $thread_id, $query, $record_id, $payload, $response );
+		}
 
-		return rest_ensure_response(
-			[
-				'status'  => $status,
-				'success' => isset( $message['success'] ) ? $message['success'] : false,
-				'message' => $response,
-			]
-		);
+		$data = [
+			'status'  => $status,
+			'success' => $answered,
+			'message' => $response,
+		];
+
+		// Let extensions attach extra reply data (e.g. follow-up suggestions from
+		// the structured payload). Shared with the streaming flow (Stream) so both
+		// paths surface the same data to the widget.
+		$reply = apply_filters( 'hyve_chat_reply_data', $data, $payload, $answered );
+
+		if ( is_array( $reply ) ) {
+			$data = $reply;
+		}
+
+		return rest_ensure_response( $data );
 	}
 
 	/**
@@ -881,6 +1018,8 @@ class API extends BaseAPI {
 			return $articles_embedded_data;
 		}
 
+		$source_scores = [];
+
 		foreach ( $knowledge_points as $point ) {
 			if ( empty( $point['post_title'] ) || empty( $point['post_content'] ) || empty( $point['token_count'] ) ) {
 				continue;
@@ -892,9 +1031,19 @@ class API extends BaseAPI {
 				continue;
 			}
 
+			if ( isset( $point['post_id'], $point['score'] ) ) {
+				$post_id = (string) $point['post_id'];
+
+				if ( ! isset( $source_scores[ $post_id ] ) || $point['score'] > $source_scores[ $post_id ] ) {
+					$source_scores[ $post_id ] = $point['score'];
+				}
+			}
+
 			$articles_embedded_data .= "\n ===START POST=== " . $point['post_title'] . ' - ' . $point['post_content'] . ' ===END POST===';
 			$current_token_count    += intval( $point['token_count'] );
 		}
+
+		$this->source_post_ids = $this->rank_sources( $source_scores );
 
 		return $articles_embedded_data;
 	}
@@ -987,16 +1136,73 @@ class API extends BaseAPI {
 			return $articles_embedded_data;
 		}
 
+		$source_scores = [];
+
 		foreach ( $matched_articles as $article ) {
 			$article_data = $this->table->get_post_data( $article['id'] );
 			if ( empty( $article_data ) ) {
 				continue;
 			}
 
+			$post_id = $this->table->get_post_id( $article['id'] );
+
+			if ( ! empty( $post_id ) && ( ! isset( $source_scores[ $post_id ] ) || $article['score'] > $source_scores[ $post_id ] ) ) {
+				$source_scores[ $post_id ] = $article['score'];
+			}
+
 			$articles_embedded_data .= "\n ===START POST=== " . $article_data['post_title'] . ' - ' . $article_data['post_content'] . ' ===END POST===';
 		}
 
+		$this->source_post_ids = $this->rank_sources( $source_scores );
+
 		return $articles_embedded_data;
+	}
+
+	/**
+	 * Order de-duplicated sources by relevance, drop weak matches and return
+	 * their post IDs.
+	 *
+	 * A single fixed score cutoff does not travel well — the score of a genuinely
+	 * relevant match varies a lot between queries — so sources are kept relative
+	 * to the best match: anything scoring within a ratio of the top result is
+	 * kept, and the low-scoring stragglers that merely cleared the context
+	 * threshold are dropped. The strongest source is always retained.
+	 *
+	 * @since 1.4.2
+	 *
+	 * @param array<int|string, float> $source_scores Map of source post ID to its best score.
+	 *
+	 * @return array<int, int|string> Post IDs ordered by score, highest first.
+	 */
+	private function rank_sources( $source_scores ) {
+		if ( empty( $source_scores ) ) {
+			return [];
+		}
+
+		arsort( $source_scores );
+
+		$top_score = reset( $source_scores );
+
+		/**
+		 * Filters how close to the best match a source must score to be shown as
+		 * a source link, as a ratio of the top score (0–1). A higher value keeps
+		 * only near-equal matches; 0 keeps everything above the context threshold.
+		 *
+		 * @since 1.4.2
+		 *
+		 * @param float $ratio The minimum score ratio relative to the best match. Default 0.8.
+		 */
+		$ratio     = (float) apply_filters( 'hyve_source_link_score_ratio', 0.8 );
+		$threshold = $top_score * $ratio;
+
+		$source_scores = array_filter(
+			$source_scores,
+			function ( $score ) use ( $threshold ) {
+				return $score >= $threshold;
+			}
+		);
+
+		return array_keys( $source_scores );
 	}
 
 	/**
@@ -1009,6 +1215,8 @@ class API extends BaseAPI {
 	 * @return string The articles blob data that match the given message vector.
 	 */
 	public function search_knowledge_base( $message_vector, $similarity_score_threshold = 0.4, $tokens_threshold = 2000 ) {
+		$this->source_post_ids = [];
+
 		if ( Qdrant_API::is_active() ) {
 			return $this->search_knowledge_base_qdrant( $message_vector, $similarity_score_threshold, $tokens_threshold );
 		}
@@ -1114,6 +1322,164 @@ class API extends BaseAPI {
 	}
 
 	/**
+	 * Resolve a public source link for a knowledge base source post.
+	 *
+	 * Returns a link only for publicly accessible content. Regular WordPress
+	 * posts are linked when their visibility is public; other source types
+	 * (e.g. the pro plugin's website links or custom data) are handled through
+	 * the `hyve_chat_source_link` filter.
+	 *
+	 * @since 1.4.2
+	 *
+	 * @param int|string $post_id Source post ID.
+	 *
+	 * @return string Public URL, or empty string when no link should be shown.
+	 */
+	private function resolve_source_link( $post_id ) {
+		$default   = '';
+		$source_id = (int) $post_id;
+		$post_type = get_post_type( $source_id );
+
+		if (
+			$post_type &&
+			'public' === $this->get_post_visibility( $source_id ) &&
+			is_post_type_viewable( $post_type )
+		) {
+			$permalink = get_permalink( $source_id );
+			$default   = $permalink ? $permalink : '';
+		}
+
+		/**
+		 * Filters the public source link appended to a chat answer.
+		 *
+		 * Return an empty string to omit the link (for content that is not
+		 * publicly accessible, such as custom data). The pro plugin uses this
+		 * to resolve website-URL sources and to suppress links for custom data.
+		 *
+		 * @since 1.4.2
+		 *
+		 * @param string     $default The default resolved URL (empty for non-public content).
+		 * @param int|string $post_id The source post ID.
+		 */
+		$url = apply_filters( 'hyve_chat_source_link', $default, $post_id );
+
+		return ! empty( $url ) ? esc_url_raw( $url ) : '';
+	}
+
+	/**
+	 * Append a "Answer provided based on" source link to a chat response.
+	 *
+	 * @since 1.4.2
+	 *
+	 * @param string $response The chat response HTML.
+	 * @param string $run_id   The run ID used to look up the stored source.
+	 *
+	 * @return string The response, with the source link appended when available.
+	 */
+	private function append_source_link( $response, $run_id ) {
+		$transient_key = 'hyve_source_' . $run_id;
+		$post_ids      = get_transient( $transient_key );
+		delete_transient( $transient_key );
+
+		return $this->maybe_append_source_link( $response, $post_ids );
+	}
+
+	/**
+	 * Append source links to a chat response for the publicly accessible sources.
+	 *
+	 * Renders up to a filterable number of links (default 3), keeping the highest
+	 * scoring public sources and skipping any that have no public URL.
+	 *
+	 * @since 1.4.2
+	 *
+	 * @param string                            $response The chat response HTML.
+	 * @param array<int, int|string>|int|string $post_ids Source post IDs, ordered by relevance. A single ID is accepted for convenience.
+	 *
+	 * @return string
+	 */
+	public function maybe_append_source_link( $response, $post_ids ) {
+		if ( empty( $post_ids ) ) {
+			return $response;
+		}
+
+		$post_ids = is_array( $post_ids ) ? $post_ids : [ $post_ids ];
+
+		/**
+		 * Filters the maximum number of source links appended to a chat answer.
+		 *
+		 * @since 1.4.2
+		 *
+		 * @param int $limit The maximum number of source links. Default 3.
+		 */
+		$limit = (int) apply_filters( 'hyve_source_link_limit', 3 );
+
+		if ( $limit < 1 ) {
+			return $response;
+		}
+
+		$links = [];
+
+		foreach ( $post_ids as $post_id ) {
+			$link = $this->build_source_link( $post_id, count( $links ) + 1 );
+
+			if ( '' === $link ) {
+				continue;
+			}
+
+			$links[] = $link;
+
+			if ( count( $links ) >= $limit ) {
+				break;
+			}
+		}
+
+		if ( empty( $links ) ) {
+			return $response;
+		}
+
+		$intro = '<span class="hyve-source__intro">' . esc_html__( 'Sources', 'hyve-lite' ) . '</span>';
+
+		return $response . '<div class="hyve-source">' . $intro . implode( '', $links ) . '</div>';
+	}
+
+	/**
+	 * Build the markup for a single numbered source link, or an empty string
+	 * when the source is not publicly accessible.
+	 *
+	 * @since 1.4.2
+	 *
+	 * @param int|string $post_id The source post ID.
+	 * @param int        $number  The 1-based position shown on the citation chip.
+	 *
+	 * @return string
+	 */
+	private function build_source_link( $post_id, $number ) {
+		if ( empty( $post_id ) ) {
+			return '';
+		}
+
+		$url = $this->resolve_source_link( $post_id );
+
+		if ( empty( $url ) ) {
+			return '';
+		}
+
+		$title = get_the_title( (int) $post_id );
+		$title = ! empty( $title ) ? $title : $url;
+
+		/* translators: 1: citation number, 2: source page title. */
+		$label = sprintf( __( 'Source %1$d: %2$s', 'hyve-lite' ), $number, $title );
+
+		return sprintf(
+			'<a class="hyve-source__link" href="%1$s" target="_blank" rel="noopener noreferrer" aria-label="%2$s">%3$d<span class="hyve-source__label">%4$s</span></a>',
+			esc_url( $url ),
+			esc_attr( $label ),
+			(int) $number,
+			esc_html( $title )
+		);
+	}
+
+	/**
 	 * Send chat.
 	 *
 	 * @param \WP_REST_Request<array<string, mixed>> $request Request object.
@@ -1121,23 +1487,110 @@ class API extends BaseAPI {
 	 * @return \WP_REST_Response
 	 */
 	public function send_chat( $request ) {
-		$message    = $request->get_param( 'message' );
-		$record_id  = $request->get_param( 'record_id' );
+		$prepared = $this->prepare_chat( $request );
+
+		if ( is_wp_error( $prepared ) ) {
+			return rest_ensure_response(
+				[
+					'error' => $this->get_error_message( $prepared ),
+					'code'  => $prepared->get_error_code(),
+				]
+			);
+		}
+
+		$is_test        = (bool) $request->get_param( 'is_test' );
+		$request_record = $request->get_param( 'record_id' );
+		$request_record = $request_record ? $request_record : null;
+
+		// Streaming path: stash the prepared turn and hand back a token the
+		// streaming endpoint (admin-ajax) will use to generate and record the
+		// reply. The user message is recorded there, once, when the reply lands.
+		if ( 'stream' === $request->get_param( 'mode' ) ) {
+			$token = wp_generate_password( 24, false );
+
+			set_transient(
+				'hyve_stream_job_' . $token,
+				[
+					'thread_id'       => $prepared['thread_id'],
+					'record_id'       => $request_record,
+					'message'         => $prepared['message'],
+					'context'         => $prepared['context'],
+					'is_test'         => $is_test,
+					'source_post_ids' => $this->source_post_ids,
+				],
+				5 * MINUTE_IN_SECONDS
+			);
+
+			return rest_ensure_response(
+				[
+					'thread_id'    => $prepared['thread_id'],
+					'record_id'    => $request_record,
+					'stream_token' => $token,
+					'content'      => $prepared['context'],
+				]
+			);
+		}
+
+		// Default path: background run + client polling (unchanged behavior).
+		$thread_id = $prepared['thread_id'];
+		$query_run = $this->create_background_run( $prepared['context'], $prepared['message'], $thread_id );
+
+		if ( is_wp_error( $query_run ) ) {
+			return rest_ensure_response( [ 'error' => $this->get_error_message( $query_run ) ] );
+		}
+
+		// Test chats from the admin live preview are not recorded as threads, so
+		// they never pollute the conversation history or the analytics charts.
+		$record_id = $is_test ? null : apply_filters( 'hyve_chat_request', $thread_id, $request_record, $prepared['message'] );
+
+		return rest_ensure_response(
+			[
+				'thread_id' => $thread_id,
+				'query_run' => $query_run,
+				'record_id' => $record_id ? $record_id : null,
+				'content'   => $prepared['context'],
+			]
+		);
+	}
+
+	/**
+	 * Prepare a chat turn before a model run is created.
+	 *
+	 * Runs the shared, transport-agnostic work: moderation, embeddings,
+	 * knowledge base search and conversation/thread creation. Used by both the
+	 * streaming and the background reply flows so each runs once per turn. The
+	 * user message is recorded by the caller (so it happens exactly once,
+	 * whichever flow ultimately answers).
+	 *
+	 * @param \WP_REST_Request<array<string, mixed>> $request Request.
+	 *
+	 * @return array{thread_id:string,message:string,context:string}|\WP_Error
+	 */
+	private function prepare_chat( $request ) {
+		$message = $request->get_param( 'message' );
+
+		if ( empty( $message ) ) {
+			return new \WP_Error( 'missing_message', __( 'Message was flagged.', 'hyve-lite' ) );
+		}
+
 		$moderation = OpenAI::instance()->moderate_chunks( $message );
 
 		if ( true !== $moderation ) {
-			return rest_ensure_response( [ 'error' => __( 'Message was flagged.', 'hyve-lite' ) ] );
+			return new \WP_Error( 'content_flagged', __( 'Message was flagged.', 'hyve-lite' ) );
 		}
 
 		$openai          = OpenAI::instance();
+		$record_id       = $request->get_param( 'record_id' );
+		$record_id       = $record_id ? $record_id : null;
 		$retrieval_query = $this->build_retrieval_query( $message, $record_id, $request->get_param( 'thread_id' ) );
 		$message_vector  = $openai->create_embeddings( $retrieval_query );
-		$message_vector  = reset( $message_vector );
-		$message_vector  = $message_vector->embedding;
 
 		if ( is_wp_error( $message_vector ) ) {
-			return rest_ensure_response( [ 'error' => __( 'No embeddings found.', 'hyve-lite' ) ] );
+			return new \WP_Error( 'no_embeddings', __( 'No embeddings found.', 'hyve-lite' ) );
 		}
+
+		$message_vector = reset( $message_vector );
+		$message_vector = $message_vector->embedding;
 
 		if ( $request->get_param( 'thread_id' ) ) {
 			$thread_id = $request->get_param( 'thread_id' );
@@ -1146,7 +1599,7 @@ class API extends BaseAPI {
 		}
 
 		if ( is_wp_error( $thread_id ) ) {
-			return rest_ensure_response( [ 'error' => $this->get_error_message( $thread_id ) ] );
+			return $thread_id;
 		}
 
 		/**
@@ -1165,64 +1618,52 @@ class API extends BaseAPI {
 
 		$article_context = $this->search_knowledge_base( $message_vector, $similarity_score_threshold );
 
-		$query_run = $openai->create_response(
-			[
-				[
-					'type'    => 'message',
-					'role'    => 'user',
-					'content' => 'START CONTEXT: ' . $article_context . ' :END CONTEXT',
-				],
-				[
-					'type'    => 'message',
-					'role'    => 'user',
-					'content' => 'START QUESTION: ' . $message . ' :END QUESTION',
-				],
-			],
-			$thread_id
-		);
+		$hash = hash( 'md5', strtolower( $message ) );
+		// TTL must outlast the slowest reply (streaming can run up to the 120s
+		// cURL cap) so the embedding is still available when hyve_chat_response
+		// fires and unanswered-question analytics can read it.
+		set_transient( 'hyve_message_' . $hash, $message_vector, 5 * MINUTE_IN_SECONDS );
 
-		if ( is_wp_error( $query_run ) ) {
-			if ( strpos( $this->get_error_message( $query_run ), 'Conversation with id' ) !== false ) {
-				$thread_id = $openai->create_conversation();
+		return [
+			'thread_id' => $thread_id,
+			'message'   => $message,
+			'context'   => $article_context,
+		];
+	}
 
-				if ( is_wp_error( $thread_id ) ) {
-					return rest_ensure_response( [ 'error' => $this->get_error_message( $thread_id ) ] );
-				}
+	/**
+	 * Create a background model run for the poll-based reply flow.
+	 *
+	 * Mirrors the original send_chat behavior, including the retry when the
+	 * conversation has expired on OpenAI's side.
+	 *
+	 * @param string $context   Knowledge base context.
+	 * @param string $message   User message.
+	 * @param string $thread_id Conversation id (by reference; recreated if expired).
+	 *
+	 * @return string|\WP_Error Run id or error.
+	 */
+	private function create_background_run( $context, $message, &$thread_id ) {
+		$openai = OpenAI::instance();
 
-				$query_run = $openai->create_response(
-					[
-						[
-							'type'    => 'message',
-							'role'    => 'user',
-							'content' => 'START CONTEXT: ' . $article_context . ' :END CONTEXT',
-						],
-						[
-							'type'    => 'message',
-							'role'    => 'user',
-							'content' => 'START QUESTION: ' . $message . ' :END QUESTION',
-						],
-					],
-					$thread_id
-				);
+		$items = OpenAI::build_chat_items( $context, $message );
 
-				if ( is_wp_error( $query_run ) ) {
-					return rest_ensure_response( [ 'error' => $this->get_error_message( $query_run ) ] );
-				}
+		$query_run = $openai->create_response( $items, $thread_id );
+
+		if ( is_wp_error( $query_run ) && strpos( $this->get_error_message( $query_run ), 'Conversation with id' ) !== false ) {
+			$new_thread = $openai->create_conversation();
+
+			if ( is_wp_error( $new_thread ) ) {
+				return $new_thread;
 			}
+
+			$thread_id = $new_thread;
+			$query_run = $openai->create_response( $items, $thread_id );
 		}
 
-		$hash = hash( 'md5', strtolower( $message ) );
-		set_transient( 'hyve_message_' . $hash, $message_vector, MINUTE_IN_SECONDS );
-
-		$record_id = apply_filters( 'hyve_chat_request', $thread_id, $record_id, $message );
-
-		return rest_ensure_response(
-			[
-				'thread_id' => $thread_id,
-				'query_run' => $query_run,
-				'record_id' => $record_id ? $record_id : null,
-				'content'   => $article_context,
-			]
-		);
+		if ( ! empty( $this->source_post_ids ) && is_string( $query_run ) ) {
+			set_transient( 'hyve_source_' . $query_run, $this->source_post_ids, HOUR_IN_SECONDS );
+		}
+		return $query_run;
 	}
 }

@@ -127,19 +127,6 @@ test.describe( 'Dashboard', () => {
 		).toBeVisible();
 
 		await page
-			.getByRole( 'button', { name: 'Moderation' } )
-			.click( { force: true } );
-		await expect(
-			page.getByRole( 'heading', { name: 'Moderation Settings' } )
-		).toBeVisible();
-		expect(
-			await page.locator( '.components-range-control__slider' ).count()
-		).toBeGreaterThan( 0 );
-		await expect(
-			page.getByRole( 'button', { name: 'Save' } )
-		).toBeVisible();
-
-		await page
 			.getByRole( 'button', { name: 'Advanced' } )
 			.click( { force: true } );
 		await expect(
@@ -449,9 +436,10 @@ test.describe( 'Dashboard', () => {
 	} );
 
 	test( 'check service error rendering', async ( { page, admin } ) => {
+		// Service errors are held in the data store and rendered reactively, so
+		// inject them via dispatch rather than mutating window.hyve.
 		await page.evaluate( () => {
-			window.hyve = window.hyve || {};
-			window.hyve.serviceErrors = [
+			window.wp.data.dispatch( 'hyve' ).setServiceErrors( [
 				{
 					code: 'invalid_api_key',
 					message:
@@ -466,7 +454,7 @@ test.describe( 'Dashboard', () => {
 					date: '2025-06-05T14:57:31+00:00',
 					provider: 'Qdrant',
 				},
-			];
+			] );
 		} );
 
 		// Trigger the rendering via React tree refresh.

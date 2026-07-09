@@ -26,10 +26,6 @@
     max-width: 12rem;
 }
 
-.components-color-palette__custom-color-text-wrapper {
-    display: none;
-}
-
 .hyve-chat-message {
 	p {
 		font-size: 13px;
@@ -94,4 +90,98 @@ div.notice.themeisle-sale {
 }
 .service-error.components-notice.is-error {
     background-color: #fabbbb; // Make the contrast ratio higher.
+}
+
+/**
+ * Appearance color swatch tiles.
+ *
+ * Kept visually in sync with the Pro plugin's Colors section; here they render
+ * as static previews behind the upsell overlay.
+ */
+$hyve-check:
+	linear-gradient(45deg, #d7d7db 25%, transparent 25%),
+	linear-gradient(-45deg, #d7d7db 25%, transparent 25%),
+	linear-gradient(45deg, transparent 75%, #d7d7db 75%),
+	linear-gradient(-45deg, transparent 75%, #d7d7db 75%);
+
+.hyve-color-reset {
+	font-size: 12px;
+	height: auto;
+	padding: 0;
+}
+
+.hyve-color-tiles {
+	display: grid;
+	grid-template-columns: repeat(2, 1fr);
+	gap: 12px;
+	width: 100%;
+}
+
+.hyve-color-tile {
+	display: block;
+	width: 100%;
+
+	.hyve-color-tile__btn {
+		display: flex;
+		flex-direction: column;
+		gap: 8px;
+		width: 100%;
+		padding: 10px;
+		margin: 0;
+		background: #fff;
+		border: 1px solid #e0e0e0;
+		border-radius: 8px;
+		cursor: pointer;
+		text-align: left;
+		transition: border-color 0.15s ease, box-shadow 0.15s ease;
+
+		&:hover {
+			border-color: #3858e9;
+			box-shadow: 0 0 0 1px #3858e9;
+		}
+
+		&:focus-visible {
+			outline: none;
+			border-color: #3858e9;
+			box-shadow: 0 0 0 1px #3858e9;
+		}
+	}
+
+	.hyve-color-tile__swatch {
+		display: block;
+		height: 46px;
+		border-radius: 6px;
+		border: 1px solid rgba(0, 0, 0, 0.08);
+
+		&.is-empty {
+			background-image: $hyve-check;
+			background-size: 12px 12px;
+			background-position: 0 0, 0 6px, 6px -6px, -6px 0;
+		}
+	}
+
+	.hyve-color-tile__meta {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 8px;
+	}
+
+	.hyve-color-tile__name {
+		font-size: 13px;
+		font-weight: 500;
+		color: #1e1e1e;
+	}
+
+	.hyve-color-tile__hex {
+		font-size: 11.5px;
+		color: #757575;
+		font-variant-numeric: tabular-nums;
+		font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+
+		&.is-empty {
+			font-style: italic;
+			font-family: inherit;
+		}
+	}
 }
