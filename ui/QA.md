@@ -353,3 +353,25 @@ How to force the states: edit an already-indexed post to get "Edited since index
 - [ ] Indexed rows show an Indexed chip (or "Indexing failed" with the stored error) and paginate at 20 with step-back on the last delete.
 - [ ] **Delete** asks for confirmation (the file stays in the Media Library); confirming removes the entry with a snackbar.
 - [ ] Imported documents appear in the unified Indexed content list with the Document source label.
+
+## 30. Sitemap drill-in (needs the pro plugin active)
+
+- [ ] Knowledge Base > Add a source > Sitemap opens the working panel; the back link returns to All sources.
+- [ ] **Add Sitemap** opens the modal: an invalid URL shows the "Please provide a valid URL." snackbar; Fetch loads the sitemap's pages as a scrollable checkbox list and locks the URL field.
+- [ ] Select All / Deselect All work; Proceed with nothing selected shows the "Please select at least one link." snackbar.
+- [ ] Proceed imports: success snackbar, the modal closes, and the sitemap appears in the list with the amber Queued chip; it flips to the green Completed chip on its own (10s poll) when the background import finishes.
+- [ ] While queued, the Details modal shows a progress meter with "X of Y selected pages imported" under the URL, advancing live while the modal stays open; completed sitemaps show no meter.
+- [ ] A sitemap record created before totals were stored shows no meter in Details, just the status chip.
+- [ ] **Details** shows the URL, status chip, and a table of every page with Indexed/Failed status chips; the table fills live while the import runs, and explains the background import when still empty.
+- [ ] **Retry** on a Failed row: busy state, success snackbar, the row flips out of Failed (back into the import queue), the sitemap returns to Queued, and the page imports on the next passes (or returns to Failed after three more misses).
+- [ ] **Bulk actions**: every row has a checkbox and the header checkbox selects all; "Retry N selected" appears when the selection contains Failed pages and queues them together; "Delete N selected" removes the whole selection behind one confirm modal (indexed pages leave the KB permanently, failed ones leave the failed list) with a summary snackbar; deletions go over in batches of 20 per request (100 pages = 5 requests, not 100), and row action buttons stay side by side even in narrow cells.
+- [ ] **Delete on an Indexed row**: confirm modal, then the page disappears from the sitemap table, the unified Indexed content, and the chunk counts.
+- [ ] **Delete on a Failed row**: confirm modal, then the URL leaves the failed list without being imported; the skipped note count drops.
+- [ ] Long page lists scroll inside the modal instead of stretching it.
+- [ ] The search field in Details filters the pages live (matches URL or title, results count shown); select-all applies to the filtered rows only; clearing the search restores the full table; no match shows "No pages match your search."
+- [ ] **Delete** inside Details is only offered once the import completes (hidden while Queued); it asks for confirmation (all imported pages removed permanently); confirming deletes the sitemap and its pages, and they disappear from the unified Indexed content too.
+- [ ] With the chunk limit reached: warning notice and Add Sitemap disabled.
+- [ ] **Queue resilience**: killing PHP mid-import (or a web timeout) does not lose the queue; within ~15s of the panel being open, the import resumes on its own from where it stopped.
+- [ ] A permanently unreachable page is given up after three passes; the import still completes and the Details modal shows a quiet amber text line ("N pages could not be imported...") right under the progress caption while importing, or standalone once completed.
+- [ ] The math always adds up: the progress total equals imported + queued + failed at all times; deleting pages (from the sitemap modal OR the unified Indexed content) shrinks the total accordingly, so "X of Y" reflects what is actually still in scope.
+- [ ] The old dashboard's Sitemap page keeps working unchanged.

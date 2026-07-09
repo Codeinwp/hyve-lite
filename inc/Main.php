@@ -840,6 +840,14 @@ class Main {
 			return;
 		}
 
+		// The edited-since-indexing flag is for site content edited by
+		// people. Non-viewable types are the ingest pipeline's own entries
+		// (crawled pages, documents, custom data); it re-indexes them itself,
+		// and the update cron could never see them to clear the flag.
+		if ( ! is_post_type_viewable( $post->post_type ) ) {
+			return;
+		}
+
 		update_post_meta( $post_id, '_hyve_needs_update', 1 );
 		delete_post_meta( $post_id, '_hyve_moderation_failed' );
 		delete_post_meta( $post_id, '_hyve_moderation_review' );
