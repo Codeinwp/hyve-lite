@@ -211,4 +211,31 @@ How to force the common states:
 - [ ] No em or en dashes anywhere in the visible copy.
 - [ ] Nothing references a screen location it should not (error strings are location-neutral).
 - [ ] Free tier shows no Pro chips in nav or subnav (upsells live inside screens only).
+- [ ] Table row actions (View, Add, Remove) are secondary buttons; a primary button appears at most once per card or modal (Save, Connect, Unlock with Pro, confirm actions).
 - [ ] With the pro plugin active, everything above still holds (no duplicate screens, no lite-only assumptions breaking).
+
+## 20. Knowledge Base (slice 1)
+
+- [ ] The Knowledge Base tab shows the subnav (All sources / Needs attention / FAQ); Needs attention and FAQ show a placeholder card for now (slices 2 and 3).
+- [ ] **Add a source grid**: five cards (WordPress, Custom Data, Website URL, Sitemap, Documents) with icon, title, description; free shows PRO chips on the four pro cards; pro shows no chips.
+- [ ] Clicking a source card drills in (`&sub=source-...` in the URL) and browser Back returns to All sources.
+- [ ] **Locked source drill (free)**: back link, card with the feature description, PRO chip, blue upsell block with the old title ("... is a Premium feature") and an "Unlock with Pro" button using the source's own UTM campaign (`custom-data-feature`, `website-crawling-feature`, `sitemap-crawling-feature`, `document-import-feature`).
+- [ ] **Indexed content card**: chunk-count chip in the header updates after fetches; table lists added WordPress content with Title, Source (post type), Chunks, Status chip, Remove; with more than 20 items a Previous/"Page X of Y"/Next pager appears in the card footer (same style as Messages), hidden when one page is enough.
+- [ ] The per-row Chunks numbers add up to the header chip's total (across all pages), and a freshly added long post shows more than 1 chunk.
+- [ ] Remove opens a confirm modal naming the item ("Hyve will stop using ... in its answers"); Cancel/Escape close it harmlessly; confirming removes with the snackbar.
+- [ ] Removing the last item on a later page steps back one page; removing elsewhere refills the current page.
+- [ ] Remove deletes the row (snackbar "Post has been removed.") and the item becomes addable again in the WordPress drill-in.
+- [ ] A row with a processing error shows the "Indexing failed: ..." detail under the title and a warn chip.
+- [ ] **WordPress drill-in**: content-type select (All + public post types, no attachments) and search filter the table after a short pause (debounced, no request per keystroke); changing a filter resets to page 1.
+- [ ] The type select and the search field are the same height and vertically aligned; a muted "N results" count sits at the right of the toolbar and matches the pager's total.
+- [ ] The drill-in table paginates like Indexed content (footer pager past 20 results); page and filters play together without stale results.
+- [ ] **Bulk add**: row checkboxes and a select-all-on-page header checkbox; selecting shows the blue bar with "N items selected", Clear, and "Add N to Knowledge Base"; the selection survives changing page or filters.
+- [ ] Bulk add on public posts: the button counts up ("Adding X of N"), rows flip to Added chips as they finish, and one summary snackbar reports the result (no per-item snackbar spam).
+- [ ] Bulk selection including private/password posts opens one combined restricted-content modal with Cancel / "Skip them" / "Add anyway"; Skip queues only the public ones.
+- [ ] Items that fail during bulk add stay selected (warning snackbar says so) and can be retried.
+- [ ] While a bulk run is in flight: checkboxes, per-row Add, and Clear are disabled; at the chunk limit the bulk button is disabled like the row buttons.
+- [ ] Add on a public post: button shows busy, then the row flips to a green "Added" chip and a success snackbar appears.
+- [ ] Add on a private or password-protected post opens the restricted-content confirm modal (medium width); Cancel closes harmlessly, "Add anyway" imports it.
+- [ ] A post that fails moderation shows an error snackbar (the review modal ships with slice 2).
+- [ ] **Chunk limit** (free, 500 chunks reached, Qdrant off): a warning notice shows in the drill-in and every Add button is disabled; with Qdrant connected the limit never triggers.
+- [ ] Adding or removing content updates the chunk-count chip on the next fetch and keeps the Dashboard KB stat consistent after reload.

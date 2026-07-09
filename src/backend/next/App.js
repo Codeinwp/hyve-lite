@@ -19,11 +19,13 @@ import TabNav from './components/TabNav';
 import SideNav from './components/SideNav';
 import Notices from './components/Notices';
 import Dashboard from './screens/Dashboard';
+import KnowledgeBase from './screens/KnowledgeBase';
 import Messages from './screens/Messages';
 import Settings from './screens/Settings';
 
 const SCREENS = {
 	dashboard: Dashboard,
+	kb: KnowledgeBase,
 	messages: Messages,
 	settings: Settings,
 };

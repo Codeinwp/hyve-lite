@@ -21,6 +21,7 @@ import { addQueryArgs } from '@wordpress/url';
 import { navigate } from '../router';
 import { setUtm } from '../../utils';
 import Card from '../components/Card';
+import Pagination from '../components/Pagination';
 
 // Threads already fetched for the list, so the drill-in can open instantly.
 const threadCache = new Map();
@@ -129,30 +130,13 @@ const ConversationsPanel = () => {
 			footer={
 				isPro &&
 				( 0 < page || hasMore ) && (
-					<div className="hyve-next-pagination">
-						<Button
-							variant="secondary"
-							disabled={ isLoading || 0 === page }
-							onClick={ () => setPage( page - 1 ) }
-						>
-							{ __( 'Previous', 'hyve-lite' ) }
-						</Button>
-						<span className="hyve-next-pagination__label">
-							{ sprintf(
-								/* translators: 1: current page number, 2: total number of pages. */
-								__( 'Page %1$s of %2$s', 'hyve-lite' ),
-								page + 1,
-								totalPages
-							) }
-						</span>
-						<Button
-							variant="secondary"
-							disabled={ isLoading || ! hasMore }
-							onClick={ () => setPage( page + 1 ) }
-						>
-							{ __( 'Next', 'hyve-lite' ) }
-						</Button>
-					</div>
+					<Pagination
+						page={ page }
+						totalPages={ totalPages }
+						hasMore={ hasMore }
+						isLoading={ isLoading }
+						onChange={ setPage }
+					/>
 				)
 			}
 		>

@@ -664,9 +664,10 @@ class API extends BaseAPI {
 			];
 		}
 
-		$page = $this->query_page( $args );
+		$page = $this->query_page( $args, 20, true );
 
-		$posts_data = [];
+		$posts_data   = [];
+		$chunk_counts = $this->table->get_counts_by_post_ids( $page['posts'] );
 
 		foreach ( $page['posts'] as $post_id ) {
 			/**
@@ -674,10 +675,15 @@ class API extends BaseAPI {
 			 *
 			 * @var int $post_id
 			 */
+			$post_type        = get_post_type( $post_id );
+			$post_type_object = $post_type ? get_post_type_object( $post_type ) : null;
+
 			$post_data = [
 				'ID'         => $post_id,
 				'title'      => html_entity_decode( get_the_title( $post_id ), ENT_QUOTES, 'UTF-8' ),
 				'visibility' => $this->get_post_visibility( $post_id ),
+				'type'       => $post_type_object ? $post_type_object->labels->singular_name : $post_type,
+				'chunks'     => $chunk_counts[ $post_id ] ?? 0,
 			];
 
 			if ( 'moderation' === $status ) {
@@ -702,6 +708,8 @@ class API extends BaseAPI {
 		$posts = [
 			'posts'       => $posts_data,
 			'more'        => $page['more'],
+			'total'       => $page['total'],
+			'per_page'    => 20,
 			'totalChunks' => $this->table->get_count(),
 		];
 

@@ -241,6 +241,7 @@ class DB_Table {
 
 		$this->delete_cache( 'entries' );
 		$this->delete_cache( 'entries_count' );
+		$this->delete_cache( 'chunk_counts' );
 		$this->delete_cache( 'cached_embeddings' );
 
 		return $wpdb->insert_id;
@@ -290,6 +291,7 @@ class DB_Table {
 		$this->delete_cache( 'entries' );
 		$this->delete_cache( 'entries_processed' );
 		$this->delete_cache( 'entries_count' );
+		$this->delete_cache( 'chunk_counts' );
 		$this->delete_cache( 'cached_embeddings' );
 
 		return $rows_affected;
@@ -926,6 +928,44 @@ class DB_Table {
 		$this->set_cache( 'entries_count', $count );
 
 		return $count;
+	}
+
+	/**
+	 * Get chunk counts for a set of posts.
+	 *
+	 * The full per-post map is cached and invalidated together with
+	 * `entries_count`, so listings do not re-run the aggregate per page.
+	 *
+	 * @since 1.4.0
+	 *
+	 * @param array<int> $post_ids The post IDs.
+	 *
+	 * @return array<int, int> Chunk counts keyed by post ID.
+	 */
+	public function get_counts_by_post_ids( $post_ids ) {
+		$post_ids = array_filter( array_map( 'intval', $post_ids ) );
+
+		if ( empty( $post_ids ) ) {
+			return [];
+		}
+
+		$counts = $this->get_cache( 'chunk_counts' );
+
+		if ( ! is_array( $counts ) ) {
+			global $wpdb;
+
+			$results = $wpdb->get_results( $wpdb->prepare( 'SELECT post_id, COUNT(*) AS chunks FROM %i GROUP BY post_id', $this->table_name ) );
+
+			$counts = [];
+
+			foreach ( $results as $row ) {
+				$counts[ intval( $row->post_id ) ] = intval( $row->chunks );
+			}
+
+			$this->set_cache( 'chunk_counts', $counts );
+		}
+
+		return array_intersect_key( $counts, array_flip( $post_ids ) );
 	}
 
 	/**

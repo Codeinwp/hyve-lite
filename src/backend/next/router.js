@@ -7,7 +7,16 @@ import { useEffect, useState } from '@wordpress/element';
 
 import { applyFilters } from '@wordpress/hooks';
 
-import { archive, comment, home, settings } from '@wordpress/icons';
+import {
+	archive,
+	blockMeta,
+	comment,
+	customLink,
+	home,
+	page,
+	settings,
+	wordpress,
+} from '@wordpress/icons';
 
 /**
  * Route registry. The URL is the source of truth
@@ -49,25 +58,55 @@ const ROUTES = {
 			},
 			'source-wordpress': {
 				label: __( 'WordPress', 'hyve-lite' ),
+				description: __(
+					'Import your WordPress content into the Knowledge Base.',
+					'hyve-lite'
+				),
+				icon: wordpress,
+				track: 'posts',
 				hidden: true,
 			},
 			'source-custom': {
-				label: __( 'Custom data', 'hyve-lite' ),
+				label: __( 'Custom Data', 'hyve-lite' ),
+				description: __(
+					'Add custom data to your Knowledge Base.',
+					'hyve-lite'
+				),
+				icon: archive,
+				track: 'custom',
 				hidden: true,
 				isPro: true,
 			},
 			'source-url': {
 				label: __( 'Website URL', 'hyve-lite' ),
+				description: __(
+					'Crawl URLs to add content to the Knowledge Base.',
+					'hyve-lite'
+				),
+				icon: customLink,
+				track: 'url',
 				hidden: true,
 				isPro: true,
 			},
 			'source-sitemap': {
 				label: __( 'Sitemap', 'hyve-lite' ),
+				description: __(
+					'Add a sitemap to the Knowledge Base.',
+					'hyve-lite'
+				),
+				icon: blockMeta,
+				track: 'sitemap',
 				hidden: true,
 				isPro: true,
 			},
 			'source-documents': {
 				label: __( 'Documents', 'hyve-lite' ),
+				description: __(
+					'Import PDF, Word, Markdown, Text, or CSV files into the Knowledge Base.',
+					'hyve-lite'
+				),
+				icon: page,
+				track: 'documents',
 				hidden: true,
 				isPro: true,
 			},
