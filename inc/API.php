@@ -402,18 +402,6 @@ class API extends BaseAPI {
 					},
 					'sanitize' => 'sanitize_text_field',
 				],
-				'temperature'                => [
-					'validate' => function ( $value ) {
-						return is_numeric( $value );
-					},
-					'sanitize' => 'floatval',
-				],
-				'top_p'                      => [
-					'validate' => function ( $value ) {
-						return is_numeric( $value );
-					},
-					'sanitize' => 'floatval',
-				],
 				'similarity_score_threshold' => [
 					'validate' => function ( $value ) {
 						return is_numeric( $value );

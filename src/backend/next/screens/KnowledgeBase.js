@@ -250,6 +250,7 @@ const IndexedContent = () => {
 			<div className="hyve-next-card__body">
 				<div className="hyve-next-toolbar">
 					<SelectControl
+						__next40pxDefaultSize
 						__nextHasNoMarginBottom
 						hideLabelFromVision
 						label={ __( 'Source', 'hyve-lite' ) }
@@ -772,6 +773,7 @@ const WordPressDrill = () => {
 
 					<div className="hyve-next-toolbar">
 						<SelectControl
+							__next40pxDefaultSize
 							__nextHasNoMarginBottom
 							hideLabelFromVision
 							label={ __( 'Post type', 'hyve-lite' ) }

@@ -207,21 +207,15 @@ test.describe( 'Settings', () => {
 			page.getByRole( 'heading', { name: 'Advanced tuning' } )
 		).toBeVisible();
 
-		const temperature = page
-			.getByRole( 'slider', { name: 'Temperature' } )
+		const similarity = page
+			.getByRole( 'slider', { name: 'Similarity threshold' } )
 			.first();
-		await expect( temperature ).toBeVisible();
-		await expect(
-			page.getByRole( 'slider', { name: 'Top P' } ).first()
-		).toBeVisible();
-		await expect(
-			page.getByRole( 'slider', { name: 'Similarity threshold' } ).first()
-		).toBeVisible();
+		await expect( similarity ).toBeVisible();
 
-		await temperature.fill( '1.8' );
+		await similarity.fill( '0.8' );
 		await page.getByRole( 'button', { name: 'Reset to defaults' } ).click();
 
-		await expect( temperature ).toHaveValue( '1' );
+		await expect( similarity ).toHaveValue( '0.4' );
 	} );
 
 	test( 'general: toggles save automatically', async ( { page, admin } ) => {

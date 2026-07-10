@@ -23,39 +23,120 @@ import Chip from '../components/Chip';
 import FieldRow from '../components/FieldRow';
 import useSaveSettings from '../data/useSaveSettings';
 
+/**
+ * Selectable chat models.
+ *
+ * Every listed model must support structured outputs (`json_schema`), which
+ * Hyve requires for chat responses. GPT-3.5 lacks them, so it is excluded.
+ */
 const MODEL_OPTIONS = [
 	{
-		value: 'gpt-4o-mini',
-		label: __(
-			'GPT-4o mini (recommended): fastest and most affordable',
+		label: __( 'GPT-5.6 Sol', 'hyve-lite' ),
+		value: 'gpt-5.6-sol',
+		description: __(
+			'Flagship frontier model, the highest quality at the highest cost.',
 			'hyve-lite'
 		),
 	},
 	{
+		label: __( 'GPT-5.6 Terra', 'hyve-lite' ),
+		value: 'gpt-5.6-terra',
+		description: __(
+			'Newest mini-tier model balancing intelligence and cost.',
+			'hyve-lite'
+		),
+	},
+	{
+		label: __( 'GPT-5.6 Luna', 'hyve-lite' ),
+		value: 'gpt-5.6-luna',
+		description: __(
+			'Newest cost-optimized model, built for high-volume chats.',
+			'hyve-lite'
+		),
+	},
+	{
+		label: __( 'GPT-5.5', 'hyve-lite' ),
+		value: 'gpt-5.5',
+		description: __(
+			'Most capable reasoning model. Thinks before answering, so replies are slower and cost more.',
+			'hyve-lite'
+		),
+	},
+	{
+		label: __( 'GPT-5.4', 'hyve-lite' ),
+		value: 'gpt-5.4',
+		description: __(
+			'Most capable standard model, best for complex questions.',
+			'hyve-lite'
+		),
+	},
+	{
+		label: __( 'GPT-5.4 mini', 'hyve-lite' ),
+		value: 'gpt-5.4-mini',
+		description: __(
+			'Newer model with a strong balance of quality and cost.',
+			'hyve-lite'
+		),
+	},
+	{
+		label: __( 'GPT-5.4 nano', 'hyve-lite' ),
+		value: 'gpt-5.4-nano',
+		description: __(
+			'Fast and low cost, the recommended default for most chats.',
+			'hyve-lite'
+		),
+	},
+	{
+		label: __( 'GPT-5', 'hyve-lite' ),
+		value: 'gpt-5',
+		description: __(
+			'Reasoning model with strong quality at a lower cost than GPT-5.5.',
+			'hyve-lite'
+		),
+	},
+	{
+		label: __( 'GPT-4.1', 'hyve-lite' ),
 		value: 'gpt-4.1',
-		label: __( 'GPT-4.1: capable and proven', 'hyve-lite' ),
+		description: __(
+			'Capable and proven, great for detailed answers.',
+			'hyve-lite'
+		),
 	},
 	{
+		label: __( 'GPT-4.1 mini', 'hyve-lite' ),
 		value: 'gpt-4.1-mini',
-		label: __( 'GPT-4.1 mini: faster, cheaper all-rounder', 'hyve-lite' ),
+		description: __(
+			'Faster and cheaper than GPT-4.1, a solid all-rounder.',
+			'hyve-lite'
+		),
 	},
 	{
+		label: __( 'GPT-4.1 nano', 'hyve-lite' ),
 		value: 'gpt-4.1-nano',
-		label: __( 'GPT-4.1 nano: ultra fast, very low cost', 'hyve-lite' ),
+		description: __(
+			'Ultra-fast and very low cost, best for lightweight chats.',
+			'hyve-lite'
+		),
 	},
 	{
+		label: __( 'GPT-4o', 'hyve-lite' ),
 		value: 'gpt-4o',
-		label: __( 'GPT-4o: smart, cost-effective', 'hyve-lite' ),
+		description: __(
+			'Smart, cost-effective general-purpose model.',
+			'hyve-lite'
+		),
 	},
 	{
-		value: 'gpt-3.5-turbo-0125',
-		label: __( 'GPT-3.5 Turbo: legacy', 'hyve-lite' ),
+		label: __( 'GPT-4o mini', 'hyve-lite' ),
+		value: 'gpt-4o-mini',
+		description: __(
+			'Fastest and most affordable, best for most chats.',
+			'hyve-lite'
+		),
 	},
 ];
 
 const ADVANCED_DEFAULTS = {
-	temperature: 1,
-	top_p: 1,
 	similarity_score_threshold: 0.4,
 };
 
@@ -121,6 +202,35 @@ export const ProviderPanel = () => {
 		}
 	};
 
+	// GPT-3.5 is no longer offered (it errors with structured outputs); show
+	// the default instead. A still-valid but no-longer-listed saved model is
+	// appended so it isn't silently lost.
+	const savedModel = settings.chat_model;
+	const isLegacyModel =
+		'string' === typeof savedModel && savedModel.startsWith( 'gpt-3.5' );
+	const selectedModel =
+		( isLegacyModel ? 'gpt-5.4-nano' : savedModel ) || 'gpt-5.4-nano';
+
+	const modelOptions = MODEL_OPTIONS.some(
+		( option ) => option.value === selectedModel
+	)
+		? MODEL_OPTIONS
+		: [
+				...MODEL_OPTIONS,
+				{
+					label: selectedModel,
+					value: selectedModel,
+					description: __(
+						'Your currently selected model.',
+						'hyve-lite'
+					),
+				},
+		  ];
+
+	const selectedModelOption = modelOptions.find(
+		( option ) => option.value === selectedModel
+	);
+
 	return (
 		<Card
 			title={ __( 'OpenAI', 'hyve-lite' ) }
@@ -175,14 +285,28 @@ export const ProviderPanel = () => {
 				) }
 			>
 				<SelectControl
+					__next40pxDefaultSize
 					__nextHasNoMarginBottom
 					hideLabelFromVision
 					label={ __( 'Model', 'hyve-lite' ) }
-					value={ settings.chat_model || 'gpt-4o-mini' }
-					options={ MODEL_OPTIONS }
+					value={ selectedModel }
+					options={ modelOptions.map( ( { label, value } ) => ( {
+						label,
+						value,
+					} ) ) }
 					disabled={ isSaving }
 					onChange={ ( value ) => setSetting( 'chat_model', value ) }
 				/>
+				{ selectedModelOption?.description && (
+					<p className="hyve-next-field__hint">
+						{ selectedModelOption.description }
+					</p>
+				) }
+				<p className="hyve-next-field__hint">
+					<ExternalLink href="https://developers.openai.com/api/docs/pricing">
+						{ __( 'Compare model pricing', 'hyve-lite' ) }
+					</ExternalLink>
+				</p>
 			</FieldRow>
 		</Card>
 	);
@@ -222,46 +346,6 @@ export const AdvancedPanel = () => {
 				</>
 			}
 		>
-			<FieldRow
-				label={ __( 'Temperature', 'hyve-lite' ) }
-				description={ __(
-					'Higher is more creative; lower is more focused.',
-					'hyve-lite'
-				) }
-			>
-				<RangeControl
-					__nextHasNoMarginBottom
-					hideLabelFromVision
-					label={ __( 'Temperature', 'hyve-lite' ) }
-					value={ settings.temperature ?? 1 }
-					min={ 0.1 }
-					max={ 2 }
-					step={ 0.1 }
-					disabled={ isSaving }
-					onChange={ ( value ) => setSetting( 'temperature', value ) }
-				/>
-			</FieldRow>
-
-			<FieldRow
-				label={ __( 'Top P', 'hyve-lite' ) }
-				description={ __(
-					'Nucleus-sampling alternative to temperature.',
-					'hyve-lite'
-				) }
-			>
-				<RangeControl
-					__nextHasNoMarginBottom
-					hideLabelFromVision
-					label={ __( 'Top P', 'hyve-lite' ) }
-					value={ settings.top_p ?? 1 }
-					min={ 0.1 }
-					max={ 1 }
-					step={ 0.1 }
-					disabled={ isSaving }
-					onChange={ ( value ) => setSetting( 'top_p', value ) }
-				/>
-			</FieldRow>
-
 			<FieldRow
 				label={ __( 'Similarity threshold', 'hyve-lite' ) }
 				description={ __(

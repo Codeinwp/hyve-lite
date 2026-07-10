@@ -144,9 +144,5 @@ S2 (Knowledge Base, starts with F6.5 DataTable) → S6 (Integrations) → S7 (Ge
 
 ## Remind me at the end of the sprint
 
-- Take a look at the Knowledge Base > WordPress on design issue with the search bar.
 - Restrict Pro features to only active licenses.
-- https://github.com/Codeinwp/hyve/issues/257
-- https://github.com/Codeinwp/hyve-lite/pull/174
 - NUX
-- Pro QA running on GH

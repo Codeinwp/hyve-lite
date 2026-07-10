@@ -228,15 +228,15 @@ const StatsGrid = () => {
 			<StatCard
 				planned
 				icon={ cloud }
-				label={ __( 'Hyve Connect usage', 'hyve-lite' ) }
+				label={ __( 'Hyve Connect', 'hyve-lite' ) }
 				value={ __( 'N/A', 'hyve-lite' ) }
 				chip={
 					<Chip tone="planned" dot={ false }>
-						{ __( 'Planned', 'hyve-lite' ) }
+						{ __( 'Coming soon', 'hyve-lite' ) }
 					</Chip>
 				}
 				foot={ __(
-					'Reserved for hosted AI quota once Hyve Connect ships.',
+					'Hosted AI usage will show up here once Hyve Connect launches.',
 					'hyve-lite'
 				) }
 			/>

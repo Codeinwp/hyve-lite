@@ -5,13 +5,7 @@ import { __ } from '@wordpress/i18n';
 
 import apiFetch from '@wordpress/api-fetch';
 
-import {
-	Button,
-	Panel,
-	PanelRow,
-	RangeControl,
-	SelectControl,
-} from '@wordpress/components';
+import { Button, Panel, PanelRow, SelectControl } from '@wordpress/components';
 
 import { useState } from '@wordpress/element';
 
@@ -20,17 +14,47 @@ import { useDispatch, useSelect } from '@wordpress/data';
 /**
  * Selectable chat models.
  *
- * Only models verified to support every feature Hyve relies on — structured
- * outputs (`json_schema`) plus the `temperature`/`top_p` controls — are listed.
- * Reasoning-only models (GPT-5, GPT-5.5, the `o`-series) reject those params,
- * and GPT-3.5 lacks structured outputs, so they are intentionally excluded.
+ * Every listed model must support structured outputs (`json_schema`), which
+ * Hyve requires for chat responses. GPT-3.5 lacks them, so it is excluded.
  */
 const MODEL_OPTIONS = [
+	{
+		label: __( 'GPT-5.6 Sol', 'hyve-lite' ),
+		value: 'gpt-5.6-sol',
+		description: __(
+			'Flagship frontier model, the highest quality at the highest cost.',
+			'hyve-lite'
+		),
+	},
+	{
+		label: __( 'GPT-5.6 Terra', 'hyve-lite' ),
+		value: 'gpt-5.6-terra',
+		description: __(
+			'Newest mini-tier model balancing intelligence and cost.',
+			'hyve-lite'
+		),
+	},
+	{
+		label: __( 'GPT-5.6 Luna', 'hyve-lite' ),
+		value: 'gpt-5.6-luna',
+		description: __(
+			'Newest cost-optimized model, built for high-volume chats.',
+			'hyve-lite'
+		),
+	},
+	{
+		label: __( 'GPT-5.5', 'hyve-lite' ),
+		value: 'gpt-5.5',
+		description: __(
+			'Most capable reasoning model. Thinks before answering, so replies are slower and cost more.',
+			'hyve-lite'
+		),
+	},
 	{
 		label: __( 'GPT-5.4', 'hyve-lite' ),
 		value: 'gpt-5.4',
 		description: __(
-			'Newest and most capable — best for complex questions.',
+			'Most capable standard model, best for complex questions.',
 			'hyve-lite'
 		),
 	},
@@ -47,6 +71,14 @@ const MODEL_OPTIONS = [
 		value: 'gpt-5.4-nano',
 		description: __(
 			'Newer fast, low-cost option for high-traffic chats.',
+			'hyve-lite'
+		),
+	},
+	{
+		label: __( 'GPT-5', 'hyve-lite' ),
+		value: 'gpt-5',
+		description: __(
+			'Reasoning model with strong quality at a lower cost than GPT-5.5.',
 			'hyve-lite'
 		),
 	},
@@ -136,7 +168,7 @@ const Assistant = () => {
 	const savedModel = settings.chat_model;
 	const isLegacyModel =
 		'string' === typeof savedModel && savedModel.startsWith( 'gpt-3.5' );
-	const selectedModel = isLegacyModel ? 'gpt-4o-mini' : savedModel;
+	const selectedModel = isLegacyModel ? 'gpt-5.4-nano' : savedModel;
 
 	const modelOptions =
 		selectedModel &&
@@ -181,44 +213,6 @@ const Assistant = () => {
 						disabled={ isSaving }
 						onChange={ ( newValue ) =>
 							setSetting( 'chat_model', newValue )
-						}
-					/>
-				</PanelRow>
-
-				<PanelRow>
-					<RangeControl
-						label={ __( 'Temperature', 'hyve-lite' ) }
-						help={ __(
-							'What sampling temperature to use, between 0 and 2. Higher values like 0.8 will make the output more random, while lower values like 0.2 will make it more focused and deterministic. We generally recommend altering this or top_p but not both.',
-							'hyve-lite'
-						) }
-						initialPosition={ settings.temperature || 1 }
-						max={ 2 }
-						min={ 0.1 }
-						step={ 0.1 }
-						value={ settings.temperature || 1 }
-						disabled={ isSaving }
-						onChange={ ( newValue ) =>
-							setSetting( 'temperature', newValue )
-						}
-					/>
-				</PanelRow>
-
-				<PanelRow>
-					<RangeControl
-						label={ __( 'Top P', 'hyve-lite' ) }
-						help={ __(
-							'An alternative to sampling with temperature, called nucleus sampling, where the model considers the results of the tokens with top_p probability mass. We generally recommend altering this or temperature but not both.',
-							'hyve-lite'
-						) }
-						initialPosition={ settings.top_p || 1 }
-						max={ 1 }
-						min={ 0.1 }
-						step={ 0.1 }
-						value={ settings.top_p || 1 }
-						disabled={ isSaving }
-						onChange={ ( newValue ) =>
-							setSetting( 'top_p', newValue )
 						}
 					/>
 				</PanelRow>
