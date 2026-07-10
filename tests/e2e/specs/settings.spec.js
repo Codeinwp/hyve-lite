@@ -118,6 +118,30 @@ test.describe( 'Settings', () => {
 		).toBeDisabled();
 	} );
 
+	test( 'behavior: proactive message is locked on the free plan', async ( {
+		page,
+		admin,
+	} ) => {
+		await admin.visitAdminPage( `${ HYVE_ADMIN }&nav=settings` );
+
+		const card = page.locator( '.hyve-next-card', {
+			hasText: 'Proactive message',
+		} );
+
+		await expect(
+			card.getByText( 'Start conversations before visitors do' )
+		).toBeVisible();
+		await expect(
+			card.getByRole( 'link', { name: 'Unlock with Pro' } )
+		).toBeVisible();
+
+		// The trigger select is locked on Disabled, so the invite message
+		// field stays hidden and no teaser can ever be configured.
+		await expect( card.getByLabel( 'Trigger' ) ).toBeDisabled();
+		await expect( card.getByLabel( 'Trigger' ) ).toHaveValue( 'none' );
+		await expect( card.getByLabel( 'Invite message' ) ).toBeHidden();
+	} );
+
 	test( 'behavior: privacy notice warns when no policy page is set', async ( {
 		page,
 		admin,
