@@ -21,6 +21,7 @@ import { addQueryArgs } from '@wordpress/url';
 import { navigate } from '../router';
 import { setUtm } from '../utils';
 import Card from '../components/Card';
+import Chip from '../components/Chip';
 import Pagination from '../components/Pagination';
 
 // Threads already fetched for the list, so the drill-in can open instantly.
@@ -70,9 +71,14 @@ const ExportAction = () => {
 	}
 
 	return (
-		<Button variant="secondary" icon={ lock } disabled>
-			{ __( 'Export CSV', 'hyve-lite' ) }
-		</Button>
+		<>
+			<Chip tone="pro" dot={ false }>
+				{ __( 'Pro', 'hyve-lite' ) }
+			</Chip>
+			<Button variant="secondary" icon={ lock } disabled>
+				{ __( 'Export CSV', 'hyve-lite' ) }
+			</Button>
+		</>
 	);
 };
 
