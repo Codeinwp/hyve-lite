@@ -13,14 +13,9 @@ import { addFilter } from '@wordpress/hooks';
 /**
  * Internal dependencies.
  */
-import './style.scss';
 import './store';
 import App from './App';
-import NextApp from './next/App';
-import { PostsTable } from './parts/PostsTable';
-import PostModal from './parts/PostModal';
 import { getChatIcons } from './utils';
-import { OthersSection } from './parts/data/OthersSection';
 
 // Keep the dashboard service-error notice in sync with every settings save,
 // regardless of which component (lite or pro) triggers it. The settings
@@ -41,36 +36,12 @@ apiFetch.use( async ( options, next ) => {
 	return response;
 } );
 
-// The next/ bundle registers its layout kit on the same object at import
-// time, so extend it instead of replacing it.
-window.hyveComponents = window.hyveComponents || {};
-
-window.hyveComponents.PostsTable = PostsTable;
-window.hyveComponents.PostModal = PostModal;
-
 domReady( () => {
 	addFilter( 'hyve.appearance.chat-icons', 'hyve/data', getChatIcons );
 	setUpTracking();
 
-	addFilter(
-		'hyve.others',
-		'hyve/others',
-		( el, isSaving, settings, setSetting, onSave ) => (
-			<OthersSection
-				isSaving={ isSaving }
-				settings={ settings }
-				setSetting={ setSetting }
-				onSave={ onSave }
-			/>
-		)
-	);
-
-	// The redesigned dashboard ships behind ?new=true while it is built out.
-	const isNextUI =
-		'true' === new URLSearchParams( window.location.search ).get( 'new' );
-
 	const root = createRoot( document.getElementById( 'hyve-options' ) );
-	root.render( isNextUI ? <NextApp /> : <App /> );
+	root.render( <App /> );
 } );
 
 function setUpTracking() {

@@ -17,7 +17,7 @@ import { createInterpolateElement } from '@wordpress/element';
 /**
  * Internal dependencies.
  */
-import { setUtm } from '../../utils';
+import { setUtm } from '../utils';
 import Card from '../components/Card';
 import Chip from '../components/Chip';
 import FieldRow from '../components/FieldRow';
@@ -120,11 +120,7 @@ const VisibilityCard = () => {
 						</p>
 
 						{ displayRules.map( ( rule, index ) => (
-							<div
-								className="hyve-next-rules__row"
-								// eslint-disable-next-line react/no-array-index-key
-								key={ index }
-							>
+							<div className="hyve-next-rules__row" key={ index }>
 								<TextControl
 									__nextHasNoMarginBottom
 									hideLabelFromVision

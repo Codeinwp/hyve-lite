@@ -19,7 +19,7 @@ import { archive, brush, cloud, comment, help, people } from '@wordpress/icons';
  * Internal dependencies.
  */
 import { navigate } from '../router';
-import { setUtm } from '../../utils';
+import { setUtm } from '../utils';
 import Card from '../components/Card';
 import Chip from '../components/Chip';
 import SetupChecklist from '../components/SetupChecklist';
@@ -309,7 +309,7 @@ const RecentConversations = () => {
 
 				setThreads( response.posts ?? [] );
 				setHasMore( Boolean( response.more ) );
-			} catch ( error ) {
+			} catch {
 				setThreads( [] );
 			}
 		};
@@ -460,7 +460,7 @@ const Dashboard = () => {
 				if ( response?.chart ) {
 					setChart( response.chart );
 				}
-			} catch ( error ) {
+			} catch {
 				// Keep the page-load snapshot on failure.
 			}
 		};

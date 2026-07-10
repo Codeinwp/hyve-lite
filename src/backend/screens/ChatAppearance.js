@@ -28,7 +28,7 @@ import { applyFilters } from '@wordpress/hooks';
 /**
  * Internal dependencies.
  */
-import { setUtm } from '../../utils';
+import { setUtm } from '../utils';
 import Card from '../components/Card';
 import Chip from '../components/Chip';
 import FieldRow from '../components/FieldRow';

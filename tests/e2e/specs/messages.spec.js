@@ -4,7 +4,7 @@ import {
 	mockGetThreadsResponse,
 } from '../utils';
 
-const NEW_UI = 'admin.php?page=hyve&new=true';
+const HYVE_ADMIN = 'admin.php?page=hyve';
 
 test.describe( 'Messages', () => {
 	test( 'lists conversations with message count and snippet', async ( {
@@ -13,7 +13,7 @@ test.describe( 'Messages', () => {
 	} ) => {
 		await mockGetThreadsResponse( page );
 
-		await admin.visitAdminPage( `${ NEW_UI }&nav=messages` );
+		await admin.visitAdminPage( `${ HYVE_ADMIN }&nav=messages` );
 
 		await expect(
 			page.getByRole( 'heading', { name: 'Conversations' } )
@@ -50,7 +50,7 @@ test.describe( 'Messages', () => {
 	} ) => {
 		await mockGetThreadsResponse( page );
 
-		await admin.visitAdminPage( `${ NEW_UI }&nav=messages` );
+		await admin.visitAdminPage( `${ HYVE_ADMIN }&nav=messages` );
 
 		await expect(
 			page.getByRole( 'button', { name: 'Export CSV' } )
@@ -63,7 +63,7 @@ test.describe( 'Messages', () => {
 	} ) => {
 		await mockGetThreadsResponse( page );
 
-		await admin.visitAdminPage( `${ NEW_UI }&nav=messages` );
+		await admin.visitAdminPage( `${ HYVE_ADMIN }&nav=messages` );
 
 		await page.getByRole( 'button', { name: 'View' } ).first().click();
 
@@ -101,7 +101,7 @@ test.describe( 'Messages', () => {
 		await mockGetThreadsResponse( page );
 		await mockConfirmDeleteThreadResponse( page );
 
-		await admin.visitAdminPage( `${ NEW_UI }&nav=messages` );
+		await admin.visitAdminPage( `${ HYVE_ADMIN }&nav=messages` );
 
 		await page.getByRole( 'button', { name: 'View' } ).first().click();
 		await page
@@ -140,7 +140,7 @@ test.describe( 'Messages', () => {
 		await mockGetThreadsResponse( page );
 
 		await admin.visitAdminPage(
-			`${ NEW_UI }&nav=messages&sub=thread&item=99999`
+			`${ HYVE_ADMIN }&nav=messages&sub=thread&item=99999`
 		);
 
 		await expect(
@@ -181,7 +181,7 @@ test.describe( 'Messages', () => {
 			}
 		);
 
-		await admin.visitAdminPage( `${ NEW_UI }&nav=messages` );
+		await admin.visitAdminPage( `${ HYVE_ADMIN }&nav=messages` );
 
 		await expect(
 			page.getByText( 'Read every conversation' )

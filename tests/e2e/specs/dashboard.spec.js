@@ -1,7 +1,7 @@
 import { test, expect } from '@wordpress/e2e-test-utils-playwright';
 import { mockGetThreadsResponse, mockStatsResponse } from '../utils';
 
-const NEW_UI = 'admin.php?page=hyve&new=true';
+const HYVE_ADMIN = 'admin.php?page=hyve';
 
 const CHART = {
 	legend: {
@@ -20,7 +20,7 @@ test.describe( 'Dashboard', () => {
 		page,
 		admin,
 	} ) => {
-		await admin.visitAdminPage( NEW_UI );
+		await admin.visitAdminPage( HYVE_ADMIN );
 
 		expect( await page.locator( '#hyve-options' ).count() ).toBe( 1 );
 
@@ -60,7 +60,7 @@ test.describe( 'Dashboard', () => {
 			chart: CHART,
 		} );
 
-		await admin.visitAdminPage( NEW_UI );
+		await admin.visitAdminPage( HYVE_ADMIN );
 
 		const stats = page.locator( '.hyve-next-stats' );
 		await expect( stats ).toBeVisible();
@@ -99,7 +99,7 @@ test.describe( 'Dashboard', () => {
 			chart: CHART,
 		} );
 
-		await admin.visitAdminPage( NEW_UI );
+		await admin.visitAdminPage( HYVE_ADMIN );
 
 		await expect(
 			page.getByRole( 'img', { name: 'Messages and sessions per day' } )
@@ -113,7 +113,7 @@ test.describe( 'Dashboard', () => {
 	} ) => {
 		await mockStatsResponse( page, { totalChunks: 7 } );
 
-		await admin.visitAdminPage( NEW_UI );
+		await admin.visitAdminPage( HYVE_ADMIN );
 
 		await expect(
 			page.getByText(
@@ -131,7 +131,7 @@ test.describe( 'Dashboard', () => {
 	} ) => {
 		await mockStatsResponse( page, { totalChunks: 0 } );
 
-		await admin.visitAdminPage( NEW_UI );
+		await admin.visitAdminPage( HYVE_ADMIN );
 
 		await expect(
 			page.getByText( "Let's get Hyve running" )
@@ -159,7 +159,7 @@ test.describe( 'Dashboard', () => {
 		await mockStatsResponse( page, { totalChunks: 7, chart: CHART } );
 		await mockGetThreadsResponse( page );
 
-		await admin.visitAdminPage( NEW_UI );
+		await admin.visitAdminPage( HYVE_ADMIN );
 
 		await expect(
 			page.getByText( 'How to reset my password?' )
@@ -181,7 +181,7 @@ test.describe( 'Dashboard', () => {
 	} ) => {
 		await mockStatsResponse( page, { totalChunks: 7, chart: CHART } );
 
-		await admin.visitAdminPage( NEW_UI );
+		await admin.visitAdminPage( HYVE_ADMIN );
 
 		await page
 			.getByRole( 'button', { name: 'Grow the Knowledge Base' } )
@@ -205,7 +205,7 @@ test.describe( 'Dashboard', () => {
 		admin,
 	} ) => {
 		await admin.visitAdminPage(
-			`${ NEW_UI }&nav=settings&sub=ai-advanced`
+			`${ HYVE_ADMIN }&nav=settings&sub=ai-advanced`
 		);
 
 		await expect(
@@ -227,7 +227,7 @@ test.describe( 'Dashboard', () => {
 		page,
 		admin,
 	} ) => {
-		await admin.visitAdminPage( NEW_UI );
+		await admin.visitAdminPage( HYVE_ADMIN );
 
 		await page.evaluate( () => {
 			window.wp.data.dispatch( 'hyve' ).setServiceErrors( [

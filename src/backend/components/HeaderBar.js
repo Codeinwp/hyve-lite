@@ -13,7 +13,7 @@ import { help } from '@wordpress/icons';
  * Internal dependencies.
  */
 import { navigate } from '../router';
-import { setUtm } from '../../utils';
+import { setUtm } from '../utils';
 
 // Pro localizes `window.hyve.license`; without it there is nothing to show.
 const getLicenseStatus = () => {

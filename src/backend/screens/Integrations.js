@@ -19,7 +19,7 @@ import { useCallback, useEffect, useRef, useState } from '@wordpress/element';
 /**
  * Internal dependencies.
  */
-import { setUtm } from '../../utils';
+import { setUtm } from '../utils';
 import Card from '../components/Card';
 import Chip from '../components/Chip';
 import FieldRow from '../components/FieldRow';

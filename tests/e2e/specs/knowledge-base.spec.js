@@ -1,7 +1,7 @@
 import { test, expect } from '@wordpress/e2e-test-utils-playwright';
 import { HYVE_DATA_API_ROUTE_PATTERN, isDataCountsRequest } from '../utils';
 
-const NEW_UI = 'admin.php?page=hyve&new=true';
+const HYVE_ADMIN = 'admin.php?page=hyve';
 
 /**
  * Posts returned by the mocked WordPress drill listing, one per visibility
@@ -132,7 +132,7 @@ async function mockDataApi( page, handlers = {} ) {
 }
 
 const openWordPressDrill = async ( page, admin ) => {
-	await admin.visitAdminPage( `${ NEW_UI }&nav=kb&sub=source-wordpress` );
+	await admin.visitAdminPage( `${ HYVE_ADMIN }&nav=kb&sub=source-wordpress` );
 
 	// Wait for the (debounced) listing to render.
 	await expect( page.getByText( 'Pickleball Rules' ) ).toBeVisible();
@@ -143,7 +143,7 @@ test.describe( 'Knowledge Base', () => {
 		page,
 		admin,
 	} ) => {
-		await admin.visitAdminPage( `${ NEW_UI }&nav=kb` );
+		await admin.visitAdminPage( `${ HYVE_ADMIN }&nav=kb` );
 
 		const grid = page.locator( '.hyve-next-src' );
 
@@ -178,7 +178,7 @@ test.describe( 'Knowledge Base', () => {
 		page,
 		admin,
 	} ) => {
-		await admin.visitAdminPage( `${ NEW_UI }&nav=kb` );
+		await admin.visitAdminPage( `${ HYVE_ADMIN }&nav=kb` );
 
 		await page.getByRole( 'button', { name: /Custom Data/ } ).click();
 
@@ -209,7 +209,7 @@ test.describe( 'Knowledge Base', () => {
 		page,
 		admin,
 	} ) => {
-		await admin.visitAdminPage( `${ NEW_UI }&nav=kb&sub=faq` );
+		await admin.visitAdminPage( `${ HYVE_ADMIN }&nav=kb&sub=faq` );
 
 		await expect(
 			page.getByText( 'FAQ is a Premium feature' )
@@ -245,7 +245,7 @@ test.describe( 'Knowledge Base', () => {
 					  },
 		} );
 
-		await admin.visitAdminPage( `${ NEW_UI }&nav=kb` );
+		await admin.visitAdminPage( `${ HYVE_ADMIN }&nav=kb` );
 
 		await expect(
 			page.getByText( 'Indexed Post 1', { exact: true } )
@@ -285,7 +285,7 @@ test.describe( 'Knowledge Base', () => {
 			} ),
 		} );
 
-		await admin.visitAdminPage( `${ NEW_UI }&nav=kb` );
+		await admin.visitAdminPage( `${ HYVE_ADMIN }&nav=kb` );
 
 		await expect(
 			page.getByText( 'Indexing failed', { exact: true } )
@@ -321,7 +321,7 @@ test.describe( 'Knowledge Base', () => {
 			onDelete: ( url ) => deleted.push( url ),
 		} );
 
-		await admin.visitAdminPage( `${ NEW_UI }&nav=kb` );
+		await admin.visitAdminPage( `${ HYVE_ADMIN }&nav=kb` );
 
 		await page.getByRole( 'button', { name: 'Remove' } ).click();
 
@@ -564,7 +564,7 @@ test.describe( 'Knowledge Base', () => {
 			},
 		} );
 
-		await admin.visitAdminPage( `${ NEW_UI }&nav=kb&sub=attention` );
+		await admin.visitAdminPage( `${ HYVE_ADMIN }&nav=kb&sub=attention` );
 
 		await expect( page.getByText( 'Edited Post' ) ).toBeVisible();
 		await expect( page.getByText( 'Flagged Post' ) ).toBeVisible();

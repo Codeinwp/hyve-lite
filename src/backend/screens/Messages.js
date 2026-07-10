@@ -19,7 +19,7 @@ import { addQueryArgs } from '@wordpress/url';
  * Internal dependencies.
  */
 import { navigate } from '../router';
-import { setUtm } from '../../utils';
+import { setUtm } from '../utils';
 import Card from '../components/Card';
 import Pagination from '../components/Pagination';
 
@@ -109,7 +109,7 @@ const ConversationsPanel = () => {
 				if ( response.per_page ) {
 					perPageRef.current = Number( response.per_page );
 				}
-			} catch ( error ) {
+			} catch {
 				setHasMore( false );
 			}
 
@@ -258,7 +258,7 @@ const ThreadView = ( { item } ) => {
 
 				cacheThreads( response.posts ?? [] );
 				setThread( threadCache.get( String( item ) ) ?? false );
-			} catch ( error ) {
+			} catch {
 				setThread( false );
 			}
 		};

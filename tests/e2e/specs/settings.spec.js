@@ -1,7 +1,7 @@
 import { test, expect } from '@wordpress/e2e-test-utils-playwright';
 import { HYVE_SETTINGS_API_ROUTE_PATTERN } from '../utils';
 
-const NEW_UI = 'admin.php?page=hyve&new=true';
+const HYVE_ADMIN = 'admin.php?page=hyve';
 
 /**
  * Capture settings saves; GET requests pass through to the real endpoint.
@@ -34,7 +34,7 @@ test.describe( 'Settings', () => {
 		page,
 		admin,
 	} ) => {
-		await admin.visitAdminPage( `${ NEW_UI }&nav=settings` );
+		await admin.visitAdminPage( `${ HYVE_ADMIN }&nav=settings` );
 
 		const nav = page.getByRole( 'navigation', {
 			name: 'Settings sections',
@@ -62,7 +62,7 @@ test.describe( 'Settings', () => {
 		const saves = [];
 		await captureSettingsSaves( page, saves );
 
-		await admin.visitAdminPage( `${ NEW_UI }&nav=settings` );
+		await admin.visitAdminPage( `${ HYVE_ADMIN }&nav=settings` );
 
 		await expect(
 			page.getByRole( 'radio', { name: 'Show on all pages' } )
@@ -95,7 +95,7 @@ test.describe( 'Settings', () => {
 		page,
 		admin,
 	} ) => {
-		await admin.visitAdminPage( `${ NEW_UI }&nav=settings` );
+		await admin.visitAdminPage( `${ HYVE_ADMIN }&nav=settings` );
 
 		await page
 			.getByRole( 'radio', { name: "Don't show automatically" } )
@@ -108,7 +108,7 @@ test.describe( 'Settings', () => {
 		page,
 		admin,
 	} ) => {
-		await admin.visitAdminPage( `${ NEW_UI }&nav=settings` );
+		await admin.visitAdminPage( `${ HYVE_ADMIN }&nav=settings` );
 
 		await expect(
 			page.getByText( 'Greet visitors with ready-made questions' )
@@ -122,7 +122,7 @@ test.describe( 'Settings', () => {
 		page,
 		admin,
 	} ) => {
-		await admin.visitAdminPage( `${ NEW_UI }&nav=settings` );
+		await admin.visitAdminPage( `${ HYVE_ADMIN }&nav=settings` );
 
 		const row = page
 			.locator( '.hyve-next-field' )
@@ -142,7 +142,7 @@ test.describe( 'Settings', () => {
 		admin,
 	} ) => {
 		await admin.visitAdminPage(
-			`${ NEW_UI }&nav=settings&sub=chat-appearance`
+			`${ HYVE_ADMIN }&nav=settings&sub=chat-appearance`
 		);
 
 		await expect(
@@ -172,7 +172,7 @@ test.describe( 'Settings', () => {
 		await captureSettingsSaves( page, saves );
 
 		await admin.visitAdminPage(
-			`${ NEW_UI }&nav=settings&sub=ai-provider`
+			`${ HYVE_ADMIN }&nav=settings&sub=ai-provider`
 		);
 
 		await expect(
@@ -200,7 +200,7 @@ test.describe( 'Settings', () => {
 		admin,
 	} ) => {
 		await admin.visitAdminPage(
-			`${ NEW_UI }&nav=settings&sub=ai-advanced`
+			`${ HYVE_ADMIN }&nav=settings&sub=ai-advanced`
 		);
 
 		await expect(
@@ -222,7 +222,9 @@ test.describe( 'Settings', () => {
 		const saves = [];
 		await captureSettingsSaves( page, saves );
 
-		await admin.visitAdminPage( `${ NEW_UI }&nav=settings&sub=general` );
+		await admin.visitAdminPage(
+			`${ HYVE_ADMIN }&nav=settings&sub=general`
+		);
 
 		await expect(
 			page.getByRole( 'heading', { name: 'Site integration' } )
@@ -242,7 +244,7 @@ test.describe( 'Settings', () => {
 		page,
 		admin,
 	} ) => {
-		await admin.visitAdminPage( `${ NEW_UI }&nav=settings&sub=qdrant` );
+		await admin.visitAdminPage( `${ HYVE_ADMIN }&nav=settings&sub=qdrant` );
 
 		await expect(
 			page.getByRole( 'heading', { name: 'Qdrant' } )
@@ -259,7 +261,9 @@ test.describe( 'Settings', () => {
 		page,
 		admin,
 	} ) => {
-		await admin.visitAdminPage( `${ NEW_UI }&nav=settings&sub=api-access` );
+		await admin.visitAdminPage(
+			`${ HYVE_ADMIN }&nav=settings&sub=api-access`
+		);
 
 		await expect(
 			page.getByRole( 'heading', { name: 'API access' } )

@@ -12,7 +12,7 @@ import { info } from '@wordpress/icons';
 /**
  * Internal dependencies.
  */
-import { moderationLabels, onProcessData } from '../../utils';
+import { moderationLabels, onProcessData } from '../utils';
 
 /**
  * Moderation review modal: flagged categories with score bars and an

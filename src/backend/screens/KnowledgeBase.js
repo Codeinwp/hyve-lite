@@ -23,7 +23,7 @@ import { addQueryArgs } from '@wordpress/url';
  * Internal dependencies.
  */
 import { getRoutes, navigate } from '../router';
-import { onProcessData, setUtm } from '../../utils';
+import { onProcessData, setUtm } from '../utils';
 import Card from '../components/Card';
 import Chip from '../components/Chip';
 import ChunkLimitNotice from '../components/ChunkLimitNotice';
@@ -45,7 +45,7 @@ const fetchAttentionCount = async ( setAttentionCount ) => {
 		setAttentionCount(
 			Number( response.pending ?? 0 ) + Number( response.moderation ?? 0 )
 		);
-	} catch ( error ) {}
+	} catch {}
 };
 
 const getSources = () =>
@@ -165,7 +165,7 @@ const IndexedContent = () => {
 				if ( response.per_page ) {
 					perPageRef.current = Number( response.per_page );
 				}
-			} catch ( error ) {
+			} catch {
 				setHasMore( false );
 			}
 
@@ -482,7 +482,7 @@ const WordPressDrill = () => {
 				if ( response.per_page ) {
 					perPageRef.current = Number( response.per_page );
 				}
-			} catch ( error ) {
+			} catch {
 				if ( request !== requestRef.current ) {
 					return;
 				}
@@ -621,7 +621,7 @@ const WordPressDrill = () => {
 					featureComponent: 'add-data',
 					featureValue: 'import-wordpress-data',
 				} );
-			} catch ( error ) {
+			} catch {
 				// Failed items stay selected so they can be retried.
 			}
 
@@ -1079,7 +1079,7 @@ const AttentionPanel = () => {
 
 				setRows( [ ...pending, ...moderation ] );
 				setAttentionCount( pending.length + moderation.length );
-			} catch ( error ) {}
+			} catch {}
 
 			setLoading( false );
 		};
@@ -1150,7 +1150,7 @@ const AttentionPanel = () => {
 				}
 
 				updated++;
-			} catch ( error ) {
+			} catch {
 				// Failures stay listed; moderation ones move to Review after
 				// the refresh below.
 			}
