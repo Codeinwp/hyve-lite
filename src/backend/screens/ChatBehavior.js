@@ -388,6 +388,199 @@ const SuggestionsCard = () => {
 	);
 };
 
+const INVITE_PLACEHOLDER = __(
+	'Hi there! Have any questions? I can help.',
+	'hyve-lite'
+);
+
+const TRIGGER_OPTIONS = [
+	{ value: 'none', label: __( 'Disabled', 'hyve-lite' ) },
+	{ value: 'time', label: __( 'Time on page', 'hyve-lite' ) },
+	{ value: 'exit', label: __( 'Exit intent', 'hyve-lite' ) },
+	{ value: 'scroll', label: __( 'Scroll depth', 'hyve-lite' ) },
+];
+
+const TRIGGER_DESCRIPTIONS = {
+	none: __(
+		'Pick a trigger to show a small bubble next to the closed chat button, inviting the visitor to start a conversation.',
+		'hyve-lite'
+	),
+	time: __(
+		'The invite appears after the visitor has been on the page for this long.',
+		'hyve-lite'
+	),
+	exit: __(
+		'The invite appears when the pointer leaves toward the top of the page, as if about to close the tab. Desktop only.',
+		'hyve-lite'
+	),
+	scroll: __(
+		'The invite appears once the visitor has scrolled this far down the page.',
+		'hyve-lite'
+	),
+};
+
+const ProactiveCard = () => {
+	const isPro = Boolean( window.hyve?.license );
+
+	const { settings, isSaving, save } = useSaveSettings();
+
+	const { setSetting } = useDispatch( 'hyve' );
+
+	const trigger = settings.proactive_trigger || 'none';
+	const enabled = 'none' !== trigger;
+
+	return (
+		<Card
+			title={ __( 'Proactive message', 'hyve-lite' ) }
+			actions={
+				! isPro && (
+					<Chip tone="pro" dot={ false }>
+						{ __( 'Pro', 'hyve-lite' ) }
+					</Chip>
+				)
+			}
+			footer={
+				isPro && <SaveButton isSaving={ isSaving } save={ save } />
+			}
+		>
+			<FieldRow
+				label={ __( 'Show it when', 'hyve-lite' ) }
+				description={ TRIGGER_DESCRIPTIONS[ trigger ] }
+			>
+				<div className="hyve-next-stack">
+					<SelectControl
+						__nextHasNoMarginBottom
+						hideLabelFromVision
+						label={ __( 'Trigger', 'hyve-lite' ) }
+						options={ TRIGGER_OPTIONS }
+						value={ trigger }
+						disabled={ ! isPro || isSaving }
+						onChange={ ( value ) =>
+							setSetting( 'proactive_trigger', value )
+						}
+					/>
+
+					{ 'time' === trigger && (
+						<TextControl
+							__nextHasNoMarginBottom
+							type="number"
+							min={ 0 }
+							max={ 600 }
+							label={ __( 'Seconds on page', 'hyve-lite' ) }
+							value={ settings.proactive_delay ?? 10 }
+							disabled={ ! isPro || isSaving }
+							onChange={ ( value ) =>
+								setSetting(
+									'proactive_delay',
+									Math.max(
+										0,
+										Math.min(
+											600,
+											parseInt( value, 10 ) || 0
+										)
+									)
+								)
+							}
+						/>
+					) }
+
+					{ 'scroll' === trigger && (
+						<TextControl
+							__nextHasNoMarginBottom
+							type="number"
+							min={ 1 }
+							max={ 100 }
+							label={ __( 'Scroll percentage', 'hyve-lite' ) }
+							value={ settings.proactive_scroll_depth ?? 50 }
+							disabled={ ! isPro || isSaving }
+							onChange={ ( value ) =>
+								setSetting(
+									'proactive_scroll_depth',
+									Math.max(
+										1,
+										Math.min(
+											100,
+											parseInt( value, 10 ) || 1
+										)
+									)
+								)
+							}
+						/>
+					) }
+				</div>
+			</FieldRow>
+
+			{ enabled && (
+				<FieldRow
+					label={ __( 'Invite message', 'hyve-lite' ) }
+					description={ __(
+						'What the bubble says to the visitor. Visitors can dismiss it, and it shows at most once per session.',
+						'hyve-lite'
+					) }
+				>
+					<div className="hyve-next-stack">
+						<TextControl
+							__nextHasNoMarginBottom
+							hideLabelFromVision
+							label={ __( 'Invite message', 'hyve-lite' ) }
+							placeholder={ INVITE_PLACEHOLDER }
+							value={ settings.proactive_message || '' }
+							disabled={ ! isPro || isSaving }
+							onChange={ ( value ) =>
+								setSetting( 'proactive_message', value )
+							}
+						/>
+
+						{ window.hyveApp?.previewTeaser && (
+							<div>
+								<Button
+									variant="secondary"
+									disabled={ ! isPro || isSaving }
+									onClick={ () =>
+										window.hyveApp.previewTeaser(
+											settings.proactive_message ||
+												INVITE_PLACEHOLDER
+										)
+									}
+								>
+									{ __( 'Preview invite', 'hyve-lite' ) }
+								</Button>
+							</div>
+						) }
+					</div>
+				</FieldRow>
+			) }
+
+			{ ! isPro && (
+				<div className="hyve-next-act__upsell">
+					<strong>
+						{ __(
+							'Start conversations before visitors do',
+							'hyve-lite'
+						) }
+					</strong>
+					<p>
+						{ __(
+							'Proactive messages are part of Hyve Pro.',
+							'hyve-lite'
+						) }
+					</p>
+					<Button
+						variant="primary"
+						href={ setUtm(
+							window.hyve?.pro,
+							'proactive-message-settings'
+						) }
+						target="_blank"
+					>
+						{ __( 'Unlock with Pro', 'hyve-lite' ) }
+					</Button>
+				</div>
+			) }
+		</Card>
+	);
+};
+
 const TrustCard = () => {
 	const { settings, isSaving, save } = useSaveSettings();
 
@@ -481,6 +674,7 @@ const ChatBehavior = () => {
 			<VisibilityCard />
 			<ConversationCard />
 			<SuggestionsCard />
+			<ProactiveCard />
 			<TrustCard />
 		</>
 	);

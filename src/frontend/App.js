@@ -24,6 +24,9 @@ class App {
 		this.recordID = null;
 		this.isMenuOpen = false;
 		this.isInline = false;
+		this.teaserTimeout = null;
+		this.teaserExitListener = null;
+		this.teaserScrollListener = null;
 
 		if ( Boolean( window.hyveClient?.canShow ) ) {
 			this.initialize();
@@ -35,6 +38,7 @@ class App {
 		this.renderUI();
 		this.setupListeners();
 		this.restoreMessages();
+		this.setupProactive();
 
 		// The inline block is always visible, so there's no open action to
 		// trigger the greeting — show it on load instead.
@@ -712,7 +716,9 @@ class App {
 			return;
 		}
 
-		audioElement.play();
+		// Autoplay policies reject play() before the visitor interacts with
+		// the page (e.g. a proactive teaser on page load); stay silent then.
+		audioElement.play()?.catch( () => {} );
 	}
 
 	/**
@@ -876,6 +882,9 @@ class App {
 		}
 
 		if ( isOpen ) {
+			// The visitor found the chat; the teaser's job is done.
+			this.removeTeaser();
+
 			openButton.style.display = 'none';
 			closeButton.style.display = 'block';
 			chatWindow.style.display = 'flex';
@@ -1198,6 +1207,265 @@ class App {
 		try {
 			window.localStorage.setItem( 'hyve-privacy-dismissed', 'true' );
 		} catch {}
+	}
+
+	/**
+	 * Arm the proactive teaser: a configurable invite shown next to the closed
+	 * launcher when the selected trigger fires (Pro supplies the config through
+	 * `hyveClient.proactive`). UI only — no thread or API call happens until
+	 * the visitor actually sends a message.
+	 *
+	 * @return {void}
+	 */
+	setupProactive() {
+		const config = window.hyveClient?.proactive;
+
+		if ( ! config?.message || this.isInline || this.isPreview() ) {
+			return;
+		}
+
+		// The teaser anchors to the floating launcher.
+		if ( ! document.getElementById( 'hyve-open' ) ) {
+			return;
+		}
+
+		// A returning visitor with a conversation doesn't need an invite.
+		if ( this.threadID || this.hasUserMessages() ) {
+			return;
+		}
+
+		if ( this.isTeaserSuppressed() ) {
+			return;
+		}
+
+		this.armTeaserTrigger( config );
+	}
+
+	/**
+	 * Whether the teaser should stay hidden: dismissed in this browser, or
+	 * already shown once this session.
+	 *
+	 * @return {boolean} True when suppressed.
+	 */
+	isTeaserSuppressed() {
+		try {
+			return (
+				'true' ===
+					window.localStorage.getItem( 'hyve-teaser-dismissed' ) ||
+				'true' === window.sessionStorage.getItem( 'hyve-teaser-shown' )
+			);
+		} catch {
+			return true;
+		}
+	}
+
+	/**
+	 * Arm the configured trigger. Exactly one is active at a time.
+	 *
+	 * @param {Object} config               The proactive config.
+	 * @param {string} config.trigger       One of 'time', 'exit', 'scroll'.
+	 * @param {string} config.message       The teaser message.
+	 * @param {number} [config.delay]       Seconds on page (time trigger).
+	 * @param {number} [config.scrollDepth] Percent scrolled (scroll trigger).
+	 *
+	 * @return {void}
+	 */
+	armTeaserTrigger( config ) {
+		const show = () => this.showTeaser( config.message );
+
+		switch ( config.trigger ) {
+			case 'exit':
+				// Desktop only: fires when the pointer leaves toward the top
+				// of the viewport. Touch devices never emit it, so the teaser
+				// simply doesn't show there.
+				this.teaserExitListener = ( event ) => {
+					if ( ! event.relatedTarget && 0 >= event.clientY ) {
+						show();
+					}
+				};
+				document.addEventListener(
+					'mouseout',
+					this.teaserExitListener
+				);
+				break;
+			case 'scroll':
+				this.teaserScrollListener = () => {
+					const doc = document.documentElement;
+					const max = doc.scrollHeight - window.innerHeight;
+					const percent =
+						0 < max ? ( window.scrollY / max ) * 100 : 100;
+
+					if ( percent >= ( config.scrollDepth ?? 50 ) ) {
+						show();
+					}
+				};
+				window.addEventListener( 'scroll', this.teaserScrollListener, {
+					passive: true,
+				} );
+				break;
+			default:
+				this.teaserTimeout = window.setTimeout(
+					show,
+					1000 * ( config.delay ?? 0 )
+				);
+		}
+	}
+
+	/**
+	 * Cancel any armed teaser trigger.
+	 *
+	 * @return {void}
+	 */
+	disarmTeaserTrigger() {
+		if ( this.teaserTimeout ) {
+			window.clearTimeout( this.teaserTimeout );
+			this.teaserTimeout = null;
+		}
+
+		if ( this.teaserExitListener ) {
+			document.removeEventListener( 'mouseout', this.teaserExitListener );
+			this.teaserExitListener = null;
+		}
+
+		if ( this.teaserScrollListener ) {
+			window.removeEventListener( 'scroll', this.teaserScrollListener );
+			this.teaserScrollListener = null;
+		}
+	}
+
+	/**
+	 * Show the teaser bubble next to the closed launcher. Clicking the message
+	 * opens the chat (the normal welcome flow proceeds); the X dismisses it
+	 * for good. Focus is never moved — the bubble announces itself politely
+	 * via role="status".
+	 *
+	 * @param {string} message The teaser message.
+	 *
+	 * @return {void}
+	 */
+	showTeaser( message ) {
+		this.disarmTeaserTrigger();
+
+		// The moment may have passed: the chat could have been opened, or a
+		// conversation started, while the trigger was armed.
+		const openButton = document.getElementById( 'hyve-open' );
+
+		if (
+			! openButton ||
+			'none' === openButton.style.display ||
+			this.hasUserMessages() ||
+			document.getElementById( 'hyve-teaser' )
+		) {
+			return;
+		}
+
+		try {
+			window.sessionStorage.setItem( 'hyve-teaser-shown', 'true' );
+		} catch {}
+
+		this.renderTeaser( message );
+	}
+
+	/**
+	 * Show the teaser with a given message in the admin preview widget,
+	 * bypassing triggers and suppression state. Used by the settings screen.
+	 *
+	 * @param {string} message The teaser message to preview.
+	 *
+	 * @return {void}
+	 */
+	previewTeaser( message ) {
+		if ( ! message || this.isInline ) {
+			return;
+		}
+
+		const openButton = document.getElementById( 'hyve-open' );
+
+		if ( ! openButton ) {
+			return;
+		}
+
+		// The teaser anchors to the closed launcher, so close the window first.
+		if ( 'none' === openButton.style.display ) {
+			this.toggleChatWindow( false );
+		}
+
+		this.removeTeaser();
+		this.renderTeaser( message );
+	}
+
+	/**
+	 * Build and attach the teaser bubble next to the launcher.
+	 *
+	 * @param {string} message The teaser message.
+	 *
+	 * @return {void}
+	 */
+	renderTeaser( message ) {
+		const messageButton = this.createElement( 'button', {
+			className: 'hyve-teaser__message',
+			textContent: message,
+		} );
+
+		messageButton.addEventListener( 'click', () => {
+			this.removeTeaser();
+			this.toggleChatWindow( true );
+		} );
+
+		const dismissButton = this.createElement( 'button', {
+			className: 'hyve-teaser__dismiss',
+			ariaLabel: strings.dismissNotice ?? 'Dismiss',
+			innerHTML:
+				'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false"><path d="M12 13.06l3.712 3.713 1.061-1.06L13.061 12l3.712-3.712-1.06-1.06L12 10.938 8.288 7.227l-1.061 1.06L10.939 12l-3.712 3.712 1.06 1.061L12 13.061z"></path></svg>',
+		} );
+
+		dismissButton.addEventListener( 'click', () => {
+			// Never persist dismissal from the admin preview, or previewing
+			// would suppress the real teaser for the admin as a visitor.
+			if ( ! this.isPreview() ) {
+				try {
+					window.localStorage.setItem(
+						'hyve-teaser-dismissed',
+						'true'
+					);
+				} catch {}
+			}
+
+			this.removeTeaser();
+		} );
+
+		const teaser = this.createElement(
+			'div',
+			{ className: 'hyve-teaser', id: 'hyve-teaser' },
+			messageButton,
+			dismissButton
+		);
+
+		teaser.setAttribute( 'role', 'status' );
+
+		if ( 'left' === window.hyveClient?.chatPosition ) {
+			teaser.classList.add( 'is-left' );
+		}
+
+		// Match the bot-message contrast so the text stays readable on a dark
+		// assistant background.
+		if ( window.hyveClient?.colors?.assistant_background ) {
+			teaser.classList.add( 'is-dark' );
+		}
+
+		document.body.appendChild( teaser );
+
+		this.addAudioPlayback( pingAudio );
+	}
+
+	/**
+	 * Remove the teaser bubble and cancel any armed trigger.
+	 *
+	 * @return {void}
+	 */
+	removeTeaser() {
+		this.disarmTeaserTrigger();
+		document.getElementById( 'hyve-teaser' )?.remove();
 	}
 
 	/**
