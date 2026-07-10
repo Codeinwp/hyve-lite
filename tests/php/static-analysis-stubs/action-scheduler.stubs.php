@@ -71,3 +71,16 @@ if ( ! function_exists( 'as_has_scheduled_action' ) ) {
 		return false;
 	}
 }
+
+if ( ! class_exists( 'ActionScheduler' ) ) {
+	class ActionScheduler {
+		/**
+		 * @param string|null $function_name
+		 *
+		 * @return bool
+		 */
+		public static function is_initialized( $function_name = null ) {
+			return false;
+		}
+	}
+}

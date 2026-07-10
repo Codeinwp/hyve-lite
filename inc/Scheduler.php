@@ -28,6 +28,21 @@ class Scheduler {
 	const GROUP = 'hyve';
 
 	/**
+	 * Whether Action Scheduler is loaded and its data store is initialized.
+	 *
+	 * The `as_*` functions no-op with a `_doing_it_wrong` notice when called
+	 * before the data store is set up on `init`, so scheduling must either
+	 * wait for that or fall back to WP-Cron.
+	 *
+	 * @since 1.3.4
+	 *
+	 * @return bool
+	 */
+	private static function is_ready() {
+		return class_exists( 'ActionScheduler', false ) && \ActionScheduler::is_initialized();
+	}
+
+	/**
 	 * Schedule a job to run as soon as possible.
 	 *
 	 * Replaces `wp_schedule_single_event( time(), ... )`.
@@ -40,7 +55,7 @@ class Scheduler {
 	 * @return int|bool Action ID when using Action Scheduler, otherwise the WP-Cron result.
 	 */
 	public static function enqueue_async( $hook, $args = [] ) {
-		if ( function_exists( 'as_enqueue_async_action' ) ) {
+		if ( function_exists( 'as_enqueue_async_action' ) && self::is_ready() ) {
 			return as_enqueue_async_action( $hook, $args, self::GROUP );
 		}
 
@@ -61,7 +76,7 @@ class Scheduler {
 	 * @return int|bool Action ID when using Action Scheduler, otherwise the WP-Cron result.
 	 */
 	public static function schedule_single( $timestamp, $hook, $args = [] ) {
-		if ( function_exists( 'as_schedule_single_action' ) ) {
+		if ( function_exists( 'as_schedule_single_action' ) && self::is_ready() ) {
 			return as_schedule_single_action( $timestamp, $hook, $args, self::GROUP );
 		}
 
@@ -87,7 +102,22 @@ class Scheduler {
 	 * @return void
 	 */
 	public static function ensure_recurring( $hook, $interval_seconds, $recurrence, $args = [] ) {
-		if ( function_exists( 'as_has_scheduled_action' ) && function_exists( 'as_schedule_recurring_action' ) ) {
+		$has_as = function_exists( 'as_has_scheduled_action' ) && function_exists( 'as_schedule_recurring_action' );
+
+		if ( $has_as && ! self::is_ready() ) {
+			// Called before `init`: retry once the data store is up, so the
+			// WP-Cron entry is only cleared when its replacement can be booked.
+			add_action(
+				'action_scheduler_init',
+				static function () use ( $hook, $interval_seconds, $recurrence, $args ) {
+					self::ensure_recurring( $hook, $interval_seconds, $recurrence, $args );
+				}
+			);
+
+			return;
+		}
+
+		if ( $has_as ) {
 			if ( wp_next_scheduled( $hook, $args ) ) {
 				wp_clear_scheduled_hook( $hook, $args );
 			}
