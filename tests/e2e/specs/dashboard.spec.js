@@ -1,480 +1,249 @@
 import { test, expect } from '@wordpress/e2e-test-utils-playwright';
-import {
-	HYVE_DATA_API_ROUTE_PATTERN,
-	mockConfirmDeleteThreadResponse,
-	mockGetThreadsResponse,
-} from '../utils';
+import { mockGetThreadsResponse, mockStatsResponse } from '../utils';
+
+const NEW_UI = 'admin.php?page=hyve&new=true';
+
+const CHART = {
+	legend: {
+		messagesLabel: 'User Messages per Day',
+		sessionsLabel: 'Active Sessions per Day',
+	},
+	data: {
+		messages: [ 4, 9, 13 ],
+		sessions: [ 3, 6, 2 ],
+	},
+	labels: [ 'Jul 1', 'Jul 2', 'Jul 3' ],
+};
 
 test.describe( 'Dashboard', () => {
-	test.beforeEach( async ( { admin } ) => {
-		await admin.visitAdminPage( 'admin.php?page=hyve' );
-	} );
+	test( 'renders the app shell: header, tabs and active state', async ( {
+		page,
+		admin,
+	} ) => {
+		await admin.visitAdminPage( NEW_UI );
 
-	test( 'check dashboard URL', async ( { page } ) => {
 		expect( await page.locator( '#hyve-options' ).count() ).toBe( 1 );
-	} );
 
-	test( 'check shortcuts', async ( { page } ) => {
-		await page
-			.getByRole( 'button', { name: 'Knowledge Base → In Knowledge' } )
-			.click( { force: true } );
-
+		// Header bar contents.
+		const bar = page.locator( '.hyve-next__bar' );
+		await expect( bar.getByText( 'Hyve', { exact: true } ) ).toBeVisible();
+		await expect( bar.getByText( 'API connected' ) ).toBeVisible();
+		await expect( bar.getByRole( 'link', { name: 'Docs' } ) ).toBeVisible();
 		await expect(
-			page.getByRole( 'heading', { name: 'Knowledge Base' } )
+			bar.getByRole( 'link', { name: 'Upgrade to Pro' } )
 		).toBeVisible();
 
-		await page
-			.getByRole( 'button', { name: 'Dashboard' } )
-			.click( { force: true } );
-
-		await page
-			.getByRole( 'button', { name: 'Personalize → Customize Hyve' } )
-			.click( { force: true } );
-
+		// Tab navigation with the current page marked.
+		const tabs = page.getByRole( 'navigation', { name: 'Hyve sections' } );
 		await expect(
-			page.getByRole( 'heading', { name: 'General Settings' } )
-		).toBeVisible();
-	} );
-
-	/**
-	 * Navigate through the dashboard tabs and check for rendering issues.
-	 */
-	test( 'check tabs', async ( { page } ) => {
+			tabs.getByRole( 'button', { name: 'Dashboard' } )
+		).toHaveAttribute( 'aria-current', 'page' );
 		await expect(
-			page.getByText( 'Where should Hyve appear?' )
-		).toBeVisible();
-
-		await page
-			.getByRole( 'button', { name: 'Knowledge Base', exact: true } )
-			.click( { force: true } );
-
-		await expect(
-			page.getByText( 'Cosine Similarity Threshold' )
-		).toBeVisible();
-
-		await expect(
-			page.getByRole( 'slider', { name: 'Cosine Similarity Threshold' } )
-		).toBeVisible();
-
-		await page
-			.getByRole( 'button', { name: 'WordPress → Import your' } )
-			.click( { force: true } );
-
-		await page
-			.getByRole( 'button', { name: 'Add Posts' } )
-			.click( { force: true } );
-
-		await expect( page.getByLabel( 'Post Type' ) ).toBeVisible();
-		await expect(
-			page.getByRole( 'searchbox', { name: 'Search for Posts' } )
-		).toBeVisible();
-
-		await page
-			.getByRole( 'button', { name: 'Requires Update' } )
-			.click( { force: true } );
-		await expect(
-			page.locator( 'div' ).filter( { hasText: /^Updated$/ } )
-		).toBeVisible();
-
-		await page
-			.getByRole( 'button', { name: 'Failed Moderation' } )
-			.click( { force: true } );
-		await expect(
-			page.getByRole( 'heading', { name: 'Failed Moderation' } )
-		).toBeVisible();
-
-		await page
-			.getByRole( 'button', { name: 'Messages' } )
-			.click( { force: true } );
-		await expect(
-			page.getByRole( 'heading', { name: 'Messages' } )
-		).toBeVisible();
-
-		await page
-			.getByRole( 'button', { name: 'Integrations' } )
-			.click( { force: true } );
-		await expect(
-			page.getByRole( 'textbox', { name: 'API Key' } )
+			tabs.getByRole( 'button', { name: 'Knowledge Base' } )
 		).toBeVisible();
 		await expect(
-			page.getByRole( 'textbox', { name: 'API Endpoint' } )
-		).toBeVisible();
-
-		await page
-			.getByRole( 'button', { name: 'Settings' } )
-			.click( { force: true } );
-		await expect(
-			page.getByRole( 'textbox', { name: 'Welcome Message' } )
+			tabs.getByRole( 'button', { name: 'Messages' } )
 		).toBeVisible();
 		await expect(
-			page.getByRole( 'textbox', { name: 'Default Message' } )
-		).toBeVisible();
-
-		await page
-			.getByRole( 'button', { name: 'Assistant' } )
-			.click( { force: true } );
-		await expect(
-			page.getByText( 'Model', { exact: true } )
-		).toBeVisible();
-		await expect(
-			page.getByRole( 'slider', { name: 'Temperature' } )
-		).toBeVisible();
-		await expect(
-			page.getByRole( 'slider', { name: 'Top P' } )
-		).toBeVisible();
-		await expect(
-			page.getByRole( 'button', { name: 'Save' } )
-		).toBeVisible();
-
-		await page
-			.getByRole( 'button', { name: 'Advanced' } )
-			.click( { force: true } );
-		await expect(
-			page.getByRole( 'textbox', { name: 'API Key' } )
-		).toBeVisible();
-		await expect(
-			page.getByRole( 'button', { name: 'Save' } )
+			tabs.getByRole( 'button', { name: 'Settings' } )
 		).toBeVisible();
 	} );
 
-	test( 'check posts list rendering on Knowledge Base > WordPress Import', async ( {
+	test( 'stat cards show the numbers fetched from the stats endpoint', async ( {
 		page,
+		admin,
 	} ) => {
-		await page.route( HYVE_DATA_API_ROUTE_PATTERN, async ( route ) => {
-			const url = route.request().url();
-			if (
-				! url.includes( 'offset=0' ) ||
-				! url.includes( 'status=included' )
-			) {
-				await route.continue();
-				return;
-			}
-			await route.fulfill( {
-				status: 200,
-				contentType: 'application/json',
-				body: JSON.stringify( {
-					posts: [
-						{ ID: 121, title: 'Shop', content: '' },
-						{
-							ID: 123,
-							title: 'Checkout',
-						},
-						{
-							ID: 94,
-							title: 'Portofolio',
-						},
-						{
-							ID: 1,
-							title: 'Hello world!',
-						},
-					],
-					more: false,
-					totalChunks: '4',
-				} ),
-			} );
+		await mockStatsResponse( page, {
+			threads: 42,
+			messages: 99,
+			totalChunks: 7,
+			chart: CHART,
 		} );
 
-		await page
-			.getByRole( 'button', { name: 'Knowledge Base', exact: true } )
-			.click( { force: true } );
+		await admin.visitAdminPage( NEW_UI );
 
-		await page
-			.getByRole( 'button', { name: 'WordPress → Import your' } )
-			.click( { force: true } );
+		const stats = page.locator( '.hyve-next-stats' );
+		await expect( stats ).toBeVisible();
 
-		await expect( page.getByText( 'Checkout' ) ).toBeVisible();
+		await expect( stats.getByText( '42', { exact: true } ) ).toBeVisible();
+		await expect( stats.getByText( '99', { exact: true } ) ).toBeVisible();
+		await expect(
+			stats.getByText( 'Sessions', { exact: true } )
+		).toBeVisible();
+		await expect(
+			stats.getByText( 'Messages', { exact: true } )
+		).toBeVisible();
+		await expect(
+			stats.getByText( 'Knowledge Base', { exact: true } )
+		).toBeVisible();
+
+		// Free plan: the chunk meter foot shows usage of the local limit.
+		await expect(
+			stats.getByText( 'of the free limit used.' )
+		).toBeVisible();
+
+		// With content indexed, the visibility notice shows instead of the
+		// setup checklist. Assert on its action, which is the same whatever
+		// display mode the site is in.
+		await expect(
+			page.getByRole( 'button', { name: 'Manage visibility' } )
+		).toBeVisible();
+		await expect( page.getByText( "Let's get Hyve running" ) ).toBeHidden();
 	} );
 
-	test( 'check message history rendering', async ( { page } ) => {
-		await mockGetThreadsResponse( page );
-
-		await page
-			.getByRole( 'button', { name: 'Messages', exact: true } )
-			.click( { force: true } );
-
-		await page
-			.getByRole( 'button', { name: 'How to reset my password?' } )
-			.click( { force: true } );
-
-		// Check Thread ID.
-		await expect(
-			page.getByText( 'S1sTWm3SoQFa5D0LxzNpY9mE' )
-		).toBeVisible();
-
-		// Check message rendering from user.
-		await expect(
-			page.getByText( 'I did not receive the email' )
-		).toBeVisible();
-
-		// Check message rendering from bot.
-		await expect(
-			page.getByText( 'Please check your spam folder' )
-		).toBeVisible();
-	} );
-
-	test( 'check posts list rendering on Knowledge Base > Failed Moderation', async ( {
-		page,
-	} ) => {
-		await page.route( HYVE_DATA_API_ROUTE_PATTERN, async ( route ) => {
-			const url = route.request().url();
-			if (
-				! url.includes( 'offset=0' ) ||
-				! url.includes( 'status=moderation' )
-			) {
-				await route.continue();
-				return;
-			}
-			await route.fulfill( {
-				status: 200,
-				contentType: 'application/json',
-				body: JSON.stringify( {
-					posts: [
-						{
-							ID: 121,
-							title: 'Shop',
-							content: '',
-							review: {
-								hate: 0.5,
-							},
-						},
-						{
-							ID: 123,
-							title: 'Checkout',
-							content: 'Test checkout content',
-							review: {
-								hate: 0.5,
-							},
-						},
-						{
-							ID: 94,
-							title: 'Portofolio',
-							content: 'Test portfolio content',
-							review: {
-								hate: 0.5,
-							},
-						},
-						{
-							ID: 1,
-							title: 'Hello world!',
-							content: 'Test hello world content',
-							review: {
-								hate: 0.5,
-							},
-						},
-					],
-					more: false,
-					totalChunks: '4',
-				} ),
-			} );
+	test( 'usage chart renders when data exists', async ( { page, admin } ) => {
+		await mockStatsResponse( page, {
+			threads: 5,
+			messages: 20,
+			totalChunks: 7,
+			chart: CHART,
 		} );
 
-		await page
-			.getByRole( 'button', { name: 'Knowledge Base', exact: true } )
-			.click( { force: true } );
+		await admin.visitAdminPage( NEW_UI );
 
-		await page
-			.getByRole( 'button', { name: 'Failed Moderation' } )
-			.click( { force: true } );
-
-		await expect( page.getByText( '123' ) ).toBeVisible();
-		await expect( page.getByText( 'Checkout' ) ).toBeVisible();
 		await expect(
-			page.getByRole( 'button', { name: 'More Info' } ).nth( 1 )
+			page.getByRole( 'img', { name: 'Messages and sessions per day' } )
 		).toBeVisible();
-		await expect(
-			page.getByRole( 'button', { name: 'Update' } ).nth( 2 )
-		).toBeVisible();
-
-		// Check Review Modal.
-		await page
-			.getByRole( 'button', { name: 'More Info' } )
-			.nth( 1 )
-			.click();
-
-		await expect(
-			page.getByRole( 'heading', { name: 'Failed Moderation: Checkout' } )
-		).toBeVisible();
-		await expect(
-			page.getByRole( 'heading', { name: 'Hate Speech' } )
-		).toBeVisible();
-		await expect(
-			page
-				.locator( 'div' )
-				.filter( { hasText: /^Hate Speech50%$/ } )
-				.locator( 'div' )
-				.nth( 3 )
-		).toBeVisible();
-		await expect(
-			page.getByRole( 'button', { name: 'Override Moderation' } )
-		).toBeVisible();
-		await expect(
-			page.getByRole( 'button', { name: 'Close' } )
-		).toBeVisible();
-	} );
-
-	test( 'check route change by Dashboard URL', async ( { page, admin } ) => {
-		await admin.visitAdminPage( 'admin.php' ); // NOTE: this negate the first redirect from `beforeEach`.
-		await admin.visitAdminPage( 'admin.php?page=hyve&nav=advanced' );
-
-		await expect(
-			page.getByRole( 'textbox', { name: 'API Key' } )
-		).toBeVisible();
-
-		// Check if the navigation is not blocked.
-		await page
-			.getByRole( 'button', { name: 'Assistant' } )
-			.click( { force: true } );
-		await expect(
-			page.getByRole( 'heading', { name: 'Assistant Settings' } )
-		).toBeVisible();
-	} );
-
-	test( 'choose assistant model', async ( { page } ) => {
-		await page
-			.getByRole( 'button', { name: 'Settings' } )
-			.click( { force: true } );
-		await page
-			.getByRole( 'button', { name: 'Assistant' } )
-			.click( { force: true } );
-
-		await page
-			.getByRole( 'radio', { name: 'GPT-4.1 nano' } )
-			.click( { force: true } );
-		await expect(
-			page.getByRole( 'radio', { name: 'GPT-4.1 nano' } )
-		).toBeChecked();
-	} );
-
-	test( 'delete conversation/thread', async ( { page } ) => {
-		await mockGetThreadsResponse( page );
-
-		await page
-			.getByRole( 'button', { name: 'Messages', exact: true } )
-			.click( { force: true } );
-		await page
-			.getByRole( 'button', { name: 'How to reset my password?' } )
-			.click( { force: true } );
-
-		await mockConfirmDeleteThreadResponse( page );
-		await page
-			.getByRole( 'button', { name: 'Delete conversation' } )
-			.click( { force: true } );
-		await expect(
-			page.getByRole( 'button', { name: 'How to reset my password?' } )
-		).toBeHidden();
-		await expect( page.getByTestId( 'snackbar' ) ).toBeVisible();
-	} );
-
-	test( 'check chart rendering', async ( { page } ) => {
-		await page.evaluate( () => {
-			window.hyve = window.hyve || {};
-			window.hyve.chart = {
-				legend: {
-					messagesLabel: 'User messages',
-					sessionsLabel: 'Sessions',
-				},
-				data: {
-					messages: [ 0, 0, 0 ],
-					sessions: [ 1, 2, 3 ],
-				},
-				labels: [ 'Mar 20', 'Mar 21', 'Mar 22' ],
-			};
-		} );
-
-		await page
-			.getByRole( 'button', { name: 'Knowledge Base', exact: true } )
-			.click( { force: true } );
-		await page
-			.getByRole( 'button', { name: 'Dashboard' } )
-			.click( { force: true } );
-		await page.locator( '#messages-chart' ).scrollIntoViewIfNeeded();
-		await page.locator( '#sessions-chart' ).scrollIntoViewIfNeeded();
-
-		await expect( page.locator( '#messages-chart' ) ).toBeVisible();
-		await expect( page.locator( '#sessions-chart' ) ).toBeVisible();
-		await expect( page.getByText( 'Show data for' ) ).toBeVisible();
 		await expect( page.getByLabel( 'Show data for' ) ).toBeVisible();
 	} );
 
-	test( 'check chart hiding when the data is empty', async ( { page } ) => {
-		await page.evaluate( () => {
-			window.hyve = window.hyve || {};
-			window.hyve.chart = {
-				legend: {
-					messagesLabel: 'User messages',
-					sessionsLabel: 'Sessions',
-				},
-				data: {
-					messages: [],
-					sessions: [],
-				},
-				labels: [],
-			};
-		} );
+	test( 'usage chart is replaced by a placeholder without data', async ( {
+		page,
+		admin,
+	} ) => {
+		await mockStatsResponse( page, { totalChunks: 7 } );
 
-		await page
-			.getByRole( 'button', { name: 'Knowledge Base', exact: true } )
-			.click( { force: true } );
-		await page
-			.getByRole( 'button', { name: 'Dashboard' } )
-			.click( { force: true } );
+		await admin.visitAdminPage( NEW_UI );
 
-		await expect( page.locator( '#messages-chart' ) ).toBeHidden();
-		await expect( page.locator( '#sessions-chart' ) ).toBeHidden();
-		await expect( page.getByText( 'Show data for' ) ).toBeHidden();
-		await expect( page.getByLabel( 'Show data for' ) ).toBeHidden();
+		await expect(
+			page.getByText(
+				'Usage data will appear here once visitors start chatting.'
+			)
+		).toBeVisible();
+		await expect(
+			page.getByRole( 'img', { name: 'Messages and sessions per day' } )
+		).toBeHidden();
 	} );
 
-	test( 'empty knowledge base warning', async ( { page } ) => {
+	test( 'setup checklist shows while the knowledge base is empty and links to content', async ( {
+		page,
+		admin,
+	} ) => {
+		await mockStatsResponse( page, { totalChunks: 0 } );
+
+		await admin.visitAdminPage( NEW_UI );
+
 		await expect(
-			page.getByText( 'Your Knowledge Base is' )
+			page.getByText( "Let's get Hyve running" )
+		).toBeVisible();
+
+		// The API key exists in the test environment, so step 1 counts as done.
+		await expect( page.getByText( '1 of 2 steps done' ) ).toBeVisible();
+		await expect(
+			page.getByRole( 'button', { name: 'Add content', exact: true } )
 		).toBeVisible();
 
 		await page
-			.getByRole( 'button', { name: 'Click here to add content.' } )
-			.click( { force: true } );
+			.getByRole( 'button', { name: 'Add content', exact: true } )
+			.click();
+
 		await expect(
-			page.getByRole( 'button', { name: 'WordPress → Import your' } )
+			page.getByRole( 'heading', { name: 'Add a source' } )
 		).toBeVisible();
 	} );
 
-	test( 'check service error rendering', async ( { page, admin } ) => {
-		// Service errors are held in the data store and rendered reactively, so
-		// inject them via dispatch rather than mutating window.hyve.
+	test( 'recent conversations list mocked threads and View all opens Messages', async ( {
+		page,
+		admin,
+	} ) => {
+		await mockStatsResponse( page, { totalChunks: 7, chart: CHART } );
+		await mockGetThreadsResponse( page );
+
+		await admin.visitAdminPage( NEW_UI );
+
+		await expect(
+			page.getByText( 'How to reset my password?' )
+		).toBeVisible();
+
+		await page.getByRole( 'button', { name: 'View all' } ).click();
+
+		await expect(
+			page.getByRole( 'heading', { name: 'Messages' } )
+		).toBeVisible();
+		await expect(
+			page.getByRole( 'heading', { name: 'Conversations' } )
+		).toBeVisible();
+	} );
+
+	test( 'get started shortcuts navigate to their screens', async ( {
+		page,
+		admin,
+	} ) => {
+		await mockStatsResponse( page, { totalChunks: 7, chart: CHART } );
+
+		await admin.visitAdminPage( NEW_UI );
+
+		await page
+			.getByRole( 'button', { name: 'Grow the Knowledge Base' } )
+			.click();
+		await expect(
+			page.getByRole( 'heading', { name: 'Add a source' } )
+		).toBeVisible();
+
+		await page.goBack();
+
+		await page
+			.getByRole( 'button', { name: 'Personalize the chat' } )
+			.click();
+		await expect(
+			page.getByText( 'Where should Hyve appear?' ).first()
+		).toBeVisible();
+	} );
+
+	test( 'deep links open the right panel and browser back works', async ( {
+		page,
+		admin,
+	} ) => {
+		await admin.visitAdminPage(
+			`${ NEW_UI }&nav=settings&sub=ai-advanced`
+		);
+
+		await expect(
+			page.getByRole( 'heading', { name: 'Advanced tuning' } )
+		).toBeVisible();
+
+		await page.getByRole( 'button', { name: 'Provider & model' } ).click();
+		await expect(
+			page.getByRole( 'heading', { name: 'OpenAI' } )
+		).toBeVisible();
+
+		await page.goBack();
+		await expect(
+			page.getByRole( 'heading', { name: 'Advanced tuning' } )
+		).toBeVisible();
+	} );
+
+	test( 'service errors render reactively from the store', async ( {
+		page,
+		admin,
+	} ) => {
+		await admin.visitAdminPage( NEW_UI );
+
 		await page.evaluate( () => {
 			window.wp.data.dispatch( 'hyve' ).setServiceErrors( [
 				{
 					code: 'invalid_api_key',
-					message:
-						'Incorrect API key provided: sk-IxcjM*******************************************test. You can find your API key at https://platform.openai.com/account/api-keys.',
-					date: '2025-06-05T15:01:01+00:00',
+					message: 'Incorrect API key provided.',
+					date: '2026-07-10T15:01:01+00:00',
 					provider: 'OpenAI',
-				},
-				{
-					code: 403,
-					message:
-						'Invalid credentials. Please check your API key and endpoint URL.',
-					date: '2025-06-05T14:57:31+00:00',
-					provider: 'Qdrant',
 				},
 			] );
 		} );
 
-		// Trigger the rendering via React tree refresh.
-		await page
-			.getByRole( 'button', { name: 'Integrations' } )
-			.click( { force: true } );
-
-		// Check that service errors are displayed.
 		await expect(
 			page.getByText(
-				'[OpenAI] Service Error: Incorrect API key provided'
+				'[OpenAI] Service Error: Incorrect API key provided.'
 			)
-		).toBeVisible();
-		await expect(
-			page
-				.locator( '#hyve-options' )
-				.getByText( '[Qdrant] Service Error: Invalid credentials.' )
 		).toBeVisible();
 	} );
 } );

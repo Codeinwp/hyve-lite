@@ -11,9 +11,63 @@ const HYVE_CHAT_API_ROUTE_PATTERN =
 export const HYVE_DATA_API_ROUTE_PATTERN =
 	/.*(?:rest_route=%2Fhyve%2Fv1%2Fdata|\/wp-json\/hyve\/v1\/data).*/;
 
+export const HYVE_SETTINGS_API_ROUTE_PATTERN =
+	/.*(?:rest_route=%2Fhyve%2Fv1%2Fsettings|\/wp-json\/hyve\/v1\/settings).*/;
+
+const HYVE_STATS_API_ROUTE_PATTERN =
+	/.*(?:rest_route=%2Fhyve%2Fv1%2Fstats|\/wp-json\/hyve\/v1\/stats).*/;
+
+/**
+ * Detect the Needs Attention count endpoint, which the data pattern above
+ * also matches (`data/counts` contains `data`).
+ *
+ * @param {string} url The request URL.
+ * @return {boolean} Whether the request targets `data/counts`.
+ */
+export const isDataCountsRequest = ( url ) =>
+	url.includes( 'data%2Fcounts' ) || url.includes( 'data/counts' );
+
+/**
+ * Mock the response for the `/stats` endpoint the new dashboard fetches on
+ * mount.
+ *
+ * @param {import("@playwright/test").Page} page                  The page.
+ * @param {Object}                          [options]
+ * @param {number}                          [options.threads]     Session count.
+ * @param {number}                          [options.messages]    Message count.
+ * @param {number}                          [options.totalChunks] Knowledge base chunk count.
+ * @param {?Object}                         [options.chart]       Chart payload; defaults to an empty chart.
+ */
+export async function mockStatsResponse(
+	page,
+	{ threads = 0, messages = 0, totalChunks = 0, chart = null } = {}
+) {
+	await page.route( HYVE_STATS_API_ROUTE_PATTERN, async ( route ) => {
+		await route.fulfill( {
+			status: 200,
+			contentType: 'application/json',
+			body: JSON.stringify( {
+				stats: { threads, messages, totalChunks },
+				chart: chart ?? {
+					legend: {
+						messagesLabel: 'User Messages per Day',
+						sessionsLabel: 'Active Sessions per Day',
+					},
+					data: { messages: [], sessions: [] },
+					labels: [],
+				},
+			} ),
+		} );
+	} );
+}
+
 export async function mockGetThreadsResponse( page ) {
 	await page.route( HYVE_THREADS_API_ROUTE_PATTERN, async ( route ) => {
-		if ( ! route.request().url().includes( 'offset=0' ) ) {
+		const url = route.request().url();
+
+		// Only the first page is mocked; the dashboard widget requests it
+		// without an offset parameter.
+		if ( url.includes( 'offset=' ) && ! url.includes( 'offset=0' ) ) {
 			await route.continue();
 			return;
 		}
@@ -132,8 +186,11 @@ export async function mockGetThreadsResponse( page ) {
 export async function mockConfirmDeleteThreadResponse( page ) {
 	await page.route( HYVE_THREADS_API_ROUTE_PATTERN, async ( route ) => {
 		const request = route.request();
+
+		// Fall back so other registered thread mocks handle non-delete
+		// requests; continue() would bypass them and hit the network.
 		if ( ! /[?&]id=\d+/.test( request.url() ) ) {
-			await route.continue();
+			await route.fallback();
 			return;
 		}
 
@@ -151,7 +208,7 @@ export async function mockConfirmDeleteThreadResponse( page ) {
 				} ),
 			} );
 		} else {
-			await route.continue();
+			await route.fallback();
 		}
 	} );
 }
