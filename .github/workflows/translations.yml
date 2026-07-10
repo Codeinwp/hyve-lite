@@ -11,6 +11,9 @@ on:
 jobs:
   translation:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
     steps:
       - name: Checkout Base Branch
         uses: actions/checkout@v4
