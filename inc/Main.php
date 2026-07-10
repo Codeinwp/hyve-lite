@@ -102,6 +102,24 @@ class Main {
 		add_filter( 'themeisle_sdk_blackfriday_data', [ $this, 'add_black_friday_data' ] );
 		add_action( 'admin_init', [ $this, 'admin_init' ] );
 		add_action( 'admin_init', [ $this, 'add_privacy_policy_content' ] );
+		add_action( 'admin_notices', [ $this, 'encryption_key_notice' ] );
+		add_filter( 'hyve_encryption_key_check_can_reset', [ __CLASS__, 'can_reset_encryption_key_check' ] );
+	}
+
+	/**
+	 * Warn administrators when encrypted credentials cannot be decrypted.
+	 *
+	 * @return void
+	 */
+	public function encryption_key_notice() {
+		if ( ! current_user_can( 'manage_options' ) || ! Encryption::has_key_changed() ) {
+			return;
+		}
+		?>
+		<div class="notice notice-error">
+			<p><?php esc_html_e( 'Hyve encryption keys have changed. Please update your OpenAI and Qdrant connection settings and regenerate API access tokens to avoid service disruption.', 'hyve-lite' ); ?></p>
+		</div>
+		<?php
 	}
 
 	/**
@@ -315,6 +333,15 @@ class Main {
 			$saved = [];
 		}
 
+		foreach ( self::get_encrypted_settings() as $key ) {
+			if ( ! isset( $saved[ $key ] ) ) {
+				continue;
+			}
+
+			$decrypted     = Encryption::decrypt( $saved[ $key ] );
+			$saved[ $key ] = false === $decrypted ? '' : $decrypted;
+		}
+
 		$settings                      = $saved;
 		$settings['telemetry_enabled'] = 'yes' === get_option( 'hyve_lite_logger_flag', 'no' );
 
@@ -331,6 +358,69 @@ class Main {
 		}
 
 		return $settings;
+	}
+
+	/**
+	 * Get settings that must be encrypted at rest.
+	 *
+	 * @return string[]
+	 */
+	public static function get_encrypted_settings() {
+		return [ 'api_key', 'qdrant_api_key' ];
+	}
+
+	/**
+	 * Persist settings while keeping sensitive values encrypted at rest.
+	 *
+	 * @param mixed $settings Settings to persist.
+	 * @return bool Whether the settings were saved successfully.
+	 */
+	public static function save_settings( $settings ) {
+		if ( ! is_array( $settings ) ) {
+			return false;
+		}
+
+		foreach ( self::get_encrypted_settings() as $key ) {
+			if ( ! isset( $settings[ $key ] ) || '' === $settings[ $key ] ) {
+				continue;
+			}
+
+			$encrypted = Encryption::encrypt( $settings[ $key ] );
+
+			if ( false === $encrypted ) {
+				return false;
+			}
+
+			$settings[ $key ] = $encrypted;
+		}
+
+		return update_option( 'hyve_settings', $settings ) || get_option( 'hyve_settings' ) === $settings;
+	}
+
+	/**
+	 * Keep the changed-key marker until Lite's unreadable credentials are replaced.
+	 *
+	 * @param bool $can_reset Whether other plugin components are recovered.
+	 * @return bool Whether Lite's credentials are recovered too.
+	 */
+	public static function can_reset_encryption_key_check( $can_reset ) {
+		if ( ! $can_reset ) {
+			return false;
+		}
+
+		$settings = get_option( 'hyve_settings', [] );
+
+		if ( ! is_array( $settings ) ) {
+			return true;
+		}
+
+		foreach ( self::get_encrypted_settings() as $key ) {
+			if ( isset( $settings[ $key ] ) && Encryption::is_encrypted( $settings[ $key ] ) && false === Encryption::decrypt( $settings[ $key ] ) ) {
+				return false;
+			}
+		}
+
+		return true;
 	}
 
 	/**
