@@ -1,20 +1,19 @@
-# QA checklist for the new dashboard (`?new=true`)
+# QA checklist for the dashboard
 
 Everything testable in what has been built so far. Work through it top to bottom; each line is a check. Where a card or screen has multiple states, the setup for each state is spelled out.
 
 How to force the common states:
 
-- **No API key**: clear the key in Settings > Provider & model (or the old UI) and save.
+- **No API key**: clear the key in Settings > Provider & model and save.
 - **Invalid API key**: save a made-up key like `sk-wrong`.
-- **Empty knowledge base**: remove all sources in the old UI's Knowledge Base.
-- **Qdrant on/off**: connect or disconnect Qdrant in the old UI's Integrations tab.
+- **Empty knowledge base**: remove all indexed content in Knowledge Base > All sources.
+- **Qdrant on/off**: connect or disconnect Qdrant in Settings > Qdrant.
 - **Free vs Pro**: deactivate/activate the Hyve Pro plugin.
 - **Display modes**: change "Where should Hyve appear?" on the old Dashboard (all, include, exclude, manual).
 
-## 1. Bootstrapping and the old UI
+## 1. Bootstrapping
 
-- [ ] `admin.php?page=hyve` (no `new=true`) still loads the old dashboard, completely unaffected.
-- [ ] `admin.php?page=hyve&new=true` loads the new shell.
+- [ ] `admin.php?page=hyve` loads the new shell (the old dashboard is deleted; a stray `&new=true` in the URL is ignored).
 - [ ] No JavaScript errors in the console on load, on any screen.
 
 ## 2. Routing and URLs

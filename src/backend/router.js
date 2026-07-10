@@ -213,7 +213,7 @@ const resolveSub = ( route, sub ) => {
  *
  * @return {{screen: string, sub: ?string, item: ?string}} Current route.
  */
-export const parseLocation = () => {
+const parseLocation = () => {
 	const routes = getRoutes();
 	const params = new URLSearchParams( window.location.search );
 

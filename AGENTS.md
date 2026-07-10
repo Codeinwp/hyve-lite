@@ -79,7 +79,7 @@ Plugin constants are defined in `hyve-lite.php`: `HYVE_LITE_BASEFILE`, `HYVE_LIT
 
 Four separate webpack entry points built with `@wordpress/scripts`:
 
-1. **src/backend/** — Admin dashboard React app using `@wordpress/element` and `@wordpress/data` for state management. Components in `components/`, page sections in `parts/`.
+1. **src/backend/** — Admin dashboard React app using `@wordpress/element` and `@wordpress/data` for state management. Four tab screens in `screens/` (Dashboard, KnowledgeBase, Messages, Settings), shared layout kit in `components/`, hooks in `data/`, URL routing in `router.js` (`?page=hyve&nav=<screen>&sub=<panel>&item=<id>`), shared store in `store.js`. Pro extends it through the `hyve.routes` / `hyve.slot` / `hyve.setup-steps` filters and the layout kit bridged at `window.hyveComponents.ui`.
 2. **src/frontend/** — Client-facing chat widget. Vanilla JS class (`App`) — no React. Manages chat state, threads, audio, and localStorage persistence.
 3. **src/block/** — Gutenberg block with two variations: inline and floating. Server-rendered via `render.php`.
 4. **src/addons/** — Post list table row actions for quick knowledge base add/remove.

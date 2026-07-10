@@ -22,8 +22,3 @@ Status snapshot: 2026-07-09. Re-check PR state before building on this. Shipped 
   - A non-admin support agent may see ONLY the Messages page — the new shell must render sensibly when other nav items are unavailable.
 - Pro PR #253 gates the CSV export endpoint on `hyve_manage_messages`.
 
-## 3. Refresh OpenAI model list — [hyve#221](https://github.com/Codeinwp/hyve/issues/221) / [hyve-lite PR #174](https://github.com/Codeinwp/hyve-lite/pull/174)
-
-- **Settings → Assistant** (new UI: Settings > AI > Provider & model): `chat_model` control changes from `RadioControl` to `SelectControl` (the new UI already uses a SelectControl; only the list swap remains).
-- New model list (each with a one-line description): `gpt-5.4`, `gpt-5.4-mini`, `gpt-5.4-nano`, `gpt-4.1`, `gpt-4.1-mini`, `gpt-4.1-nano`, `gpt-4o`, `gpt-4o-mini`. GPT-3.5 removed (breaks with structured outputs); a saved-but-unlisted model is appended to the list so it isn't silently lost; a saved gpt-3.5* falls back to `gpt-4o-mini`.
-- Tier: free (lite).
