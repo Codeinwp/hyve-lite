@@ -1,0 +1,10 @@
+--- a/src/Response.php
++++ b/src/Response.php
+@@ -45,6 +45,7 @@
+         return isset($this->raw[$offset]);
+     }
+
++    #[\ReturnTypeWillChange]
+     public function offsetGet($offset)
+     {
+         return $this->raw[$offset];

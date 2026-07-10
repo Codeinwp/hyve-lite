@@ -10,12 +10,87 @@ import {
 	Panel,
 	PanelRow,
 	RangeControl,
-	RadioControl,
+	SelectControl,
 } from '@wordpress/components';
 
 import { useState } from '@wordpress/element';
 
 import { useDispatch, useSelect } from '@wordpress/data';
+
+/**
+ * Selectable chat models.
+ *
+ * Only models verified to support every feature Hyve relies on — structured
+ * outputs (`json_schema`) plus the `temperature`/`top_p` controls — are listed.
+ * Reasoning-only models (GPT-5, GPT-5.5, the `o`-series) reject those params,
+ * and GPT-3.5 lacks structured outputs, so they are intentionally excluded.
+ */
+const MODEL_OPTIONS = [
+	{
+		label: __( 'GPT-5.4', 'hyve-lite' ),
+		value: 'gpt-5.4',
+		description: __(
+			'Newest and most capable — best for complex questions.',
+			'hyve-lite'
+		),
+	},
+	{
+		label: __( 'GPT-5.4 mini', 'hyve-lite' ),
+		value: 'gpt-5.4-mini',
+		description: __(
+			'Newer model with a strong balance of quality and cost.',
+			'hyve-lite'
+		),
+	},
+	{
+		label: __( 'GPT-5.4 nano', 'hyve-lite' ),
+		value: 'gpt-5.4-nano',
+		description: __(
+			'Newer fast, low-cost option for high-traffic chats.',
+			'hyve-lite'
+		),
+	},
+	{
+		label: __( 'GPT-4.1', 'hyve-lite' ),
+		value: 'gpt-4.1',
+		description: __(
+			'Capable and proven — great for detailed answers.',
+			'hyve-lite'
+		),
+	},
+	{
+		label: __( 'GPT-4.1 mini', 'hyve-lite' ),
+		value: 'gpt-4.1-mini',
+		description: __(
+			'Faster and cheaper than GPT-4.1 — solid all-rounder.',
+			'hyve-lite'
+		),
+	},
+	{
+		label: __( 'GPT-4.1 nano', 'hyve-lite' ),
+		value: 'gpt-4.1-nano',
+		description: __(
+			'Ultra-fast and very low cost — best for lightweight chats.',
+			'hyve-lite'
+		),
+	},
+	{
+		label: __( 'GPT-4o', 'hyve-lite' ),
+		value: 'gpt-4o',
+		description: __(
+			'Smart, cost-effective general-purpose model.',
+			'hyve-lite'
+		),
+	},
+	{
+		label: __( 'GPT-4o mini', 'hyve-lite' ),
+		value: 'gpt-4o-mini',
+		description: __(
+			'Fastest and most affordable — best for most chats.',
+			'hyve-lite'
+		),
+	},
+];
 
 const Assistant = () => {
 	const settings = useSelect( ( select ) => select( 'hyve' ).getSettings() );
@@ -55,67 +130,54 @@ const Assistant = () => {
 		setIsSaving( false );
 	};
 
+	// GPT-3.5 is no longer offered (it errors with structured outputs); show the
+	// default instead. A still-valid but no-longer-listed saved model (e.g. an
+	// older GPT-4 a site picked earlier) is appended so it isn't silently lost.
+	const savedModel = settings.chat_model;
+	const isLegacyModel =
+		'string' === typeof savedModel && savedModel.startsWith( 'gpt-3.5' );
+	const selectedModel = isLegacyModel ? 'gpt-4o-mini' : savedModel;
+
+	const modelOptions =
+		selectedModel &&
+		! MODEL_OPTIONS.some( ( option ) => option.value === selectedModel )
+			? [
+					...MODEL_OPTIONS,
+					{
+						label: selectedModel,
+						value: selectedModel,
+						description: __(
+							'Your currently selected model.',
+							'hyve-lite'
+						),
+					},
+			  ]
+			: MODEL_OPTIONS;
+
+	const selectedModelOption = modelOptions.find(
+		( option ) => option.value === selectedModel
+	);
+
 	return (
 		<div className="col-span-6 xl:col-span-4">
 			<Panel header={ __( 'Assistant Settings', 'hyve-lite' ) }>
 				<PanelRow>
-					<RadioControl
+					<SelectControl
+						__next40pxDefaultSize
+						__nextHasNoMarginBottom
 						label={ __( 'Model', 'hyve-lite' ) }
-						help={ __(
-							'Choose the AI model that powers your chatbot. More advanced models provide better responses but may cost more.',
-							'hyve-lite'
-						) }
-						options={ [
-							{
-								label: __( 'GPT-4.1', 'hyve-lite' ),
-								value: 'gpt-4.1',
-								description: __(
-									'Most accurate and capable model — ideal for complex tasks.',
-									'hyve-lite'
-								),
-							},
-							{
-								label: __( 'GPT-4.1 mini', 'hyve-lite' ),
-								value: 'gpt-4.1-mini',
-								description: __(
-									'Faster and cheaper than full GPT-4.1 — great balance of cost and quality.',
-									'hyve-lite'
-								),
-							},
-							{
-								label: __( 'GPT-4.1 nano', 'hyve-lite' ),
-								value: 'gpt-4.1-nano',
-								description: __(
-									'Ultra-fast and low-cost — best for lightweight and high-traffic chats.',
-									'hyve-lite'
-								),
-							},
-							{
-								label: __( 'GPT-4o', 'hyve-lite' ),
-								value: 'gpt-4o',
-								description: __(
-									'Fast, smart, and cost-effective — best for most use cases.',
-									'hyve-lite'
-								),
-							},
-							{
-								label: __( 'GPT-4o mini', 'hyve-lite' ),
-								value: 'gpt-4o-mini',
-								description: __(
-									'Optimized for real-time chats — faster and cheaper than GPT-4o.',
-									'hyve-lite'
-								),
-							},
-							{
-								label: __( 'GPT-3.5 Turbo 0125', 'hyve-lite' ),
-								value: 'gpt-3.5-turbo-0125',
-								description: __(
-									'Legacy model for basic tasks.',
-									'hyve-lite'
-								),
-							},
-						] }
-						selected={ settings.chat_model }
+						help={
+							selectedModelOption?.description ||
+							__(
+								'Choose the AI model that powers your chatbot. More advanced models provide better responses but may cost more.',
+								'hyve-lite'
+							)
+						}
+						options={ modelOptions.map( ( { label, value } ) => ( {
+							label,
+							value,
+						} ) ) }
+						value={ selectedModel }
 						disabled={ isSaving }
 						onChange={ ( newValue ) =>
 							setSetting( 'chat_model', newValue )

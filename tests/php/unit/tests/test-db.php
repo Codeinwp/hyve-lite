@@ -88,4 +88,18 @@ class DB_TableTest extends WP_UnitTestCase {
 		$posts = $this->db_table->get_posts_over_limit();
 		$this->assertCount( 100, $posts );
 	}
+
+	/**
+	 * Test get_post_id.
+	 */
+	public function test_get_post_id() {
+		$insert_id = $this->db_table->insert(
+			[
+				'post_content' => 'Source content.',
+				'post_id'      => 777,
+			]
+		);
+
+		$this->assertEquals( '777', (string) $this->db_table->get_post_id( $insert_id ) );
+	}
 }
