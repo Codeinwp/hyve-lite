@@ -7,6 +7,8 @@ import { Button, Icon } from '@wordpress/components';
 
 import { useSelect } from '@wordpress/data';
 
+import { applyFilters } from '@wordpress/hooks';
+
 import { check } from '@wordpress/icons';
 
 /**
@@ -15,15 +17,18 @@ import { check } from '@wordpress/icons';
 import { navigate } from '../router';
 
 const SetupChecklist = () => {
-	const { hasAPI, isQdrantActive, chunks } = useSelect( ( select ) => ( {
+	const { hasAPI, chunks } = useSelect( ( select ) => ( {
 		hasAPI: select( 'hyve' ).hasAPI(),
-		isQdrantActive: select( 'hyve' ).isQdrantActive(),
 		chunks: select( 'hyve' ).getTotalChunks(),
 	} ) );
 
 	const totalChunks = Number( chunks ?? 0 );
 
-	const steps = [
+	/**
+	 * Setup steps. Pro prepends its license step (and locks the rest while
+	 * the license is inactive) through the same filter.
+	 */
+	const steps = applyFilters( 'hyve.setup-steps', [
 		{
 			title: __( 'Connect OpenAI', 'hyve-lite' ),
 			description: __(
@@ -50,25 +55,11 @@ const SetupChecklist = () => {
 				onClick: () => navigate( 'kb' ),
 			},
 		},
-		{
-			title: __( 'Connect Qdrant', 'hyve-lite' ),
-			optional: true,
-			description: __(
-				'Only worth it for large sites: lifts the local limit on Knowledge Base size.',
-				'hyve-lite'
-			),
-			done: isQdrantActive,
-			locked: ! hasAPI,
-			action: {
-				label: __( 'View integrations', 'hyve-lite' ),
-				onClick: () => navigate( 'settings', 'qdrant' ),
-			},
-		},
-	];
+	] );
 
-	const doneCount = steps
-		.slice( 0, 2 )
-		.filter( ( step ) => step.done ).length;
+	const required = steps.filter( ( step ) => ! step.optional );
+	const doneCount = required.filter( ( step ) => step.done ).length;
+	const firstIncomplete = steps.findIndex( ( step ) => ! step.done );
 
 	return (
 		<div className="hyve-next-checklist">
@@ -79,7 +70,7 @@ const SetupChecklist = () => {
 						/* translators: 1: completed steps, 2: total required steps. */
 						__( '%1$d of %2$d steps done', 'hyve-lite' ),
 						doneCount,
-						2
+						required.length
 					) }
 				</span>
 			</div>
@@ -118,12 +109,23 @@ const SetupChecklist = () => {
 						<Button
 							__next40pxDefaultSize={ false }
 							size="small"
-							variant={ 0 === index ? 'primary' : 'secondary' }
+							variant={
+								index === firstIncomplete
+									? 'primary'
+									: 'secondary'
+							}
 							disabled={ step.locked }
 							onClick={ step.action.onClick }
 						>
 							{ step.locked
-								? __( 'Waiting for step 1', 'hyve-lite' )
+								? sprintf(
+										/* translators: %d: number of the step this one waits on. */
+										__(
+											'Waiting for step %d',
+											'hyve-lite'
+										),
+										firstIncomplete + 1
+								  )
 								: step.action.label }
 						</Button>
 					) }
@@ -132,7 +134,7 @@ const SetupChecklist = () => {
 
 			<p className="hyve-next-checklist__foot">
 				{ __(
-					'This checklist stays on your dashboard until the two required steps are done.',
+					'This checklist stays on your dashboard until the required steps are done.',
 					'hyve-lite'
 				) }
 			</p>

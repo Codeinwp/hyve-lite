@@ -456,6 +456,13 @@ class API extends BaseAPI {
 		);
 
 		foreach ( $updated as $key => $value ) {
+			// Unknown keys (e.g. settings removed in an update but still
+			// present in the stored option) are dropped, not fatal.
+			if ( ! isset( $validation[ $key ] ) ) {
+				unset( $updated[ $key ] );
+				continue;
+			}
+
 			if ( ! $validation[ $key ]['validate']( $value ) ) {
 				return $this->settings_response(
 					[

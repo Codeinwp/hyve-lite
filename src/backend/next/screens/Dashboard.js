@@ -11,6 +11,8 @@ import { useDispatch, useSelect } from '@wordpress/data';
 
 import { useEffect, useState } from '@wordpress/element';
 
+import { applyFilters } from '@wordpress/hooks';
+
 import { archive, brush, cloud, comment, help, people } from '@wordpress/icons';
 
 /**
@@ -467,7 +469,11 @@ const Dashboard = () => {
 	}, [ setStats, setChart, setTotalChunks ] );
 
 	const totalChunks = Number( chunks ?? 0 );
-	const showChecklist = ! hasAPI || 0 === totalChunks;
+	// Pro keeps the checklist up while its license step is incomplete.
+	const showChecklist = applyFilters(
+		'hyve.setup-required',
+		! hasAPI || 0 === totalChunks
+	);
 
 	return (
 		<>

@@ -141,8 +141,3 @@ Legend: `[ ]` todo · `[x]` done · `[~]` in progress
 ## Suggested order for what remains (Hardeep decides, this is just a sane default)
 
 S2 (Knowledge Base, starts with F6.5 DataTable) → S6 (Integrations) → S7 (General) → remaining F items (F9-F12) → P1/P2 → W.
-
-## Remind me at the end of the sprint
-
-- Restrict Pro features to only active licenses.
-- NUX
