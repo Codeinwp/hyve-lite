@@ -28,7 +28,14 @@ const Sidebar = () => {
 
 	const { setRoute } = useDispatch( 'hyve' );
 
-	const MENU_ITEMS = applyFilters( 'hyve.route', ROUTE_TREE );
+	let MENU_ITEMS = applyFilters( 'hyve.route', ROUTE_TREE );
+
+	// Support users who can only read messages see just the Messages entry.
+	if ( ! window.hyve?.canManage ) {
+		MENU_ITEMS = MENU_ITEMS.messages
+			? { messages: MENU_ITEMS.messages }
+			: {};
+	}
 
 	return (
 		<div className="col-span-6 xl:col-span-2">

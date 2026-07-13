@@ -130,13 +130,15 @@ const MessageThreadView = ( { selectedPost, onDelete } ) => {
 				<p className="text-xs text-gray-500">
 					{ selectedPost?.thread_id?.replace( 'thread_', '' ) }
 				</p>
-				<Button
-					isDestructive={ true }
-					aria-label={ __( 'Delete conversation', 'hyve-lite' ) }
-					onClick={ () => onDelete( selectedPost?.ID ) }
-				>
-					<Icon icon={ 'trash' } />
-				</Button>
+				{ window.hyve?.canManageMessages && (
+					<Button
+						isDestructive={ true }
+						aria-label={ __( 'Delete conversation', 'hyve-lite' ) }
+						onClick={ () => onDelete( selectedPost?.ID ) }
+					>
+						<Icon icon={ 'trash' } />
+					</Button>
+				) }
 			</div>
 			<div className="overflow-scroll pl-4 grow">
 				{ selectedPost?.thread?.map( ( message, index ) => (
@@ -333,11 +335,13 @@ const Messages = () => {
 									/>
 								</div>
 							</div>
-							<div className="flex justify-end mt-1">
-								<ExportMessagesAction
-									onClick={ () => setUpsellOpen( true ) }
-								/>
-							</div>
+							{ window.hyve?.canManageMessages && (
+								<div className="flex justify-end mt-1">
+									<ExportMessagesAction
+										onClick={ () => setUpsellOpen( true ) }
+									/>
+								</div>
+							) }
 						</>
 					) }
 				</PanelRow>
