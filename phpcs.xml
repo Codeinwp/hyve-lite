@@ -45,6 +45,15 @@
 
     <rule ref="Generic.Arrays.DisallowLongArraySyntax.Found" />
 
+    <rule ref="WordPress.WP.Capabilities">
+        <properties>
+            <property name="custom_capabilities" type="array">
+                <element value="hyve_read_messages" />
+                <element value="hyve_manage_messages" />
+            </property>
+        </properties>
+    </rule>
+
     <arg name="extensions" value="php" />
     <arg value="s" />
 

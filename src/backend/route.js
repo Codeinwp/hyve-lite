@@ -9,6 +9,7 @@ import {
 	comment,
 	customLink,
 	home,
+	page,
 	settings,
 	wordpress,
 } from '@wordpress/icons';
@@ -24,13 +25,13 @@ import FailedModeration from './parts/data/FailedModeration';
 import Custom from './parts/data/Custom';
 import URLCrawler from './parts/data/URLCrawler';
 import SitemapCrawler from './parts/data/SitemapCrawler';
+import Documents from './parts/data/Documents';
 import FAQ from './parts/data/FAQ';
 import Messages from './parts/Messages';
 import Qdrant from './parts/integrations/Qdrant';
 import General from './parts/settings/General';
 import Appearance from './parts/settings/Appearance';
 import Assistant from './parts/settings/Assistant';
-import Moderation from './parts/settings/Moderation';
 import Advanced from './parts/settings/Advanced';
 import { ExternalSearch } from './parts/integrations/ExternalSearch';
 
@@ -68,6 +69,7 @@ export const ROUTE_TREE = {
 		label: __( 'Messages', 'hyve-lite' ),
 		icon: comment,
 		component: Messages,
+		disabled: false,
 	},
 	integrations: {
 		label: __( 'Integrations', 'hyve-lite' ),
@@ -95,17 +97,10 @@ export const ROUTE_TREE = {
 			appearance: {
 				label: __( 'Appearance', 'hyve-lite' ),
 				component: Appearance,
-				disabled: true,
-				isPro: true,
 			},
 			assistant: {
 				label: __( 'Assistant', 'hyve-lite' ),
 				component: Assistant,
-				disabled: true,
-			},
-			moderation: {
-				label: __( 'Moderation', 'hyve-lite' ),
-				component: Moderation,
 				disabled: true,
 			},
 			advanced: {
@@ -152,6 +147,16 @@ export const KNOWLEDGE_BASE = {
 		description: __( 'Add a sitemap to the Knowledge Base.', 'hyve-lite' ),
 		icon: blockMeta,
 		component: SitemapCrawler,
+		isPro: true,
+	},
+	documents: {
+		label: __( 'Documents', 'hyve-lite' ),
+		description: __(
+			'Import PDF, Word, Markdown, Text, or CSV files into the Knowledge Base.',
+			'hyve-lite'
+		),
+		icon: page,
+		component: Documents,
 		isPro: true,
 	},
 };

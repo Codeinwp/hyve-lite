@@ -38,7 +38,13 @@ const App = () => {
 			document.dispatchEvent( sdkEvent );
 		};
 
-		fetchData();
+		// Support users without full access cannot read settings; skip the
+		// request so the app finishes loading instead of hanging on a 403.
+		if ( window.hyve?.canManage ) {
+			fetchData();
+		} else {
+			setLoading();
+		}
 
 		const urlParams = new URLSearchParams( window.location.search );
 		const nav = urlParams.get( 'nav' );
@@ -52,7 +58,15 @@ const App = () => {
 		}
 	}, [ setSettings, setLoading, setRoute ] );
 
-	const ROUTE_TREE = applyFilters( 'hyve.route', ROUTE );
+	let ROUTE_TREE = applyFilters( 'hyve.route', ROUTE );
+
+	// Restrict the app to Messages for users who can only read messages, so a
+	// support user never reaches a settings screen or an admin-only request.
+	if ( ! window.hyve?.canManage ) {
+		ROUTE_TREE = ROUTE_TREE.messages
+			? { messages: ROUTE_TREE.messages }
+			: {};
+	}
 
 	const ROUTE_COMPONENTS = Object.keys( ROUTE_TREE ).reduce( ( acc, key ) => {
 		if ( ROUTE_TREE[ key ].component ) {
