@@ -3,12 +3,18 @@
  */
 import { createReduxStore, register } from '@wordpress/data';
 
+const AI_MODE = window.hyve.aiMode || 'self_hosted';
+const IS_CONNECT = 'hyve_connect' === AI_MODE;
+
 const DEFAULT_STATE = {
 	route: 'home',
 	hasLoaded: false,
 	settings: {},
 	processed: [],
-	hasAPI: Boolean( window.hyve.hasAPIKey ),
+	aiMode: AI_MODE,
+	connect: window.hyve.connect || null,
+	connectSync: window.hyve.connectSync || null,
+	hasAPI: Boolean( window.hyve.hasAPIKey ) || IS_CONNECT,
 	isQdrantActive: Boolean( window.hyve.isQdrantActive ),
 	stats: window.hyve.stats || {},
 	chart: window.hyve.chart || null,
@@ -72,6 +78,24 @@ const actions = {
 			isQdrantActive,
 		};
 	},
+	setAiMode( aiMode ) {
+		return {
+			type: 'SET_AI_MODE',
+			aiMode,
+		};
+	},
+	setConnect( connect ) {
+		return {
+			type: 'SET_CONNECT',
+			connect,
+		};
+	},
+	setConnectSync( connectSync ) {
+		return {
+			type: 'SET_CONNECT_SYNC',
+			connectSync,
+		};
+	},
 	setAttentionCount( attentionCount ) {
 		return {
 			type: 'SET_ATTENTION_COUNT',
@@ -111,11 +135,24 @@ const selectors = {
 	hasReachedLimit( state ) {
 		return (
 			window.hyve.chunksLimit <= Number( state.totalChunks ) &&
-			! state.isQdrantActive
+			! state.isQdrantActive &&
+			'hyve_connect' !== state.aiMode
 		);
 	},
 	isQdrantActive( state ) {
 		return state.isQdrantActive;
+	},
+	getAiMode( state ) {
+		return state.aiMode;
+	},
+	isConnectActive( state ) {
+		return 'hyve_connect' === state.aiMode;
+	},
+	getConnect( state ) {
+		return state.connect;
+	},
+	getConnectSync( state ) {
+		return state.connectSync;
 	},
 	getAttentionCount( state ) {
 		return state.attentionCount;
@@ -174,6 +211,24 @@ const reducer = ( state = DEFAULT_STATE, action ) => {
 			return {
 				...state,
 				isQdrantActive: action.isQdrantActive,
+			};
+		case 'SET_AI_MODE':
+			return {
+				...state,
+				aiMode: action.aiMode,
+				hasAPI:
+					Boolean( window.hyve.hasAPIKey ) ||
+					'hyve_connect' === action.aiMode,
+			};
+		case 'SET_CONNECT':
+			return {
+				...state,
+				connect: action.connect,
+			};
+		case 'SET_CONNECT_SYNC':
+			return {
+				...state,
+				connectSync: action.connectSync,
 			};
 		case 'SET_ATTENTION_COUNT':
 			return {

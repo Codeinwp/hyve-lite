@@ -57,7 +57,8 @@ class Main {
 
 		add_action( 'admin_menu', [ $this, 'register_menu_page' ] );
 		add_action( 'save_post', [ $this, 'update_meta' ], 10, 3 );
-		add_action( 'delete_post', [ $this, 'delete_post' ] );
+		add_action( 'before_delete_post', [ $this, 'delete_post' ] );
+		add_action( DB_Table::CONNECT_SYNC_HOOK, [ $this->table, 'connect_migrate_data' ] );
 		add_filter( 'themeisle_sdk_enable_telemetry', '__return_true' );
 
 		add_filter( 'hyve_global_chat_enabled', [ $this, 'is_global_chat_enabled' ] );
@@ -177,6 +178,11 @@ class Main {
 	public function admin_init() {
 		$settings = self::get_settings();
 
+		if ( Hyve_Connect::is_active() && false === get_transient( 'hyve_connect_recovery_check' ) ) {
+			set_transient( 'hyve_connect_recovery_check', 1, HOUR_IN_SECONDS );
+			$this->table->connect_check_recovery();
+		}
+
 		$post_types        = get_post_types( [ 'public' => true ], 'objects' );
 		$post_types_for_js = [];
 
@@ -212,6 +218,9 @@ class Main {
 						'hasAPIKey'         => isset( $settings['api_key'] ) && ! empty( $settings['api_key'] ),
 						'isApiKeyConnected' => self::is_api_key_connected( $settings ),
 						'chunksLimit'       => apply_filters( 'hyve_chunks_limit', 500 ),
+						'aiMode'            => Hyve_Connect::get_mode(),
+						'connect'           => Hyve_Connect::is_active() ? Hyve_Connect::instance()->stats() : null,
+						'connectSync'       => Hyve_Connect::is_active() ? $this->table->connect_migration_status() : null,
 						'isQdrantActive'    => Qdrant_API::is_active(),
 						'assets'            => [
 							'images' => HYVE_LITE_URL . 'assets/images/',
@@ -282,6 +291,7 @@ class Main {
 		return apply_filters(
 			'hyve_default_settings',
 			[
+				'ai_mode'                    => 'self_hosted',
 				'api_key'                    => '',
 				'qdrant_api_key'             => '',
 				'qdrant_endpoint'            => '',
@@ -727,10 +737,19 @@ class Main {
 	 * @return array<string, mixed>
 	 */
 	public function get_stats() {
+		// In Connect mode the knowledge base lives on the platform, so the chunk
+		// count comes from the hosted aggregate, not the (dormant) local table.
+		if ( Hyve_Connect::is_active() ) {
+			$connect      = Hyve_Connect::instance()->stats();
+			$total_chunks = isset( $connect['kb']['chunks'] ) ? (int) $connect['kb']['chunks'] : 0;
+		} else {
+			$total_chunks = $this->table->get_count();
+		}
+
 		return [
 			'threads'     => Threads::get_thread_count(),
 			'messages'    => Threads::get_messages_count(),
-			'totalChunks' => $this->table->get_count(),
+			'totalChunks' => $total_chunks,
 		];
 	}
 
@@ -868,6 +887,9 @@ class Main {
 
 		if ( Qdrant_API::is_active() ) {
 			$this->qdrant->delete_point( $post_id );
+		} elseif ( Hyve_Connect::is_active() && get_post_meta( $post_id, '_hyve_added', true ) ) {
+			Hyve_Connect::instance()->kb_delete( [ (int) $post_id ] );
+			Hyve_Connect::flush_stats();
 		}
 	}
 

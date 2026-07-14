@@ -120,7 +120,7 @@ class Qdrant_API {
 
 		update_option( 'hyve_qdrant_status', 'active' );
 
-		$existing_chunks = DB_Table::instance()->get_count();
+		$existing_chunks = DB_Table::instance()->get_count_by_storage( 'WordPress' );
 
 		if ( $existing_chunks > 0 ) {
 			update_option(
@@ -361,6 +361,13 @@ class Qdrant_API {
 		$posts    = $db_table->get_by_storage( 'WordPress' );
 
 		if ( empty( $posts ) ) {
+			$migration_status = get_option( 'hyve_qdrant_migration', [] );
+
+			if ( ! empty( $migration_status ) ) {
+				$migration_status['in_progress'] = false;
+				update_option( 'hyve_qdrant_migration', $migration_status );
+			}
+
 			return;
 		}
 

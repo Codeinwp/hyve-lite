@@ -145,11 +145,14 @@ const VisibilityNotice = ( { mode } ) => {
 };
 
 const StatsGrid = () => {
-	const { stats, totalChunks, isQdrantActive } = useSelect( ( select ) => ( {
-		stats: select( 'hyve' ).getStats(),
-		totalChunks: select( 'hyve' ).getTotalChunks(),
-		isQdrantActive: select( 'hyve' ).isQdrantActive(),
-	} ) );
+	const { stats, totalChunks, isQdrantActive, isConnectActive, connect } =
+		useSelect( ( select ) => ( {
+			stats: select( 'hyve' ).getStats(),
+			totalChunks: select( 'hyve' ).getTotalChunks(),
+			isQdrantActive: select( 'hyve' ).isQdrantActive(),
+			isConnectActive: select( 'hyve' ).isConnectActive(),
+			connect: select( 'hyve' ).getConnect(),
+		} ) );
 
 	const sessions = Number( stats.threads ?? 0 );
 	const messages = Number( stats.messages ?? 0 );
@@ -161,7 +164,79 @@ const StatsGrid = () => {
 		Math.round( ( chunks / chunksLimit ) * 100 )
 	);
 
-	const needsStorage = ! isQdrantActive && 400 < chunks;
+	const needsStorage = ! isQdrantActive && ! isConnectActive && 400 < chunks;
+
+	// The Knowledge Base card reflects where content actually lives: the free
+	// local limit, an unlimited Qdrant cluster, or the Hyve Connect plan quota.
+	const connectKb = connect?.kb ?? {};
+	const connectStorage = connectKb.storage ?? {};
+	const connectChunks = Number(
+		connectStorage.used ?? connectKb.chunks ?? 0
+	);
+	const connectLimit = Number( connectStorage.limit ?? 0 );
+	const connectPercent = connectLimit
+		? Math.min( 100, Math.round( ( connectChunks / connectLimit ) * 100 ) )
+		: 0;
+
+	let kbCard;
+
+	if ( isConnectActive ) {
+		const connectFull = connectLimit > 0 && connectChunks >= connectLimit;
+
+		kbCard = {
+			value: connectChunks.toLocaleString(),
+			suffix: sprintf(
+				/* translators: %s: the chunk limit of the Hyve Connect plan. */
+				__( '/ %s chunks', 'hyve-lite' ),
+				connectLimit.toLocaleString()
+			),
+			meter: connectPercent,
+			foot: connectFull
+				? __( 'Plan limit reached.', 'hyve-lite' )
+				: sprintf(
+						/* translators: %d: percentage of the Hyve Connect plan used. */
+						__(
+							'%d%% of your Hyve Connect plan used.',
+							'hyve-lite'
+						),
+						connectPercent
+				  ),
+		};
+	} else if ( isQdrantActive ) {
+		kbCard = {
+			value: chunks.toLocaleString(),
+			suffix: __( 'chunks', 'hyve-lite' ),
+			meter: undefined,
+			foot: __( 'Stored in your Qdrant cluster.', 'hyve-lite' ),
+		};
+	} else {
+		kbCard = {
+			value: chunks.toLocaleString(),
+			suffix: sprintf(
+				/* translators: %s: the chunk limit of the free plan. */
+				__( '/ %s chunks', 'hyve-lite' ),
+				chunksLimit.toLocaleString()
+			),
+			meter: usedPercent,
+			foot: (
+				<>
+					{ sprintf(
+						/* translators: %d: percentage of the free limit used. */
+						__( '%d%% of the free limit used.', 'hyve-lite' ),
+						usedPercent
+					) }{ ' ' }
+					{ needsStorage && (
+						<Button
+							variant="link"
+							onClick={ () => navigate( 'settings', 'qdrant' ) }
+						>
+							{ __( 'Need more storage?', 'hyve-lite' ) }
+						</Button>
+					) }
+				</>
+			),
+		};
+	}
 
 	return (
 		<div className="hyve-next-stats">
@@ -188,60 +263,114 @@ const StatsGrid = () => {
 			<StatCard
 				icon={ archive }
 				label={ __( 'Knowledge Base', 'hyve-lite' ) }
-				value={ chunks.toLocaleString() }
-				suffix={
-					isQdrantActive
-						? __( 'chunks', 'hyve-lite' )
-						: sprintf(
-								/* translators: %s: the chunk limit of the free plan. */
-								__( '/ %s chunks', 'hyve-lite' ),
-								chunksLimit.toLocaleString()
-						  )
-				}
-				meter={ isQdrantActive ? undefined : usedPercent }
-				foot={
-					isQdrantActive ? (
-						__( 'Stored in your Qdrant cluster.', 'hyve-lite' )
-					) : (
-						<>
-							{ sprintf(
-								/* translators: %d: percentage of the free limit used. */
-								__(
-									'%d%% of the free limit used.',
-									'hyve-lite'
-								),
-								usedPercent
-							) }{ ' ' }
-							{ needsStorage && (
-								<Button
-									variant="link"
-									onClick={ () =>
-										navigate( 'settings', 'qdrant' )
-									}
-								>
-									{ __( 'Need more storage?', 'hyve-lite' ) }
-								</Button>
-							) }
-						</>
-					)
-				}
+				value={ kbCard.value }
+				suffix={ kbCard.suffix }
+				meter={ kbCard.meter }
+				foot={ kbCard.foot }
 			/>
 
-			<StatCard
-				planned
-				icon={ cloud }
-				label={ __( 'Hyve Connect', 'hyve-lite' ) }
-				value={ __( 'N/A', 'hyve-lite' ) }
-				chip={
-					<Chip tone="planned" dot={ false }>
-						{ __( 'Coming soon', 'hyve-lite' ) }
-					</Chip>
-				}
-				foot={ __(
-					'Hosted AI usage will show up here once Hyve Connect launches.',
-					'hyve-lite'
-				) }
-			/>
+			{ isConnectActive ? (
+				( () => {
+					const chat = connect?.chat ?? {};
+					const used = Number( chat.used ?? 0 );
+					const limit = Number( chat.limit ?? 0 );
+					const percent = limit
+						? Math.min( 100, Math.round( ( used / limit ) * 100 ) )
+						: 0;
+					const offline = connect?.service === 'error';
+					const full = limit > 0 && used >= limit;
+
+					let connectChip = (
+						<Chip tone="ok">
+							{ __( 'Connected', 'hyve-lite' ) }
+						</Chip>
+					);
+					if ( offline ) {
+						connectChip = (
+							<Chip tone="bad">
+								{ __( 'Offline', 'hyve-lite' ) }
+							</Chip>
+						);
+					} else if ( full ) {
+						connectChip = (
+							<Chip tone="warn">
+								{ __( 'Limit reached', 'hyve-lite' ) }
+							</Chip>
+						);
+					}
+
+					return (
+						<StatCard
+							icon={ cloud }
+							label={ __( 'Hyve Connect', 'hyve-lite' ) }
+							value={
+								offline
+									? __( 'N/A', 'hyve-lite' )
+									: used.toLocaleString()
+							}
+							suffix={
+								offline
+									? undefined
+									: sprintf(
+											/* translators: %s: monthly message limit. */
+											__( '/ %s msgs', 'hyve-lite' ),
+											limit.toLocaleString()
+									  )
+							}
+							meter={ offline ? undefined : percent }
+							chip={ connectChip }
+							foot={
+								offline ? (
+									__(
+										"Can't reach hosted AI right now.",
+										'hyve-lite'
+									)
+								) : (
+									<Button
+										variant="link"
+										onClick={ () =>
+											navigate(
+												'settings',
+												'hyve-connect'
+											)
+										}
+									>
+										{ __( 'Manage', 'hyve-lite' ) }
+									</Button>
+								)
+							}
+						/>
+					);
+				} )()
+			) : (
+				<StatCard
+					compact
+					icon={ cloud }
+					label={ __( 'Hyve Connect', 'hyve-lite' ) }
+					value={ __( 'Hosted AI, no API key', 'hyve-lite' ) }
+					chip={
+						<Chip tone="pro" dot={ false }>
+							{ __( 'Free', 'hyve-lite' ) }
+						</Chip>
+					}
+					foot={
+						<>
+							{ __(
+								'Answer questions and index your content with zero setup.',
+								'hyve-lite'
+							) }{ ' ' }
+							<Button
+								variant="link"
+								onClick={ () =>
+									navigate( 'settings', 'hyve-connect' )
+								}
+							>
+								{ __( 'Enable Hyve Connect', 'hyve-lite' ) }
+							</Button>
+						</>
+					}
+				/>
+			) }
 		</div>
 	);
 };

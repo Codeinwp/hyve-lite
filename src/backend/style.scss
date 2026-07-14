@@ -762,6 +762,14 @@
 		border-left-color: var(--hyve-bad-dot);
 	}
 
+	&.is-flush {
+		margin-bottom: 0;
+	}
+
+	&.is-info {
+		border-left-color: var(--hyve-wp-blue);
+	}
+
 	&.is-compact {
 		box-shadow: none;
 		margin: 10px 0 0;
@@ -776,6 +784,11 @@
 	/* A floor on the text is what lets the action wrap below it. */
 	@media (max-width: 640px) {
 		min-width: 220px;
+	}
+
+	/* The sync-progress bar sits under its label inside the notice body. */
+	.hyve-next-meter {
+		margin-top: 8px;
 	}
 }
 
@@ -969,6 +982,12 @@ p.hyve-next-notice__text {
 		color: var(--hyve-text-2);
 		font-size: 12.5px;
 		margin: 2px 0 10px;
+	}
+
+	/* Free allowance spent: warm the panel so the limit reads at a glance. */
+	&.is-exhausted {
+		background: #fcf3e6;
+		border-top-color: var(--hyve-warn-dot);
 	}
 }
 
@@ -1253,6 +1272,16 @@ p.hyve-next-notice__text {
 	gap: 8px;
 	justify-content: flex-end;
 	margin-top: 20px;
+
+	/* Pin the actions to the bottom of the modal so, in tall modals (e.g. the
+	   sitemap pages list), the primary actions stay visible instead of hiding
+	   below a scroll. */
+	position: sticky;
+	bottom: 0;
+	z-index: 1;
+	background: var(--hyve-surface);
+	border-top: 1px solid var(--hyve-border);
+	padding-top: 12px;
 
 	@media (max-width: 480px) {
 		flex-wrap: wrap;
@@ -1804,4 +1833,111 @@ div.notice.themeisle-sale {
 		color: #333;
 		padding: 0 3px;
 	}
+}
+
+/* Hyve Connect settings panel. */
+.hyve-next-quota {
+	display: flex;
+	flex-direction: column;
+	gap: 14px;
+}
+
+.hyve-next-quota__lab {
+	display: flex;
+	justify-content: space-between;
+	font-size: 12.5px;
+	margin-bottom: 5px;
+}
+
+.hyve-next-quota__k {
+	color: var(--hyve-text);
+	font-weight: 600;
+}
+
+.hyve-next-quota__v {
+	color: var(--hyve-muted);
+	font-variant-numeric: tabular-nums;
+}
+
+.hyve-next-quota__sub {
+	color: var(--hyve-faint);
+	font-size: 11.5px;
+	margin-top: 4px;
+}
+
+.hyve-next-quota__status {
+	align-items: center;
+	color: var(--hyve-muted);
+	display: flex;
+	font-size: 12.5px;
+	gap: 10px;
+}
+
+.hyve-next-feats {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	list-style: none;
+	margin: 6px 0 0;
+	padding: 0;
+
+	li {
+		color: var(--hyve-text-2);
+		font-size: 12.5px;
+		padding-left: 20px;
+		position: relative;
+
+		&::before {
+			color: var(--hyve-ok);
+			content: '\2713';
+			font-weight: 700;
+			left: 0;
+			position: absolute;
+		}
+	}
+}
+
+.hyve-next-opts {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+	margin: 12px 0;
+}
+
+.hyve-next-opt {
+	align-items: flex-start;
+	border: 1px solid var(--hyve-border);
+	border-radius: var(--hyve-radius-in);
+	cursor: pointer;
+	display: flex;
+	gap: 10px;
+	padding: 12px;
+
+	&.is-selected {
+		background: #f0f6fc;
+		border-color: var(--hyve-wp-blue);
+	}
+
+	input {
+		margin-top: 2px;
+	}
+}
+
+.hyve-next-opt__txt {
+	color: var(--hyve-text-2);
+	display: flex;
+	flex-direction: column;
+	font-size: 12.5px;
+	gap: 3px;
+
+	strong {
+		color: var(--hyve-text);
+		font-size: 13px;
+	}
+}
+
+.hyve-next-stat.is-compact .hyve-next-stat__num {
+	font-size: 15px;
+	font-weight: 600;
+	letter-spacing: 0;
 }

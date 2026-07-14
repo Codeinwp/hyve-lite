@@ -11,7 +11,7 @@ import {
 	TextControl,
 } from '@wordpress/components';
 
-import { useDispatch } from '@wordpress/data';
+import { useDispatch, useSelect } from '@wordpress/data';
 
 import { useState } from '@wordpress/element';
 
@@ -22,6 +22,7 @@ import Card from '../components/Card';
 import Chip from '../components/Chip';
 import FieldRow from '../components/FieldRow';
 import useSaveSettings from '../data/useSaveSettings';
+import { navigate } from '../router';
 
 /**
  * Selectable chat models.
@@ -172,6 +173,10 @@ export const ProviderPanel = () => {
 	const { setSetting, setHasAPI } = useDispatch( 'hyve' );
 	const { createNotice } = useDispatch( 'core/notices' );
 
+	const isConnectActive = useSelect( ( select ) =>
+		select( 'hyve' ).isConnectActive()
+	);
+
 	const onSave = async () => {
 		const response = await save();
 
@@ -245,6 +250,31 @@ export const ProviderPanel = () => {
 				</Button>
 			}
 		>
+			{ isConnectActive && (
+				<div className="hyve-next-notice">
+					<div className="hyve-next-notice__body">
+						<strong>
+							{ __(
+								'Hyve Connect is handling AI.',
+								'hyve-lite'
+							) }
+						</strong>{ ' ' }
+						{ __(
+							'These OpenAI settings stay inactive while Connect is on.',
+							'hyve-lite'
+						) }{ ' ' }
+						<Button
+							variant="link"
+							onClick={ () =>
+								navigate( 'settings', 'hyve-connect' )
+							}
+						>
+							{ __( 'Manage Hyve Connect', 'hyve-lite' ) }
+						</Button>
+					</div>
+				</div>
+			) }
+
 			<FieldRow
 				label={ __( 'API key', 'hyve-lite' ) }
 				description={ __(

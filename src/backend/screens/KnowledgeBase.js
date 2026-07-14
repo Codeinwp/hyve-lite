@@ -133,6 +133,13 @@ const IndexedContent = () => {
 		select( 'hyve' ).getTotalChunks()
 	);
 
+	// In Connect mode the platform owns the chunks; there are no local per-source
+	// rows to count, so the per-source Chunks column is dropped (the total still
+	// comes from the platform aggregate, and Status shows each source is indexed).
+	const isConnectActive = useSelect( ( select ) =>
+		select( 'hyve' ).isConnectActive()
+	);
+
 	const { setTotalChunks, setAttentionCount } = useDispatch( 'hyve' );
 	const { createNotice } = useDispatch( 'core/notices' );
 
@@ -308,13 +315,19 @@ const IndexedContent = () => {
 						key: 'type',
 						label: __( 'Source', 'hyve-lite' ),
 					},
-					{
-						key: 'chunks',
-						label: __( 'Chunks', 'hyve-lite' ),
-						align: 'num',
-						render: ( row ) =>
-							Number( row.chunks ?? 0 ).toLocaleString(),
-					},
+					...( isConnectActive
+						? []
+						: [
+								{
+									key: 'chunks',
+									label: __( 'Chunks', 'hyve-lite' ),
+									align: 'num',
+									render: ( row ) =>
+										Number(
+											row.chunks ?? 0
+										).toLocaleString(),
+								},
+						  ] ),
 					{
 						key: 'status',
 						label: __( 'Status', 'hyve-lite' ),

@@ -49,6 +49,27 @@ class DB_Table {
 	const MAX_PROCESS_ATTEMPTS = 5;
 
 	/**
+	 * Source documents pushed to Hyve Connect per migration run.
+	 *
+	 * @var int
+	 */
+	const CONNECT_SYNC_BATCH = 10;
+
+	/**
+	 * The option key tracking the to-Connect sync job.
+	 *
+	 * @var string
+	 */
+	const CONNECT_SYNC_OPTION = 'hyve_connect_migration';
+
+	/**
+	 * The cron hook that drives the to-Connect sync job.
+	 *
+	 * @var string
+	 */
+	const CONNECT_SYNC_HOOK = 'hyve_lite_connect_sync';
+
+	/**
 	 * The single instance of the class.
 	 *
 	 * @var DB_Table
@@ -364,6 +385,21 @@ class DB_Table {
 	}
 
 	/**
+	 * Count rows held in a given storage backend.
+	 *
+	 * @since 1.4.3
+	 *
+	 * @param string $storage Storage backend (e.g. WordPress|Qdrant).
+	 *
+	 * @return int
+	 */
+	public function get_count_by_storage( string $storage ): int {
+		global $wpdb;
+
+		return (int) $wpdb->get_var( $wpdb->prepare( 'SELECT COUNT(*) FROM %i WHERE storage = %s', $this->table_name, $storage ) );
+	}
+
+	/**
 	 * Get embeddings with pagination.
 	 * 
 	 * @param int $offset The offset for pagination.
@@ -558,6 +594,12 @@ class DB_Table {
 	 * @throws \Exception If Qdrant API fails.
 	 */
 	public function ingest_document( $doc, $args = [] ) {
+		// Connect mode ships the whole document to the platform, which chunks,
+		// moderates, embeds, and stores it. No local chunking/embedding/rows.
+		if ( Hyve_Connect::is_active() ) {
+			return $this->ingest_document_connect( $doc, $args );
+		}
+
 		$action             = $args['action'] ?? 'add';
 		$override           = ! empty( $args['override'] );
 		$create             = ! empty( $args['create'] );
@@ -675,6 +717,491 @@ class DB_Table {
 		}
 
 		return true;
+	}
+
+	/**
+	 * Ingest a document via Hyve Connect.
+	 *
+	 * The hosted counterpart to the local pipeline: the whole document goes to
+	 * `hyve-kb upsert` (the platform chunks/moderates/embeds/stores), and the
+	 * post keeps the same `_hyve_*` bookkeeping the KB listing already reads, so
+	 * both modes look identical in the UI. No local chunk rows or vectors.
+	 *
+	 * @param array<string, mixed> $doc  The document, with `title` and `content`.
+	 * @param array<string, mixed> $args Ingestion options (see ingest_document()).
+	 *
+	 * @return true|\WP_Error
+	 */
+	private function ingest_document_connect( $doc, $args ) {
+		$action             = $args['action'] ?? 'add';
+		$create             = ! empty( $args['create'] );
+		$post_id            = $args['post_id'] ?? null;
+		$post_type          = $args['post_type'] ?? 'hyve_docs';
+		$extra_meta         = $args['meta'] ?? [];
+		$persist_moderation = ! empty( $args['persist_moderation'] );
+
+		// Resolve the owning post. Managed sources (links, custom text, sitemap)
+		// create/update a hyve_docs post; the posts source already has one. A
+		// source created here that the platform then rejects is cleaned up so no
+		// orphan is left behind, mirroring the local path's moderate-then-create.
+		$created_here = false;
+
+		if ( 'update' === $action && $create && $post_id ) {
+			$updated = wp_update_post(
+				[
+					'ID'           => $post_id,
+					'post_title'   => $doc['title'],
+					'post_content' => $doc['content'],
+				]
+			);
+
+			if ( ! $updated ) {
+				return new \WP_Error( 'failed_update_post', __( 'Failed to update post.', 'hyve-lite' ) );
+			}
+		} elseif ( $create ) {
+			$post_id = wp_insert_post(
+				[
+					'post_title'   => $doc['title'],
+					'post_content' => $doc['content'],
+					'post_status'  => 'publish',
+					'post_type'    => $post_type,
+				]
+			);
+
+			if ( ! $post_id ) {
+				return new \WP_Error( 'failed_insert_post', __( 'Failed to insert post.', 'hyve-lite' ) );
+			}
+
+			$created_here = true;
+		}
+
+		if ( ! $post_id ) {
+			return new \WP_Error( 'missing_post', __( 'Missing post reference.', 'hyve-lite' ) );
+		}
+
+		$result = Hyve_Connect::instance()->kb_upsert( [ $this->connect_document( (int) $post_id, $doc ) ] );
+
+		if ( is_wp_error( $result ) ) {
+			if ( $created_here ) {
+				wp_delete_post( $post_id, true );
+			}
+
+			return $result;
+		}
+
+		$status = isset( $result['results'][0] ) && is_array( $result['results'][0] ) ? $result['results'][0] : [];
+		$state  = $status['status'] ?? 'failed';
+
+		if ( 'stored' !== $state ) {
+			$review = $this->connect_moderation_review( $status );
+
+			// A real post keeps its moderation meta for the listing; an orphan
+			// created here for a rejected managed source is removed instead.
+			if ( 'rejected' === $state && $persist_moderation && ! $created_here ) {
+				update_post_meta( $post_id, '_hyve_moderation_failed', 1 );
+				update_post_meta( $post_id, '_hyve_moderation_review', $review );
+			}
+
+			if ( $created_here ) {
+				wp_delete_post( $post_id, true );
+			}
+
+			if ( 'rejected' === $state ) {
+				return new \WP_Error(
+					'content_failed_moderation',
+					__( 'The content failed moderation policies.', 'hyve-lite' ),
+					[ 'review' => $review ]
+				);
+			}
+
+			return new \WP_Error( 'connect_index_failed', __( 'Hyve Connect could not index this content.', 'hyve-lite' ) );
+		}
+
+		update_post_meta( $post_id, '_hyve_added', 1 );
+		// Already on the platform, so the to-Connect sync job must skip it.
+		update_post_meta( $post_id, '_hyve_connect_synced', 1 );
+
+		foreach ( $extra_meta as $meta_key => $meta_value ) {
+			update_post_meta( $post_id, $meta_key, $meta_value );
+		}
+
+		if ( $persist_moderation ) {
+			delete_post_meta( $post_id, '_hyve_moderation_failed' );
+			delete_post_meta( $post_id, '_hyve_moderation_review' );
+			delete_post_meta( $post_id, '_hyve_needs_update' );
+		}
+
+		Hyve_Connect::flush_stats();
+
+		return true;
+	}
+
+	/**
+	 * Build the contract-shaped document for a Hyve Connect upsert.
+	 *
+	 * @param int                  $post_id The owning post id (site-scoped source id).
+	 * @param array<string, mixed> $doc     The document, with `title` and `content`.
+	 *
+	 * @return array<string, mixed>
+	 */
+	private function connect_document( $post_id, $doc ) {
+		$url = get_permalink( $post_id );
+
+		return [
+			'id'      => $post_id,
+			'type'    => $this->connect_source_type( $post_id ),
+			'title'   => (string) $doc['title'],
+			'url'     => $url ? $url : null,
+			// The plugin extracts text; the platform chunks it (D11).
+			'content' => wp_strip_all_tags( (string) $doc['content'] ),
+		];
+	}
+
+	/**
+	 * Map a WordPress post type to a Hyve Connect source type.
+	 *
+	 * @param int $post_id The post id.
+	 *
+	 * @return string One of post|page|product|doc.
+	 */
+	private function connect_source_type( $post_id ) {
+		$map = [
+			'page'      => 'page',
+			'product'   => 'product',
+			'hyve_docs' => 'doc',
+		];
+
+		$type = (string) get_post_type( $post_id );
+
+		return $map[ $type ] ?? 'post';
+	}
+
+	/**
+	 * Translate a platform `rejected` result's categories into the local
+	 * `_hyve_moderation_review` shape (category => score).
+	 *
+	 * @param array<string, mixed> $status A single upsert result.
+	 *
+	 * @return array<string, float>
+	 */
+	private function connect_moderation_review( $status ) {
+		$categories = isset( $status['moderation']['categories'] ) && is_array( $status['moderation']['categories'] )
+			? $status['moderation']['categories']
+			: [];
+
+		$review = [];
+
+		foreach ( $categories as $category ) {
+			$review[ (string) $category ] = 1.0;
+		}
+
+		return $review;
+	}
+
+	/**
+	 * Posts indexed locally but not yet pushed to Hyve Connect.
+	 *
+	 * These carry the KB bookkeeping meta (`_hyve_added`) but the platform does
+	 * not yet hold them (`_hyve_connect_synced` unset): the existing self-hosted
+	 * content to migrate on enable, or everything after an inactivity purge.
+	 *
+	 * @param int $limit Max posts to return (-1 for all).
+	 *
+	 * @return array<int> Post ids.
+	 */
+	public function connect_pending_posts( $limit = self::CONNECT_SYNC_BATCH ) {
+		return get_posts(
+			[
+				'post_type'      => 'any',
+				'post_status'    => 'any',
+				'fields'         => 'ids',
+				'posts_per_page' => $limit,
+				// phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query -- one-off migration read, not a hot path.
+				'meta_query'     => [
+					[
+						'key'     => '_hyve_added',
+						'compare' => 'EXISTS',
+					],
+					[
+						'key'     => '_hyve_connect_synced',
+						'compare' => 'NOT EXISTS',
+					],
+					// A source the platform rejected on moderation stays out of the
+					// pending set so the batch never re-picks it forever.
+					[
+						'key'     => '_hyve_moderation_failed',
+						'compare' => 'NOT EXISTS',
+					],
+				],
+			]
+		);
+	}
+
+	/**
+	 * How many sources still need pushing to Hyve Connect.
+	 *
+	 * @return int
+	 */
+	public function connect_pending_count() {
+		return count( $this->connect_pending_posts( -1 ) );
+	}
+
+	/**
+	 * Whether any source is currently believed to live on Hyve Connect.
+	 *
+	 * @return bool
+	 */
+	public function connect_has_synced() {
+		$synced = get_posts(
+			[
+				'post_type'      => 'any',
+				'post_status'    => 'any',
+				'fields'         => 'ids',
+				'posts_per_page' => 1,
+				'meta_key'       => '_hyve_connect_synced', // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key
+			]
+		);
+
+		return ! empty( $synced );
+	}
+
+	/**
+	 * Begin (or resume) pushing existing local content to Hyve Connect.
+	 *
+	 * Called when a site with indexed content switches into Connect mode, and by
+	 * the purge auto-recovery path. Seeds the progress option and schedules the
+	 * first cron run; a no-op when there is nothing pending.
+	 *
+	 * @return void
+	 */
+	public function connect_start_migration() {
+		$pending = $this->connect_pending_count();
+
+		if ( 0 === $pending ) {
+			return;
+		}
+
+		update_option(
+			self::CONNECT_SYNC_OPTION,
+			[
+				'total'       => $pending,
+				'current'     => 0,
+				'in_progress' => true,
+				'blocked'     => false,
+				'message'     => '',
+			]
+		);
+
+		Hyve_Connect::flush_stats();
+		wp_schedule_single_event( time(), self::CONNECT_SYNC_HOOK );
+	}
+
+	/**
+	 * Cron handler: push one batch of pending sources to Hyve Connect.
+	 *
+	 * Builds whole documents from the posts we still hold (title + content) so a
+	 * re-sync never depends on local chunk rows, upserts them, then marks each
+	 * accepted source synced and drops its now-redundant local chunk rows (the
+	 * platform owns the content in Connect mode). Reschedules until drained.
+	 *
+	 * @return void
+	 */
+	public function connect_migrate_data() {
+		if ( ! Hyve_Connect::is_active() ) {
+			$this->connect_finish_migration();
+			return;
+		}
+
+		$post_ids = $this->connect_pending_posts();
+
+		if ( empty( $post_ids ) ) {
+			$this->connect_finish_migration();
+			return;
+		}
+
+		$documents = [];
+
+		foreach ( $post_ids as $post_id ) {
+			$documents[] = $this->connect_document(
+				(int) $post_id,
+				[
+					'title'   => get_the_title( $post_id ),
+					'content' => get_post_field( 'post_content', $post_id ),
+				]
+			);
+		}
+
+		$result = Hyve_Connect::instance()->kb_upsert( $documents );
+
+		if ( is_wp_error( $result ) ) {
+			// Over the plan's storage/churn cap: retrying will not help until the
+			// user upgrades or trims content, so stop and surface the block.
+			if ( false !== strpos( $result->get_error_code(), 'quota_exceeded' ) ) {
+				$this->connect_block_migration( $result->get_error_message() );
+				return;
+			}
+
+			// Transient failure (unreachable/provider): back off and retry.
+			wp_schedule_single_event( time() + 30, self::CONNECT_SYNC_HOOK );
+			return;
+		}
+
+		$status_by_id = [];
+
+		foreach ( ( isset( $result['results'] ) && is_array( $result['results'] ) ? $result['results'] : [] ) as $row ) {
+			if ( is_array( $row ) && isset( $row['id'] ) ) {
+				$status_by_id[ (int) $row['id'] ] = $row;
+			}
+		}
+
+		foreach ( $post_ids as $post_id ) {
+			$row   = $status_by_id[ (int) $post_id ] ?? [];
+			$state = isset( $row['status'] ) ? $row['status'] : 'stored';
+
+			// Either way the local chunk rows are redundant in Connect mode.
+			$this->delete_by_post_id( $post_id );
+
+			// A rejected source is not on the platform. Record why for the KB
+			// listing; the moderation marker keeps it out of the pending set
+			// without pretending it is synced (which would loop the purge-recovery
+			// check on a site whose whole KB is rejected).
+			if ( 'rejected' === $state ) {
+				update_post_meta( $post_id, '_hyve_moderation_failed', 1 );
+				update_post_meta( $post_id, '_hyve_moderation_review', $this->connect_moderation_review( $row ) );
+				continue;
+			}
+
+			update_post_meta( $post_id, '_hyve_connect_synced', 1 );
+		}
+
+		$this->connect_advance_migration( count( $post_ids ) );
+	}
+
+	/**
+	 * Record progress after a batch and reschedule if any sources remain.
+	 *
+	 * @param int $done Sources handled in the batch just finished.
+	 *
+	 * @return void
+	 */
+	private function connect_advance_migration( $done ) {
+		$status = get_option( self::CONNECT_SYNC_OPTION, [] );
+
+		if ( empty( $status ) ) {
+			return;
+		}
+
+		$status['current']     = (int) ( $status['current'] ?? 0 ) + (int) $done;
+		$has_more              = $this->connect_pending_count() > 0;
+		$status['in_progress'] = $has_more;
+
+		update_option( self::CONNECT_SYNC_OPTION, $status );
+		Hyve_Connect::flush_stats();
+
+		if ( $has_more ) {
+			wp_schedule_single_event( time() + 10, self::CONNECT_SYNC_HOOK );
+		}
+	}
+
+	/**
+	 * Mark the sync job complete (nothing left to push).
+	 *
+	 * @return void
+	 */
+	private function connect_finish_migration() {
+		$status = get_option( self::CONNECT_SYNC_OPTION, [] );
+
+		if ( empty( $status ) ) {
+			return;
+		}
+
+		$status['in_progress'] = false;
+		update_option( self::CONNECT_SYNC_OPTION, $status );
+		Hyve_Connect::flush_stats();
+	}
+
+	/**
+	 * Stop the sync job because the plan's limit was hit, recording the reason.
+	 *
+	 * @param string $message The platform's limit message.
+	 *
+	 * @return void
+	 */
+	private function connect_block_migration( $message ) {
+		$status = get_option( self::CONNECT_SYNC_OPTION, [] );
+
+		$status['in_progress'] = false;
+		$status['blocked']     = true;
+		$status['message']     = (string) $message;
+
+		update_option( self::CONNECT_SYNC_OPTION, $status );
+		Hyve_Connect::flush_stats();
+	}
+
+	/**
+	 * Current to-Connect sync job status (for the UI progress state).
+	 *
+	 * @return array<string, mixed>
+	 */
+	public function connect_migration_status() {
+		$status = get_option( self::CONNECT_SYNC_OPTION, [] );
+
+		return is_array( $status ) ? $status : [];
+	}
+
+	/**
+	 * Forget which sources live on Hyve Connect (disconnect, or before re-sync).
+	 *
+	 * @return void
+	 */
+	public function connect_reset_sync_markers() {
+		$posts = get_posts(
+			[
+				'post_type'      => 'any',
+				'post_status'    => 'any',
+				'fields'         => 'ids',
+				'posts_per_page' => -1,
+				'meta_key'       => '_hyve_connect_synced', // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key
+			]
+		);
+
+		foreach ( $posts as $post_id ) {
+			delete_post_meta( $post_id, '_hyve_connect_synced' );
+		}
+	}
+
+	/**
+	 * Re-push local content when Hyve Connect has lost it (inactivity purge, D13).
+	 *
+	 * Compares what we believe is synced against the platform's reported KB
+	 * state; if the platform is empty/purged while we still hold synced sources,
+	 * clears the stale markers and restarts the sync from the posts we keep.
+	 *
+	 * @return void
+	 */
+	public function connect_check_recovery() {
+		if ( ! Hyve_Connect::is_active() ) {
+			return;
+		}
+
+		$status = $this->connect_migration_status();
+
+		// Don't stack recovery on an in-flight or plan-blocked migration.
+		if ( ! empty( $status['in_progress'] ) || ! empty( $status['blocked'] ) ) {
+			return;
+		}
+
+		if ( ! $this->connect_has_synced() ) {
+			return;
+		}
+
+		$stats = Hyve_Connect::instance()->stats( true );
+		$state = isset( $stats['kb']['state'] ) ? $stats['kb']['state'] : '';
+
+		if ( in_array( $state, [ 'empty', 'purged' ], true ) ) {
+			$this->connect_reset_sync_markers();
+			$this->connect_start_migration();
+		}
 	}
 
 	/**
@@ -886,6 +1413,10 @@ class DB_Table {
 	 */
 	public function delete_posts( array $posts ): void {
 		$twenty = array_slice( $posts, 0, 20 );
+
+		if ( Hyve_Connect::is_active() && ! empty( $twenty ) ) {
+			Hyve_Connect::instance()->kb_delete( $twenty );
+		}
 
 		foreach ( $twenty as $id ) {
 			$this->delete_by_post_id( $id );

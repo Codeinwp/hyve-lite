@@ -14,12 +14,14 @@ import ChatAppearance from './ChatAppearance';
 import { ProviderPanel, AdvancedPanel } from './AI';
 import SettingsGeneral from './SettingsGeneral';
 import { QdrantPanel, ApiAccessPanel } from './Integrations';
+import ConnectPanel from './Connect';
 
 const PANELS = {
 	'chat-behavior': ChatBehavior,
 	'chat-appearance': ChatAppearance,
 	'ai-provider': ProviderPanel,
 	'ai-advanced': AdvancedPanel,
+	'hyve-connect': ConnectPanel,
 	qdrant: QdrantPanel,
 	'api-access': ApiAccessPanel,
 	general: SettingsGeneral,
