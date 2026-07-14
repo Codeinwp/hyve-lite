@@ -700,17 +700,12 @@ class DB_Table {
 		$embeddings = $openai->create_embeddings( $stripped );
 
 		if ( is_wp_error( $embeddings ) || ! $embeddings ) {
-<<<<<<< HEAD
-			Scheduler::schedule_single( time() + 60, 'hyve_process_post', [ $id ] );
-			return;
-=======
 			$error = is_wp_error( $embeddings )
 				? $embeddings
 				: new \WP_Error( 'unknown_error', __( 'An unexpected error occurred while indexing this content.', 'hyve-lite' ) );
 
 			$this->handle_processing_failure( $id, (int) $post->post_id, $error, $allow_retry );
 			return $error;
->>>>>>> origin/development
 		}
 
 		$embeddings = reset( $embeddings );
@@ -736,13 +731,8 @@ class DB_Table {
 			}
 
 			if ( is_wp_error( $success ) ) {
-<<<<<<< HEAD
-				Scheduler::schedule_single( time() + 60, 'hyve_process_post', [ $id ] );
-				return;
-=======
 				$this->handle_processing_failure( $id, (int) $post->post_id, $success, $allow_retry );
 				return $success;
->>>>>>> origin/development
 			}
 		}
 
@@ -793,7 +783,7 @@ class DB_Table {
 
 		if ( $will_retry ) {
 			set_transient( $transient, $attempts, DAY_IN_SECONDS );
-			wp_schedule_single_event( time() + ( MINUTE_IN_SECONDS * $attempts ), 'hyve_process_post', [ $id ] );
+			Scheduler::schedule_single( time() + ( MINUTE_IN_SECONDS * $attempts ), 'hyve_process_post', [ $id ] );
 			return;
 		}
 
