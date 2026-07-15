@@ -40,22 +40,95 @@ npm run lint:css          # Stylelint
 
 ## Testing
 
+### Standalone PHPUnit (fastest — no Docker needed)
+
+The `copilot-setup-steps.yml` pre-installs MySQL and the WordPress test suite, so PHPUnit works immediately in the sandbox:
+
 ```bash
-# E2E tests (requires wp-env)
-npm run wp-env start
-npm run test:playwright
-npm run test:playwright:debug   # Debug mode
-npm run test:playwright:ui      # Interactive UI mode
-
-# PHP unit tests in wp-env
-npm run env:test:unit
-
-# Standalone PHPUnit — requires MySQL + the WordPress test suite. Install it once:
-bash bin/install-wp-tests.sh wordpress_test root root 127.0.0.1
-# On macOS the suite installs under $TMPDIR; export WP_TESTS_DIR so the bootstrap
-# finds it (it otherwise defaults to /tmp/wordpress-tests-lib):
-#   export WP_TESTS_DIR="${TMPDIR}wordpress-tests-lib"
+# Run the full suite
 composer run phpunit
+
+# Run a single file or a class filter
+./vendor/bin/phpunit tests/php/unit/tests/test-db.php
+./vendor/bin/phpunit --filter 'DB_TableTest|PrivacyNoticeTest'
+```
+
+> **Known pre-existing failures (sandbox only):** `Tokenizer` tests download a vocabulary file from the internet, which is blocked. Those 2 failures are unrelated to code changes and can be ignored.
+
+If the WordPress test suite is missing (only happens if copilot-setup-steps didn't run), install it once:
+
+```bash
+bash bin/install-wp-tests.sh wordpress_test root root 127.0.0.1
+composer run phpunit
+```
+
+### E2E tests (Playwright + wp-env)
+
+> **Sandbox networking caveat:** The sandbox kernel blocks host→container TCP (port 8889 / 8888) even though Docker bridge and iptables look clean. `localhost:8889` will time out from the host. The workaround is to run Playwright inside the test-container's network namespace using `nsenter`.
+
+**Step 1 — Patch `@wordpress/env` Docker templates** (needed once per fresh `node_modules`; the generated Dockerfiles fail to build when the sandbox has no outbound internet):
+
+```bash
+sed -i 's/^RUN apk update$/RUN apk update || true/' \
+  node_modules/@wordpress/env/lib/runtime/docker/docker-config.js
+sed -i 's/^RUN apt-get -qy update$/RUN apt-get -qy update || true/' \
+  node_modules/@wordpress/env/lib/runtime/docker/docker-config.js
+sed -i 's/^RUN apt-get clean$/RUN apt-get clean || true/' \
+  node_modules/@wordpress/env/lib/runtime/docker/docker-config.js
+```
+
+**Step 2 — Start wp-env** (uses `.wp-env.override.json` which enables `E2E_TESTING` and runs `bin/e2e-tests.sh` after start):
+
+```bash
+npm run wp-env start 2>&1 | tail -20
+```
+
+If wp-env was already started from a previous run the Dockerfiles will be pre-built and the patch is no longer necessary; check with `docker images | grep wp-env`.
+
+**Step 3 — After wp-env is running, patch generated Dockerfiles too** (if they were already written to disk before the node_modules patch):
+
+```bash
+for f in /home/runner/wp-env/wp-env-hyve-lite-*/\*.Dockerfile; do
+  sed -i 's/^RUN apk update$/RUN apk update || true/' "$f"
+  sed -i 's/^RUN apt-get -qy update$/RUN apt-get -qy update || true/' "$f"
+  sed -i 's/^RUN apt-get clean$/RUN apt-get clean || true/' "$f"
+done
+```
+
+**Step 4 — Run Playwright via nsenter** (routes Node.js into the test-WordPress container network namespace so `http://localhost` resolves correctly):
+
+```bash
+TESTSWPNS=$(docker inspect wp-env-hyve-lite-$(ls /home/runner/wp-env/ | grep hyve | head -1 | sed 's/wp-env-hyve-lite-//')-tests-wordpress-1 -f '{{.State.Pid}}' 2>/dev/null \
+  || docker ps --format '{{.Names}}' | grep 'tests-wordpress' | head -1 | xargs -I{} docker inspect {} -f '{{.State.Pid}}')
+
+sudo --preserve-env=HOME,PATH \
+  nsenter --net=/proc/$TESTSWPNS/ns/net \
+  --setuid $(id -u) --setgid $(id -g) -- \
+  bash -c "
+    cd /home/runner/work/hyve-lite/hyve-lite
+    export WP_BASE_URL=http://localhost
+    export HOME=/home/runner
+    export PATH=$PATH
+    npx playwright test --config=tests/e2e/playwright.config.ts \
+      --project=chromium --reporter=list --timeout=30000
+  " 2>&1 | tail -60
+```
+
+To run a single spec file, append the path before `--project`:
+
+```bash
+# ... (nsenter preamble) ...
+    npx playwright test --config=tests/e2e/playwright.config.ts \
+      tests/e2e/specs/dashboard.spec.js \
+      --project=chromium --reporter=list --timeout=30000
+```
+
+> **Known pre-existing E2E failures (sandbox only):** Tests in `chat.spec.js` and `privacy-notice.spec.js` that require real OpenAI API calls or a successful `publishPost()` round-trip will time out because no real API key is present. These are ~10 tests and fail identically on an unmodified baseline.
+
+### PHPUnit inside wp-env (alternative)
+
+```bash
+npm run env:test:unit
 ```
 
 ## Architecture
