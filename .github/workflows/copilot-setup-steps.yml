@@ -60,3 +60,10 @@ jobs:
       - name: Install WordPress Test Suite
         run: |
           bash bin/install-wp-tests.sh wordpress_test root root 127.0.0.1:${{ job.services.mysql.ports['3306'] }}
+
+      # Build and start wp-env here, before the Copilot firewall is enabled, so the
+      # Docker images (and their xdebug/apt/apk installs) are baked with network access.
+      # At agent runtime the images are already built, so `npm run test:playwright` needs
+      # no outbound network to bring the environment up.
+      - name: Pre-build and start wp-env
+        run: npm run wp-env start 2>&1 | tail -20

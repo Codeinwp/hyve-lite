@@ -77,7 +77,13 @@ const App = () => {
 			document.dispatchEvent( new Event( 'themeisle:banner:init' ) );
 		};
 
+	// Support users without full access cannot read settings; skip the
+	// request so the app finishes loading instead of hanging on a 403.
+	if ( window.hyve?.canManage ) {
 		fetchSettings();
+	} else {
+		setLoading();
+	}
 
 		window.tsdk_reposition_notice?.();
 	}, [ setSettings, setLoading ] );
@@ -91,10 +97,10 @@ const App = () => {
 			return;
 		}
 
-		if ( current.requiresAPI ) {
-			navigate( 'dashboard', null, { replace: true } );
-			return;
-		}
+	if ( current.requiresAPI ) {
+		navigate( 'dashboard', null, { replace: true } );
+		return;
+	}
 
 		// Key-gated sub-panel without a key: land on the first open panel.
 		if ( sub && current.subs?.[ sub ]?.requiresAPI ) {

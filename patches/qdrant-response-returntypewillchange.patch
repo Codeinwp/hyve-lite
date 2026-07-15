@@ -3,7 +3,7 @@
 @@ -45,6 +45,7 @@
          return isset($this->raw[$offset]);
      }
- 
+
 +    #[\ReturnTypeWillChange]
      public function offsetGet($offset)
      {
