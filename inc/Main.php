@@ -189,6 +189,7 @@ class Main {
 		global $submenu;
 
 		foreach ( $this->get_submenu_pages() as $submenu_page ) {
+			// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- WordPress requires submenu entries to be registered through this global.
 			$submenu['hyve'][] = [
 				$submenu_page['label'],
 				$submenu_page['capability'],
@@ -210,10 +211,13 @@ class Main {
 		add_filter(
 			'submenu_file',
 			function ( $submenu_file, $parent_file ) {
-				if ( 'hyve' !== $parent_file || 'hyve' !== ( $_GET['page'] ?? '' ) ) {
+				// phpcs:ignore WordPress.Security.NonceVerification.Recommended, WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- Reading a sanitized admin URL parameter to identify the active menu item; no state change.
+				$current_page = isset( $_GET['page'] ) ? sanitize_key( wp_unslash( $_GET['page'] ) ) : '';
+				if ( 'hyve' !== $parent_file || 'hyve' !== $current_page ) {
 					return $submenu_file;
 				}
 
+				// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Reading a sanitized admin URL parameter to identify the active menu item; no state change.
 				$nav = isset( $_GET['nav'] ) ? sanitize_key( wp_unslash( $_GET['nav'] ) ) : 'dashboard';
 
 				return add_query_arg(
@@ -304,6 +308,7 @@ class Main {
 		global $title;
 		foreach ( $submenu_pages as $submenu_page ) {
 			if ( $submenu_page['route'] === $current_nav ) {
+				// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- WordPress reads the current admin page title from this global.
 				$title = $submenu_page['label'];
 				break;
 			}
