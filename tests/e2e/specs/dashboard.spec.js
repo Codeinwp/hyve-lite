@@ -205,11 +205,11 @@ test.describe( 'Dashboard', () => {
 		admin,
 	} ) => {
 		await admin.visitAdminPage(
-			`${ HYVE_ADMIN }&nav=settings&sub=ai-advanced`
+			`${ HYVE_ADMIN }&nav=settings&sub=hyve-connect`
 		);
 
 		await expect(
-			page.getByRole( 'heading', { name: 'Advanced tuning' } )
+			page.getByRole( 'heading', { name: 'Hyve Connect' } )
 		).toBeVisible();
 
 		await page.getByRole( 'button', { name: 'Provider & model' } ).click();
@@ -219,7 +219,7 @@ test.describe( 'Dashboard', () => {
 
 		await page.goBack();
 		await expect(
-			page.getByRole( 'heading', { name: 'Advanced tuning' } )
+			page.getByRole( 'heading', { name: 'Hyve Connect' } )
 		).toBeVisible();
 	} );
 

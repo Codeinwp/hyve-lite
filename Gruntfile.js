@@ -1,4 +1,3 @@
-/* eslint-disable camelcase */
 /* jshint node:true */
 /* global require */
 

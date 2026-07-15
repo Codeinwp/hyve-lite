@@ -17,12 +17,16 @@ import { check } from '@wordpress/icons';
 import { navigate } from '../router';
 
 const SetupChecklist = () => {
-	const { hasAPI, chunks } = useSelect( ( select ) => ( {
+	const { hasAPI, isConnectActive, chunks } = useSelect( ( select ) => ( {
 		hasAPI: select( 'hyve' ).hasAPI(),
+		isConnectActive: select( 'hyve' ).isConnectActive(),
 		chunks: select( 'hyve' ).getTotalChunks(),
 	} ) );
 
 	const totalChunks = Number( chunks ?? 0 );
+
+	// AI is "connected" via hosted Hyve Connect or a personal OpenAI key.
+	const aiConnected = isConnectActive || hasAPI;
 
 	/**
 	 * Setup steps. Pro prepends its license step (and locks the rest while
@@ -30,15 +34,19 @@ const SetupChecklist = () => {
 	 */
 	const steps = applyFilters( 'hyve.setup-steps', [
 		{
-			title: __( 'Connect OpenAI', 'hyve-lite' ),
+			title: __( 'Connect to AI', 'hyve-lite' ),
 			description: __(
-				'Hyve uses your OpenAI API key to index content and answer visitors.',
+				'Let Hyve Connect handle the AI, no API key or setup needed.',
 				'hyve-lite'
 			),
-			done: hasAPI,
+			done: aiConnected,
 			locked: false,
 			action: {
-				label: __( 'Add API key', 'hyve-lite' ),
+				label: __( 'Connect to AI', 'hyve-lite' ),
+				onClick: () => navigate( 'settings', 'hyve-connect' ),
+			},
+			secondary: {
+				label: __( 'Use your own API key instead', 'hyve-lite' ),
 				onClick: () => navigate( 'settings', 'ai-provider' ),
 			},
 		},
@@ -49,7 +57,7 @@ const SetupChecklist = () => {
 				'hyve-lite'
 			),
 			done: 0 < totalChunks,
-			locked: ! hasAPI,
+			locked: ! aiConnected,
 			action: {
 				label: __( 'Add content', 'hyve-lite' ),
 				onClick: () => navigate( 'kb' ),
@@ -106,28 +114,40 @@ const SetupChecklist = () => {
 						<p>{ step.description }</p>
 					</div>
 					{ ! step.done && (
-						<Button
-							__next40pxDefaultSize={ false }
-							size="small"
-							variant={
-								index === firstIncomplete
-									? 'primary'
-									: 'secondary'
-							}
-							disabled={ step.locked }
-							onClick={ step.action.onClick }
-						>
-							{ step.locked
-								? sprintf(
-										/* translators: %d: number of the step this one waits on. */
-										__(
-											'Waiting for step %d',
-											'hyve-lite'
-										),
-										firstIncomplete + 1
-								  )
-								: step.action.label }
-						</Button>
+						<div className="hyve-next-checklist__actions">
+							<Button
+								__next40pxDefaultSize={ false }
+								size="small"
+								variant={
+									index === firstIncomplete
+										? 'primary'
+										: 'secondary'
+								}
+								disabled={ step.locked }
+								onClick={ step.action.onClick }
+							>
+								{ step.locked
+									? sprintf(
+											/* translators: %d: number of the step this one waits on. */
+											__(
+												'Waiting for step %d',
+												'hyve-lite'
+											),
+											firstIncomplete + 1
+									  )
+									: step.action.label }
+							</Button>
+
+							{ step.secondary && ! step.locked && (
+								<Button
+									variant="link"
+									className="hyve-next-checklist__alt"
+									onClick={ step.secondary.onClick }
+								>
+									{ step.secondary.label }
+								</Button>
+							) }
+						</div>
 					) }
 				</div>
 			) ) }

@@ -137,10 +137,6 @@ const MODEL_OPTIONS = [
 	},
 ];
 
-const ADVANCED_DEFAULTS = {
-	similarity_score_threshold: 0.4,
-};
-
 const getInitialApiStatus = () => {
 	if ( window.hyve?.isApiKeyConnected ) {
 		return 'connected';
@@ -176,6 +172,10 @@ export const ProviderPanel = () => {
 	const isConnectActive = useSelect( ( select ) =>
 		select( 'hyve' ).isConnectActive()
 	);
+
+	const hasStoredKey = Boolean( window.hyve?.hasAPIKey );
+	const providerLocked = isConnectActive;
+	const apiKeyLocked = isConnectActive && ! hasStoredKey;
 
 	const onSave = async () => {
 		const response = await save();
@@ -290,7 +290,7 @@ export const ProviderPanel = () => {
 						label={ __( 'API key', 'hyve-lite' ) }
 						type="password"
 						value={ settings.api_key || '' }
-						disabled={ isSaving }
+						disabled={ isSaving || apiKeyLocked }
 						onChange={ ( value ) => {
 							setSetting( 'api_key', value );
 							setApiStatus( 'editing' );
@@ -298,7 +298,7 @@ export const ProviderPanel = () => {
 					/>
 					<ApiStatusChip status={ apiStatus } />
 				</div>
-				{ 'none' === apiStatus && (
+				{ 'none' === apiStatus && ! apiKeyLocked && (
 					<p className="hyve-next-field__hint">
 						<ExternalLink href="https://platform.openai.com/api-keys">
 							{ __( 'Get an API key', 'hyve-lite' ) }
@@ -324,7 +324,7 @@ export const ProviderPanel = () => {
 						label,
 						value,
 					} ) ) }
-					disabled={ isSaving }
+					disabled={ isSaving || providerLocked }
 					onChange={ ( value ) => setSetting( 'chat_model', value ) }
 				/>
 				{ selectedModelOption?.description && (
@@ -338,44 +338,7 @@ export const ProviderPanel = () => {
 					</ExternalLink>
 				</p>
 			</FieldRow>
-		</Card>
-	);
-};
 
-export const AdvancedPanel = () => {
-	const { settings, isSaving, save } = useSaveSettings();
-
-	const { setSetting } = useDispatch( 'hyve' );
-
-	const resetDefaults = () => {
-		Object.entries( ADVANCED_DEFAULTS ).forEach( ( [ key, value ] ) =>
-			setSetting( key, value )
-		);
-	};
-
-	return (
-		<Card
-			title={ __( 'Advanced tuning', 'hyve-lite' ) }
-			footer={
-				<>
-					<Button
-						variant="primary"
-						isBusy={ isSaving }
-						disabled={ isSaving }
-						onClick={ save }
-					>
-						{ __( 'Save changes', 'hyve-lite' ) }
-					</Button>
-					<Button
-						variant="secondary"
-						disabled={ isSaving }
-						onClick={ resetDefaults }
-					>
-						{ __( 'Reset to defaults', 'hyve-lite' ) }
-					</Button>
-				</>
-			}
-		>
 			<FieldRow
 				label={ __( 'Similarity threshold', 'hyve-lite' ) }
 				description={ __(
@@ -391,7 +354,7 @@ export const AdvancedPanel = () => {
 					min={ -1 }
 					max={ 1 }
 					step={ 0.01 }
-					disabled={ isSaving }
+					disabled={ isSaving || providerLocked }
 					onChange={ ( value ) =>
 						setSetting( 'similarity_score_threshold', value )
 					}

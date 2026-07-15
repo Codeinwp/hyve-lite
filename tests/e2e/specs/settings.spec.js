@@ -195,17 +195,13 @@ test.describe( 'Settings', () => {
 		expect( saves[ 0 ]?.data?.chat_model ).toBe( 'gpt-4.1-nano' );
 	} );
 
-	test( 'advanced: sliders render and reset restores the defaults', async ( {
+	test( 'provider: similarity threshold lives with the model settings', async ( {
 		page,
 		admin,
 	} ) => {
 		await admin.visitAdminPage(
-			`${ HYVE_ADMIN }&nav=settings&sub=ai-advanced`
+			`${ HYVE_ADMIN }&nav=settings&sub=ai-provider`
 		);
-
-		await expect(
-			page.getByRole( 'heading', { name: 'Advanced tuning' } )
-		).toBeVisible();
 
 		const similarity = page
 			.getByRole( 'slider', { name: 'Similarity threshold' } )
@@ -213,9 +209,7 @@ test.describe( 'Settings', () => {
 		await expect( similarity ).toBeVisible();
 
 		await similarity.fill( '0.8' );
-		await page.getByRole( 'button', { name: 'Reset to defaults' } ).click();
-
-		await expect( similarity ).toHaveValue( '0.4' );
+		await expect( similarity ).toHaveValue( '0.8' );
 	} );
 
 	test( 'general: toggles save automatically', async ( { page, admin } ) => {

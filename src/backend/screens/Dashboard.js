@@ -569,6 +569,9 @@ const GetStarted = () => {
 
 const Dashboard = () => {
 	const hasAPI = useSelect( ( select ) => select( 'hyve' ).hasAPI() );
+	const isConnectActive = useSelect( ( select ) =>
+		select( 'hyve' ).isConnectActive()
+	);
 	const settings = useSelect( ( select ) => select( 'hyve' ).getSettings() );
 	const chunks = useSelect( ( select ) => select( 'hyve' ).getTotalChunks() );
 
@@ -601,7 +604,7 @@ const Dashboard = () => {
 	// Pro keeps the checklist up while its license step is incomplete.
 	const showChecklist = applyFilters(
 		'hyve.setup-required',
-		! hasAPI || 0 === totalChunks
+		( ! hasAPI && ! isConnectActive ) || 0 === totalChunks
 	);
 
 	return (
