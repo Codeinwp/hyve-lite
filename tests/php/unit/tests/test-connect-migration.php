@@ -87,7 +87,7 @@ class ConnectMigrationTest extends WP_UnitTestCase {
 	/**
 	 * Create a post that looks indexed, optionally already on the platform.
 	 *
-	 * @param bool $synced Whether to mark it `_hyve_connect_synced`.
+	 * @param bool $synced Whether to mark it synced (`_hyve_connect_synced_hash`).
 	 *
 	 * @return int
 	 */
@@ -96,7 +96,7 @@ class ConnectMigrationTest extends WP_UnitTestCase {
 		update_post_meta( $post_id, '_hyve_added', 1 );
 
 		if ( $synced ) {
-			update_post_meta( $post_id, '_hyve_connect_synced', 1 );
+			update_post_meta( $post_id, '_hyve_connect_synced_hash', 'HASH' );
 		}
 
 		return $post_id;
@@ -175,8 +175,8 @@ class ConnectMigrationTest extends WP_UnitTestCase {
 		DB_Table::instance()->connect_start_migration();
 		DB_Table::instance()->connect_migrate_data();
 
-		$this->assertSame( 1, (int) get_post_meta( $a, '_hyve_connect_synced', true ) );
-		$this->assertSame( 1, (int) get_post_meta( $b, '_hyve_connect_synced', true ) );
+		$this->assertNotSame( '', get_post_meta( $a, '_hyve_connect_synced_hash', true ) );
+		$this->assertNotSame( '', get_post_meta( $b, '_hyve_connect_synced_hash', true ) );
 		$this->assertSame( 0, DB_Table::instance()->connect_pending_count() );
 
 		$status = DB_Table::instance()->connect_migration_status();
@@ -219,7 +219,81 @@ class ConnectMigrationTest extends WP_UnitTestCase {
 		// Rejected content is flagged and leaves the pending set, but is not
 		// marked synced (it never reached the platform).
 		$this->assertSame( 1, (int) get_post_meta( $post, '_hyve_moderation_failed', true ) );
-		$this->assertSame( '', get_post_meta( $post, '_hyve_connect_synced', true ) );
+		$this->assertSame( '', get_post_meta( $post, '_hyve_connect_synced_hash', true ) );
+		$this->assertSame( 0, DB_Table::instance()->connect_pending_count() );
+	}
+
+	/**
+	 * A source with no extractable text is never sent: it gets a processing
+	 * error (terminal, shown in the listing) while the rest of the batch syncs.
+	 */
+	public function test_migrate_data_marks_empty_content_sources_failed() {
+		$this->enable_connect();
+
+		$empty = self::factory()->post->create( [ 'post_content' => '' ] );
+		update_post_meta( $empty, '_hyve_added', 1 );
+		$post = $this->indexed_post( false );
+
+		$this->intercept(
+			$this->sse(
+				[
+					[
+						'job_complete',
+						[
+							'results' => [
+								[
+									'id'     => $post,
+									'status' => 'stored',
+								],
+							],
+						],
+					],
+				]
+			)
+		);
+
+		DB_Table::instance()->connect_start_migration();
+		DB_Table::instance()->connect_migrate_data();
+
+		$this->assertNotSame( '', get_post_meta( $empty, '_hyve_processing_error', true ) );
+		$this->assertSame( '', get_post_meta( $empty, '_hyve_connect_synced_hash', true ) );
+		$this->assertNotSame( '', get_post_meta( $post, '_hyve_connect_synced_hash', true ) );
+		$this->assertSame( 0, DB_Table::instance()->connect_pending_count() );
+		$this->assertFalse( DB_Table::instance()->connect_migration_status()['in_progress'] );
+	}
+
+	/**
+	 * A platform-side per-document failure is terminal: the source records the
+	 * error, is not marked synced, and leaves the pending set.
+	 */
+	public function test_migrate_data_records_platform_failure_and_advances() {
+		$this->enable_connect();
+		$post = $this->indexed_post( false );
+
+		$this->intercept(
+			$this->sse(
+				[
+					[
+						'job_complete',
+						[
+							'results' => [
+								[
+									'id'     => $post,
+									'status' => 'failed',
+									'reason' => 'empty',
+								],
+							],
+						],
+					],
+				]
+			)
+		);
+
+		DB_Table::instance()->connect_start_migration();
+		DB_Table::instance()->connect_migrate_data();
+
+		$this->assertNotSame( '', get_post_meta( $post, '_hyve_processing_error', true ) );
+		$this->assertSame( '', get_post_meta( $post, '_hyve_connect_synced_hash', true ) );
 		$this->assertSame( 0, DB_Table::instance()->connect_pending_count() );
 	}
 
@@ -239,6 +313,11 @@ class ConnectMigrationTest extends WP_UnitTestCase {
 						[
 							'code'    => 'quota_exceeded',
 							'message' => 'Over the free limit',
+							'quota'   => [
+								'kind'  => 'storage',
+								'limit' => 100,
+								'used'  => 100,
+							],
 						],
 					],
 				]
@@ -251,6 +330,98 @@ class ConnectMigrationTest extends WP_UnitTestCase {
 		$status = DB_Table::instance()->connect_migration_status();
 		$this->assertTrue( $status['blocked'] );
 		$this->assertFalse( $status['in_progress'] );
+		// The block-time snapshot lets auto-resume tell "changed" from "still full".
+		$this->assertSame( 100, $status['quota']['limit'] );
+		$this->assertSame( 1, DB_Table::instance()->connect_pending_count() );
+	}
+
+	/**
+	 * A source skipped for quota stays pending while the stored ones advance;
+	 * the job keeps going as long as something fits.
+	 */
+	public function test_migrate_data_keeps_skipped_sources_pending() {
+		$this->enable_connect();
+		$a = $this->indexed_post( false );
+		$b = $this->indexed_post( false );
+
+		$this->intercept(
+			$this->sse(
+				[
+					[
+						'job_complete',
+						[
+							'results' => [
+								[
+									'id'     => $a,
+									'status' => 'stored',
+								],
+								[
+									'id'     => $b,
+									'status' => 'skipped',
+									'reason' => 'storage',
+								],
+							],
+							'kb'      => [
+								'storage' => [
+									'used'  => 999,
+									'limit' => 1000,
+								],
+							],
+						],
+					],
+				]
+			)
+		);
+
+		DB_Table::instance()->connect_start_migration();
+		DB_Table::instance()->connect_migrate_data();
+
+		$this->assertNotSame( '', get_post_meta( $a, '_hyve_connect_synced_hash', true ) );
+		$this->assertSame( '', get_post_meta( $b, '_hyve_connect_synced_hash', true ) );
+		$this->assertSame( 1, DB_Table::instance()->connect_pending_count() );
+		$this->assertEmpty( DB_Table::instance()->connect_migration_status()['blocked'] );
+	}
+
+	/**
+	 * A batch where nothing fits is terminal: block with the quota snapshot,
+	 * exactly like a refused batch.
+	 */
+	public function test_migrate_data_blocks_when_nothing_fits() {
+		$this->enable_connect();
+		$post = $this->indexed_post( false );
+
+		$this->intercept(
+			$this->sse(
+				[
+					[
+						'job_complete',
+						[
+							'results' => [
+								[
+									'id'     => $post,
+									'status' => 'skipped',
+									'reason' => 'storage',
+								],
+							],
+							'kb'      => [
+								'storage' => [
+									'used'  => 1000,
+									'limit' => 1000,
+								],
+							],
+						],
+					],
+				]
+			)
+		);
+
+		DB_Table::instance()->connect_start_migration();
+		DB_Table::instance()->connect_migrate_data();
+
+		$status = DB_Table::instance()->connect_migration_status();
+		$this->assertTrue( $status['blocked'] );
+		$this->assertSame( 'storage', $status['quota']['kind'] );
+		$this->assertSame( 1000, $status['quota']['limit'] );
 		$this->assertSame( 1, DB_Table::instance()->connect_pending_count() );
 	}
 
@@ -275,7 +446,7 @@ class ConnectMigrationTest extends WP_UnitTestCase {
 
 		DB_Table::instance()->connect_check_recovery();
 
-		$this->assertSame( '', get_post_meta( $post, '_hyve_connect_synced', true ) );
+		$this->assertSame( '', get_post_meta( $post, '_hyve_connect_synced_hash', true ) );
 
 		$status = DB_Table::instance()->connect_migration_status();
 		$this->assertTrue( $status['in_progress'] );
@@ -302,7 +473,7 @@ class ConnectMigrationTest extends WP_UnitTestCase {
 
 		DB_Table::instance()->connect_check_recovery();
 
-		$this->assertSame( 1, (int) get_post_meta( $post, '_hyve_connect_synced', true ) );
+		$this->assertNotSame( '', get_post_meta( $post, '_hyve_connect_synced_hash', true ) );
 		$this->assertSame( [], DB_Table::instance()->connect_migration_status() );
 	}
 
@@ -340,8 +511,567 @@ class ConnectMigrationTest extends WP_UnitTestCase {
 
 		DB_Table::instance()->connect_check_recovery();
 
-		$this->assertSame( 1, (int) get_post_meta( $post, '_hyve_connect_synced', true ) );
+		$this->assertNotSame( '', get_post_meta( $post, '_hyve_connect_synced_hash', true ) );
 		$this->assertSame( [], DB_Table::instance()->connect_migration_status() );
 		$this->assertFalse( wp_next_scheduled( DB_Table::CONNECT_SYNC_HOOK ) );
+	}
+
+	/**
+	 * Intercept HTTP requests and return each canned body in turn (last repeats).
+	 *
+	 * @param array<string> $bodies Ordered response bodies.
+	 *
+	 * @return void
+	 */
+	private function intercept_sequence( $bodies ) {
+		$i = 0;
+
+		add_filter(
+			'pre_http_request',
+			function () use ( &$i, $bodies ) {
+				$body = $bodies[ min( $i, count( $bodies ) - 1 ) ];
+				$i++;
+
+				return [
+					'response' => [ 'code' => 200 ],
+					'body'     => $body,
+				];
+			},
+			10,
+			3
+		);
+	}
+
+	/**
+	 * The root aggregate matching stops reconcile before any manifest is sent.
+	 */
+	public function test_reconcile_stops_when_root_in_sync() {
+		$this->enable_connect();
+		$this->indexed_post( true );
+
+		$this->intercept(
+			$this->sse(
+				[
+					[
+						'job_complete',
+						[
+							'in_sync'   => true,
+							'aggregate' => 'x',
+						],
+					],
+				] 
+			) 
+		);
+
+		$this->assertTrue( DB_Table::instance()->connect_reconcile() );
+		$this->assertFalse( wp_next_scheduled( DB_Table::CONNECT_SYNC_HOOK ) );
+	}
+
+	/**
+	 * The drill-down (root -> buckets -> scoped detail) re-pushes a stale source:
+	 * it is unmarked so the migration job re-sends it.
+	 */
+	public function test_reconcile_drilldown_repushes_stale_source() {
+		$this->enable_connect();
+
+		$post = self::factory()->post->create( [ 'post_content' => 'New content' ] );
+		update_post_meta( $post, '_hyve_added', 1 );
+		update_post_meta( $post, '_hyve_connect_synced_hash', 'HASH' );
+
+		$bucket = Hyve_Connect::kb_bucket_of( $post );
+
+		$this->intercept_sequence(
+			[
+				$this->sse(
+					[
+						[
+							'job_complete',
+							[
+								'in_sync'   => false,
+								'aggregate' => 'x',
+							],
+						],
+					] 
+				),
+				$this->sse(
+					[
+						[
+							'job_complete',
+							[
+								'in_sync'           => false,
+								'differing_buckets' => [ $bucket ],
+							],
+						],
+					] 
+				),
+				$this->sse(
+					[
+						[
+							'job_complete',
+							[
+								'deleted' => [],
+								'stale'   => [ (string) $post ],
+								'missing' => [],
+							],
+						],
+					] 
+				),
+			]
+		);
+
+		$this->assertTrue( DB_Table::instance()->connect_reconcile() );
+
+		// Unmarked for re-push, and the migration job is scheduled to send it.
+		$this->assertSame( '', get_post_meta( $post, '_hyve_connect_synced_hash', true ) );
+		$this->assertNotFalse( wp_next_scheduled( DB_Table::CONNECT_SYNC_HOOK ) );
+	}
+
+	/**
+	 * Build an indexed source post with plain content and optional meta.
+	 *
+	 * @param string               $content Post content (tag-free, so its hash is stable).
+	 * @param array<string, mixed> $meta    Extra post meta to set.
+	 *
+	 * @return int
+	 */
+	private function source_post( $content, $meta = [] ) {
+		// hyve_docs is registered exclude_from_search, so this also guards the
+		// manifest query against the post_type "any" pitfall.
+		$post_id = self::factory()->post->create(
+			[
+				'post_content' => $content,
+				'post_type'    => 'hyve_docs',
+			] 
+		);
+		update_post_meta( $post_id, '_hyve_added', 1 );
+
+		foreach ( $meta as $key => $value ) {
+			update_post_meta( $post_id, $key, $value );
+		}
+
+		return $post_id;
+	}
+
+	/**
+	 * Reduce the manifest to an id => hash map for assertions.
+	 *
+	 * @return array<int, string>
+	 */
+	private function manifest_map() {
+		$map = [];
+
+		foreach ( DB_Table::instance()->connect_local_manifest() as $entry ) {
+			$map[ (int) $entry['id'] ] = $entry['hash'];
+		}
+
+		return $map;
+	}
+
+	/**
+	 * A never-synced indexed source is listed at its current content hash.
+	 */
+	public function test_manifest_lists_unsynced_source_at_current_hash() {
+		$post = $this->source_post( 'Alpha content' );
+
+		$this->assertSame(
+			hash( 'sha256', 'Alpha content' ),
+			$this->manifest_map()[ $post ]
+		);
+	}
+
+	/**
+	 * When the post is unchanged since sync, the cached hash is reused verbatim
+	 * (a sentinel that differs from the real content hash proves no recompute).
+	 */
+	public function test_manifest_reuses_cached_hash_when_unchanged() {
+		$post = $this->source_post(
+			'Alpha content',
+			[
+				'_hyve_connect_synced_hash' => 'SENTINEL',
+			]
+		);
+		update_post_meta( $post, '_hyve_connect_synced_modified', (int) get_post_modified_time( 'U', true, $post ) );
+
+		$this->assertSame( 'SENTINEL', $this->manifest_map()[ $post ] );
+	}
+
+	/**
+	 * A modified-time mismatch forces a recompute of the real content hash.
+	 */
+	public function test_manifest_recomputes_when_modified_changed() {
+		$post = $this->source_post(
+			'Alpha content',
+			[
+				'_hyve_connect_synced_hash'     => 'SENTINEL',
+				'_hyve_connect_synced_modified' => 1, // Stale timestamp.
+			]
+		);
+
+		$this->assertSame(
+			hash( 'sha256', 'Alpha content' ),
+			$this->manifest_map()[ $post ]
+		);
+	}
+
+	/**
+	 * A moderation-failed source that was previously synced stays in the manifest
+	 * at its last-synced hash (its kept cloud copy must not be orphaned).
+	 */
+	public function test_manifest_keeps_flagged_previously_synced() {
+		$post = $this->source_post(
+			'Rejected new content',
+			[
+				'_hyve_moderation_failed'   => 1,
+				'_hyve_connect_synced_hash' => 'SENTINEL',
+			]
+		);
+
+		$this->assertSame( 'SENTINEL', $this->manifest_map()[ $post ] );
+	}
+
+	/**
+	 * A moderation-failed source that was never synced is left out entirely.
+	 */
+	public function test_manifest_excludes_flagged_never_synced() {
+		$post = $this->source_post( 'Bad content', [ '_hyve_moderation_failed' => 1 ] );
+
+		$this->assertArrayNotHasKey( $post, $this->manifest_map() );
+	}
+
+	/**
+	 * An in-flight sync refuses a concurrent reconcile.
+	 */
+	public function test_reconcile_refuses_while_sync_in_flight() {
+		$this->enable_connect();
+		update_option( DB_Table::CONNECT_SYNC_OPTION, [ 'in_progress' => true ] );
+
+		$result = DB_Table::instance()->connect_reconcile();
+
+		$this->assertWPError( $result );
+		$this->assertSame( 'connect_busy', $result->get_error_code() );
+	}
+
+	/**
+	 * A manual Sync retries a plan-blocked job (cheap under greedy admission:
+	 * it stores whatever fits or just re-blocks with fresh numbers).
+	 */
+	public function test_reconcile_retries_a_blocked_sync() {
+		$this->enable_connect();
+		update_option(
+			DB_Table::CONNECT_SYNC_OPTION,
+			[
+				'in_progress' => false,
+				'blocked'     => true,
+				'message'     => 'Over the limit',
+			]
+		);
+
+		$this->intercept(
+			$this->sse(
+				[
+					[
+						'job_complete',
+						[
+							'in_sync'   => true,
+							'aggregate' => 'x',
+						],
+					],
+				]
+			)
+		);
+
+		$this->assertTrue( DB_Table::instance()->connect_reconcile() );
+		$this->assertSame( [], DB_Table::instance()->connect_migration_status() );
+	}
+
+	/**
+	 * Recovery still repairs an empty account while a block is recorded, e.g.
+	 * right after an upgrade points the site at a fresh paid account.
+	 */
+	public function test_recovery_restarts_even_when_blocked() {
+		$this->enable_connect();
+		$post = $this->indexed_post( true );
+		update_option(
+			DB_Table::CONNECT_SYNC_OPTION,
+			[
+				'in_progress' => false,
+				'blocked'     => true,
+			]
+		);
+
+		$this->intercept(
+			wp_json_encode(
+				[
+					'plan'    => 'paid',
+					'service' => 'ok',
+					'kb'      => [ 'state' => 'empty' ],
+				]
+			)
+		);
+
+		DB_Table::instance()->connect_check_recovery();
+
+		$this->assertSame( '', get_post_meta( $post, '_hyve_connect_synced_hash', true ) );
+		$this->assertTrue( DB_Table::instance()->connect_migration_status()['in_progress'] );
+		$this->assertNotFalse( wp_next_scheduled( DB_Table::CONNECT_SYNC_HOOK ) );
+	}
+
+	/**
+	 * Seed a blocked sync plus a cached stats payload.
+	 *
+	 * @param int   $used     Storage chunks used.
+	 * @param int   $limit    Storage chunk limit.
+	 * @param array $windows  Indexing windows ({remaining} each).
+	 * @param array $snapshot Quota snapshot recorded at block time.
+	 *
+	 * @return void
+	 */
+	private function seed_blocked_with_stats( $used, $limit, $windows = [], $snapshot = [] ) {
+		update_option(
+			DB_Table::CONNECT_SYNC_OPTION,
+			[
+				'in_progress' => false,
+				'blocked'     => true,
+				'message'     => 'Over the limit',
+				'quota'       => $snapshot,
+			]
+		);
+
+		set_transient(
+			'hyve_connect_stats',
+			[
+				'kb'       => [
+					'storage' => [
+						'used'  => $used,
+						'limit' => $limit,
+					],
+				],
+				'indexing' => [ 'windows' => $windows ],
+			],
+			5 * MINUTE_IN_SECONDS
+		);
+	}
+
+	/**
+	 * A blocked sync resumes by itself once cached stats show headroom.
+	 */
+	public function test_blocked_sync_resumes_when_stats_show_headroom() {
+		$this->enable_connect();
+		$this->indexed_post( false );
+		$this->seed_blocked_with_stats(
+			100,
+			1000,
+			[
+				'24h' => [ 'remaining' => 500 ],
+				'30d' => [ 'remaining' => 500 ],
+			]
+		);
+
+		DB_Table::instance()->connect_maybe_resume_blocked();
+
+		$status = DB_Table::instance()->connect_migration_status();
+		$this->assertTrue( $status['in_progress'] );
+		$this->assertEmpty( $status['blocked'] );
+		$this->assertNotFalse( wp_next_scheduled( DB_Table::CONNECT_SYNC_HOOK ) );
+	}
+
+	/**
+	 * No storage headroom -> the block stays.
+	 */
+	public function test_blocked_sync_stays_blocked_without_storage_headroom() {
+		$this->enable_connect();
+		$this->indexed_post( false );
+		$this->seed_blocked_with_stats( 1000, 1000 );
+
+		DB_Table::instance()->connect_maybe_resume_blocked();
+
+		$this->assertTrue( DB_Table::instance()->connect_migration_status()['blocked'] );
+		$this->assertFalse( wp_next_scheduled( DB_Table::CONNECT_SYNC_HOOK ) );
+	}
+
+	/**
+	 * Leftover room alone does not resume: with the numbers unchanged since
+	 * the block, the knowledge base simply does not fit, and resuming would
+	 * retry-loop against the cap.
+	 */
+	public function test_blocked_sync_stays_blocked_when_numbers_unchanged() {
+		$this->enable_connect();
+		$this->indexed_post( false );
+		$this->seed_blocked_with_stats(
+			987,
+			1000,
+			[
+				'24h' => [ 'remaining' => 500 ],
+				'30d' => [ 'remaining' => 500 ],
+			],
+			[
+				'kind'  => 'storage',
+				'limit' => 1000,
+				'used'  => 987,
+			]
+		);
+
+		DB_Table::instance()->connect_maybe_resume_blocked();
+
+		$this->assertTrue( DB_Table::instance()->connect_migration_status()['blocked'] );
+		$this->assertFalse( wp_next_scheduled( DB_Table::CONNECT_SYNC_HOOK ) );
+	}
+
+	/**
+	 * A raised cap since the block (upgrade, server-side change) resumes.
+	 */
+	public function test_blocked_sync_resumes_when_limit_grew_since_block() {
+		$this->enable_connect();
+		$this->indexed_post( false );
+		$this->seed_blocked_with_stats(
+			987,
+			10000,
+			[
+				'24h' => [ 'remaining' => 500 ],
+				'30d' => [ 'remaining' => 500 ],
+			],
+			[
+				'kind'  => 'storage',
+				'limit' => 1000,
+				'used'  => 987,
+			]
+		);
+
+		DB_Table::instance()->connect_maybe_resume_blocked();
+
+		$status = DB_Table::instance()->connect_migration_status();
+		$this->assertTrue( $status['in_progress'] );
+		$this->assertEmpty( $status['blocked'] );
+	}
+
+	/**
+	 * Storage headroom but an exhausted indexing window -> the block stays
+	 * (resuming would immediately re-block against the churn cap).
+	 */
+	public function test_blocked_sync_stays_blocked_when_indexing_window_exhausted() {
+		$this->enable_connect();
+		$this->indexed_post( false );
+		$this->seed_blocked_with_stats(
+			100,
+			1000,
+			[
+				'24h' => [ 'remaining' => 500 ],
+				'30d' => [ 'remaining' => 0 ],
+			]
+		);
+
+		DB_Table::instance()->connect_maybe_resume_blocked();
+
+		$this->assertTrue( DB_Table::instance()->connect_migration_status()['blocked'] );
+		$this->assertFalse( wp_next_scheduled( DB_Table::CONNECT_SYNC_HOOK ) );
+	}
+
+	/**
+	 * An import-mode disconnect unmarks sources that never reached the
+	 * platform: nothing was exported for them, so keeping the KB markers
+	 * would list them as indexed with no local chunks behind them.
+	 */
+	public function test_disconnect_import_drops_never_synced_sources() {
+		$this->enable_connect();
+		wp_set_current_user( self::factory()->user->create( [ 'role' => 'administrator' ] ) );
+
+		$synced   = $this->indexed_post( true );
+		$unsynced = $this->indexed_post( false );
+
+		$docs = self::factory()->post->create( [ 'post_type' => 'hyve_docs' ] );
+		update_post_meta( $docs, '_hyve_added', 1 );
+
+		// Export returns only the synced post's chunk; delete succeeds.
+		add_filter(
+			'pre_http_request',
+			function ( $response, $args ) use ( $synced ) {
+				$payload = json_decode( isset( $args['body'] ) ? (string) $args['body'] : '', true );
+
+				$data = 'export' === ( $payload['action'] ?? '' )
+					? [
+						'items'       => [
+							[
+								'id'          => $synced,
+								'content'     => 'Synced chunk',
+								'token_count' => 3,
+								'embedding'   => [ 0.1, 0.2 ],
+							],
+						],
+						'next_cursor' => null,
+					]
+					: [ 'deleted' => true ];
+
+				return [
+					'response' => [ 'code' => 200 ],
+					'body'     => $this->sse( [ [ 'job_complete', $data ] ] ),
+				];
+			},
+			10,
+			2
+		);
+
+		$request = new WP_REST_Request( 'POST', '/hyve/v1/connect' );
+		$request->set_query_params( [ 'mode' => 'import' ] );
+		$response = rest_do_request( $request );
+
+		$this->assertTrue( $response->get_data() );
+		$this->assertSame( '1', get_post_meta( $synced, '_hyve_added', true ) );
+		$this->assertSame( '', get_post_meta( $synced, '_hyve_connect_synced_hash', true ) );
+		$this->assertSame( '', get_post_meta( $unsynced, '_hyve_added', true ) );
+		$this->assertNull( get_post( $docs ) );
+	}
+
+	/**
+	 * Disconnect-clear removes the hosted copy with ONE platform call; the
+	 * per-post local cleanup must not fire a platform delete for each source
+	 * (a thousand-source KB would time out).
+	 */
+	public function test_disconnect_clear_deletes_hosted_copy_once() {
+		$this->enable_connect();
+		wp_set_current_user( self::factory()->user->create( [ 'role' => 'administrator' ] ) );
+
+		$docs = [];
+
+		for ( $i = 0; $i < 3; $i++ ) {
+			$doc    = self::factory()->post->create( [ 'post_type' => 'hyve_docs' ] );
+			$docs[] = $doc;
+			update_post_meta( $doc, '_hyve_added', 1 );
+			update_post_meta( $doc, '_hyve_connect_synced_hash', 'HASH' );
+		}
+
+		$requests = 0;
+
+		add_filter(
+			'pre_http_request',
+			function () use ( &$requests ) {
+				++$requests;
+
+				return [
+					'response' => [ 'code' => 200 ],
+					'body'     => $this->sse(
+						[
+							[
+								'job_complete',
+								[
+									'deleted' => [],
+									'all'     => true,
+								],
+							],
+						] 
+					),
+				];
+			}
+		);
+
+		$request = new WP_REST_Request( 'POST', '/hyve/v1/connect' );
+		$request->set_query_params( [ 'mode' => 'clear' ] );
+		$response = rest_do_request( $request );
+
+		$this->assertTrue( $response->get_data() );
+		$this->assertSame( 1, $requests );
+
+		foreach ( $docs as $doc ) {
+			$this->assertNull( get_post( $doc ) );
+		}
 	}
 }

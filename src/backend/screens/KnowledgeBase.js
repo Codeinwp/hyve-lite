@@ -135,10 +135,15 @@ const IndexedContent = () => {
 
 	// In Connect mode the platform owns the chunks; there are no local per-source
 	// rows to count, so the per-source Chunks column is dropped (the total still
-	// comes from the platform aggregate, and Status shows each source is indexed).
+	// comes from the platform aggregate, and Status reflects each source's
+	// actual sync state).
 	const isConnectActive = useSelect( ( select ) =>
 		select( 'hyve' ).isConnectActive()
 	);
+	const connectSync = useSelect( ( select ) =>
+		select( 'hyve' ).getConnectSync()
+	);
+	const isSyncBlocked = Boolean( connectSync?.blocked );
 
 	const { setTotalChunks, setAttentionCount } = useDispatch( 'hyve' );
 	const { createNotice } = useDispatch( 'core/notices' );
@@ -331,16 +336,39 @@ const IndexedContent = () => {
 					{
 						key: 'status',
 						label: __( 'Status', 'hyve-lite' ),
-						render: ( row ) =>
-							row.error ? (
-								<Chip tone="warn">
-									{ __( 'Indexing failed', 'hyve-lite' ) }
-								</Chip>
-							) : (
+						render: ( row ) => {
+							if ( row.error ) {
+								return (
+									<Chip tone="warn">
+										{ __( 'Indexing failed', 'hyve-lite' ) }
+									</Chip>
+								);
+							}
+
+							// Indexed locally but not on the platform:
+							// mid-sync, or skipped over the plan limit.
+							if ( isConnectActive && false === row.synced ) {
+								return (
+									<Chip tone="warn">
+										{ isSyncBlocked
+											? __(
+													'Over plan limit',
+													'hyve-lite'
+											  )
+											: __(
+													'Waiting to sync',
+													'hyve-lite'
+											  ) }
+									</Chip>
+								);
+							}
+
+							return (
 								<Chip tone="ok">
 									{ __( 'Indexed', 'hyve-lite' ) }
 								</Chip>
-							),
+							);
+						},
 					},
 					{
 						key: 'actions',

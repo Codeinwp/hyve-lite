@@ -109,7 +109,13 @@ class HyveConnectTest extends WP_UnitTestCase {
 			[
 				[ 'stream_start', [] ],
 				[ 'delta', [ 'text' => 'Hi' ] ],
-				[ 'job_complete', [ 'reply' => 'Hi', 'answered' => true ] ],
+				[
+					'job_complete',
+					[
+						'reply'    => 'Hi',
+						'answered' => true,
+					],
+				],
 			]
 		);
 
@@ -131,6 +137,88 @@ class HyveConnectTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * kb_aggregate must match the platform's aggregate byte for byte: sha256 over
+	 * "id:hash" lines sorted by id as strings. This pins the string-sort ("10"
+	 * before "2") and the empty-KB value, so the reconcile fast-path stays valid.
+	 */
+	public function test_kb_aggregate_matches_platform_formula() {
+		$manifest = [
+			[
+				'id'   => 2,
+				'hash' => 'b',
+			],
+			[
+				'id'   => 10,
+				'hash' => 'a',
+			],
+		];
+
+		// String sort orders "10" before "2".
+		$this->assertSame(
+			hash( 'sha256', "10:a\n2:b" ),
+			Hyve_Connect::kb_aggregate( $manifest )
+		);
+
+		// Order-independent.
+		$this->assertSame(
+			Hyve_Connect::kb_aggregate( $manifest ),
+			Hyve_Connect::kb_aggregate( array_reverse( $manifest ) )
+		);
+
+		// Empty KB.
+		$this->assertSame(
+			hash( 'sha256', '' ),
+			Hyve_Connect::kb_aggregate( [] )
+		);
+	}
+
+	/**
+	 * kb_bucket_of must match the platform's bucketOf: low 8 bits of crc32.
+	 */
+	public function test_kb_bucket_of_matches_platform_formula() {
+		foreach ( [ '1', '2', '12345', 'custom-source' ] as $id ) {
+			$this->assertSame(
+				crc32( $id ) & 255,
+				Hyve_Connect::kb_bucket_of( $id )
+			);
+			$this->assertGreaterThanOrEqual( 0, Hyve_Connect::kb_bucket_of( $id ) );
+			$this->assertLessThan( 256, Hyve_Connect::kb_bucket_of( $id ) );
+		}
+	}
+
+	/**
+	 * kb_bucket_hashes groups a manifest by bucket and aggregates each group, so
+	 * a source's bucket hash equals aggregating just that source.
+	 */
+	public function test_kb_bucket_hashes_group_by_bucket() {
+		$manifest = [
+			[
+				'id'   => 1,
+				'hash' => 'h1',
+			],
+			[
+				'id'   => 2,
+				'hash' => 'h2',
+			],
+		];
+
+		$buckets = Hyve_Connect::kb_bucket_hashes( $manifest );
+
+		$b1 = Hyve_Connect::kb_bucket_of( 1 );
+		$this->assertSame(
+			Hyve_Connect::kb_aggregate(
+				[
+					[
+						'id'   => 1,
+						'hash' => 'h1',
+					],
+				] 
+			),
+			$buckets[ $b1 ]
+		);
+	}
+
+	/**
 	 * kb_upsert POSTs the contract-shaped payload and returns the job_complete data.
 	 */
 	public function test_kb_upsert_builds_request_and_returns_job_complete() {
@@ -140,7 +228,13 @@ class HyveConnectTest extends WP_UnitTestCase {
 					[
 						'job_complete',
 						[
-							'results' => [ [ 'id' => 12, 'status' => 'stored', 'chunks' => 3 ] ],
+							'results' => [
+								[
+									'id'     => 12,
+									'status' => 'stored',
+									'chunks' => 3,
+								],
+							],
 							'kb'      => [ 'chunks' => 3 ],
 						],
 					],
@@ -149,7 +243,15 @@ class HyveConnectTest extends WP_UnitTestCase {
 		);
 
 		$result = Hyve_Connect::instance()->kb_upsert(
-			[ [ 'id' => 12, 'type' => 'post', 'title' => 'T', 'url' => 'https://x', 'content' => 'body' ] ]
+			[
+				[
+					'id'      => 12,
+					'type'    => 'post',
+					'title'   => 'T',
+					'url'     => 'https://x',
+					'content' => 'body',
+				],
+			]
 		);
 
 		$this->assertStringEndsWith( 'hyve-kb/start', $this->captured['url'] );
@@ -198,12 +300,27 @@ class HyveConnectTest extends WP_UnitTestCase {
 		$this->intercept(
 			$this->sse(
 				[
-					[ 'error', [ 'code' => 'quota_exceeded', 'message' => 'Limit reached', 'quota' => [ 'kind' => 'messages' ] ] ],
+					[
+						'error',
+						[
+							'code'    => 'quota_exceeded',
+							'message' => 'Limit reached',
+							'quota'   => [ 'kind' => 'messages' ],
+						],
+					],
 				]
 			)
 		);
 
-		$result = Hyve_Connect::instance()->kb_upsert( [ [ 'id' => 1, 'title' => 'a', 'content' => 'b' ] ] );
+		$result = Hyve_Connect::instance()->kb_upsert(
+			[
+				[
+					'id'      => 1,
+					'title'   => 'a',
+					'content' => 'b',
+				],
+			] 
+		);
 
 		$this->assertWPError( $result );
 		$this->assertSame( 'hyve_connect_quota_exceeded', $result->get_error_code() );
@@ -248,7 +365,14 @@ class HyveConnectTest extends WP_UnitTestCase {
 	 * get_quota reads the plain-JSON aggregate over GET.
 	 */
 	public function test_get_quota_returns_decoded_json() {
-		$this->intercept( wp_json_encode( [ 'plan' => 'free', 'kb' => [ 'chunks' => 10 ] ] ) );
+		$this->intercept(
+			wp_json_encode(
+				[
+					'plan' => 'free',
+					'kb'   => [ 'chunks' => 10 ],
+				] 
+			) 
+		);
 
 		$result = Hyve_Connect::instance()->get_quota();
 
@@ -261,7 +385,14 @@ class HyveConnectTest extends WP_UnitTestCase {
 	 * stats() caches the aggregate so a second read does not hit the network.
 	 */
 	public function test_stats_are_cached_after_first_fetch() {
-		$this->intercept( wp_json_encode( [ 'plan' => 'free', 'service' => 'ok' ] ) );
+		$this->intercept(
+			wp_json_encode(
+				[
+					'plan'    => 'free',
+					'service' => 'ok',
+				] 
+			) 
+		);
 
 		$first = Hyve_Connect::instance()->stats();
 		$this->assertSame( 'free', $first['plan'] );
@@ -298,7 +429,19 @@ class HyveConnectTest extends WP_UnitTestCase {
 		$post_id = self::factory()->post->create();
 		update_post_meta( $post_id, '_hyve_added', 1 );
 
-		$this->intercept( $this->sse( [ [ 'job_complete', [ 'deleted' => [ $post_id ], 'kb' => [] ] ] ] ) );
+		$this->intercept(
+			$this->sse(
+				[
+					[
+						'job_complete',
+						[
+							'deleted' => [ $post_id ],
+							'kb'      => [],
+						],
+					],
+				] 
+			) 
+		);
 
 		wp_delete_post( $post_id, true );
 

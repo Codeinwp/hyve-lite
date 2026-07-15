@@ -97,7 +97,7 @@ class API extends BaseAPI {
 		}
 
 		$routes = [
-			'settings'    => [
+			'settings'          => [
 				[
 					'methods'  => \WP_REST_Server::READABLE,
 					'callback' => [ $this, 'get_settings' ],
@@ -116,7 +116,7 @@ class API extends BaseAPI {
 					'callback' => [ $this, 'update_settings' ],
 				],
 			],
-			'data'        => [
+			'data'              => [
 				[
 					'methods'  => \WP_REST_Server::READABLE,
 					'args'     => [
@@ -166,19 +166,19 @@ class API extends BaseAPI {
 					'callback' => [ $this, 'delete_data' ],
 				],
 			],
-			'data/counts' => [
+			'data/counts'       => [
 				[
 					'methods'  => \WP_REST_Server::READABLE,
 					'callback' => [ $this, 'get_data_counts' ],
 				],
 			],
-			'stats'       => [
+			'stats'             => [
 				[
 					'methods'  => \WP_REST_Server::READABLE,
 					'callback' => [ $this, 'get_stats' ],
 				],
 			],
-			'threads'     => [
+			'threads'           => [
 				[
 					'methods'  => \WP_REST_Server::READABLE,
 					'args'     => [
@@ -201,7 +201,7 @@ class API extends BaseAPI {
 					'callback' => [ $this, 'delete_thread' ],
 				],
 			],
-			'qdrant'      => [
+			'qdrant'            => [
 				[
 					'methods'  => \WP_REST_Server::READABLE,
 					'callback' => [ $this, 'qdrant_status' ],
@@ -211,7 +211,7 @@ class API extends BaseAPI {
 					'callback' => [ $this, 'qdrant_deactivate' ],
 				],
 			],
-			'connect'     => [
+			'connect'           => [
 				[
 					'methods'  => \WP_REST_Server::CREATABLE,
 					'callback' => [ $this, 'connect_disconnect' ],
@@ -226,7 +226,13 @@ class API extends BaseAPI {
 					],
 				],
 			],
-			'chat'        => [
+			'connect/reconcile' => [
+				[
+					'methods'  => \WP_REST_Server::CREATABLE,
+					'callback' => [ $this, 'connect_reconcile' ],
+				],
+			],
+			'chat'              => [
 				[
 					'methods'             => \WP_REST_Server::READABLE,
 					'args'                => [
@@ -717,6 +723,13 @@ class API extends BaseAPI {
 			];
 		}
 
+		// The unified "Indexed content" listing includes the plugin-owned sources,
+		// so a site without Pro can still see and remove them. hyve_docs must
+		// be named explicitly: it is exclude_from_search, which `any` skips.
+		if ( 'included' === $status && 'any' === $request->get_param( 'type' ) ) {
+			$args['post_type'] = $this->table->connect_indexed_post_types();
+		}
+
 		/**
 		 * Filters the WP_Query arguments of the dashboard data listings.
 		 *
@@ -750,6 +763,33 @@ class API extends BaseAPI {
 				'type'       => $post_type_object ? $post_type_object->labels->singular_name : $post_type,
 				'chunks'     => $chunk_counts[ $post_id ] ?? 0,
 			];
+
+			// In Connect mode a source can be indexed locally but not (yet)
+			// on the platform (mid-sync, or skipped over the plan limit);
+			// report it so the listing does not call it indexed.
+			if ( Hyve_Connect::is_active() ) {
+				$post_data['synced'] = '' !== (string) get_post_meta( $post_id, '_hyve_connect_synced_hash', true );
+			}
+
+			// Plugin-owned sources: label them by origin and flag that
+			// removing one is permanent (no life outside the Knowledge Base).
+			if ( 'hyve_docs' === $post_type ) {
+				$labels = [
+					''         => __( 'Custom Data', 'hyve-lite' ),
+					'link'     => __( 'URL', 'hyve-lite' ),
+					'sitemap'  => __( 'Sitemap', 'hyve-lite' ),
+					'document' => __( 'Document', 'hyve-lite' ),
+				];
+
+				$docs_type = (string) get_post_meta( $post_id, '_hyve_type', true );
+
+				$post_data['type']      = $labels[ $docs_type ] ?? $labels[''];
+				$post_data['permanent'] = true;
+
+				if ( empty( $post_data['title'] ) ) {
+					$post_data['title'] = (string) get_post_meta( $post_id, '_hyve_source', true );
+				}
+			}
 
 			if ( 'moderation' === $status ) {
 				$review = get_post_meta( $post_id, '_hyve_moderation_review', true );
@@ -975,6 +1015,12 @@ class API extends BaseAPI {
 		 */
 		do_action( 'hyve_data_deleted', (int) $id );
 
+		// Without Pro listening on the action above, plugin-owned sources are
+		// removed here; they exist only as Knowledge Base entries.
+		if ( 'hyve_docs' === get_post_type( $id ) ) {
+			wp_delete_post( (int) $id, true );
+		}
+
 		return rest_ensure_response( true );
 	}
 
@@ -1142,19 +1188,52 @@ class API extends BaseAPI {
 			return rest_ensure_response( [ 'error' => Hyve_Connect::user_message( $deleted ) ] );
 		}
 
+		// The hosted copy is gone: leave Connect mode BEFORE the local cleanup,
+		// or `before_delete_post` fires a platform delete per removed source
+		// (thousands of sequential requests; times out on large KBs).
+		$settings['ai_mode'] = Hyve_Connect::MODE_SELF;
+		update_option( 'hyve_settings', $settings );
+
 		if ( 'clear' === $mode ) {
 			// Nothing is indexed anywhere now: drop the local bookkeeping too.
 			$this->connect_clear_local();
 		} else {
+			// Sources that never reached the platform (over the plan limit or
+			// rejected) had nothing to export: unmark them, or they would list
+			// as indexed with no local chunks behind them.
+			$this->connect_drop_unsynced();
+
 			// Import keeps the sources but the hosted copy is gone, so forget the
 			// synced markers; a future re-enable then re-pushes cleanly.
 			$this->table->connect_reset_sync_markers();
 		}
 
 		delete_option( DB_Table::CONNECT_SYNC_OPTION );
+		Hyve_Connect::flush_stats();
 
-		$settings['ai_mode'] = Hyve_Connect::MODE_SELF;
-		update_option( 'hyve_settings', $settings );
+		return rest_ensure_response( true );
+	}
+
+	/**
+	 * Reconcile the hosted knowledge base against local content (the source of
+	 * truth): the cloud drops orphaned sources and the plugin re-pushes any that
+	 * are stale or missing. Triggered by the "Sync" control on the Connect screen.
+	 *
+	 * @param \WP_REST_Request<array<string, mixed>> $request Request object.
+	 *
+	 * @return \WP_REST_Response
+	 */
+	public function connect_reconcile( $request ) {
+		$result = $this->table->connect_reconcile();
+
+		if ( is_wp_error( $result ) ) {
+			$message = 0 === strpos( (string) $result->get_error_code(), 'connect_' )
+				? $result->get_error_message()
+				: Hyve_Connect::user_message( $result );
+
+			return rest_ensure_response( [ 'error' => $message ] );
+		}
+
 		Hyve_Connect::flush_stats();
 
 		return rest_ensure_response( true );
@@ -1205,6 +1284,37 @@ class API extends BaseAPI {
 	}
 
 	/**
+	 * Unmark sources that never reached the platform after an import.
+	 *
+	 * @return void
+	 */
+	private function connect_drop_unsynced() {
+		$posts = get_posts(
+			[
+				'post_type'      => $this->table->connect_indexed_post_types(),
+				'post_status'    => 'any',
+				'fields'         => 'ids',
+				'posts_per_page' => -1,
+				// phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query -- one-off disconnect read.
+				'meta_query'     => [
+					[
+						'key'     => '_hyve_added',
+						'compare' => 'EXISTS',
+					],
+					[
+						'key'     => '_hyve_connect_synced_hash',
+						'compare' => 'NOT EXISTS',
+					],
+				],
+			]
+		);
+
+		foreach ( $posts as $post_id ) {
+			$this->connect_forget_source( (int) $post_id );
+		}
+	}
+
+	/**
 	 * Clear local Knowledge Base bookkeeping when disconnecting with "clear".
 	 *
 	 * @return void
@@ -1212,7 +1322,7 @@ class API extends BaseAPI {
 	private function connect_clear_local() {
 		$posts = get_posts(
 			[
-				'post_type'      => 'any',
+				'post_type'      => $this->table->connect_indexed_post_types(),
 				'post_status'    => 'any',
 				'fields'         => 'ids',
 				'posts_per_page' => -1,
@@ -1221,15 +1331,37 @@ class API extends BaseAPI {
 		);
 
 		foreach ( $posts as $post_id ) {
-			delete_post_meta( $post_id, '_hyve_added' );
-			delete_post_meta( $post_id, '_hyve_connect_synced' );
-			delete_post_meta( $post_id, '_hyve_needs_update' );
-			delete_post_meta( $post_id, '_hyve_moderation_failed' );
-			delete_post_meta( $post_id, '_hyve_moderation_review' );
-			delete_post_meta( $post_id, '_hyve_processing_error' );
-
-			do_action( 'hyve_data_deleted', (int) $post_id );
+			$this->connect_forget_source( (int) $post_id );
 		}
+	}
+
+	/**
+	 * Remove a source from the local Knowledge Base bookkeeping.
+	 *
+	 * Plugin-owned sources (custom data, URLs, imported pages) exist only as
+	 * KB entries, so forgetting one deletes the post itself.
+	 *
+	 * @param int $post_id Post id.
+	 *
+	 * @return void
+	 */
+	private function connect_forget_source( $post_id ) {
+		if ( 'hyve_docs' === get_post_type( $post_id ) ) {
+			wp_delete_post( $post_id, true );
+			do_action( 'hyve_data_deleted', $post_id );
+
+			return;
+		}
+
+		delete_post_meta( $post_id, '_hyve_added' );
+		delete_post_meta( $post_id, '_hyve_connect_synced_hash' );
+		delete_post_meta( $post_id, '_hyve_connect_synced_modified' );
+		delete_post_meta( $post_id, '_hyve_needs_update' );
+		delete_post_meta( $post_id, '_hyve_moderation_failed' );
+		delete_post_meta( $post_id, '_hyve_moderation_review' );
+		delete_post_meta( $post_id, '_hyve_processing_error' );
+
+		do_action( 'hyve_data_deleted', $post_id );
 	}
 
 	/**

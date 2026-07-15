@@ -155,6 +155,109 @@ class Hyve_Connect {
 	}
 
 	/**
+	 * Reconcile bucket count. Power of two so the index is a cheap crc32 bitmask.
+	 * MUST match the platform's KnowledgeBase::BUCKETS.
+	 */
+	const KB_BUCKETS = 256;
+
+	/**
+	 * Deterministic fingerprint of a whole KB manifest, for the reconcile
+	 * fast-path. MUST stay byte-identical with the platform's aggregate
+	 * (App\Neuron\Workflows\Hyve\KnowledgeBase::aggregate): sha256 over "id:hash"
+	 * lines sorted by id as strings. Equal aggregates mean both sides are in sync.
+	 *
+	 * @param array<array{id: int|string, hash: string}> $manifest Local sources.
+	 *
+	 * @return string
+	 */
+	public static function kb_aggregate( $manifest ) {
+		$map = [];
+
+		foreach ( $manifest as $entry ) {
+			$map[ (string) $entry['id'] ] = (string) $entry['hash'];
+		}
+
+		ksort( $map, SORT_STRING );
+
+		$lines = [];
+		foreach ( $map as $id => $hash ) {
+			$lines[] = $id . ':' . $hash;
+		}
+
+		return hash( 'sha256', implode( "\n", $lines ) );
+	}
+
+	/**
+	 * The bucket a source id falls in. MUST match KnowledgeBase::bucketOf.
+	 *
+	 * @param int|string $id Source id.
+	 *
+	 * @return int
+	 */
+	public static function kb_bucket_of( $id ) {
+		return crc32( (string) $id ) & ( self::KB_BUCKETS - 1 );
+	}
+
+	/**
+	 * Per-bucket aggregate of a manifest: group sources by bucket, aggregate
+	 * each. Only non-empty buckets appear. MUST match KnowledgeBase::bucketHashes.
+	 *
+	 * @param array<array{id: int|string, hash: string}> $manifest Local sources.
+	 *
+	 * @return array<int, string> bucket index => aggregate
+	 */
+	public static function kb_bucket_hashes( $manifest ) {
+		$grouped = [];
+
+		foreach ( $manifest as $entry ) {
+			$grouped[ self::kb_bucket_of( $entry['id'] ) ][] = $entry;
+		}
+
+		$out = [];
+		foreach ( $grouped as $idx => $entries ) {
+			$out[ $idx ] = self::kb_aggregate( $entries );
+		}
+
+		return $out;
+	}
+
+	/**
+	 * Reconcile the hosted knowledge base against a local manifest.
+	 *
+	 * Pure read on the platform: returns the diff (orphaned/stale/missing) so the
+	 * caller can converge the two sides. Pass only an aggregate for the fast
+	 * in-sync check, or the full manifest for the detailed diff.
+	 *
+	 * @param array<array{id: int|string, hash: string}> $manifest      Local sources, or [] for the fast/bucket paths.
+	 * @param string|null                                $aggregate     Local aggregate checksum, or null.
+	 * @param array<int, string>                         $bucket_hashes idx => bucket aggregate (bucket-compare mode), or [].
+	 * @param array<int>|null                            $buckets       Bucket indices this manifest is scoped to, or null.
+	 *
+	 * @return array<string, mixed>|\WP_Error
+	 */
+	public function kb_reconcile( $manifest = [], $aggregate = null, $bucket_hashes = [], $buckets = null ) {
+		$payload = [ 'action' => 'reconcile' ];
+
+		if ( ! empty( $manifest ) ) {
+			$payload['manifest'] = array_values( $manifest );
+		}
+
+		if ( null !== $aggregate ) {
+			$payload['aggregate'] = (string) $aggregate;
+		}
+
+		if ( ! empty( $bucket_hashes ) ) {
+			$payload['bucket_hashes'] = $bucket_hashes;
+		}
+
+		if ( null !== $buckets ) {
+			$payload['buckets'] = array_values( array_map( 'intval', $buckets ) );
+		}
+
+		return $this->workflow( self::SLUG_KB, $payload );
+	}
+
+	/**
 	 * Delete the whole hosted knowledge base for this identity (disconnect/clear).
 	 *
 	 * @return array<string, mixed>|\WP_Error
@@ -598,9 +701,9 @@ class Hyve_Connect {
 	 */
 	private function get_headers( $accept = 'text/event-stream' ) {
 		$headers = [
-			'Content-Type'  => 'application/json',
-			'Accept'        => $accept,
-			'X-Site-Url'    => get_site_url(),
+			'Content-Type'   => 'application/json',
+			'Accept'         => $accept,
+			'X-Site-Url'     => get_site_url(),
 			'X-Hyve-Version' => defined( 'HYVE_LITE_VERSION' ) ? HYVE_LITE_VERSION : '',
 		];
 

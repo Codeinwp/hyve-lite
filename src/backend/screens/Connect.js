@@ -218,6 +218,41 @@ export const ConnectPanel = () => {
 		setBusy( false );
 	};
 
+	const onSync = async () => {
+		setBusy( true );
+
+		try {
+			const response = await apiFetch( {
+				path: `${ window.hyve.api }/connect/reconcile`,
+				method: 'POST',
+			} );
+
+			if ( response?.error ) {
+				throw new Error( response.error );
+			}
+
+			// Reconcile may have queued a re-push; refresh so progress shows.
+			const stats = await apiFetch( {
+				path: `${ window.hyve.api }/stats`,
+			} );
+			setConnect( stats?.connect ?? null );
+			setConnectSync( stats?.connectSync ?? null );
+
+			createNotice(
+				'success',
+				__( 'Knowledge base synced with Hyve Connect.', 'hyve-lite' ),
+				{ type: 'snackbar', isDismissible: true }
+			);
+		} catch ( error ) {
+			createNotice( 'error', error?.message ?? String( error ), {
+				type: 'snackbar',
+				isDismissible: true,
+			} );
+		}
+
+		setBusy( false );
+	};
+
 	// --- Connected ---------------------------------------------------------
 	if ( isConnectActive ) {
 		const kb = connect?.kb ?? {};
@@ -451,6 +486,14 @@ export const ConnectPanel = () => {
 					) }
 
 					<div className="hyve-next-card__foot">
+						<Button
+							variant="secondary"
+							isBusy={ isBusy }
+							disabled={ isBusy || isSyncing || isOffline }
+							onClick={ onSync }
+						>
+							{ __( 'Sync', 'hyve-lite' ) }
+						</Button>
 						<Button
 							variant="secondary"
 							isDestructive

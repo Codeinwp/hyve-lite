@@ -178,9 +178,13 @@ class Main {
 	public function admin_init() {
 		$settings = self::get_settings();
 
-		if ( Hyve_Connect::is_active() && false === get_transient( 'hyve_connect_recovery_check' ) ) {
-			set_transient( 'hyve_connect_recovery_check', 1, HOUR_IN_SECONDS );
-			$this->table->connect_check_recovery();
+		if ( Hyve_Connect::is_active() ) {
+			if ( false === get_transient( 'hyve_connect_recovery_check' ) ) {
+				set_transient( 'hyve_connect_recovery_check', 1, HOUR_IN_SECONDS );
+				$this->table->connect_check_recovery();
+			}
+
+			$this->table->connect_maybe_resume_blocked();
 		}
 
 		$post_types        = get_post_types( [ 'public' => true ], 'objects' );
@@ -869,6 +873,8 @@ class Main {
 		update_post_meta( $post_id, '_hyve_needs_update', 1 );
 		delete_post_meta( $post_id, '_hyve_moderation_failed' );
 		delete_post_meta( $post_id, '_hyve_moderation_review' );
+		// An edit may fix whatever failed indexing (e.g. no text content).
+		delete_post_meta( $post_id, '_hyve_processing_error' );
 
 		wp_schedule_single_event( time(), 'hyve_update_posts' );
 	}

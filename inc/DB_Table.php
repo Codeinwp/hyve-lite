@@ -779,7 +779,8 @@ class DB_Table {
 			return new \WP_Error( 'missing_post', __( 'Missing post reference.', 'hyve-lite' ) );
 		}
 
-		$result = Hyve_Connect::instance()->kb_upsert( [ $this->connect_document( (int) $post_id, $doc ) ] );
+		$document = $this->connect_document( (int) $post_id, $doc );
+		$result   = Hyve_Connect::instance()->kb_upsert( [ $document ] );
 
 		if ( is_wp_error( $result ) ) {
 			if ( $created_here ) {
@@ -792,11 +793,26 @@ class DB_Table {
 		$status = isset( $result['results'][0] ) && is_array( $result['results'][0] ) ? $result['results'][0] : [];
 		$state  = $status['status'] ?? 'failed';
 
+		// Did not fit the plan's remaining budget (the platform skips instead
+		// of refusing); surface it as the usual limit message.
+		if ( 'skipped' === $state ) {
+			if ( $created_here ) {
+				wp_delete_post( $post_id, true );
+			}
+
+			return new \WP_Error(
+				'hyve_connect_quota_exceeded',
+				__( 'You have reached your Hyve Connect limit for now. Upgrade your plan for more.', 'hyve-lite' )
+			);
+		}
+
 		if ( 'stored' !== $state ) {
 			$review = $this->connect_moderation_review( $status );
 
 			// A real post keeps its moderation meta for the listing; an orphan
 			// created here for a rejected managed source is removed instead.
+			// On a retained rejection the platform kept the previously-synced
+			// copy, and the synced hash from that sync already describes it.
 			if ( 'rejected' === $state && $persist_moderation && ! $created_here ) {
 				update_post_meta( $post_id, '_hyve_moderation_failed', 1 );
 				update_post_meta( $post_id, '_hyve_moderation_review', $review );
@@ -818,8 +834,9 @@ class DB_Table {
 		}
 
 		update_post_meta( $post_id, '_hyve_added', 1 );
-		// Already on the platform, so the to-Connect sync job must skip it.
-		update_post_meta( $post_id, '_hyve_connect_synced', 1 );
+		// The synced hash marks the source as on the platform (so the sync job
+		// skips it) and feeds cheap reconcile fingerprints.
+		$this->connect_store_synced_hash( (int) $post_id, hash( 'sha256', (string) $document['content'] ) );
 
 		foreach ( $extra_meta as $meta_key => $meta_value ) {
 			update_post_meta( $post_id, $meta_key, $meta_value );
@@ -902,8 +919,8 @@ class DB_Table {
 	 * Posts indexed locally but not yet pushed to Hyve Connect.
 	 *
 	 * These carry the KB bookkeeping meta (`_hyve_added`) but the platform does
-	 * not yet hold them (`_hyve_connect_synced` unset): the existing self-hosted
-	 * content to migrate on enable, or everything after an inactivity purge.
+	 * not yet hold them (no synced hash): the existing self-hosted content to
+	 * migrate on enable, or everything after an inactivity purge.
 	 *
 	 * @param int $limit Max posts to return (-1 for all).
 	 *
@@ -912,7 +929,7 @@ class DB_Table {
 	public function connect_pending_posts( $limit = self::CONNECT_SYNC_BATCH ) {
 		return get_posts(
 			[
-				'post_type'      => 'any',
+				'post_type'      => $this->connect_indexed_post_types(),
 				'post_status'    => 'any',
 				'fields'         => 'ids',
 				'posts_per_page' => $limit,
@@ -923,13 +940,18 @@ class DB_Table {
 						'compare' => 'EXISTS',
 					],
 					[
-						'key'     => '_hyve_connect_synced',
+						'key'     => '_hyve_connect_synced_hash',
 						'compare' => 'NOT EXISTS',
 					],
-					// A source the platform rejected on moderation stays out of the
-					// pending set so the batch never re-picks it forever.
+					// A source the platform rejected on moderation, or one that
+					// failed to index (no text content), stays out of the pending
+					// set so the batch never re-picks it forever.
 					[
 						'key'     => '_hyve_moderation_failed',
+						'compare' => 'NOT EXISTS',
+					],
+					[
+						'key'     => '_hyve_processing_error',
 						'compare' => 'NOT EXISTS',
 					],
 				],
@@ -954,11 +976,11 @@ class DB_Table {
 	public function connect_has_synced() {
 		$synced = get_posts(
 			[
-				'post_type'      => 'any',
+				'post_type'      => $this->connect_indexed_post_types(),
 				'post_status'    => 'any',
 				'fields'         => 'ids',
 				'posts_per_page' => 1,
-				'meta_key'       => '_hyve_connect_synced', // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key
+				'meta_key'       => '_hyve_connect_synced_hash', // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key
 			]
 		);
 
@@ -1020,15 +1042,36 @@ class DB_Table {
 		}
 
 		$documents = [];
+		$empty     = 0;
 
 		foreach ( $post_ids as $post_id ) {
-			$documents[] = $this->connect_document(
+			// Keyed by post id so the success loop can recover each sent hash.
+			$document = $this->connect_document(
 				(int) $post_id,
 				[
 					'title'   => get_the_title( $post_id ),
 					'content' => get_post_field( 'post_content', $post_id ),
 				]
 			);
+
+			// No text to index (media-only content, empty page): terminal, the
+			// platform has nothing to store and moderation rejects empty input.
+			if ( '' === trim( (string) $document['content'] ) ) {
+				$this->record_processing_error(
+					(int) $post_id,
+					new \WP_Error( 'connect_empty_content', __( 'There is no text content to index.', 'hyve-lite' ) ),
+					false
+				);
+				++$empty;
+				continue;
+			}
+
+			$documents[ (int) $post_id ] = $document;
+		}
+
+		if ( empty( $documents ) ) {
+			$this->connect_advance_migration( $empty );
+			return;
 		}
 
 		$result = Hyve_Connect::instance()->kb_upsert( $documents );
@@ -1037,7 +1080,12 @@ class DB_Table {
 			// Over the plan's storage/churn cap: retrying will not help until the
 			// user upgrades or trims content, so stop and surface the block.
 			if ( false !== strpos( $result->get_error_code(), 'quota_exceeded' ) ) {
-				$this->connect_block_migration( $result->get_error_message() );
+				$data = $result->get_error_data();
+
+				$this->connect_block_migration(
+					$result->get_error_message(),
+					is_array( $data ) && isset( $data['quota'] ) && is_array( $data['quota'] ) ? $data['quota'] : []
+				);
 				return;
 			}
 
@@ -1054,27 +1102,75 @@ class DB_Table {
 			}
 		}
 
-		foreach ( $post_ids as $post_id ) {
+		$handled      = 0;
+		$storage_skip = false;
+
+		foreach ( array_keys( $documents ) as $post_id ) {
 			$row   = $status_by_id[ (int) $post_id ] ?? [];
 			$state = isset( $row['status'] ) ? $row['status'] : 'stored';
+
+			// Did not fit the plan's remaining budget: stays pending for a
+			// later batch, or the block below when nothing fits anymore.
+			if ( 'skipped' === $state ) {
+				$storage_skip = $storage_skip || 'storage' === ( $row['reason'] ?? '' );
+				continue;
+			}
+
+			++$handled;
 
 			// Either way the local chunk rows are redundant in Connect mode.
 			$this->delete_by_post_id( $post_id );
 
-			// A rejected source is not on the platform. Record why for the KB
-			// listing; the moderation marker keeps it out of the pending set
-			// without pretending it is synced (which would loop the purge-recovery
-			// check on a site whose whole KB is rejected).
+			// Record the rejection for the KB listing. If the platform retained
+			// a previously-synced copy it is still on the cloud, and the synced
+			// hash from that sync already describes it; a brand-new rejected
+			// source stays unsynced.
 			if ( 'rejected' === $state ) {
 				update_post_meta( $post_id, '_hyve_moderation_failed', 1 );
 				update_post_meta( $post_id, '_hyve_moderation_review', $this->connect_moderation_review( $row ) );
+
 				continue;
 			}
 
-			update_post_meta( $post_id, '_hyve_connect_synced', 1 );
+			// The platform could not index it (nothing extractable, provider
+			// failure): surface the error and stop re-picking the source.
+			if ( 'failed' === $state ) {
+				$this->record_processing_error(
+					$post_id,
+					new \WP_Error( 'connect_index_failed', __( 'Hyve Connect could not index this content.', 'hyve-lite' ) ),
+					false
+				);
+
+				continue;
+			}
+
+			// The synced hash marks the source as on the platform.
+			$doc_content = isset( $documents[ (int) $post_id ]['content'] ) ? (string) $documents[ (int) $post_id ]['content'] : '';
+			$this->connect_store_synced_hash( (int) $post_id, hash( 'sha256', $doc_content ) );
 		}
 
-		$this->connect_advance_migration( count( $post_ids ) );
+		// The platform fills a batch greedily, so a batch where nothing fit
+		// means nothing more will: same terminal state as a refused batch.
+		// Empty-content sources handled locally still count as progress.
+		if ( 0 === $handled && 0 === $empty ) {
+			$storage = isset( $result['kb']['storage'] ) && is_array( $result['kb']['storage'] ) ? $result['kb']['storage'] : [];
+
+			$this->connect_block_migration(
+				$storage_skip
+					? __( 'Knowledge base storage quota exceeded.', 'hyve-lite' )
+					: __( 'Knowledge base indexing limit reached for this period.', 'hyve-lite' ),
+				$storage_skip
+					? [
+						'kind'  => 'storage',
+						'limit' => isset( $storage['limit'] ) ? (int) $storage['limit'] : 0,
+						'used'  => isset( $storage['used'] ) ? (int) $storage['used'] : 0,
+					]
+					: [ 'kind' => 'indexing' ]
+			);
+			return;
+		}
+
+		$this->connect_advance_migration( $handled + $empty );
 	}
 
 	/**
@@ -1121,18 +1217,22 @@ class DB_Table {
 	}
 
 	/**
-	 * Stop the sync job because the plan's limit was hit, recording the reason.
+	 * Stop the sync job because the plan's limit was hit, recording the reason
+	 * and the quota numbers at block time (so auto-resume can tell "something
+	 * changed" from "still does not fit").
 	 *
-	 * @param string $message The platform's limit message.
+	 * @param string               $message The platform's limit message.
+	 * @param array<string, mixed> $quota   The platform's quota snapshot ({kind, limit, used}).
 	 *
 	 * @return void
 	 */
-	private function connect_block_migration( $message ) {
+	private function connect_block_migration( $message, $quota = [] ) {
 		$status = get_option( self::CONNECT_SYNC_OPTION, [] );
 
 		$status['in_progress'] = false;
 		$status['blocked']     = true;
 		$status['message']     = (string) $message;
+		$status['quota']       = is_array( $quota ) ? $quota : [];
 
 		update_option( self::CONNECT_SYNC_OPTION, $status );
 		Hyve_Connect::flush_stats();
@@ -1157,17 +1257,70 @@ class DB_Table {
 	public function connect_reset_sync_markers() {
 		$posts = get_posts(
 			[
-				'post_type'      => 'any',
+				'post_type'      => $this->connect_indexed_post_types(),
 				'post_status'    => 'any',
 				'fields'         => 'ids',
 				'posts_per_page' => -1,
-				'meta_key'       => '_hyve_connect_synced', // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key
+				'meta_key'       => '_hyve_connect_synced_hash', // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key
 			]
 		);
 
 		foreach ( $posts as $post_id ) {
-			delete_post_meta( $post_id, '_hyve_connect_synced' );
+			delete_post_meta( $post_id, '_hyve_connect_synced_hash' );
+			delete_post_meta( $post_id, '_hyve_connect_synced_modified' );
 		}
+	}
+
+	/**
+	 * Resume a plan-blocked sync once the quota numbers have actually changed
+	 * (upgrade, freed space on another site, a new usage window).
+	 *
+	 * Cheap on every admin load: reads the cached stats, so the platform is
+	 * consulted at most once per cache window. Both storage and the indexing
+	 * windows must have headroom, or resuming would immediately re-block. For
+	 * a storage block the numbers must also have MOVED since the block (cap
+	 * raised or space freed): leftover room alone means the knowledge base
+	 * simply does not fit, and resuming would retry-loop against the cap.
+	 *
+	 * @return void
+	 */
+	public function connect_maybe_resume_blocked() {
+		$status = $this->connect_migration_status();
+
+		if ( empty( $status['blocked'] ) ) {
+			return;
+		}
+
+		$stats   = Hyve_Connect::instance()->stats();
+		$storage = isset( $stats['kb']['storage'] ) && is_array( $stats['kb']['storage'] ) ? $stats['kb']['storage'] : [];
+		$limit   = isset( $storage['limit'] ) ? (int) $storage['limit'] : 0;
+		$used    = isset( $storage['used'] ) ? (int) $storage['used'] : 0;
+
+		if ( $limit <= 0 || $used >= $limit ) {
+			return;
+		}
+
+		$windows = isset( $stats['indexing']['windows'] ) && is_array( $stats['indexing']['windows'] ) ? $stats['indexing']['windows'] : [];
+
+		foreach ( $windows as $window ) {
+			if ( isset( $window['remaining'] ) && (int) $window['remaining'] <= 0 ) {
+				return;
+			}
+		}
+
+		$snapshot = isset( $status['quota'] ) && is_array( $status['quota'] ) ? $status['quota'] : [];
+
+		if ( isset( $snapshot['kind'] ) && 'storage' === $snapshot['kind'] ) {
+			$snap_limit = isset( $snapshot['limit'] ) ? (int) $snapshot['limit'] : 0;
+			$snap_used  = isset( $snapshot['used'] ) ? (int) $snapshot['used'] : 0;
+
+			if ( $limit <= $snap_limit && $used >= $snap_used ) {
+				return;
+			}
+		}
+
+		delete_option( self::CONNECT_SYNC_OPTION );
+		$this->connect_start_migration();
 	}
 
 	/**
@@ -1186,8 +1339,10 @@ class DB_Table {
 
 		$status = $this->connect_migration_status();
 
-		// Don't stack recovery on an in-flight or plan-blocked migration.
-		if ( ! empty( $status['in_progress'] ) || ! empty( $status['blocked'] ) ) {
+		// Don't stack recovery on an in-flight migration. A plan-blocked one
+		// does not stop it: an empty account (e.g. right after an upgrade)
+		// still needs the full re-sync, which re-blocks if the cap holds.
+		if ( ! empty( $status['in_progress'] ) ) {
 			return;
 		}
 
@@ -1202,6 +1357,204 @@ class DB_Table {
 			$this->connect_reset_sync_markers();
 			$this->connect_start_migration();
 		}
+	}
+
+	/**
+	 * Content hash of one source, computed exactly as the upsert path sends it
+	 * (via connect_document), so it matches the platform's stored content_hash.
+	 *
+	 * @param int $post_id The source post id.
+	 *
+	 * @return string sha256 of the sent content.
+	 */
+	public function connect_source_hash( $post_id ) {
+		$doc = $this->connect_document(
+			(int) $post_id,
+			[
+				'title'   => get_the_title( $post_id ),
+				'content' => get_post_field( 'post_content', $post_id ),
+			]
+		);
+
+		return hash( 'sha256', (string) $doc['content'] );
+	}
+
+	/**
+	 * Record the hash a source last synced to the cloud, plus the post's modified
+	 * time then, so the manifest can reuse it while the post is unchanged.
+	 *
+	 * @param int    $post_id The source post id.
+	 * @param string $hash    Hash of the content that was synced.
+	 *
+	 * @return void
+	 */
+	private function connect_store_synced_hash( $post_id, $hash ) {
+		update_post_meta( (int) $post_id, '_hyve_connect_synced_hash', $hash );
+		update_post_meta( (int) $post_id, '_hyve_connect_synced_modified', (int) get_post_modified_time( 'U', true, $post_id ) );
+	}
+
+	/**
+	 * Post types a KB source can live under. Listed explicitly because hyve_docs
+	 * is registered exclude_from_search, which the "any" pseudo-type skips.
+	 *
+	 * @return array<string>
+	 */
+	public function connect_indexed_post_types() {
+		$types              = get_post_types( [ 'exclude_from_search' => false ] );
+		$types['hyve_docs'] = 'hyve_docs';
+
+		return array_values( $types );
+	}
+
+	/**
+	 * Every local source that belongs on Hyve Connect, as a {id, hash} manifest
+	 * for reconcile. The hash is the cached last-synced hash while the post is
+	 * unchanged (no re-hash), or the current content hash once it changes. A
+	 * moderation-failed source is listed at its last-synced hash when it was ever
+	 * synced (its kept cloud copy), and skipped otherwise.
+	 *
+	 * @return array<array{id: int, hash: string}>
+	 */
+	public function connect_local_manifest() {
+		$post_ids = get_posts(
+			[
+				'post_type'      => $this->connect_indexed_post_types(),
+				'post_status'    => 'any',
+				'fields'         => 'ids',
+				'posts_per_page' => -1,
+				'meta_key'       => '_hyve_added', // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key -- reconcile read, not a hot path.
+			]
+		);
+
+		$manifest = [];
+
+		foreach ( $post_ids as $post_id ) {
+			$post_id     = (int) $post_id;
+			$synced_hash = (string) get_post_meta( $post_id, '_hyve_connect_synced_hash', true );
+			$flagged     = '' !== (string) get_post_meta( $post_id, '_hyve_moderation_failed', true );
+
+			if ( $flagged ) {
+				// Keep the last-good copy that is still on the cloud; a never-synced
+				// rejected source is not on the cloud, so leave it out.
+				if ( '' === $synced_hash ) {
+					continue;
+				}
+
+				$manifest[] = [
+					'id'   => $post_id,
+					'hash' => $synced_hash,
+				];
+				continue;
+			}
+
+			$synced_modified  = (int) get_post_meta( $post_id, '_hyve_connect_synced_modified', true );
+			$current_modified = (int) get_post_modified_time( 'U', true, $post_id );
+
+			$hash = ( '' !== $synced_hash && $synced_modified === $current_modified )
+				? $synced_hash
+				: $this->connect_source_hash( $post_id );
+
+			$manifest[] = [
+				'id'   => $post_id,
+				'hash' => $hash,
+			];
+		}
+
+		return $manifest;
+	}
+
+	/**
+	 * Reconcile the hosted KB against local (the source of truth).
+	 *
+	 * Reconcile the cloud KB with local content via a drill-down: root aggregate
+	 * -> differing buckets -> scoped manifest. The cloud deletes orphans; the
+	 * plugin re-pushes stale/missing sources through the migration job.
+	 *
+	 * @return true|\WP_Error True when reconciled (or already in sync).
+	 */
+	public function connect_reconcile() {
+		if ( ! Hyve_Connect::is_active() ) {
+			return new \WP_Error( 'connect_inactive', __( 'Hyve Connect is not active.', 'hyve-lite' ) );
+		}
+
+		$status = $this->connect_migration_status();
+
+		if ( ! empty( $status['in_progress'] ) ) {
+			return new \WP_Error( 'connect_busy', __( 'A sync is already in progress.', 'hyve-lite' ) );
+		}
+
+		// A manual Sync retries a plan-blocked job. Since the platform admits
+		// documents greedily (skips cost nothing), the retry is one cheap
+		// round: it stores whatever fits and re-blocks with fresh numbers if
+		// nothing does.
+		if ( ! empty( $status['blocked'] ) ) {
+			delete_option( self::CONNECT_SYNC_OPTION );
+		}
+
+		$manifest = $this->connect_local_manifest();
+		$connect  = Hyve_Connect::instance();
+
+		// 1. Root check: one aggregate. Match -> nothing to do.
+		$root = $connect->kb_reconcile( [], Hyve_Connect::kb_aggregate( $manifest ) );
+
+		if ( is_wp_error( $root ) ) {
+			return $root;
+		}
+
+		if ( ! empty( $root['in_sync'] ) ) {
+			return true;
+		}
+
+		// 2. Bucket compare: find which slices differ.
+		$compare = $connect->kb_reconcile( [], null, Hyve_Connect::kb_bucket_hashes( $manifest ) );
+
+		if ( is_wp_error( $compare ) ) {
+			return $compare;
+		}
+
+		$differing = ( isset( $compare['differing_buckets'] ) && is_array( $compare['differing_buckets'] ) )
+			? array_map( 'intval', $compare['differing_buckets'] )
+			: [];
+
+		if ( empty( $differing ) ) {
+			return true;
+		}
+
+		// 3. Scoped detail: send only the differing buckets' sources. The cloud
+		// deletes orphans within those buckets and returns what to re-push.
+		$scope  = array_flip( $differing );
+		$scoped = array_values(
+			array_filter(
+				$manifest,
+				function ( $entry ) use ( $scope ) {
+					return isset( $scope[ Hyve_Connect::kb_bucket_of( $entry['id'] ) ] );
+				}
+			)
+		);
+
+		$diff = $connect->kb_reconcile( $scoped, null, [], $differing );
+
+		if ( is_wp_error( $diff ) ) {
+			return $diff;
+		}
+
+		// Stale (changed) + missing (never landed) -> re-push. Unmark them so the
+		// migration job picks exactly these up, then kick it.
+		$to_push = array_merge(
+			isset( $diff['stale'] ) ? $diff['stale'] : [],
+			isset( $diff['missing'] ) ? $diff['missing'] : []
+		);
+
+		foreach ( $to_push as $id ) {
+			delete_post_meta( (int) $id, '_hyve_connect_synced_hash' );
+			delete_post_meta( (int) $id, '_hyve_connect_synced_modified' );
+		}
+
+		if ( ! empty( $to_push ) ) {
+			$this->connect_start_migration();
+		}
+
+		return true;
 	}
 
 	/**
