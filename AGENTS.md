@@ -97,3 +97,41 @@ Posts are indexed into the knowledge base by generating OpenAI embeddings and st
 ## Version Management
 
 Versions are synced across `package.json`, `composer.json`, `hyve-lite.php`, and `readme.txt` via Grunt (`grunt version`). Semantic Release handles automated versioning using Conventional Commits.
+
+## ThemeIsle SDK
+
+The plugin uses the `codeinwp/themeisle-sdk` package (in `vendor/`). Several modules are wired up in `inc/Main.php` via filters.
+
+### Product key derivation
+
+The SDK converts the plugin slug to a *product key* by replacing hyphens with underscores and lowercasing:
+- Plugin slug: `hyve-lite` → Product key: `hyve_lite`
+
+This key is the prefix for all SDK filter names.
+
+### Module: About Us (`About_Us`)
+
+Registers an About page under the plugin's admin menu. To enable it, return metadata from the filter:
+
+```php
+add_filter( 'hyve_lite_about_us_metadata', [ $this, 'about_us_metadata' ] );
+```
+
+The `location` field must match the **admin menu page slug** (e.g. `'hyve'` for `admin.php?page=hyve`).
+
+The About Us page is registered at the slug `ti-about-{product_key}` → `ti-about-hyve_lite`, so its URL is `admin.php?page=ti-about-hyve_lite`.
+
+Required/optional metadata keys: `location`, `logo`, `page_menu` (optional), `has_upgrade_menu`, `upgrade_link`, `upgrade_text`, `review_link`.
+
+### Helpers
+
+- `tsdk_utmify( $url, $campaign )` — appends UTM parameters to a URL.
+- `tsdk_translate_link( $url )` — localises a ThemeIsle docs URL.
+- License status: `apply_filters( 'product_hyve_license_status', false )` returns `'valid'` when a Pro licence is active.
+
+### Other active SDK modules (registered in `Main.php`)
+
+| Filter / action | Module |
+|---|---|
+| `themeisle_sdk_blackfriday_data` | Black Friday promotions |
+| `themeisle_sdk_enable_telemetry` | Usage telemetry |
