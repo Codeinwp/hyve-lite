@@ -101,6 +101,7 @@ class Main {
 		}
 
 		add_filter( 'themeisle_sdk_blackfriday_data', [ $this, 'add_black_friday_data' ] );
+		add_filter( 'hyve_lite_about_us_metadata', [ $this, 'about_us_metadata' ] );
 		add_action( 'admin_init', [ $this, 'admin_init' ] );
 		add_action( 'admin_init', [ $this, 'add_privacy_policy_content' ] );
 	}
@@ -1047,6 +1048,22 @@ class Main {
 		$configs[ HYVE_PRODUCT_SLUG ] = $config;
 
 		return $configs;
+	}
+
+	/**
+	 * Provide metadata for the ThemeIsle SDK About Us page.
+	 *
+	 * @return array<string, mixed>
+	 */
+	public function about_us_metadata() {
+		return [
+			'location'         => 'hyve',
+			'logo'             => 'https://ps.w.org/hyve-lite/assets/icon-256x256.png',
+			'has_upgrade_menu' => 'valid' !== apply_filters( 'product_hyve_license_status', false ),
+			'upgrade_link'     => tsdk_utmify( 'https://themeisle.com/plugins/hyve/', 'about-us' ),
+			'upgrade_text'     => __( 'Get Pro Version', 'hyve-lite' ),
+			'review_link'      => 'https://wordpress.org/support/plugin/hyve-lite/reviews/',
+		];
 	}
 
 	/**
