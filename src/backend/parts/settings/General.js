@@ -12,6 +12,7 @@ import {
 	Panel,
 	PanelRow,
 	TextControl,
+	TextareaControl,
 	// eslint-disable-next-line @wordpress/no-unsafe-wp-apis
 	__experimentalToggleGroupControl as ToggleGroupControl,
 	// eslint-disable-next-line @wordpress/no-unsafe-wp-apis
@@ -69,6 +70,39 @@ const SuggestedQuestions = () => {
 						) ) }
 					</div>
 				</BaseControl>
+			</PanelRow>
+		</UpsellContainer>
+	);
+};
+
+const SystemPrompt = () => {
+	return (
+		<UpsellContainer
+			title={ __(
+				'Custom System Prompt is a Premium feature',
+				'hyve-lite'
+			) }
+			description={ __(
+				'Give your chatbot a custom persona, tone, and scope with your own system prompt. Upgrade now!',
+				'hyve-lite'
+			) }
+			campaign="system-prompt-settings"
+		>
+			<PanelRow>
+				<TextareaControl
+					label={ __( 'System Prompt', 'hyve-lite' ) }
+					help={ __(
+						'Add your own instructions to shape the assistant’s tone, persona, and what it should or shouldn’t talk about. The built-in answer format and knowledge base rules always stay in effect.',
+						'hyve-lite'
+					) }
+					placeholder={ __(
+						'e.g. You are the friendly support assistant for Acme Co. Only answer questions about our products, pricing, and shipping, and keep replies short and warm.',
+						'hyve-lite'
+					) }
+					rows={ 6 }
+					value={ '' }
+					onChange={ () => {} }
+				/>
 			</PanelRow>
 		</UpsellContainer>
 	);
@@ -338,6 +372,14 @@ const General = () => {
 						}
 					/>
 				</PanelRow>
+
+				{ applyFilters(
+					'hyve.systemPrompt',
+					<SystemPrompt />,
+					isSaving,
+					settings,
+					setSetting
+				) }
 
 				{ applyFilters(
 					'hyve.suggestedQuestions',
