@@ -172,30 +172,61 @@ class Main {
 	 * @return void
 	 */
 	public function register_menu_page() {
-		add_menu_page(
+		$hook = add_menu_page(
 			__( 'Hyve', 'hyve-lite' ),
 			__( 'Hyve', 'hyve-lite' ),
-			'manage_options',
+			'hyve_read_messages',
 			'hyve',
 			[ $this, 'menu_page' ],
 			'dashicons-format-chat',
 			99
 		);
 
-		foreach ( $this->get_submenu_pages() as $slug => $submenu ) {
-			$hook = add_submenu_page(
-				'hyve',
-				$submenu['label'],
-				$submenu['label'],
-				$submenu['capability'],
-				$slug,
-				[ $this, 'menu_page' ]
-			);
-
-			if ( $hook ) {
-				add_action( "admin_print_scripts-$hook", [ $this, 'enqueue_options_assets' ] );
-			}
+		if ( $hook ) {
+			add_action( "admin_print_scripts-$hook", [ $this, 'enqueue_options_assets' ] );
 		}
+
+		global $submenu;
+
+		foreach ( $this->get_submenu_pages() as $submenu_page ) {
+			$submenu['hyve'][] = [
+				$submenu_page['label'],
+				$submenu_page['capability'],
+				add_query_arg(
+					[
+						'page' => 'hyve',
+						'nav'  => $submenu_page['route'],
+					],
+					admin_url( 'admin.php' )
+				),
+				$submenu_page['label'],
+			];
+		}
+
+		/*
+		 * Keep the dashboard tab active when WordPress renders a canonical
+		 * `page=hyve&nav=...` submenu URL.
+		 */
+		add_filter(
+			'submenu_file',
+			function ( $submenu_file, $parent_file ) {
+				if ( 'hyve' !== $parent_file || 'hyve' !== ( $_GET['page'] ?? '' ) ) {
+					return $submenu_file;
+				}
+
+				$nav = isset( $_GET['nav'] ) ? sanitize_key( wp_unslash( $_GET['nav'] ) ) : 'dashboard';
+
+				return add_query_arg(
+					[
+						'page' => 'hyve',
+						'nav'  => $nav,
+					],
+					admin_url( 'admin.php' )
+				);
+			},
+			10,
+			2
+		);
 	}
 
 	/**
@@ -215,22 +246,17 @@ class Main {
 			'hyve'                => [
 				'label'      => __( 'Dashboard', 'hyve-lite' ),
 				'capability' => 'manage_options',
-				'route'      => 'home',
+				'route'      => 'dashboard',
 			],
 			'hyve-knowledge-base' => [
 				'label'      => __( 'Knowledge Base', 'hyve-lite' ),
 				'capability' => 'manage_options',
-				'route'      => 'data',
+				'route'      => 'kb',
 			],
 			'hyve-messages'       => [
 				'label'      => __( 'Messages', 'hyve-lite' ),
 				'capability' => 'hyve_read_messages',
 				'route'      => 'messages',
-			],
-			'hyve-integrations'   => [
-				'label'      => __( 'Integrations', 'hyve-lite' ),
-				'capability' => 'manage_options',
-				'route'      => 'integrations',
 			],
 			'hyve-settings'       => [
 				'label'      => __( 'Settings', 'hyve-lite' ),
@@ -273,9 +299,19 @@ class Main {
 
 		$submenu_pages = $this->get_submenu_pages();
 
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Reading the current admin page to set the document title, no state change.
+		$current_nav = isset( $_GET['nav'] ) ? sanitize_key( wp_unslash( $_GET['nav'] ) ) : 'dashboard';
+		global $title;
+		foreach ( $submenu_pages as $submenu_page ) {
+			if ( $submenu_page['route'] === $current_nav ) {
+				$title = $submenu_page['label'];
+				break;
+			}
+		}
+
 		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Reading the current admin page to pick the initial app screen, no state change.
 		$current_page = isset( $_GET['page'] ) ? sanitize_key( wp_unslash( $_GET['page'] ) ) : 'hyve';
-		$current_view = isset( $submenu_pages[ $current_page ] ) ? $submenu_pages[ $current_page ]['route'] : 'home';
+		$current_view = 'hyve' === $current_page ? $current_nav : ( $submenu_pages[ $current_page ]['route'] ?? 'home' );
 
 		add_filter(
 			'hyve_options_data',
@@ -297,6 +333,7 @@ class Main {
 					[
 						'view'              => $current_view,
 						'canManage'         => current_user_can( 'manage_options' ),
+						'canReadMessages'   => current_user_can( 'hyve_read_messages' ),
 						'canManageMessages' => current_user_can( 'hyve_manage_messages' ),
 						'api'               => $this->api->get_endpoint(),
 						'version'           => HYVE_LITE_VERSION,

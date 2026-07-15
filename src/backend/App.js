@@ -13,7 +13,7 @@ import { useEffect } from '@wordpress/element';
  * Internal dependencies.
  */
 import './style.scss';
-import { getRoutes, navigate, useRoute } from './router';
+import { getAccessibleRoutes, navigate, useRoute } from './router';
 import HeaderBar from './components/HeaderBar';
 import TabNav from './components/TabNav';
 import SideNav from './components/SideNav';
@@ -88,7 +88,7 @@ const App = () => {
 		window.tsdk_reposition_notice?.();
 	}, [ setSettings, setLoading ] );
 
-	const routes = getRoutes();
+	const routes = getAccessibleRoutes();
 	const current = routes[ screen ];
 	const Screen = SCREENS[ screen ];
 

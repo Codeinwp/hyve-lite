@@ -10,14 +10,14 @@ import { useSelect } from '@wordpress/data';
 /**
  * Internal dependencies.
  */
-import { getRoutes, navigate, useRoute } from '../router';
+import { getAccessibleRoutes, navigate, useRoute } from '../router';
 
 const TabNav = () => {
 	const { screen } = useRoute();
 
 	const hasAPI = useSelect( ( select ) => select( 'hyve' ).hasAPI() );
 
-	const routes = getRoutes();
+	const routes = getAccessibleRoutes();
 
 	return (
 		<nav

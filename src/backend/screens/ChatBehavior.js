@@ -6,6 +6,7 @@ import { __, sprintf } from '@wordpress/i18n';
 import {
 	Button,
 	SelectControl,
+	TextareaControl,
 	TextControl,
 	ToggleControl,
 } from '@wordpress/components';
@@ -48,6 +49,12 @@ const SaveButton = ( { isSaving, save } ) => (
 	>
 		{ __( 'Save changes', 'hyve-lite' ) }
 	</Button>
+);
+
+const ProChip = () => (
+	<Chip tone="pro" dot={ false }>
+		{ __( 'Pro', 'hyve-lite' ) }
+	</Chip>
 );
 
 const VisibilityCard = () => {
@@ -200,6 +207,7 @@ const VisibilityCard = () => {
 };
 
 const ConversationCard = () => {
+	const isPro = Boolean( window.hyve?.license );
 	const { settings, isSaving, save } = useSaveSettings();
 
 	const { setSetting } = useDispatch( 'hyve' );
@@ -209,7 +217,31 @@ const ConversationCard = () => {
 	return (
 		<Card
 			title={ __( 'Conversation', 'hyve-lite' ) }
-			footer={ <SaveButton isSaving={ isSaving } save={ save } /> }
+			footer={
+				<>
+					<SaveButton isSaving={ isSaving } save={ save } />
+					{ ! isPro && (
+						<div className="hyve-next-card__foot-upsell">
+							<span>
+								{ __(
+									'Custom instructions are part of Hyve Pro.',
+									'hyve-lite'
+								) }
+							</span>
+							<Button
+								variant="secondary"
+								href={ setUtm(
+									window.hyve?.pro,
+									'system-prompt-settings'
+								) }
+								target="_blank"
+							>
+								{ __( 'Unlock with Pro', 'hyve-lite' ) }
+							</Button>
+						</div>
+					) }
+				</>
+			}
 		>
 			<FieldRow
 				label={ __( 'Welcome message', 'hyve-lite' ) }
@@ -249,6 +281,33 @@ const ConversationCard = () => {
 				/>
 			</FieldRow>
 
+			<FieldRow
+				label={
+					<>
+						{ __( 'Custom instructions', 'hyve-lite' ) }{ ' ' }
+						{ ! isPro && <ProChip /> }
+					</>
+				}
+				description={ __(
+					'Shape the assistant’s tone and persona with your own instructions. The built-in answer format and Knowledge Base rules always stay in effect.',
+					'hyve-lite'
+				) }
+			>
+				<TextareaControl
+					__nextHasNoMarginBottom
+					label={ __( 'Custom instructions', 'hyve-lite' ) }
+					placeholder={ __(
+						'e.g. You are the friendly support assistant for Acme Co. Keep replies short and warm.',
+						'hyve-lite'
+					) }
+					rows={ 6 }
+					value={ settings.system_prompt || '' }
+					disabled={ ! isPro || isSaving }
+					onChange={ ( value ) =>
+						setSetting( 'system_prompt', value )
+					}
+				/>
+			</FieldRow>
 			<FieldRow
 				label={ __( 'Chat sound', 'hyve-lite' ) }
 				description={ __(

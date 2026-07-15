@@ -4,7 +4,7 @@
 import { createReduxStore, register } from '@wordpress/data';
 
 const DEFAULT_STATE = {
-	route: window.hyve?.view || 'home',
+	route: window.hyve?.view || 'dashboard',
 	hasLoaded: false,
 	settings: {},
 	processed: [],

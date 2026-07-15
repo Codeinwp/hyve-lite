@@ -60,6 +60,10 @@ const snippet = ( thread ) => {
 };
 
 const ExportAction = () => {
+	if ( ! window.hyve?.canManageMessages ) {
+		return null;
+	}
+
 	const exportURL = window.hyve?.exportMessagesURL;
 
 	if ( exportURL ) {
@@ -273,6 +277,10 @@ const ThreadView = ( { item } ) => {
 	}, [ thread, item ] );
 
 	const onDelete = async () => {
+		if ( ! window.hyve?.canManageMessages ) {
+			return;
+		}
+
 		setDeleting( true );
 
 		try {
@@ -342,15 +350,17 @@ const ThreadView = ( { item } ) => {
 				<Card
 					title={ thread.title }
 					actions={
-						<Button
-							variant="secondary"
-							isDestructive
-							isBusy={ isDeleting }
-							disabled={ isDeleting }
-							onClick={ () => setConfirmOpen( true ) }
-						>
-							{ __( 'Delete conversation', 'hyve-lite' ) }
-						</Button>
+						window.hyve?.canManageMessages && (
+							<Button
+								variant="secondary"
+								isDestructive
+								isBusy={ isDeleting }
+								disabled={ isDeleting }
+								onClick={ () => setConfirmOpen( true ) }
+							>
+								{ __( 'Delete conversation', 'hyve-lite' ) }
+							</Button>
+						)
 					}
 				>
 					<div className="hyve-next-thread__meta">
