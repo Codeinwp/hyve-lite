@@ -63,6 +63,15 @@ class Hyve_Connect {
 	public const ERROR_OPTION_KEY = 'hyve_connect_api_error';
 
 	/**
+	 * The per-site token option key for `wp_options`. Free sites have no license
+	 * key, so this random token is the secret that binds this site's identity on
+	 * the platform. Persisted (not autoloaded) and never sent to the front end.
+	 *
+	 * @var string
+	 */
+	public const SITE_TOKEN_OPTION = 'hyve_connect_site_token';
+
+	/**
 	 * The single instance of the class.
 	 *
 	 * @var Hyve_Connect|null
@@ -704,6 +713,7 @@ class Hyve_Connect {
 			'Content-Type'   => 'application/json',
 			'Accept'         => $accept,
 			'X-Site-Url'     => get_site_url(),
+			'X-Site-Token'   => $this->site_token(),
 			'X-Hyve-Version' => defined( 'HYVE_LITE_VERSION' ) ? HYVE_LITE_VERSION : '',
 		];
 
@@ -715,6 +725,25 @@ class Hyve_Connect {
 		}
 
 		return $headers;
+	}
+
+	/**
+	 * This site's per-site token, generated once and kept in `wp_options`.
+	 *
+	 * Sent on every request so it is in place across free/paid transitions; the
+	 * platform only enforces it for the free tier (paid uses the license key).
+	 *
+	 * @return string
+	 */
+	private function site_token() {
+		$token = get_option( self::SITE_TOKEN_OPTION );
+
+		if ( ! is_string( $token ) || '' === $token ) {
+			$token = wp_generate_password( 64, false, false );
+			update_option( self::SITE_TOKEN_OPTION, $token, false );
+		}
+
+		return $token;
 	}
 
 	/**

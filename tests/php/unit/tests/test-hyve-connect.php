@@ -33,6 +33,7 @@ class HyveConnectTest extends WP_UnitTestCase {
 		remove_all_actions( 'before_delete_post' );
 		delete_option( 'hyve_settings' );
 		delete_option( Hyve_Connect::ERROR_OPTION_KEY );
+		delete_option( Hyve_Connect::SITE_TOKEN_OPTION );
 		delete_transient( 'hyve_connect_stats' );
 		parent::tearDown();
 	}
@@ -264,6 +265,28 @@ class HyveConnectTest extends WP_UnitTestCase {
 		$this->assertArrayNotHasKey( 'Authorization', $this->captured['args']['headers'] );
 
 		$this->assertSame( 'stored', $result['results'][0]['status'] );
+	}
+
+	/**
+	 * Every request carries the per-site token, generated once and reused, so
+	 * the platform can bind a free site's identity without a license key.
+	 */
+	public function test_site_token_is_sent_and_stable() {
+		delete_option( Hyve_Connect::SITE_TOKEN_OPTION );
+
+		$this->intercept( $this->sse( [ [ 'job_complete', [ 'kb' => [] ] ] ] ) );
+		Hyve_Connect::instance()->kb_status();
+
+		$token = $this->captured['args']['headers']['X-Site-Token'];
+
+		$this->assertNotEmpty( $token );
+		$this->assertSame( $token, get_option( Hyve_Connect::SITE_TOKEN_OPTION ) );
+
+		// A second request reuses the same stored token, not a fresh one.
+		$this->intercept( $this->sse( [ [ 'job_complete', [ 'kb' => [] ] ] ] ) );
+		Hyve_Connect::instance()->kb_status();
+
+		$this->assertSame( $token, $this->captured['args']['headers']['X-Site-Token'] );
 	}
 
 	/**
