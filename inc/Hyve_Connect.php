@@ -120,7 +120,7 @@ class Hyve_Connect {
 	 * Upsert documents into the hosted knowledge base.
 	 *
 	 * The platform chunks, moderates, embeds, and stores; the plugin sends
-	 * whole documents (D11). Unchanged content is cached server-side and costs
+	 * whole documents. Unchanged content is cached server-side and costs
 	 * no quota.
 	 *
 	 * @param array<array<string, mixed>> $documents Normalized documents ({id,type,title,url,content,meta}).
@@ -273,7 +273,7 @@ class Hyve_Connect {
 	}
 
 	/**
-	 * Fetch the hosted knowledge base state (used for purge auto-recovery, D13).
+	 * Fetch the hosted knowledge base state via the dedicated status action.
 	 *
 	 * @return array<string, mixed>|\WP_Error
 	 */
@@ -282,7 +282,7 @@ class Hyve_Connect {
 	}
 
 	/**
-	 * Export a batch of stored chunks + vectors for local re-import on disconnect (D12).
+	 * Export a batch of stored chunks + vectors for local re-import on disconnect.
 	 *
 	 * @param string|null $cursor     Pagination cursor; null starts.
 	 * @param int         $batch_size Items per batch.

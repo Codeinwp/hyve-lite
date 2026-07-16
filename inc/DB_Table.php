@@ -387,8 +387,6 @@ class DB_Table {
 	/**
 	 * Count rows held in a given storage backend.
 	 *
-	 * @since 1.4.3
-	 *
 	 * @param string $storage Storage backend (e.g. WordPress|Qdrant).
 	 *
 	 * @return int
@@ -869,7 +867,7 @@ class DB_Table {
 			'type'    => $this->connect_source_type( $post_id ),
 			'title'   => (string) $doc['title'],
 			'url'     => $url ? $url : null,
-			// The plugin extracts text; the platform chunks it (D11).
+			// The plugin extracts text; the platform chunks it.
 			'content' => wp_strip_all_tags( (string) $doc['content'] ),
 		];
 	}
@@ -1121,10 +1119,8 @@ class DB_Table {
 			// Either way the local chunk rows are redundant in Connect mode.
 			$this->delete_by_post_id( $post_id );
 
-			// Record the rejection for the KB listing. If the platform retained
-			// a previously-synced copy it is still on the cloud, and the synced
-			// hash from that sync already describes it; a brand-new rejected
-			// source stays unsynced.
+			// Flag the rejection for the KB listing; a retained prior sync keeps
+			// its existing hash, a brand-new rejected source stays unsynced.
 			if ( 'rejected' === $state ) {
 				update_post_meta( $post_id, '_hyve_moderation_failed', 1 );
 				update_post_meta( $post_id, '_hyve_moderation_review', $this->connect_moderation_review( $row ) );
@@ -1324,7 +1320,7 @@ class DB_Table {
 	}
 
 	/**
-	 * Re-push local content when Hyve Connect has lost it (inactivity purge, D13).
+	 * Re-push local content when Hyve Connect has lost it (inactivity purge).
 	 *
 	 * Compares what we believe is synced against the platform's reported KB
 	 * state; if the platform is empty/purged while we still hold synced sources,

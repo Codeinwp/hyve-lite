@@ -1153,7 +1153,7 @@ class API extends BaseAPI {
 	}
 
 	/**
-	 * Disconnect Hyve Connect, on one of two user-chosen paths (D18).
+	 * Disconnect Hyve Connect, on one of two user-chosen paths.
 	 *
 	 * `import`: pull the hosted content back into local rows (no re-embed, the
 	 * model matches), then remove the hosted copy. `clear`: delete everything
@@ -1252,7 +1252,7 @@ class API extends BaseAPI {
 	 *
 	 * Paginates `hyve-kb export` and rebuilds native per-chunk rows
 	 * (`storage = WordPress`) directly from the returned vectors, so no
-	 * re-embedding is needed (the export model matches the local model, D5/D12).
+	 * re-embedding is needed (the export model matches the local model).
 	 *
 	 * @return true|\WP_Error
 	 */

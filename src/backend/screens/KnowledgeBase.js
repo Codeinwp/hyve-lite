@@ -133,10 +133,8 @@ const IndexedContent = () => {
 		select( 'hyve' ).getTotalChunks()
 	);
 
-	// In Connect mode the platform owns the chunks; there are no local per-source
-	// rows to count, so the per-source Chunks column is dropped (the total still
-	// comes from the platform aggregate, and Status reflects each source's
-	// actual sync state).
+	// In Connect mode the platform owns the chunks, so the per-source Chunks
+	// column is dropped in favor of the sync-state Status column.
 	const isConnectActive = useSelect( ( select ) =>
 		select( 'hyve' ).isConnectActive()
 	);

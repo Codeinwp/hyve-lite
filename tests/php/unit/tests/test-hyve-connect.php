@@ -1,6 +1,6 @@
 <?php
 /**
- * Tests for the Hyve_Connect client and the ai_mode migration.
+ * Tests for the Hyve_Connect client.
  *
  * HTTP is intercepted with the core `pre_http_request` filter, so these assert
  * request building, payload shapes, SSE parsing and error mapping without a
