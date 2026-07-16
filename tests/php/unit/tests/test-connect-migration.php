@@ -1022,6 +1022,66 @@ class ConnectMigrationTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Import re-enters the local engine, where the local chunk limit applies:
+	 * content over it is pruned (oldest first), mirroring Qdrant deactivation.
+	 */
+	public function test_disconnect_import_prunes_over_local_limit() {
+		$this->enable_connect();
+		wp_set_current_user( self::factory()->user->create( [ 'role' => 'administrator' ] ) );
+
+		$posts = [
+			$this->indexed_post( true ),
+			$this->indexed_post( true ),
+			$this->indexed_post( true ),
+		];
+
+		add_filter(
+			'hyve_chunks_limit',
+			function () {
+				return 2;
+			}
+		);
+
+		add_filter(
+			'pre_http_request',
+			function ( $response, $args ) use ( $posts ) {
+				$payload = json_decode( isset( $args['body'] ) ? (string) $args['body'] : '', true );
+
+				$data = 'export' === ( $payload['action'] ?? '' )
+					? [
+						'items'       => array_map(
+							function ( $post_id ) {
+								return [
+									'id'          => $post_id,
+									'content'     => 'Chunk for ' . $post_id,
+									'token_count' => 3,
+									'embedding'   => [ 0.1 ],
+								];
+							},
+							$posts
+						),
+						'next_cursor' => null,
+					]
+					: [ 'deleted' => true ];
+
+				return [
+					'response' => [ 'code' => 200 ],
+					'body'     => $this->sse( [ [ 'job_complete', $data ] ] ),
+				];
+			},
+			10,
+			2
+		);
+
+		$request = new WP_REST_Request( 'POST', '/hyve/v1/connect' );
+		$request->set_query_params( [ 'mode' => 'import' ] );
+		rest_do_request( $request );
+
+		// Two newest chunks fit the limit; the oldest post's cleanup is scheduled.
+		$this->assertNotFalse( wp_next_scheduled( 'hyve_delete_posts', [ [ (string) $posts[0] ] ] ) );
+	}
+
+	/**
 	 * Disconnect-clear removes the hosted copy with ONE platform call; the
 	 * per-post local cleanup must not fire a platform delete for each source
 	 * (a thousand-source KB would time out).

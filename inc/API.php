@@ -1206,6 +1206,14 @@ class API extends BaseAPI {
 			// Import keeps the sources but the hosted copy is gone, so forget the
 			// synced markers; a future re-enable then re-pushes cleanly.
 			$this->table->connect_reset_sync_markers();
+
+			// Back on the local engine the local chunk limit applies again:
+			// prune the oldest content over it, same as Qdrant deactivation.
+			$over_limit = $this->table->get_posts_over_limit();
+
+			if ( ! empty( $over_limit ) ) {
+				wp_schedule_single_event( time(), 'hyve_delete_posts', [ $over_limit ] );
+			}
 		}
 
 		delete_option( DB_Table::CONNECT_SYNC_OPTION );
