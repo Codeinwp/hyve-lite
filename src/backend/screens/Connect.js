@@ -268,6 +268,7 @@ export const ConnectPanel = () => {
 		const isExhausted = kbFull || chatFull;
 
 		const isBlocked = Boolean( connectSync?.blocked );
+		const isLicenseExpired = 'expired' === connect?.license;
 		const syncTotal = Number( connectSync?.total ?? 0 );
 		const syncCurrent = Math.min(
 			syncTotal,
@@ -276,6 +277,22 @@ export const ConnectPanel = () => {
 		const syncPercent = syncTotal
 			? Math.round( ( syncCurrent / syncTotal ) * 100 )
 			: 0;
+
+		let blockedReason = __(
+			'It goes over the free plan limit. Upgrade to Pro to sync everything.',
+			'hyve-lite'
+		);
+		if ( isLicenseExpired ) {
+			blockedReason = __(
+				'It goes over the free plan limit that applies while your license is expired.',
+				'hyve-lite'
+			);
+		} else if ( isPro ) {
+			blockedReason = __(
+				'It goes over your current plan limit.',
+				'hyve-lite'
+			);
+		}
 
 		let statusText = __(
 			'Running on the free plan. Connect a license to raise these limits.',
@@ -337,6 +354,23 @@ export const ConnectPanel = () => {
 						</div>
 					) }
 
+					{ isLicenseExpired && (
+						<div className="hyve-next-notice is-warn is-flush">
+							<div className="hyve-next-notice__body">
+								<strong>
+									{ __(
+										'Your Hyve license has expired.',
+										'hyve-lite'
+									) }
+								</strong>{ ' ' }
+								{ __(
+									'You are on free plan limits until you renew it. Your assistant keeps answering in the meantime.',
+									'hyve-lite'
+								) }
+							</div>
+						</div>
+					) }
+
 					{ isBlocked && (
 						<div className="hyve-next-notice is-warn is-flush">
 							<div className="hyve-next-notice__body">
@@ -346,15 +380,7 @@ export const ConnectPanel = () => {
 										'hyve-lite'
 									) }
 								</strong>{ ' ' }
-								{ isPro
-									? __(
-											'It goes over your current plan limit.',
-											'hyve-lite'
-									  )
-									: __(
-											'It goes over the free plan limit. Upgrade to Pro to sync everything.',
-											'hyve-lite'
-									  ) }
+								{ blockedReason }
 							</div>
 						</div>
 					) }
