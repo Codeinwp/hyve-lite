@@ -351,7 +351,7 @@ class Stream {
 					]
 				);
 			} else {
-				$this->send_event( 'error', [ 'message' => Hyve_Connect::user_message( $result ) ] );
+				$this->send_event( 'error', [ 'message' => Hyve_Connect::visitor_message() ] );
 			}
 
 			return;

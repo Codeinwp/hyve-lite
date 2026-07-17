@@ -525,7 +525,6 @@ class Hyve_Connect {
 
 		$messages = [
 			'quota_exceeded'     => __( 'You have reached your Hyve Connect limit for now. Upgrade your plan for more.', 'hyve-lite' ),
-			'moderation_flagged' => __( 'Message was flagged.', 'hyve-lite' ),
 			'kb_unavailable'     => __( 'The knowledge base is being prepared. Please try again shortly.', 'hyve-lite' ),
 			'provider_error'     => __( 'The hosted AI is temporarily unavailable. Please try again.', 'hyve-lite' ),
 		];
@@ -537,6 +536,16 @@ class Hyve_Connect {
 		}
 
 		return __( 'The hosted AI is temporarily unavailable. Please try again.', 'hyve-lite' );
+	}
+
+	/**
+	 * Generic, visitor-safe chat error. The reason (quota, expiry, provider) is
+	 * for the admin, so the widget shows one neutral line for every code.
+	 *
+	 * @return string
+	 */
+	public static function visitor_message() {
+		return __( 'The assistant is temporarily unavailable. Please try again later.', 'hyve-lite' );
 	}
 
 	/**

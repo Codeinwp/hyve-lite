@@ -515,6 +515,14 @@ class API extends BaseAPI {
 			);
 		}
 
+		if ( Hyve_Connect::MODE_SELF === $mode && Hyve_Connect::MODE_CONNECT === $prev_mode ) {
+			return $this->settings_response(
+				[
+					'error' => __( 'Use the Disconnect option to leave Hyve Connect.', 'hyve-lite' ),
+				]
+			);
+		}
+
 		$api_warning   = '';
 		$api_key_error = null;
 		$key_validated = false;
@@ -1170,6 +1178,8 @@ class API extends BaseAPI {
 			return rest_ensure_response( [ 'error' => $blocked ] );
 		}
 
+		wp_clear_scheduled_hook( DB_Table::CONNECT_SYNC_HOOK );
+
 		if ( 'import' === $mode ) {
 			$imported = $this->connect_import();
 
@@ -1256,6 +1266,17 @@ class API extends BaseAPI {
 	private function connect_import() {
 		$client = Hyve_Connect::instance();
 		$cursor = null;
+		$seen   = [];
+
+		// Compare by model base name: the platform reports a provider-prefixed
+		// name (e.g. "openai/text-embedding-3-small") for the same model the local
+		// engine calls "text-embedding-3-small".
+		$model_base = static function ( $model ) {
+			$model = strtolower( trim( (string) $model ) );
+			$slash = strrpos( $model, '/' );
+
+			return false === $slash ? $model : substr( $model, $slash + 1 );
+		};
 
 		do {
 			$batch = $client->kb_export( $cursor, 50 );
@@ -1264,20 +1285,47 @@ class API extends BaseAPI {
 				return $batch;
 			}
 
+			// The export vectors are only reusable if they share the local
+			// embedding space; importing a different model's vectors would make
+			// local search return garbage, so reject it (the user can "clear").
+			$model = isset( $batch['model'] ) ? (string) $batch['model'] : '';
+
+			if ( '' !== $model && $model_base( $model ) !== $model_base( OpenAI::EMBEDDING_MODEL ) ) {
+				return new \WP_Error(
+					'connect_import_model_mismatch',
+					__( 'The hosted content was indexed with a different embedding model and cannot be imported.', 'hyve-lite' )
+				);
+			}
+
 			$items = isset( $batch['items'] ) && is_array( $batch['items'] ) ? $batch['items'] : [];
 
 			foreach ( $items as $item ) {
 				$post_id = (int) ( $item['id'] ?? 0 );
 
+				// A source whose local post is gone would import as an unreachable
+				// ghost chunk (nothing to manage or display it): skip it.
+				if ( 0 === $post_id || false === get_post_status( $post_id ) ) {
+					continue;
+				}
+
+				// Idempotent per post: clear any rows left by an earlier failed
+				// import once, before appending this run's chunks, so a retried
+				// disconnect never duplicates the knowledge base.
+				if ( ! isset( $seen[ $post_id ] ) ) {
+					$this->table->delete_by_post_id( $post_id );
+					$seen[ $post_id ] = true;
+				}
+
 				$this->table->insert(
 					[
-						'post_id'      => $post_id,
-						'post_title'   => $post_id ? get_the_title( $post_id ) : '',
-						'post_content' => (string) ( $item['content'] ?? '' ),
-						'token_count'  => (int) ( $item['token_count'] ?? 0 ),
-						'embeddings'   => wp_json_encode( $item['embedding'] ?? [] ),
-						'post_status'  => 'processed',
-						'storage'      => 'WordPress',
+						'post_id'         => $post_id,
+						'post_title'      => get_the_title( $post_id ),
+						'post_content'    => (string) ( $item['content'] ?? '' ),
+						'embedding_model' => OpenAI::EMBEDDING_MODEL,
+						'token_count'     => (int) ( $item['token_count'] ?? 0 ),
+						'embeddings'      => wp_json_encode( $item['embedding'] ?? [] ),
+						'post_status'     => 'processed',
+						'storage'         => 'WordPress',
 					]
 				);
 			}
@@ -1320,20 +1368,22 @@ class API extends BaseAPI {
 					'key'     => '_hyve_added',
 					'compare' => 'EXISTS',
 				],
-			]
+			],
+			true
 		);
 	}
 
 	/**
 	 * Forget every indexed source matching a meta query (disconnect cleanup).
 	 *
-	 * @param array<int, array<string, mixed>> $meta_query A meta_query clause list.
+	 * @param array<int, array<string, mixed>> $meta_query    A meta_query clause list.
+	 * @param bool                             $delete_chunks Also delete each source's local chunk rows.
 	 *
 	 * @return void
 	 */
-	private function connect_forget_sources( array $meta_query ) {
+	private function connect_forget_sources( array $meta_query, $delete_chunks = false ) {
 		foreach ( $this->table->connect_source_ids( $meta_query ) as $post_id ) {
-			$this->connect_forget_source( (int) $post_id );
+			$this->connect_forget_source( (int) $post_id, $delete_chunks );
 		}
 	}
 
@@ -1343,11 +1393,12 @@ class API extends BaseAPI {
 	 * Plugin-owned sources (custom data, URLs, imported pages) exist only as
 	 * KB entries, so forgetting one deletes the post itself.
 	 *
-	 * @param int $post_id Post id.
+	 * @param int  $post_id       Post id.
+	 * @param bool $delete_chunks Also delete the post's local chunk rows (clear, not import).
 	 *
 	 * @return void
 	 */
-	private function connect_forget_source( $post_id ) {
+	private function connect_forget_source( $post_id, $delete_chunks = false ) {
 		if ( 'hyve_docs' === get_post_type( $post_id ) ) {
 			wp_delete_post( $post_id, true );
 			do_action( 'hyve_data_deleted', $post_id );
@@ -1361,6 +1412,14 @@ class API extends BaseAPI {
 		delete_post_meta( $post_id, '_hyve_moderation_failed' );
 		delete_post_meta( $post_id, '_hyve_moderation_review' );
 		delete_post_meta( $post_id, '_hyve_processing_error' );
+
+		// A "clear" disconnect wipes the local index too. In Connect mode the sync
+		// deletes each post's local chunk rows as it uploads, but a disconnect that
+		// interrupts an in-flight sync leaves the not-yet-synced posts' rows behind,
+		// so drop them here. Import keeps them, hence the flag.
+		if ( $delete_chunks ) {
+			$this->table->delete_by_post_id( $post_id );
+		}
 
 		do_action( 'hyve_data_deleted', $post_id );
 	}
@@ -1970,6 +2029,47 @@ class API extends BaseAPI {
 	}
 
 	/**
+	 * Whether the requesting IP has exceeded the chat rate limit. Fixed-window
+	 * per-IP counters (filterable window => max), so a steady visitor is fine
+	 * but a flood is capped before it reaches the metered backend.
+	 *
+	 * @return bool
+	 */
+	private function chat_rate_limited() {
+		// REMOTE_ADDR is the transport peer (not a spoofable forwarded header);
+		// validate it and key the coarse throttle on it.
+		$raw = isset( $_SERVER['REMOTE_ADDR'] ) ? wp_unslash( $_SERVER['REMOTE_ADDR'] ) : ''; // phpcs:ignore WordPressVIPMinimum.Variables.ServerVariables.UserControlledHeaders, WordPressVIPMinimum.Variables.RestrictedVariables.cache_constraints___SERVER__REMOTE_ADDR__
+		$ip  = filter_var( $raw, FILTER_VALIDATE_IP );
+
+		if ( ! $ip ) {
+			return false;
+		}
+
+		$limits = apply_filters(
+			'hyve_chat_rate_limits',
+			[
+				MINUTE_IN_SECONDS => 15,
+				HOUR_IN_SECONDS   => 100,
+			]
+		);
+
+		$base = 'hyve_chat_rl_' . md5( $ip );
+
+		foreach ( $limits as $window => $max ) {
+			$key   = $base . '_' . $window . '_' . (int) floor( time() / $window );
+			$count = (int) get_transient( $key );
+
+			if ( $count >= $max ) {
+				return true;
+			}
+
+			set_transient( $key, $count + 1, $window );
+		}
+
+		return false;
+	}
+
+	/**
 	 * Send chat.
 	 *
 	 * @param \WP_REST_Request<array<string, mixed>> $request Request object.
@@ -1977,6 +2077,18 @@ class API extends BaseAPI {
 	 * @return \WP_REST_Response
 	 */
 	public function send_chat( $request ) {
+		// Public chat is metered (platform allowance in Connect mode, the site's
+		// OpenAI key otherwise). Throttle logged-out visitors per IP so a loop
+		// cannot drain the allowance; admins (the preview) are exempt.
+		if ( ! current_user_can( 'manage_options' ) && $this->chat_rate_limited() ) {
+			return rest_ensure_response(
+				[
+					'error' => __( 'You are sending messages too quickly. Please wait a moment and try again.', 'hyve-lite' ),
+					'code'  => 'rate_limited',
+				]
+			);
+		}
+
 		$prepared = $this->prepare_chat( $request );
 
 		if ( is_wp_error( $prepared ) ) {
@@ -2075,14 +2187,19 @@ class API extends BaseAPI {
 		if ( is_wp_error( $result ) ) {
 			return rest_ensure_response(
 				[
-					'error' => Hyve_Connect::user_message( $result ),
+					'error' => Hyve_Connect::visitor_message(),
 					'code'  => $result->get_error_code(),
 				]
 			);
 		}
 
 		$thread_id = isset( $result['thread_id'] ) ? $result['thread_id'] : $prepared['thread_id'];
-		$token     = wp_generate_password( 24, false );
+
+		if ( ! $is_test ) {
+			$record_id = apply_filters( 'hyve_chat_request', $thread_id, $record_id, $prepared['message'] );
+		}
+
+		$token = wp_generate_password( 24, false );
 
 		set_transient(
 			'hyve_connect_run_' . $token,

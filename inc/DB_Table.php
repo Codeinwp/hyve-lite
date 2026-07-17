@@ -30,7 +30,7 @@ class DB_Table {
 	 * @since 1.2.0
 	 * @var string
 	 */
-	public $version = '1.1.0';
+	public $version = '1.2.0';
 
 	/**
 	 * Cache prefix.
@@ -63,11 +63,28 @@ class DB_Table {
 	const CONNECT_SYNC_OPTION = 'hyve_connect_sync';
 
 	/**
+	 * Fingerprint of the platform account (license) the KB was last synced to, so
+	 * an identity change (e.g. free -> paid activation) can trigger a re-push.
+	 *
+	 * @var string
+	 */
+	const CONNECT_IDENTITY_OPTION = 'hyve_connect_identity';
+
+	/**
 	 * The cron hook that drives the to-Connect sync job.
 	 *
 	 * @var string
 	 */
 	const CONNECT_SYNC_HOOK = 'hyve_lite_connect_sync';
+
+	/**
+	 * How long an `in_progress` sync may go without advancing before the
+	 * watchdog treats its run as lost and reschedules it. Comfortably beyond a
+	 * single batch (a ~60s HTTP call plus the 10s inter-pass gap).
+	 *
+	 * @var int
+	 */
+	const CONNECT_SYNC_STALL = 300;
 
 	/**
 	 * The single instance of the class.
@@ -139,6 +156,7 @@ class DB_Table {
 		post_title mediumtext NOT NULL,
 		post_content longtext NOT NULL,
 		embeddings longtext NOT NULL,
+		embedding_model VARCHAR(255) NOT NULL DEFAULT "",
 		token_count int(11) NOT NULL DEFAULT 0,
 		post_status VARCHAR(255) NOT NULL DEFAULT "scheduled",
         storage VARCHAR(255) NOT NULL DEFAULT "WordPress",
@@ -177,6 +195,7 @@ class DB_Table {
 			'post_title'   => '%s',
 			'post_content' => '%s',
 			'embeddings'   => '%s',
+			'embedding_model' => '%s',
 			'token_count'  => '%d',
 			'post_status'  => '%s',
 			'storage'      => '%s',
@@ -198,6 +217,7 @@ class DB_Table {
 			'post_title'   => '',
 			'post_content' => '',
 			'embeddings'   => '',
+			'embedding_model' => '',
 			'token_count'  => 0,
 			'post_status'  => 'scheduled',
 			'storage'      => 'WordPress',
@@ -534,10 +554,14 @@ class DB_Table {
 	public function add_post( $post_id, $action = 'add' ) {
 		update_post_meta( $post_id, '_hyve_post_processing', 1 );
 
+		$content = Hyve_Connect::is_active()
+			? get_post_field( 'post_content', $post_id )
+			: apply_filters( 'the_content', get_post_field( 'post_content', $post_id ) );
+
 		$result = $this->ingest_document(
 			[
 				'title'   => get_the_title( $post_id ),
-				'content' => apply_filters( 'the_content', get_post_field( 'post_content', $post_id ) ),
+				'content' => $content,
 			],
 			[
 				'action'             => 'update' === $action ? 'update' : 'add',
@@ -796,6 +820,15 @@ class DB_Table {
 		if ( 'skipped' === $state ) {
 			if ( $created_here ) {
 				wp_delete_post( $post_id, true );
+			} else {
+				delete_post_meta( $post_id, '_hyve_needs_update' );
+				$this->connect_forget_sync( (int) $post_id );
+
+				$status = $this->connect_sync_status();
+
+				if ( empty( $status['in_progress'] ) && empty( $status['blocked'] ) ) {
+					$this->connect_start_sync();
+				}
 			}
 
 			return new \WP_Error(
@@ -1003,6 +1036,7 @@ class DB_Table {
 				'in_progress' => true,
 				'blocked'     => false,
 				'message'     => '',
+				'heartbeat'   => time(),
 			]
 		);
 
@@ -1086,6 +1120,11 @@ class DB_Table {
 			return;
 		}
 
+		if ( ! Hyve_Connect::is_active() ) {
+			$this->connect_finish_sync();
+			return;
+		}
+
 		$status_by_id = [];
 
 		foreach ( ( isset( $result['results'] ) && is_array( $result['results'] ) ? $result['results'] : [] ) as $row ) {
@@ -1098,8 +1137,11 @@ class DB_Table {
 		$storage_skip = false;
 
 		foreach ( array_keys( $documents ) as $post_id ) {
-			$row   = $status_by_id[ (int) $post_id ] ?? [];
-			$state = isset( $row['status'] ) ? $row['status'] : 'stored';
+			$row = $status_by_id[ (int) $post_id ] ?? [];
+			// A document absent from the response is treated as failed, never
+			// stored: assuming success would write a synced hash for content that
+			// may not be on the platform, so it would never be re-pushed.
+			$state = isset( $row['status'] ) ? $row['status'] : 'failed';
 
 			// Did not fit the plan's remaining budget: stays pending for a
 			// later batch, or the block below when nothing fits anymore.
@@ -1180,6 +1222,7 @@ class DB_Table {
 		$status['current']     = (int) ( $status['current'] ?? 0 ) + (int) $done;
 		$has_more              = $this->connect_pending_count() > 0;
 		$status['in_progress'] = $has_more;
+		$status['heartbeat']   = time();
 
 		update_option( self::CONNECT_SYNC_OPTION, $status );
 		Hyve_Connect::flush_stats();
@@ -1187,6 +1230,38 @@ class DB_Table {
 		if ( $has_more ) {
 			wp_schedule_single_event( time() + 10, self::CONNECT_SYNC_HOOK );
 		}
+	}
+
+	/**
+	 * Rescue a sync whose cron run was lost (event unscheduled, then the process
+	 * killed mid-batch, e.g. the 60s HTTP call outlasting max_execution_time).
+	 * When a sync claims to be in progress but nothing is queued to drive it and
+	 * it has not advanced within CONNECT_SYNC_STALL, reschedule it. Cheap enough
+	 * to call on every admin load; a healthy run (recent heartbeat or a queued
+	 * pass) is left untouched.
+	 *
+	 * @return void
+	 */
+	public function connect_sync_watchdog() {
+		$status = $this->connect_sync_status();
+
+		if ( empty( $status['in_progress'] ) ) {
+			return;
+		}
+
+		// A pass is already queued to carry the job forward.
+		if ( wp_next_scheduled( self::CONNECT_SYNC_HOOK ) ) {
+			return;
+		}
+
+		// Advanced recently: a batch is likely still executing, not stranded.
+		$heartbeat = isset( $status['heartbeat'] ) ? (int) $status['heartbeat'] : 0;
+
+		if ( ( time() - $heartbeat ) < self::CONNECT_SYNC_STALL ) {
+			return;
+		}
+
+		wp_schedule_single_event( time(), self::CONNECT_SYNC_HOOK );
 	}
 
 	/**
@@ -1348,6 +1423,45 @@ class DB_Table {
 	}
 
 	/**
+	 * Re-push the whole KB when the platform account changes underneath it.
+	 *
+	 * The account is keyed by license (free -> paid activation, or a key swap),
+	 * so a change points the site at a different, mostly-empty account. Sources
+	 * synced to the old one are absent from the new one, and the recovery check
+	 * above never fires because the new account is not fully empty (e.g. content
+	 * synced after the switch). Forget the stale markers and restart the sync so
+	 * everything lands on the current account. First run just records the
+	 * identity, leaving any in-progress sync untouched.
+	 *
+	 * @return void
+	 */
+	public function connect_check_identity() {
+		if ( ! Hyve_Connect::is_active() ) {
+			return;
+		}
+
+		$license     = (string) apply_filters( 'product_hyve_license_key', '' );
+		$fingerprint = hash( 'sha256', '' !== $license ? $license : 'free' );
+		$stored      = (string) get_option( self::CONNECT_IDENTITY_OPTION, '' );
+
+		if ( $fingerprint === $stored ) {
+			return;
+		}
+
+		update_option( self::CONNECT_IDENTITY_OPTION, $fingerprint );
+
+		// No prior identity: record only, so shipping this never disturbs a
+		// healthy, already-synced site.
+		if ( '' === $stored ) {
+			return;
+		}
+
+		$this->connect_reset_sync_markers();
+		$this->connect_start_sync();
+		Hyve_Connect::flush_stats();
+	}
+
+	/**
 	 * Content hash of one source, computed exactly as the upsert path sends it
 	 * (via connect_document), so it matches the platform's stored content_hash.
 	 *
@@ -1504,12 +1618,11 @@ class DB_Table {
 		}
 
 		// A manual Sync retries a plan-blocked job. Since the platform admits
-		// documents greedily (skips cost nothing), the retry is one cheap
-		// round: it stores whatever fits and re-blocks with fresh numbers if
-		// nothing does.
-		if ( ! empty( $status['blocked'] ) ) {
-			delete_option( self::CONNECT_SYNC_OPTION );
-		}
+		// documents greedily (skips cost nothing), the retry is one cheap round:
+		// it stores whatever fits and re-blocks with fresh numbers if nothing
+		// does. Clear the block only once the network round below resolves; a
+		// failed reconcile must leave the blocked state (and its banner) intact.
+		$was_blocked = ! empty( $status['blocked'] );
 
 		$manifest = $this->connect_local_manifest();
 		$connect  = Hyve_Connect::instance();
@@ -1522,6 +1635,7 @@ class DB_Table {
 		}
 
 		if ( ! empty( $root['in_sync'] ) ) {
+			$this->connect_clear_blocked_state( $was_blocked );
 			return true;
 		}
 
@@ -1537,6 +1651,7 @@ class DB_Table {
 			: [];
 
 		if ( empty( $differing ) ) {
+			$this->connect_clear_blocked_state( $was_blocked );
 			return true;
 		}
 
@@ -1570,10 +1685,28 @@ class DB_Table {
 		}
 
 		if ( ! empty( $to_push ) ) {
+			// Kicks a fresh sync, overwriting the blocked state with in_progress.
 			$this->connect_start_sync();
+		} else {
+			$this->connect_clear_blocked_state( $was_blocked );
 		}
 
 		return true;
+	}
+
+	/**
+	 * Clear a resolved plan-block once a reconcile round has actually confirmed
+	 * there is nothing left to push. No-op unless the job was blocked, so a
+	 * healthy (unblocked) sync state is never disturbed.
+	 *
+	 * @param bool $was_blocked Whether the sync was plan-blocked on entry.
+	 *
+	 * @return void
+	 */
+	private function connect_clear_blocked_state( $was_blocked ) {
+		if ( $was_blocked ) {
+			delete_option( self::CONNECT_SYNC_OPTION );
+		}
 	}
 
 	/**
@@ -1644,9 +1777,10 @@ class DB_Table {
 		$this->update(
 			$id,
 			[
-				'embeddings'  => $embeddings,
-				'post_status' => 'processed',
-				'storage'     => $storage,
+				'embeddings'      => $embeddings,
+				'embedding_model' => OpenAI::EMBEDDING_MODEL,
+				'post_status'     => 'processed',
+				'storage'         => $storage,
 			]
 		);
 

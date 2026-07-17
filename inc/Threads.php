@@ -89,7 +89,9 @@ class Threads {
 			[
 				'thread_id' => $thread_id,
 				'sender'    => 'bot',
-				'message'   => $response,
+				// The admin Messages screen renders this as HTML; strip anything
+				// unsafe (the reply is model/platform output, not trusted).
+				'message'   => wp_kses_post( $response ),
 			]
 		);
 	}

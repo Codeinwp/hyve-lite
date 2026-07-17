@@ -30,8 +30,10 @@ class ConnectSyncTest extends WP_UnitTestCase {
 	 */
 	protected function tearDown(): void {
 		remove_all_filters( 'pre_http_request' );
+		remove_all_filters( 'product_hyve_license_key' );
 		delete_option( 'hyve_settings' );
 		delete_option( DB_Table::CONNECT_SYNC_OPTION );
+		delete_option( DB_Table::CONNECT_IDENTITY_OPTION );
 		delete_transient( 'hyve_connect_stats' );
 		delete_transient( 'hyve_connect_recovery_check' );
 		wp_clear_scheduled_hook( DB_Table::CONNECT_SYNC_HOOK );
@@ -182,6 +184,212 @@ class ConnectSyncTest extends WP_UnitTestCase {
 		$status = DB_Table::instance()->connect_sync_status();
 		$this->assertFalse( $status['in_progress'] );
 		$this->assertSame( 2, $status['current'] );
+	}
+
+	/**
+	 * A disconnect landing while the upsert is in flight must not let the sync
+	 * job delete local rows or write synced markers on the now self-hosted site.
+	 */
+	public function test_run_sync_aborts_when_disconnected_mid_upsert() {
+		$this->enable_connect();
+		$post = $this->indexed_post( false );
+
+		DB_Table::instance()->connect_start_sync();
+
+		// The store returns "stored", but a disconnect flips the site to
+		// self-hosted from inside the call, exactly as a racing disconnect would.
+		$body = $this->sse(
+			[
+				[
+					'job_complete',
+					[
+						'results' => [
+							[
+								'id'     => $post,
+								'status' => 'stored',
+							],
+						],
+						'kb'      => [ 'chunks' => 3 ],
+					],
+				],
+			]
+		);
+
+		add_filter(
+			'pre_http_request',
+			function () use ( $body ) {
+				update_option( 'hyve_settings', [ 'ai_mode' => Hyve_Connect::MODE_SELF ] );
+
+				return [
+					'response' => [ 'code' => 200 ],
+					'body'     => $body,
+				];
+			},
+			10,
+			3
+		);
+
+		DB_Table::instance()->connect_run_sync();
+
+		// The post-upsert mode re-check aborted before the mutation loop: no
+		// synced hash was written (and no local rows were deleted), so the source
+		// stays pending for a clean re-push if Connect is re-enabled.
+		$this->assertSame( '', get_post_meta( $post, '_hyve_connect_synced_hash', true ) );
+	}
+
+	/**
+	 * The watchdog reschedules a sync whose run was lost: it still claims to be
+	 * in progress, nothing is queued to drive it, and it has not advanced within
+	 * the stall window.
+	 */
+	public function test_watchdog_reschedules_a_stranded_sync() {
+		$this->enable_connect();
+		update_option(
+			DB_Table::CONNECT_SYNC_OPTION,
+			[
+				'in_progress' => true,
+				'heartbeat'   => time() - ( DB_Table::CONNECT_SYNC_STALL + MINUTE_IN_SECONDS ),
+			]
+		);
+		wp_clear_scheduled_hook( DB_Table::CONNECT_SYNC_HOOK );
+
+		DB_Table::instance()->connect_sync_watchdog();
+
+		$this->assertNotFalse( wp_next_scheduled( DB_Table::CONNECT_SYNC_HOOK ) );
+	}
+
+	/**
+	 * The watchdog leaves a sync that advanced recently alone (its batch is
+	 * likely still executing), so it never double-drives a healthy run.
+	 */
+	public function test_watchdog_leaves_a_recently_active_sync_alone() {
+		$this->enable_connect();
+		update_option(
+			DB_Table::CONNECT_SYNC_OPTION,
+			[
+				'in_progress' => true,
+				'heartbeat'   => time(),
+			]
+		);
+		wp_clear_scheduled_hook( DB_Table::CONNECT_SYNC_HOOK );
+
+		DB_Table::instance()->connect_sync_watchdog();
+
+		$this->assertFalse( wp_next_scheduled( DB_Table::CONNECT_SYNC_HOOK ) );
+	}
+
+	/**
+	 * A document the platform omits from its results is treated as failed, never
+	 * assumed stored: no synced hash is written (so it is never silently believed
+	 * to be on the platform) and the error is surfaced.
+	 */
+	public function test_run_sync_treats_a_missing_result_as_failed() {
+		$this->enable_connect();
+		$post = $this->indexed_post( false );
+
+		$this->intercept(
+			$this->sse(
+				[
+					[
+						'job_complete',
+						[
+							'results' => [],
+							'kb'      => [ 'chunks' => 0 ],
+						],
+					],
+				]
+			)
+		);
+
+		DB_Table::instance()->connect_start_sync();
+		DB_Table::instance()->connect_run_sync();
+
+		$this->assertSame( '', get_post_meta( $post, '_hyve_connect_synced_hash', true ) );
+		$this->assertNotSame( '', (string) get_post_meta( $post, '_hyve_processing_error', true ) );
+	}
+
+	/**
+	 * A changed platform account (e.g. free -> paid activation) forgets the stale
+	 * synced markers and restarts the sync so the whole KB re-lands on the new
+	 * account rather than staying split across two.
+	 */
+	public function test_identity_change_resets_markers_and_restarts_sync() {
+		$this->enable_connect();
+		$post = $this->indexed_post( true );
+		update_option( DB_Table::CONNECT_IDENTITY_OPTION, hash( 'sha256', 'free' ) );
+
+		add_filter(
+			'product_hyve_license_key',
+			function () {
+				return 'PAID-KEY';
+			}
+		);
+
+		DB_Table::instance()->connect_check_identity();
+
+		$this->assertSame( '', get_post_meta( $post, '_hyve_connect_synced_hash', true ) );
+		$this->assertNotFalse( wp_next_scheduled( DB_Table::CONNECT_SYNC_HOOK ) );
+		$this->assertSame( hash( 'sha256', 'PAID-KEY' ), get_option( DB_Table::CONNECT_IDENTITY_OPTION ) );
+	}
+
+	/**
+	 * The first identity observation only records it: a healthy, already-synced
+	 * site is never disturbed just because the fingerprint had not been stored.
+	 */
+	public function test_identity_first_run_records_without_resync() {
+		$this->enable_connect();
+		$post = $this->indexed_post( true );
+		delete_option( DB_Table::CONNECT_IDENTITY_OPTION );
+
+		DB_Table::instance()->connect_check_identity();
+
+		$this->assertNotSame( '', (string) get_option( DB_Table::CONNECT_IDENTITY_OPTION ) );
+		$this->assertNotSame( '', get_post_meta( $post, '_hyve_connect_synced_hash', true ) );
+		$this->assertFalse( wp_next_scheduled( DB_Table::CONNECT_SYNC_HOOK ) );
+	}
+
+	/**
+	 * An edit that is over quota clears its per-minute update flag (stopping the
+	 * update_posts retry loop) and becomes pending for the background sync, whose
+	 * block/resume path carries it once the quota frees.
+	 */
+	public function test_over_quota_edit_stops_retry_loop_and_defers_to_sync() {
+		$this->enable_connect();
+		$post = $this->indexed_post( true );
+		update_post_meta( $post, '_hyve_needs_update', 1 );
+
+		$this->intercept(
+			$this->sse(
+				[
+					[
+						'job_complete',
+						[
+							'results' => [
+								[
+									'id'     => $post,
+									'status' => 'skipped',
+									'reason' => 'storage',
+								],
+							],
+							'kb'      => [
+								'storage' => [
+									'limit' => 1000,
+									'used'  => 1000,
+								],
+							],
+						],
+					],
+				]
+			)
+		);
+
+		$result = DB_Table::instance()->add_post( $post, 'update' );
+
+		$this->assertWPError( $result );
+		$this->assertStringContainsString( 'quota_exceeded', $result->get_error_code() );
+		$this->assertSame( '', get_post_meta( $post, '_hyve_needs_update', true ) );
+		$this->assertSame( '', get_post_meta( $post, '_hyve_connect_synced_hash', true ) );
+		$this->assertNotFalse( wp_next_scheduled( DB_Table::CONNECT_SYNC_HOOK ) );
 	}
 
 	/**
@@ -782,6 +990,32 @@ class ConnectSyncTest extends WP_UnitTestCase {
 
 		$this->assertTrue( DB_Table::instance()->connect_reconcile() );
 		$this->assertSame( [], DB_Table::instance()->connect_sync_status() );
+	}
+
+	/**
+	 * A reconcile that fails its network round must leave the blocked state (and
+	 * its banner) intact, so the job is not silently stranded with no way back.
+	 */
+	public function test_reconcile_keeps_block_when_network_fails() {
+		$this->enable_connect();
+		update_option(
+			DB_Table::CONNECT_SYNC_OPTION,
+			[
+				'in_progress' => false,
+				'blocked'     => true,
+				'message'     => 'Over the limit',
+			]
+		);
+
+		// The store is unreachable, so the reconcile round errors out.
+		$this->intercept( '', 500 );
+
+		$result = DB_Table::instance()->connect_reconcile();
+
+		$this->assertWPError( $result );
+
+		$status = DB_Table::instance()->connect_sync_status();
+		$this->assertTrue( $status['blocked'] );
 	}
 
 	/**

@@ -184,7 +184,9 @@ class Main {
 				$this->table->connect_check_recovery();
 			}
 
+			$this->table->connect_check_identity();
 			$this->table->connect_maybe_resume_blocked();
+			$this->table->connect_sync_watchdog();
 		}
 
 		$post_types        = get_post_types( [ 'public' => true ], 'objects' );

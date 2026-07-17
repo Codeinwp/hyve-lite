@@ -66,6 +66,13 @@ class OpenAI {
 	public const ERROR_OPTION_KEY = 'hyve_open_ai_api_error';
 
 	/**
+	 * The embedding model used for local (self-hosted) indexing.
+	 *
+	 * @var string
+	 */
+	public const EMBEDDING_MODEL = 'text-embedding-3-small';
+
+	/**
 	 * Default moderation category thresholds (0-100 scale).
 	 *
 	 * A flagged category is only suppressed when its score is below the matching
@@ -224,7 +231,7 @@ class OpenAI {
 	 * 
 	 * @return mixed
 	 */
-	public function create_embeddings( $content, $model = 'text-embedding-3-small' ) {
+	public function create_embeddings( $content, $model = self::EMBEDDING_MODEL ) {
 		$response = $this->request(
 			'embeddings',
 			[

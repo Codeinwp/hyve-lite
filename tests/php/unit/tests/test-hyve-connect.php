@@ -102,6 +102,22 @@ class HyveConnectTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Leaving Connect via a plain settings save is refused: it would strand the
+	 * hosted KB and stale local markers, so it must go through disconnect.
+	 */
+	public function test_update_settings_refuses_leaving_connect() {
+		update_option( 'hyve_settings', [ 'ai_mode' => Hyve_Connect::MODE_CONNECT ] );
+
+		$request = new WP_REST_Request( 'POST', '/hyve/v1/settings' );
+		$request->set_param( 'data', [ 'ai_mode' => Hyve_Connect::MODE_SELF ] );
+
+		$response = \ThemeIsle\HyveLite\API::instance()->update_settings( $request )->get_data();
+
+		$this->assertArrayHasKey( 'error', (array) $response );
+		$this->assertSame( Hyve_Connect::MODE_CONNECT, \ThemeIsle\HyveLite\Main::get_settings()['ai_mode'] );
+	}
+
+	/**
 	 * parse_sse preserves event order and decodes each frame's data.
 	 */
 	public function test_parse_sse_orders_events_and_decodes_data() {
@@ -376,11 +392,14 @@ class HyveConnectTest extends WP_UnitTestCase {
 	 * user_message maps platform codes to visitor/admin wording.
 	 */
 	public function test_user_message_maps_codes() {
-		$flagged = new WP_Error( 'hyve_connect_moderation_flagged', 'x', [ 'code' => 'moderation_flagged' ] );
 		$quota   = new WP_Error( 'hyve_connect_quota_exceeded', 'x', [ 'code' => 'quota_exceeded' ] );
+		$kb      = new WP_Error( 'hyve_connect_kb_unavailable', 'x', [ 'code' => 'kb_unavailable' ] );
+		$unknown = new WP_Error( 'hyve_connect_whatever', 'x', [ 'code' => 'something_else' ] );
 
-		$this->assertSame( 'Message was flagged.', Hyve_Connect::user_message( $flagged ) );
 		$this->assertStringContainsString( 'limit', strtolower( Hyve_Connect::user_message( $quota ) ) );
+		$this->assertStringContainsString( 'knowledge base', strtolower( Hyve_Connect::user_message( $kb ) ) );
+		// An unmapped code falls back to the generic unavailable message.
+		$this->assertStringContainsString( 'temporarily unavailable', strtolower( Hyve_Connect::user_message( $unknown ) ) );
 	}
 
 	/**
