@@ -357,19 +357,11 @@ class Stream {
 			return;
 		}
 
-		$answered = ! empty( $result['answered'] );
-		$reply    = isset( $result['reply'] ) ? $result['reply'] : '';
+		$resolved = API::instance()->connect_reply_final( $result, $settings, esc_html( $default_message ) );
+		$answered = $resolved['answered'];
+		$reply    = $resolved['reply'];
+		$final    = $resolved['final'];
 		$thread   = isset( $result['thread_id'] ) ? $result['thread_id'] : $thread_id;
-
-		if ( $answered ) {
-			$final = $reply;
-
-			if ( ! empty( $settings['show_source_link'] ) && ! empty( $result['sources'] ) ) {
-				$final = API::instance()->maybe_append_source_link( $final, array_column( $result['sources'], 'id' ) );
-			}
-		} else {
-			$final = esc_html( $default_message );
-		}
 
 		$payload = [
 			'success'  => $answered,

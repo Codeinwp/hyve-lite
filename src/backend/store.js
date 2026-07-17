@@ -4,7 +4,6 @@
 import { createReduxStore, register } from '@wordpress/data';
 
 const AI_MODE = window.hyve.aiMode || 'self_hosted';
-const IS_CONNECT = 'hyve_connect' === AI_MODE;
 
 const DEFAULT_STATE = {
 	route: 'home',
@@ -14,7 +13,7 @@ const DEFAULT_STATE = {
 	aiMode: AI_MODE,
 	connect: window.hyve.connect || null,
 	connectSync: window.hyve.connectSync || null,
-	hasAPI: Boolean( window.hyve.hasAPIKey ) || IS_CONNECT,
+	hasKey: Boolean( window.hyve.hasAPIKey ),
 	isQdrantActive: Boolean( window.hyve.isQdrantActive ),
 	stats: window.hyve.stats || {},
 	chart: window.hyve.chart || null,
@@ -121,7 +120,8 @@ const selectors = {
 		return state.settings;
 	},
 	hasAPI( state ) {
-		return state.hasAPI;
+		// A saved key, or Connect handling the AI, both count as "AI is set up".
+		return state.hasKey || 'hyve_connect' === state.aiMode;
 	},
 	getTotalChunks( state ) {
 		return state.totalChunks;
@@ -141,9 +141,6 @@ const selectors = {
 	},
 	isQdrantActive( state ) {
 		return state.isQdrantActive;
-	},
-	getAiMode( state ) {
-		return state.aiMode;
 	},
 	isConnectActive( state ) {
 		return 'hyve_connect' === state.aiMode;
@@ -190,7 +187,7 @@ const reducer = ( state = DEFAULT_STATE, action ) => {
 		case 'SET_HAS_API':
 			return {
 				...state,
-				hasAPI: action.hasAPI,
+				hasKey: action.hasAPI,
 			};
 		case 'SET_TOTAL_CHUNKS':
 			return {
@@ -216,9 +213,6 @@ const reducer = ( state = DEFAULT_STATE, action ) => {
 			return {
 				...state,
 				aiMode: action.aiMode,
-				hasAPI:
-					Boolean( window.hyve.hasAPIKey ) ||
-					'hyve_connect' === action.aiMode,
 			};
 		case 'SET_CONNECT':
 			return {

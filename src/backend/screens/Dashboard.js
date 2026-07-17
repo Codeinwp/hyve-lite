@@ -19,7 +19,7 @@ import { archive, brush, cloud, comment, help, people } from '@wordpress/icons';
  * Internal dependencies.
  */
 import { navigate } from '../router';
-import { setUtm } from '../utils';
+import { setUtm, percentOf, quotaOf } from '../utils';
 import Card from '../components/Card';
 import Chip from '../components/Chip';
 import SetupChecklist from '../components/SetupChecklist';
@@ -159,39 +159,26 @@ const StatsGrid = () => {
 	const chunks = Number( totalChunks ?? 0 );
 	const chunksLimit = Number( window.hyve?.chunksLimit ?? 500 );
 
-	const usedPercent = Math.min(
-		100,
-		Math.round( ( chunks / chunksLimit ) * 100 )
-	);
+	const usedPercent = percentOf( chunks, chunksLimit );
 
 	const needsStorage = ! isQdrantActive && ! isConnectActive && 400 < chunks;
 
 	// The Knowledge Base card reflects where content actually lives: the free
 	// local limit, an unlimited Qdrant cluster, or the Hyve Connect plan quota.
-	const connectKb = connect?.kb ?? {};
-	const connectStorage = connectKb.storage ?? {};
-	const connectChunks = Number(
-		connectStorage.used ?? connectKb.chunks ?? 0
-	);
-	const connectLimit = Number( connectStorage.limit ?? 0 );
-	const connectPercent = connectLimit
-		? Math.min( 100, Math.round( ( connectChunks / connectLimit ) * 100 ) )
-		: 0;
+	const kbQuota = quotaOf( connect, 'kb' );
 
 	let kbCard;
 
 	if ( isConnectActive ) {
-		const connectFull = connectLimit > 0 && connectChunks >= connectLimit;
-
 		kbCard = {
-			value: connectChunks.toLocaleString(),
+			value: kbQuota.used.toLocaleString(),
 			suffix: sprintf(
 				/* translators: %s: the chunk limit of the Hyve Connect plan. */
 				__( '/ %s chunks', 'hyve-lite' ),
-				connectLimit.toLocaleString()
+				kbQuota.limit.toLocaleString()
 			),
-			meter: connectPercent,
-			foot: connectFull
+			meter: kbQuota.percent,
+			foot: kbQuota.full
 				? __( 'Plan limit reached.', 'hyve-lite' )
 				: sprintf(
 						/* translators: %d: percentage of the Hyve Connect plan used. */
@@ -199,7 +186,7 @@ const StatsGrid = () => {
 							'%d%% of your Hyve Connect plan used.',
 							'hyve-lite'
 						),
-						connectPercent
+						kbQuota.percent
 				  ),
 		};
 	} else if ( isQdrantActive ) {
@@ -271,14 +258,11 @@ const StatsGrid = () => {
 
 			{ isConnectActive ? (
 				( () => {
-					const chat = connect?.chat ?? {};
-					const used = Number( chat.used ?? 0 );
-					const limit = Number( chat.limit ?? 0 );
-					const percent = limit
-						? Math.min( 100, Math.round( ( used / limit ) * 100 ) )
-						: 0;
+					const { used, limit, percent, full } = quotaOf(
+						connect,
+						'chat'
+					);
 					const offline = connect?.service === 'error';
-					const full = limit > 0 && used >= limit;
 
 					let connectChip = (
 						<Chip tone="ok">
@@ -313,7 +297,7 @@ const StatsGrid = () => {
 									? undefined
 									: sprintf(
 											/* translators: %s: monthly message limit. */
-											__( '/ %s msgs', 'hyve-lite' ),
+											__( '/ %s messages', 'hyve-lite' ),
 											limit.toLocaleString()
 									  )
 							}
@@ -322,7 +306,7 @@ const StatsGrid = () => {
 							foot={
 								offline ? (
 									__(
-										"Can't reach hosted AI right now.",
+										"Can't reach Hyve Connect right now.",
 										'hyve-lite'
 									)
 								) : (
@@ -569,9 +553,6 @@ const GetStarted = () => {
 
 const Dashboard = () => {
 	const hasAPI = useSelect( ( select ) => select( 'hyve' ).hasAPI() );
-	const isConnectActive = useSelect( ( select ) =>
-		select( 'hyve' ).isConnectActive()
-	);
 	const settings = useSelect( ( select ) => select( 'hyve' ).getSettings() );
 	const chunks = useSelect( ( select ) => select( 'hyve' ).getTotalChunks() );
 
@@ -604,7 +585,7 @@ const Dashboard = () => {
 	// Pro keeps the checklist up while its license step is incomplete.
 	const showChecklist = applyFilters(
 		'hyve.setup-required',
-		( ! hasAPI && ! isConnectActive ) || 0 === totalChunks
+		! hasAPI || 0 === totalChunks
 	);
 
 	return (

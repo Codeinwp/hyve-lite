@@ -1,6 +1,6 @@
 <?php
 /**
- * Tests for the to-Connect content migration and purge auto-recovery.
+ * Tests for the to-Connect content sync and purge auto-recovery.
  *
  * HTTP is intercepted with `pre_http_request`, so these assert the sync job's
  * bookkeeping (pending set, progress option, synced markers, cron scheduling)
@@ -13,9 +13,9 @@ use ThemeIsle\HyveLite\Hyve_Connect;
 use ThemeIsle\HyveLite\DB_Table;
 
 /**
- * Class ConnectMigrationTest
+ * Class ConnectSyncTest
  */
-class ConnectMigrationTest extends WP_UnitTestCase {
+class ConnectSyncTest extends WP_UnitTestCase {
 
 	/**
 	 * Ensure the KB table exists so the sync job's local-row cleanup runs.
@@ -114,37 +114,37 @@ class ConnectMigrationTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * Starting the migration seeds the progress option and schedules the cron.
+	 * Starting the sync seeds the progress option and schedules the cron.
 	 */
-	public function test_start_migration_seeds_progress_and_schedules() {
+	public function test_start_sync_seeds_progress_and_schedules() {
 		$this->enable_connect();
 		$this->indexed_post( false );
 		$this->indexed_post( false );
 
-		DB_Table::instance()->connect_start_migration();
+		DB_Table::instance()->connect_start_sync();
 
-		$status = DB_Table::instance()->connect_migration_status();
+		$status = DB_Table::instance()->connect_sync_status();
 		$this->assertSame( 2, $status['total'] );
 		$this->assertTrue( $status['in_progress'] );
 		$this->assertNotFalse( wp_next_scheduled( DB_Table::CONNECT_SYNC_HOOK ) );
 	}
 
 	/**
-	 * With nothing indexed, starting the migration is a no-op.
+	 * With nothing indexed, starting the sync is a no-op.
 	 */
-	public function test_start_migration_noop_when_nothing_pending() {
+	public function test_start_sync_noop_when_nothing_pending() {
 		$this->enable_connect();
 
-		DB_Table::instance()->connect_start_migration();
+		DB_Table::instance()->connect_start_sync();
 
-		$this->assertSame( [], DB_Table::instance()->connect_migration_status() );
+		$this->assertSame( [], DB_Table::instance()->connect_sync_status() );
 		$this->assertFalse( wp_next_scheduled( DB_Table::CONNECT_SYNC_HOOK ) );
 	}
 
 	/**
 	 * A run pushes the batch, marks each source synced, and finishes when drained.
 	 */
-	public function test_migrate_data_syncs_batch_and_finishes() {
+	public function test_run_sync_syncs_batch_and_finishes() {
 		$this->enable_connect();
 		$a = $this->indexed_post( false );
 		$b = $this->indexed_post( false );
@@ -172,14 +172,14 @@ class ConnectMigrationTest extends WP_UnitTestCase {
 			)
 		);
 
-		DB_Table::instance()->connect_start_migration();
-		DB_Table::instance()->connect_migrate_data();
+		DB_Table::instance()->connect_start_sync();
+		DB_Table::instance()->connect_run_sync();
 
 		$this->assertNotSame( '', get_post_meta( $a, '_hyve_connect_synced_hash', true ) );
 		$this->assertNotSame( '', get_post_meta( $b, '_hyve_connect_synced_hash', true ) );
 		$this->assertSame( 0, DB_Table::instance()->connect_pending_count() );
 
-		$status = DB_Table::instance()->connect_migration_status();
+		$status = DB_Table::instance()->connect_sync_status();
 		$this->assertFalse( $status['in_progress'] );
 		$this->assertSame( 2, $status['current'] );
 	}
@@ -187,7 +187,7 @@ class ConnectMigrationTest extends WP_UnitTestCase {
 	/**
 	 * A rejected source is marked handled (so the batch advances) and flagged.
 	 */
-	public function test_migrate_data_records_rejection_and_advances() {
+	public function test_run_sync_records_rejection_and_advances() {
 		$this->enable_connect();
 		$post = $this->indexed_post( false );
 
@@ -213,8 +213,8 @@ class ConnectMigrationTest extends WP_UnitTestCase {
 			)
 		);
 
-		DB_Table::instance()->connect_start_migration();
-		DB_Table::instance()->connect_migrate_data();
+		DB_Table::instance()->connect_start_sync();
+		DB_Table::instance()->connect_run_sync();
 
 		// Rejected content is flagged and leaves the pending set, but is not
 		// marked synced (it never reached the platform).
@@ -227,7 +227,7 @@ class ConnectMigrationTest extends WP_UnitTestCase {
 	 * A source with no extractable text is never sent: it gets a processing
 	 * error (terminal, shown in the listing) while the rest of the batch syncs.
 	 */
-	public function test_migrate_data_marks_empty_content_sources_failed() {
+	public function test_run_sync_marks_empty_content_sources_failed() {
 		$this->enable_connect();
 
 		$empty = self::factory()->post->create( [ 'post_content' => '' ] );
@@ -252,21 +252,21 @@ class ConnectMigrationTest extends WP_UnitTestCase {
 			)
 		);
 
-		DB_Table::instance()->connect_start_migration();
-		DB_Table::instance()->connect_migrate_data();
+		DB_Table::instance()->connect_start_sync();
+		DB_Table::instance()->connect_run_sync();
 
 		$this->assertNotSame( '', get_post_meta( $empty, '_hyve_processing_error', true ) );
 		$this->assertSame( '', get_post_meta( $empty, '_hyve_connect_synced_hash', true ) );
 		$this->assertNotSame( '', get_post_meta( $post, '_hyve_connect_synced_hash', true ) );
 		$this->assertSame( 0, DB_Table::instance()->connect_pending_count() );
-		$this->assertFalse( DB_Table::instance()->connect_migration_status()['in_progress'] );
+		$this->assertFalse( DB_Table::instance()->connect_sync_status()['in_progress'] );
 	}
 
 	/**
 	 * A platform-side per-document failure is terminal: the source records the
 	 * error, is not marked synced, and leaves the pending set.
 	 */
-	public function test_migrate_data_records_platform_failure_and_advances() {
+	public function test_run_sync_records_platform_failure_and_advances() {
 		$this->enable_connect();
 		$post = $this->indexed_post( false );
 
@@ -289,8 +289,8 @@ class ConnectMigrationTest extends WP_UnitTestCase {
 			)
 		);
 
-		DB_Table::instance()->connect_start_migration();
-		DB_Table::instance()->connect_migrate_data();
+		DB_Table::instance()->connect_start_sync();
+		DB_Table::instance()->connect_run_sync();
 
 		$this->assertNotSame( '', get_post_meta( $post, '_hyve_processing_error', true ) );
 		$this->assertSame( '', get_post_meta( $post, '_hyve_connect_synced_hash', true ) );
@@ -301,7 +301,7 @@ class ConnectMigrationTest extends WP_UnitTestCase {
 	 * Hitting the plan cap stops the job, records the block, and leaves the
 	 * sources pending (retrying would not help until the user upgrades).
 	 */
-	public function test_migrate_data_blocks_on_quota_exceeded() {
+	public function test_run_sync_blocks_on_quota_exceeded() {
 		$this->enable_connect();
 		$this->indexed_post( false );
 
@@ -324,10 +324,10 @@ class ConnectMigrationTest extends WP_UnitTestCase {
 			)
 		);
 
-		DB_Table::instance()->connect_start_migration();
-		DB_Table::instance()->connect_migrate_data();
+		DB_Table::instance()->connect_start_sync();
+		DB_Table::instance()->connect_run_sync();
 
-		$status = DB_Table::instance()->connect_migration_status();
+		$status = DB_Table::instance()->connect_sync_status();
 		$this->assertTrue( $status['blocked'] );
 		$this->assertFalse( $status['in_progress'] );
 		// The block-time snapshot lets auto-resume tell "changed" from "still full".
@@ -339,7 +339,7 @@ class ConnectMigrationTest extends WP_UnitTestCase {
 	 * A source skipped for quota stays pending while the stored ones advance;
 	 * the job keeps going as long as something fits.
 	 */
-	public function test_migrate_data_keeps_skipped_sources_pending() {
+	public function test_run_sync_keeps_skipped_sources_pending() {
 		$this->enable_connect();
 		$a = $this->indexed_post( false );
 		$b = $this->indexed_post( false );
@@ -373,20 +373,20 @@ class ConnectMigrationTest extends WP_UnitTestCase {
 			)
 		);
 
-		DB_Table::instance()->connect_start_migration();
-		DB_Table::instance()->connect_migrate_data();
+		DB_Table::instance()->connect_start_sync();
+		DB_Table::instance()->connect_run_sync();
 
 		$this->assertNotSame( '', get_post_meta( $a, '_hyve_connect_synced_hash', true ) );
 		$this->assertSame( '', get_post_meta( $b, '_hyve_connect_synced_hash', true ) );
 		$this->assertSame( 1, DB_Table::instance()->connect_pending_count() );
-		$this->assertEmpty( DB_Table::instance()->connect_migration_status()['blocked'] );
+		$this->assertEmpty( DB_Table::instance()->connect_sync_status()['blocked'] );
 	}
 
 	/**
 	 * A batch where nothing fits is terminal: block with the quota snapshot,
 	 * exactly like a refused batch.
 	 */
-	public function test_migrate_data_blocks_when_nothing_fits() {
+	public function test_run_sync_blocks_when_nothing_fits() {
 		$this->enable_connect();
 		$post = $this->indexed_post( false );
 
@@ -415,10 +415,10 @@ class ConnectMigrationTest extends WP_UnitTestCase {
 			)
 		);
 
-		DB_Table::instance()->connect_start_migration();
-		DB_Table::instance()->connect_migrate_data();
+		DB_Table::instance()->connect_start_sync();
+		DB_Table::instance()->connect_run_sync();
 
-		$status = DB_Table::instance()->connect_migration_status();
+		$status = DB_Table::instance()->connect_sync_status();
 		$this->assertTrue( $status['blocked'] );
 		$this->assertSame( 'storage', $status['quota']['kind'] );
 		$this->assertSame( 1000, $status['quota']['limit'] );
@@ -448,7 +448,7 @@ class ConnectMigrationTest extends WP_UnitTestCase {
 
 		$this->assertSame( '', get_post_meta( $post, '_hyve_connect_synced_hash', true ) );
 
-		$status = DB_Table::instance()->connect_migration_status();
+		$status = DB_Table::instance()->connect_sync_status();
 		$this->assertTrue( $status['in_progress'] );
 		$this->assertSame( 1, $status['total'] );
 		$this->assertNotFalse( wp_next_scheduled( DB_Table::CONNECT_SYNC_HOOK ) );
@@ -474,12 +474,12 @@ class ConnectMigrationTest extends WP_UnitTestCase {
 		DB_Table::instance()->connect_check_recovery();
 
 		$this->assertNotSame( '', get_post_meta( $post, '_hyve_connect_synced_hash', true ) );
-		$this->assertSame( [], DB_Table::instance()->connect_migration_status() );
+		$this->assertSame( [], DB_Table::instance()->connect_sync_status() );
 	}
 
 	/**
 	 * Regression: a direct ingest (e.g. a sitemap import) grows the KB without the
-	 * migration bookkeeping, so a stale "empty" aggregate can linger in the cache.
+	 * sync bookkeeping, so a stale "empty" aggregate can linger in the cache.
 	 * Recovery must read fresh state, not that cache, or it wrongly resets the
 	 * markers and re-syncs everything already on the platform.
 	 */
@@ -512,7 +512,7 @@ class ConnectMigrationTest extends WP_UnitTestCase {
 		DB_Table::instance()->connect_check_recovery();
 
 		$this->assertNotSame( '', get_post_meta( $post, '_hyve_connect_synced_hash', true ) );
-		$this->assertSame( [], DB_Table::instance()->connect_migration_status() );
+		$this->assertSame( [], DB_Table::instance()->connect_sync_status() );
 		$this->assertFalse( wp_next_scheduled( DB_Table::CONNECT_SYNC_HOOK ) );
 	}
 
@@ -569,7 +569,7 @@ class ConnectMigrationTest extends WP_UnitTestCase {
 
 	/**
 	 * The drill-down (root -> buckets -> scoped detail) re-pushes a stale source:
-	 * it is unmarked so the migration job re-sends it.
+	 * it is unmarked so the sync job re-sends it.
 	 */
 	public function test_reconcile_drilldown_repushes_stale_source() {
 		$this->enable_connect();
@@ -621,7 +621,7 @@ class ConnectMigrationTest extends WP_UnitTestCase {
 
 		$this->assertTrue( DB_Table::instance()->connect_reconcile() );
 
-		// Unmarked for re-push, and the migration job is scheduled to send it.
+		// Unmarked for re-push, and the sync job is scheduled to send it.
 		$this->assertSame( '', get_post_meta( $post, '_hyve_connect_synced_hash', true ) );
 		$this->assertNotFalse( wp_next_scheduled( DB_Table::CONNECT_SYNC_HOOK ) );
 	}
@@ -781,7 +781,7 @@ class ConnectMigrationTest extends WP_UnitTestCase {
 		);
 
 		$this->assertTrue( DB_Table::instance()->connect_reconcile() );
-		$this->assertSame( [], DB_Table::instance()->connect_migration_status() );
+		$this->assertSame( [], DB_Table::instance()->connect_sync_status() );
 	}
 
 	/**
@@ -812,7 +812,7 @@ class ConnectMigrationTest extends WP_UnitTestCase {
 		DB_Table::instance()->connect_check_recovery();
 
 		$this->assertSame( '', get_post_meta( $post, '_hyve_connect_synced_hash', true ) );
-		$this->assertTrue( DB_Table::instance()->connect_migration_status()['in_progress'] );
+		$this->assertTrue( DB_Table::instance()->connect_sync_status()['in_progress'] );
 		$this->assertNotFalse( wp_next_scheduled( DB_Table::CONNECT_SYNC_HOOK ) );
 	}
 
@@ -869,7 +869,7 @@ class ConnectMigrationTest extends WP_UnitTestCase {
 
 		DB_Table::instance()->connect_maybe_resume_blocked();
 
-		$status = DB_Table::instance()->connect_migration_status();
+		$status = DB_Table::instance()->connect_sync_status();
 		$this->assertTrue( $status['in_progress'] );
 		$this->assertEmpty( $status['blocked'] );
 		$this->assertNotFalse( wp_next_scheduled( DB_Table::CONNECT_SYNC_HOOK ) );
@@ -885,7 +885,7 @@ class ConnectMigrationTest extends WP_UnitTestCase {
 
 		DB_Table::instance()->connect_maybe_resume_blocked();
 
-		$this->assertTrue( DB_Table::instance()->connect_migration_status()['blocked'] );
+		$this->assertTrue( DB_Table::instance()->connect_sync_status()['blocked'] );
 		$this->assertFalse( wp_next_scheduled( DB_Table::CONNECT_SYNC_HOOK ) );
 	}
 
@@ -913,7 +913,7 @@ class ConnectMigrationTest extends WP_UnitTestCase {
 
 		DB_Table::instance()->connect_maybe_resume_blocked();
 
-		$this->assertTrue( DB_Table::instance()->connect_migration_status()['blocked'] );
+		$this->assertTrue( DB_Table::instance()->connect_sync_status()['blocked'] );
 		$this->assertFalse( wp_next_scheduled( DB_Table::CONNECT_SYNC_HOOK ) );
 	}
 
@@ -939,7 +939,7 @@ class ConnectMigrationTest extends WP_UnitTestCase {
 
 		DB_Table::instance()->connect_maybe_resume_blocked();
 
-		$status = DB_Table::instance()->connect_migration_status();
+		$status = DB_Table::instance()->connect_sync_status();
 		$this->assertTrue( $status['in_progress'] );
 		$this->assertEmpty( $status['blocked'] );
 	}
@@ -962,7 +962,7 @@ class ConnectMigrationTest extends WP_UnitTestCase {
 
 		DB_Table::instance()->connect_maybe_resume_blocked();
 
-		$this->assertTrue( DB_Table::instance()->connect_migration_status()['blocked'] );
+		$this->assertTrue( DB_Table::instance()->connect_sync_status()['blocked'] );
 		$this->assertFalse( wp_next_scheduled( DB_Table::CONNECT_SYNC_HOOK ) );
 	}
 

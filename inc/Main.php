@@ -58,7 +58,7 @@ class Main {
 		add_action( 'admin_menu', [ $this, 'register_menu_page' ] );
 		add_action( 'save_post', [ $this, 'update_meta' ], 10, 3 );
 		add_action( 'before_delete_post', [ $this, 'delete_post' ] );
-		add_action( DB_Table::CONNECT_SYNC_HOOK, [ $this->table, 'connect_migrate_data' ] );
+		add_action( DB_Table::CONNECT_SYNC_HOOK, [ $this->table, 'connect_run_sync' ] );
 		add_filter( 'themeisle_sdk_enable_telemetry', '__return_true' );
 
 		add_filter( 'hyve_global_chat_enabled', [ $this, 'is_global_chat_enabled' ] );
@@ -224,7 +224,7 @@ class Main {
 						'chunksLimit'       => apply_filters( 'hyve_chunks_limit', 500 ),
 						'aiMode'            => Hyve_Connect::get_mode(),
 						'connect'           => Hyve_Connect::is_active() ? Hyve_Connect::instance()->stats() : null,
-						'connectSync'       => Hyve_Connect::is_active() ? $this->table->connect_migration_status() : null,
+						'connectSync'       => Hyve_Connect::is_active() ? $this->table->connect_sync_status() : null,
 						'isQdrantActive'    => Qdrant_API::is_active(),
 						'assets'            => [
 							'images' => HYVE_LITE_URL . 'assets/images/',

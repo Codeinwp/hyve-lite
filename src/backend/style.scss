@@ -563,16 +563,6 @@
 		color: var(--hyve-muted);
 	}
 
-	&.is-planned {
-		background: var(--hyve-surface-2);
-		border: 1px dashed var(--hyve-border-2);
-		color: var(--hyve-muted);
-		font-size: 9.5px;
-		font-weight: 800;
-		letter-spacing: 0.04em;
-		text-transform: uppercase;
-	}
-
 	&.is-pro {
 		background: #f0f6fc;
 		border: 1px solid #c5d9ec;
@@ -839,12 +829,6 @@ p.hyve-next-notice__text {
 	box-shadow: var(--hyve-shadow);
 	padding: 16px;
 
-	&.is-planned {
-		background: transparent;
-		border-color: var(--hyve-border-2);
-		border-style: dashed;
-		box-shadow: none;
-	}
 }
 
 .hyve-next-stat__top {
@@ -874,9 +858,6 @@ p.hyve-next-notice__text {
 		font-weight: 500;
 	}
 
-	.is-planned & {
-		color: var(--hyve-faint);
-	}
 }
 
 .hyve-next-stat__meter {

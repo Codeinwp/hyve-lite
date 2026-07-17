@@ -56,13 +56,6 @@ class Hyve_Connect {
 	const PATH_QUOTA = 'hyve/quota';
 
 	/**
-	 * The service error option key for `wp_options`.
-	 *
-	 * @var string
-	 */
-	public const ERROR_OPTION_KEY = 'hyve_connect_api_error';
-
-	/**
 	 * The per-site token option key for `wp_options`. Free sites have no license
 	 * key, so this random token is the secret that binds this site's identity on
 	 * the platform. Persisted (not autoloaded) and never sent to the front end.
@@ -282,15 +275,6 @@ class Hyve_Connect {
 	}
 
 	/**
-	 * Fetch the hosted knowledge base state via the dedicated status action.
-	 *
-	 * @return array<string, mixed>|\WP_Error
-	 */
-	public function kb_status() {
-		return $this->workflow( self::SLUG_KB, [ 'action' => 'status' ] );
-	}
-
-	/**
 	 * Export a batch of stored chunks + vectors for local re-import on disconnect.
 	 *
 	 * @param string|null $cursor     Pagination cursor; null starts.
@@ -326,7 +310,7 @@ class Hyve_Connect {
 		);
 
 		if ( is_wp_error( $response ) ) {
-			return $this->save_error( new \WP_Error( 'hyve_connect_unreachable', $response->get_error_message() ) );
+			return new \WP_Error( 'hyve_connect_unreachable', $response->get_error_message() );
 		}
 
 		$code = (int) wp_remote_retrieve_response_code( $response );
@@ -341,8 +325,6 @@ class Hyve_Connect {
 		if ( ! is_array( $decoded ) ) {
 			return new \WP_Error( 'hyve_connect_bad_response', __( 'Unexpected response from the hosted AI.', 'hyve-lite' ) );
 		}
-
-		delete_option( self::ERROR_OPTION_KEY );
 
 		return $decoded;
 	}
@@ -445,8 +427,6 @@ class Hyve_Connect {
 			return new \WP_Error( 'hyve_connect_no_result', __( 'The hosted AI did not return a result.', 'hyve-lite' ) );
 		}
 
-		delete_option( self::ERROR_OPTION_KEY );
-
 		return $result;
 	}
 
@@ -533,17 +513,6 @@ class Hyve_Connect {
 	}
 
 	/**
-	 * Last recorded service error, for the dashboard notice.
-	 *
-	 * @return array<string, mixed>
-	 */
-	public static function get_last_error() {
-		$error = get_option( self::ERROR_OPTION_KEY, [] );
-
-		return is_array( $error ) ? $error : [];
-	}
-
-	/**
 	 * Turn a Connect WP_Error into a visitor/admin-facing message.
 	 *
 	 * @param \WP_Error $error The error returned by a client method.
@@ -595,7 +564,7 @@ class Hyve_Connect {
 		);
 
 		if ( is_wp_error( $response ) ) {
-			return $this->save_error( new \WP_Error( 'hyve_connect_unreachable', $response->get_error_message() ) );
+			return new \WP_Error( 'hyve_connect_unreachable', $response->get_error_message() );
 		}
 
 		$code = (int) wp_remote_retrieve_response_code( $response );
@@ -625,7 +594,6 @@ class Hyve_Connect {
 			}
 
 			if ( 'job_complete' === $event['event'] ) {
-				delete_option( self::ERROR_OPTION_KEY );
 
 				return $event['data'];
 			}
@@ -773,12 +741,6 @@ class Hyve_Connect {
 		$message = isset( $data['message'] ) ? (string) $data['message'] : __( 'The hosted AI request failed.', 'hyve-lite' );
 		$error   = new \WP_Error( 'hyve_connect_' . $code, $message, array_merge( $data, [ 'code' => $code ] ) );
 
-		// Persist only the errors that mean the service is degraded; a flagged
-		// message or unavailable KB is an expected per-request outcome.
-		if ( in_array( $code, [ 'provider_error', 'quota_exceeded' ], true ) ) {
-			$this->save_error( $error );
-		}
-
 		return $error;
 	}
 
@@ -811,28 +773,6 @@ class Hyve_Connect {
 			]
 		);
 
-		$this->save_error( $error );
-
-		return $error;
-	}
-
-	/**
-	 * Persist a service error for the dashboard notice.
-	 *
-	 * @param \WP_Error $error The error.
-	 *
-	 * @return \WP_Error The same error, for chaining.
-	 */
-	private function save_error( $error ) {
-		update_option(
-			self::ERROR_OPTION_KEY,
-			[
-				'code'     => $error->get_error_code(),
-				'message'  => $error->get_error_message(),
-				'date'     => wp_date( 'c' ),
-				'provider' => 'Hyve Connect',
-			]
-		);
 
 		return $error;
 	}

@@ -9,12 +9,12 @@ import { Button, Modal } from '@wordpress/components';
 
 import { useDispatch, useSelect } from '@wordpress/data';
 
-import { useEffect, useState } from '@wordpress/element';
+import { useCallback, useEffect, useState } from '@wordpress/element';
 
 /**
  * Internal dependencies.
  */
-import { setUtm } from '../utils';
+import { setUtm, percentOf, quotaOf } from '../utils';
 import Card from '../components/Card';
 import Chip from '../components/Chip';
 import FieldRow from '../components/FieldRow';
@@ -32,12 +32,7 @@ import FieldRow from '../components/FieldRow';
  * @return {Element} The row.
  */
 const QuotaRow = ( { label, used, limit, unit, sub } ) => {
-	const percent = limit
-		? Math.min(
-				100,
-				Math.round( ( Number( used ) / Number( limit ) ) * 100 )
-		  )
-		: 0;
+	const percent = percentOf( used, limit );
 
 	return (
 		<div className="hyve-next-quota__row">
@@ -109,6 +104,13 @@ export const ConnectPanel = () => {
 	const [ isConfirmOpen, setConfirmOpen ] = useState( false );
 	const [ disconnectMode, setDisconnectMode ] = useState( 'import' );
 
+	// Pull the latest Connect stats and mirror them into the store.
+	const refreshConnectStats = useCallback( async () => {
+		const stats = await apiFetch( { path: `${ window.hyve.api }/stats` } );
+		setConnect( stats?.connect ?? null );
+		setConnectSync( stats?.connectSync ?? null );
+	}, [ setConnect, setConnectSync ] );
+
 	const isSyncing = Boolean( connectSync?.in_progress );
 
 	// While the to-Connect sync job runs, poll the stats route so the progress
@@ -120,18 +122,14 @@ export const ConnectPanel = () => {
 
 		const timer = setInterval( async () => {
 			try {
-				const stats = await apiFetch( {
-					path: `${ window.hyve.api }/stats`,
-				} );
-				setConnect( stats?.connect ?? null );
-				setConnectSync( stats?.connectSync ?? null );
+				await refreshConnectStats();
 			} catch {
 				// A transient poll failure just retries on the next tick.
 			}
 		}, 4000 );
 
 		return () => clearInterval( timer );
-	}, [ isSyncing, setConnect, setConnectSync ] );
+	}, [ isSyncing, refreshConnectStats ] );
 
 	const hasKey = Boolean( window.hyve?.hasAPIKey );
 	const isPro = Boolean( window.hyve?.license );
@@ -155,11 +153,7 @@ export const ConnectPanel = () => {
 			setSetting( 'ai_mode', 'hyve_connect' );
 			setAiMode( 'hyve_connect' );
 
-			const stats = await apiFetch( {
-				path: `${ window.hyve.api }/stats`,
-			} );
-			setConnect( stats?.connect ?? null );
-			setConnectSync( stats?.connectSync ?? null );
+			await refreshConnectStats();
 
 			createNotice( 'success', __( 'Hyve Connect is on.', 'hyve-lite' ), {
 				type: 'snackbar',
@@ -182,7 +176,7 @@ export const ConnectPanel = () => {
 			const response = await apiFetch( {
 				path: `${ window.hyve.api }/connect`,
 				method: 'POST',
-				data: { action: 'disconnect', mode: disconnectMode },
+				data: { mode: disconnectMode },
 			} );
 
 			if ( response.error ) {
@@ -232,11 +226,7 @@ export const ConnectPanel = () => {
 			}
 
 			// Reconcile may have queued a re-push; refresh so progress shows.
-			const stats = await apiFetch( {
-				path: `${ window.hyve.api }/stats`,
-			} );
-			setConnect( stats?.connect ?? null );
-			setConnectSync( stats?.connectSync ?? null );
+			await refreshConnectStats();
 
 			createNotice(
 				'success',
@@ -255,17 +245,9 @@ export const ConnectPanel = () => {
 
 	// --- Connected ---------------------------------------------------------
 	if ( isConnectActive ) {
-		const kb = connect?.kb ?? {};
-		const chat = connect?.chat ?? {};
-		const storage = kb?.storage ?? {};
-
-		const kbUsed = Number( storage.used ?? kb.chunks ?? 0 );
-		const kbLimit = Number( storage.limit ?? 0 );
-		const chatUsed = Number( chat.used ?? 0 );
-		const chatLimit = Number( chat.limit ?? 0 );
-		const kbFull = kbLimit > 0 && kbUsed >= kbLimit;
-		const chatFull = chatLimit > 0 && chatUsed >= chatLimit;
-		const isExhausted = kbFull || chatFull;
+		const kbQuota = quotaOf( connect, 'kb' );
+		const chatQuota = quotaOf( connect, 'chat' );
+		const isExhausted = kbQuota.full || chatQuota.full;
 
 		const isBlocked = Boolean( connectSync?.blocked );
 		const isLicenseExpired = 'expired' === connect?.license;
@@ -300,7 +282,7 @@ export const ConnectPanel = () => {
 		);
 		if ( isOffline ) {
 			statusText = __(
-				"Can't reach hosted AI right now. We'll keep retrying.",
+				"Can't reach Hyve Connect right now. We'll keep retrying.",
 				'hyve-lite'
 			);
 		} else if ( isPro ) {
@@ -426,11 +408,11 @@ export const ConnectPanel = () => {
 										'Knowledge base',
 										'hyve-lite'
 									) }
-									used={ kbUsed }
-									limit={ kbLimit }
+									used={ kbQuota.used }
+									limit={ kbQuota.limit }
 									unit={ __( 'chunks', 'hyve-lite' ) }
 									sub={
-										kbFull
+										kbQuota.full
 											? __(
 													'Limit reached.',
 													'hyve-lite'
@@ -440,11 +422,11 @@ export const ConnectPanel = () => {
 								/>
 								<QuotaRow
 									label={ __( 'Chat messages', 'hyve-lite' ) }
-									used={ chatUsed }
-									limit={ chatLimit }
+									used={ chatQuota.used }
+									limit={ chatQuota.limit }
 									unit={ __( 'this month', 'hyve-lite' ) }
 									sub={
-										chatFull
+										chatQuota.full
 											? __(
 													'Limit reached.',
 													'hyve-lite'
@@ -540,7 +522,7 @@ export const ConnectPanel = () => {
 					>
 						<p>
 							{ __(
-								'Your site will stop using hosted AI. Choose what happens to the content Hyve Connect indexed:',
+								'Your site will stop using Hyve Connect. Choose what happens to the content it indexed:',
 								'hyve-lite'
 							) }
 						</p>
@@ -611,7 +593,7 @@ export const ConnectPanel = () => {
 							{ __( 'Qdrant is connected.', 'hyve-lite' ) }
 						</strong>{ ' ' }
 						{ __(
-							"Qdrant and Hyve Connect can't run at the same time. Disconnect Qdrant first, then switch this site to hosted AI.",
+							"Qdrant and Hyve Connect can't run at the same time. Disconnect Qdrant first, then switch this site to Hyve Connect.",
 							'hyve-lite'
 						) }
 					</div>
@@ -627,7 +609,7 @@ export const ConnectPanel = () => {
 								) }
 							</strong>{ ' ' }
 							{ __(
-								"Hyve Connect and a self-hosted key can't run at the same time. Enabling Connect switches this site to hosted AI and stops using your key. Your indexed content is re-synced to Hyve Connect.",
+								"Hyve Connect and a self-hosted key can't run at the same time. Enabling it stops using your key, and your indexed content will be synced to Hyve Connect.",
 								'hyve-lite'
 							) }
 						</div>

@@ -17,16 +17,15 @@ import { check } from '@wordpress/icons';
 import { navigate } from '../router';
 
 const SetupChecklist = () => {
-	const { hasAPI, isConnectActive, chunks } = useSelect( ( select ) => ( {
+	const { hasAPI, chunks } = useSelect( ( select ) => ( {
 		hasAPI: select( 'hyve' ).hasAPI(),
-		isConnectActive: select( 'hyve' ).isConnectActive(),
 		chunks: select( 'hyve' ).getTotalChunks(),
 	} ) );
 
 	const totalChunks = Number( chunks ?? 0 );
 
 	// AI is "connected" via hosted Hyve Connect or a personal OpenAI key.
-	const aiConnected = isConnectActive || hasAPI;
+	const aiConnected = hasAPI;
 
 	/**
 	 * Setup steps. Pro prepends its license step (and locks the rest while

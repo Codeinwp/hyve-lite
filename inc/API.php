@@ -216,10 +216,7 @@ class API extends BaseAPI {
 					'methods'  => \WP_REST_Server::CREATABLE,
 					'callback' => [ $this, 'connect_disconnect' ],
 					'args'     => [
-						'action' => [
-							'type' => 'string',
-						],
-						'mode'   => [
+						'mode' => [
 							'type' => 'string',
 							'enum' => [ 'import', 'clear' ],
 						],
@@ -571,7 +568,7 @@ class API extends BaseAPI {
 		// cron batch; fresh/empty sites are a no-op.
 		if ( Hyve_Connect::MODE_CONNECT === $mode && Hyve_Connect::MODE_CONNECT !== $prev_mode ) {
 			Hyve_Connect::flush_stats();
-			$this->table->connect_start_migration();
+			$this->table->connect_start_sync();
 		}
 
 		// Reconcile the dashboard service-error notice with the key that was just
@@ -914,7 +911,7 @@ class API extends BaseAPI {
 		// after connecting or activating a license), bypassing the page-load cache.
 		if ( Hyve_Connect::is_active() ) {
 			$data['connect']     = Hyve_Connect::instance()->stats( true );
-			$data['connectSync'] = $this->table->connect_migration_status();
+			$data['connectSync'] = $this->table->connect_sync_status();
 		}
 
 		return rest_ensure_response( $data );
@@ -1297,29 +1294,18 @@ class API extends BaseAPI {
 	 * @return void
 	 */
 	private function connect_drop_unsynced() {
-		$posts = get_posts(
+		$this->connect_forget_sources(
 			[
-				'post_type'      => $this->table->connect_indexed_post_types(),
-				'post_status'    => 'any',
-				'fields'         => 'ids',
-				'posts_per_page' => -1,
-				// phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query -- one-off disconnect read.
-				'meta_query'     => [
-					[
-						'key'     => '_hyve_added',
-						'compare' => 'EXISTS',
-					],
-					[
-						'key'     => '_hyve_connect_synced_hash',
-						'compare' => 'NOT EXISTS',
-					],
+				[
+					'key'     => '_hyve_added',
+					'compare' => 'EXISTS',
+				],
+				[
+					'key'     => '_hyve_connect_synced_hash',
+					'compare' => 'NOT EXISTS',
 				],
 			]
 		);
-
-		foreach ( $posts as $post_id ) {
-			$this->connect_forget_source( (int) $post_id );
-		}
 	}
 
 	/**
@@ -1328,17 +1314,25 @@ class API extends BaseAPI {
 	 * @return void
 	 */
 	private function connect_clear_local() {
-		$posts = get_posts(
+		$this->connect_forget_sources(
 			[
-				'post_type'      => $this->table->connect_indexed_post_types(),
-				'post_status'    => 'any',
-				'fields'         => 'ids',
-				'posts_per_page' => -1,
-				'meta_key'       => '_hyve_added', // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key
+				[
+					'key'     => '_hyve_added',
+					'compare' => 'EXISTS',
+				],
 			]
 		);
+	}
 
-		foreach ( $posts as $post_id ) {
+	/**
+	 * Forget every indexed source matching a meta query (disconnect cleanup).
+	 *
+	 * @param array<int, array<string, mixed>> $meta_query A meta_query clause list.
+	 *
+	 * @return void
+	 */
+	private function connect_forget_sources( array $meta_query ) {
+		foreach ( $this->table->connect_source_ids( $meta_query ) as $post_id ) {
 			$this->connect_forget_source( (int) $post_id );
 		}
 	}
@@ -1362,8 +1356,7 @@ class API extends BaseAPI {
 		}
 
 		delete_post_meta( $post_id, '_hyve_added' );
-		delete_post_meta( $post_id, '_hyve_connect_synced_hash' );
-		delete_post_meta( $post_id, '_hyve_connect_synced_modified' );
+		$this->table->connect_forget_sync( $post_id );
 		delete_post_meta( $post_id, '_hyve_needs_update' );
 		delete_post_meta( $post_id, '_hyve_moderation_failed' );
 		delete_post_meta( $post_id, '_hyve_moderation_review' );
@@ -1846,6 +1839,42 @@ class API extends BaseAPI {
 	}
 
 	/**
+	 * Resolve a Connect chat result to its final reply text, shared by the poll
+	 * and stream response paths: the model reply plus an optional source link,
+	 * or the unanswered fallback.
+	 *
+	 * @param array<string, mixed> $result     The platform job result.
+	 * @param array<string, mixed> $settings   Hyve settings (reads show_source_link).
+	 * @param string               $unanswered Message shown when the KB could not answer.
+	 *
+	 * @return array{answered: bool, reply: string, final: string}
+	 */
+	public function connect_reply_final( $result, $settings, $unanswered ) {
+		$answered = ! empty( $result['answered'] );
+		$reply    = isset( $result['reply'] ) ? (string) $result['reply'] : '';
+
+		if ( ! $answered ) {
+			return [
+				'answered' => false,
+				'reply'    => $reply,
+				'final'    => $unanswered,
+			];
+		}
+
+		$final = $reply;
+
+		if ( ! empty( $settings['show_source_link'] ) && ! empty( $result['sources'] ) ) {
+			$final = $this->maybe_append_source_link( $final, array_column( $result['sources'], 'id' ) );
+		}
+
+		return [
+			'answered' => true,
+			'reply'    => $reply,
+			'final'    => $final,
+		];
+	}
+
+	/**
 	 * Append source links to a chat response for the publicly accessible sources.
 	 *
 	 * Renders up to a filterable number of links (default 3), keeping the highest
@@ -2101,18 +2130,10 @@ class API extends BaseAPI {
 		$settings = Main::get_settings();
 
 		$result   = is_array( $job['result'] ) ? $job['result'] : [];
-		$answered = ! empty( $result['answered'] );
-		$reply    = isset( $result['reply'] ) ? $result['reply'] : '';
-
-		if ( $answered ) {
-			$final = $reply;
-
-			if ( ! empty( $settings['show_source_link'] ) && ! empty( $result['sources'] ) ) {
-				$final = $this->maybe_append_source_link( $final, array_column( $result['sources'], 'id' ) );
-			}
-		} else {
-			$final = $settings['default_message'];
-		}
+		$resolved = $this->connect_reply_final( $result, $settings, $settings['default_message'] );
+		$answered = $resolved['answered'];
+		$reply    = $resolved['reply'];
+		$final    = $resolved['final'];
 
 		$payload = [
 			'success'  => $answered,

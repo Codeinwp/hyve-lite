@@ -32,7 +32,6 @@ class HyveConnectTest extends WP_UnitTestCase {
 		remove_all_filters( 'hyve_connect_base_url' );
 		remove_all_actions( 'before_delete_post' );
 		delete_option( 'hyve_settings' );
-		delete_option( Hyve_Connect::ERROR_OPTION_KEY );
 		delete_option( Hyve_Connect::SITE_TOKEN_OPTION );
 		delete_transient( 'hyve_connect_stats' );
 		parent::tearDown();
@@ -275,7 +274,7 @@ class HyveConnectTest extends WP_UnitTestCase {
 		delete_option( Hyve_Connect::SITE_TOKEN_OPTION );
 
 		$this->intercept( $this->sse( [ [ 'job_complete', [ 'kb' => [] ] ] ] ) );
-		Hyve_Connect::instance()->kb_status();
+		Hyve_Connect::instance()->kb_reconcile( [], null );
 
 		$token = $this->captured['args']['headers']['X-Site-Token'];
 
@@ -284,7 +283,7 @@ class HyveConnectTest extends WP_UnitTestCase {
 
 		// A second request reuses the same stored token, not a fresh one.
 		$this->intercept( $this->sse( [ [ 'job_complete', [ 'kb' => [] ] ] ] ) );
-		Hyve_Connect::instance()->kb_status();
+		Hyve_Connect::instance()->kb_reconcile( [], null );
 
 		$this->assertSame( $token, $this->captured['args']['headers']['X-Site-Token'] );
 	}
@@ -296,7 +295,7 @@ class HyveConnectTest extends WP_UnitTestCase {
 		add_filter( 'product_hyve_license_key', fn() => 'LICENSE123' );
 		$this->intercept( $this->sse( [ [ 'job_complete', [ 'kb' => [] ] ] ] ) );
 
-		Hyve_Connect::instance()->kb_status();
+		Hyve_Connect::instance()->kb_reconcile( [], null );
 
 		$this->assertSame(
 			'Bearer ' . base64_encode( 'LICENSE123' ), // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode
@@ -311,7 +310,7 @@ class HyveConnectTest extends WP_UnitTestCase {
 		add_filter( 'hyve_connect_base_url', fn() => 'https://staging.test/api/workflows/' );
 		$this->intercept( $this->sse( [ [ 'job_complete', [] ] ] ) );
 
-		Hyve_Connect::instance()->kb_status();
+		Hyve_Connect::instance()->kb_reconcile( [], null );
 
 		$this->assertStringStartsWith( 'https://staging.test/api/workflows/', $this->captured['url'] );
 	}
@@ -355,7 +354,7 @@ class HyveConnectTest extends WP_UnitTestCase {
 	public function test_http_429_maps_to_quota_exceeded() {
 		$this->intercept( wp_json_encode( [ 'message' => 'Too many requests' ] ), 429 );
 
-		$result = Hyve_Connect::instance()->kb_status();
+		$result = Hyve_Connect::instance()->kb_reconcile( [], null );
 
 		$this->assertWPError( $result );
 		$this->assertSame( 'hyve_connect_quota_exceeded', $result->get_error_code() );
@@ -367,7 +366,7 @@ class HyveConnectTest extends WP_UnitTestCase {
 	public function test_missing_terminal_event_is_an_error() {
 		$this->intercept( $this->sse( [ [ 'stream_start', [] ], [ 'delta', [ 'text' => 'x' ] ] ] ) );
 
-		$result = Hyve_Connect::instance()->kb_status();
+		$result = Hyve_Connect::instance()->kb_reconcile( [], null );
 
 		$this->assertWPError( $result );
 		$this->assertSame( 'hyve_connect_no_result', $result->get_error_code() );

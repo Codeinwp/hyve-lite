@@ -49,7 +49,7 @@ class DB_Table {
 	const MAX_PROCESS_ATTEMPTS = 5;
 
 	/**
-	 * Source documents pushed to Hyve Connect per migration run.
+	 * Source documents pushed to Hyve Connect per sync batch.
 	 *
 	 * @var int
 	 */
@@ -60,7 +60,7 @@ class DB_Table {
 	 *
 	 * @var string
 	 */
-	const CONNECT_SYNC_OPTION = 'hyve_connect_migration';
+	const CONNECT_SYNC_OPTION = 'hyve_connect_sync';
 
 	/**
 	 * The cron hook that drives the to-Connect sync job.
@@ -918,42 +918,36 @@ class DB_Table {
 	 *
 	 * These carry the KB bookkeeping meta (`_hyve_added`) but the platform does
 	 * not yet hold them (no synced hash): the existing self-hosted content to
-	 * migrate on enable, or everything after an inactivity purge.
+	 * sync on enable, or everything after an inactivity purge.
 	 *
 	 * @param int $limit Max posts to return (-1 for all).
 	 *
 	 * @return array<int> Post ids.
 	 */
 	public function connect_pending_posts( $limit = self::CONNECT_SYNC_BATCH ) {
-		return get_posts(
+		return $this->connect_source_ids(
 			[
-				'post_type'      => $this->connect_indexed_post_types(),
-				'post_status'    => 'any',
-				'fields'         => 'ids',
-				'posts_per_page' => $limit,
-				// phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query -- one-off migration read, not a hot path.
-				'meta_query'     => [
-					[
-						'key'     => '_hyve_added',
-						'compare' => 'EXISTS',
-					],
-					[
-						'key'     => '_hyve_connect_synced_hash',
-						'compare' => 'NOT EXISTS',
-					],
-					// A source the platform rejected on moderation, or one that
-					// failed to index (no text content), stays out of the pending
-					// set so the batch never re-picks it forever.
-					[
-						'key'     => '_hyve_moderation_failed',
-						'compare' => 'NOT EXISTS',
-					],
-					[
-						'key'     => '_hyve_processing_error',
-						'compare' => 'NOT EXISTS',
-					],
+				[
+					'key'     => '_hyve_added',
+					'compare' => 'EXISTS',
 				],
-			]
+				[
+					'key'     => '_hyve_connect_synced_hash',
+					'compare' => 'NOT EXISTS',
+				],
+				// A source the platform rejected on moderation, or one that
+				// failed to index (no text content), stays out of the pending
+				// set so the batch never re-picks it forever.
+				[
+					'key'     => '_hyve_moderation_failed',
+					'compare' => 'NOT EXISTS',
+				],
+				[
+					'key'     => '_hyve_processing_error',
+					'compare' => 'NOT EXISTS',
+				],
+			],
+			$limit
 		);
 	}
 
@@ -972,17 +966,17 @@ class DB_Table {
 	 * @return bool
 	 */
 	public function connect_has_synced() {
-		$synced = get_posts(
-			[
-				'post_type'      => $this->connect_indexed_post_types(),
-				'post_status'    => 'any',
-				'fields'         => 'ids',
-				'posts_per_page' => 1,
-				'meta_key'       => '_hyve_connect_synced_hash', // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key
-			]
+		return ! empty(
+			$this->connect_source_ids(
+				[
+					[
+						'key'     => '_hyve_connect_synced_hash',
+						'compare' => 'EXISTS',
+					],
+				],
+				1
+			)
 		);
-
-		return ! empty( $synced );
 	}
 
 	/**
@@ -994,7 +988,7 @@ class DB_Table {
 	 *
 	 * @return void
 	 */
-	public function connect_start_migration() {
+	public function connect_start_sync() {
 		$pending = $this->connect_pending_count();
 
 		if ( 0 === $pending ) {
@@ -1026,16 +1020,16 @@ class DB_Table {
 	 *
 	 * @return void
 	 */
-	public function connect_migrate_data() {
+	public function connect_run_sync() {
 		if ( ! Hyve_Connect::is_active() ) {
-			$this->connect_finish_migration();
+			$this->connect_finish_sync();
 			return;
 		}
 
 		$post_ids = $this->connect_pending_posts();
 
 		if ( empty( $post_ids ) ) {
-			$this->connect_finish_migration();
+			$this->connect_finish_sync();
 			return;
 		}
 
@@ -1068,7 +1062,7 @@ class DB_Table {
 		}
 
 		if ( empty( $documents ) ) {
-			$this->connect_advance_migration( $empty );
+			$this->connect_advance_sync( $empty );
 			return;
 		}
 
@@ -1080,7 +1074,7 @@ class DB_Table {
 			if ( false !== strpos( $result->get_error_code(), 'quota_exceeded' ) ) {
 				$data = $result->get_error_data();
 
-				$this->connect_block_migration(
+				$this->connect_block_sync(
 					$result->get_error_message(),
 					is_array( $data ) && isset( $data['quota'] ) && is_array( $data['quota'] ) ? $data['quota'] : []
 				);
@@ -1151,7 +1145,7 @@ class DB_Table {
 		if ( 0 === $handled && 0 === $empty ) {
 			$storage = isset( $result['kb']['storage'] ) && is_array( $result['kb']['storage'] ) ? $result['kb']['storage'] : [];
 
-			$this->connect_block_migration(
+			$this->connect_block_sync(
 				$storage_skip
 					? __( 'Knowledge base storage quota exceeded.', 'hyve-lite' )
 					: __( 'Knowledge base indexing limit reached for this period.', 'hyve-lite' ),
@@ -1166,7 +1160,7 @@ class DB_Table {
 			return;
 		}
 
-		$this->connect_advance_migration( $handled + $empty );
+		$this->connect_advance_sync( $handled + $empty );
 	}
 
 	/**
@@ -1176,7 +1170,7 @@ class DB_Table {
 	 *
 	 * @return void
 	 */
-	private function connect_advance_migration( $done ) {
+	private function connect_advance_sync( $done ) {
 		$status = get_option( self::CONNECT_SYNC_OPTION, [] );
 
 		if ( empty( $status ) ) {
@@ -1200,7 +1194,7 @@ class DB_Table {
 	 *
 	 * @return void
 	 */
-	private function connect_finish_migration() {
+	private function connect_finish_sync() {
 		$status = get_option( self::CONNECT_SYNC_OPTION, [] );
 
 		if ( empty( $status ) ) {
@@ -1222,7 +1216,7 @@ class DB_Table {
 	 *
 	 * @return void
 	 */
-	private function connect_block_migration( $message, $quota = [] ) {
+	private function connect_block_sync( $message, $quota = [] ) {
 		$status = get_option( self::CONNECT_SYNC_OPTION, [] );
 
 		$status['in_progress'] = false;
@@ -1239,7 +1233,7 @@ class DB_Table {
 	 *
 	 * @return array<string, mixed>
 	 */
-	public function connect_migration_status() {
+	public function connect_sync_status() {
 		$status = get_option( self::CONNECT_SYNC_OPTION, [] );
 
 		return is_array( $status ) ? $status : [];
@@ -1251,19 +1245,17 @@ class DB_Table {
 	 * @return void
 	 */
 	public function connect_reset_sync_markers() {
-		$posts = get_posts(
+		$synced = $this->connect_source_ids(
 			[
-				'post_type'      => $this->connect_indexed_post_types(),
-				'post_status'    => 'any',
-				'fields'         => 'ids',
-				'posts_per_page' => -1,
-				'meta_key'       => '_hyve_connect_synced_hash', // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key
+				[
+					'key'     => '_hyve_connect_synced_hash',
+					'compare' => 'EXISTS',
+				],
 			]
 		);
 
-		foreach ( $posts as $post_id ) {
-			delete_post_meta( $post_id, '_hyve_connect_synced_hash' );
-			delete_post_meta( $post_id, '_hyve_connect_synced_modified' );
+		foreach ( $synced as $post_id ) {
+			$this->connect_forget_sync( $post_id );
 		}
 	}
 
@@ -1281,7 +1273,7 @@ class DB_Table {
 	 * @return void
 	 */
 	public function connect_maybe_resume_blocked() {
-		$status = $this->connect_migration_status();
+		$status = $this->connect_sync_status();
 
 		if ( empty( $status['blocked'] ) ) {
 			return;
@@ -1316,7 +1308,7 @@ class DB_Table {
 		}
 
 		delete_option( self::CONNECT_SYNC_OPTION );
-		$this->connect_start_migration();
+		$this->connect_start_sync();
 	}
 
 	/**
@@ -1333,9 +1325,9 @@ class DB_Table {
 			return;
 		}
 
-		$status = $this->connect_migration_status();
+		$status = $this->connect_sync_status();
 
-		// Don't stack recovery on an in-flight migration. A plan-blocked one
+		// Do not stack recovery on an in-flight sync. A plan-blocked one
 		// does not stop it: an empty account (e.g. right after an upgrade)
 		// still needs the full re-sync, which re-blocks if the cap holds.
 		if ( ! empty( $status['in_progress'] ) ) {
@@ -1351,7 +1343,7 @@ class DB_Table {
 
 		if ( in_array( $state, [ 'empty', 'purged' ], true ) ) {
 			$this->connect_reset_sync_markers();
-			$this->connect_start_migration();
+			$this->connect_start_sync();
 		}
 	}
 
@@ -1403,6 +1395,39 @@ class DB_Table {
 	}
 
 	/**
+	 * Post ids across the indexed post types matching a meta query. The single
+	 * shared shape behind every Connect source lookup (pending, synced, manifest).
+	 *
+	 * @param array<int, array<string, mixed>> $meta_query A meta_query clause list.
+	 * @param int                              $limit      Max ids (-1 for all).
+	 *
+	 * @return array<int>
+	 */
+	public function connect_source_ids( array $meta_query, $limit = -1 ) {
+		return get_posts(
+			[
+				'post_type'      => $this->connect_indexed_post_types(),
+				'post_status'    => 'any',
+				'fields'         => 'ids',
+				'posts_per_page' => $limit,
+				'meta_query'     => $meta_query, // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query -- one-off Connect read, not a hot path.
+			]
+		);
+	}
+
+	/**
+	 * Forget a source's synced markers (its hash and cache-invalidation time).
+	 *
+	 * @param int $post_id The source post id.
+	 *
+	 * @return void
+	 */
+	public function connect_forget_sync( $post_id ) {
+		delete_post_meta( (int) $post_id, '_hyve_connect_synced_hash' );
+		delete_post_meta( (int) $post_id, '_hyve_connect_synced_modified' );
+	}
+
+	/**
 	 * Every local source that belongs on Hyve Connect, as a {id, hash} manifest
 	 * for reconcile. The hash is the cached last-synced hash while the post is
 	 * unchanged (no re-hash), or the current content hash once it changes. A
@@ -1412,13 +1437,12 @@ class DB_Table {
 	 * @return array<array{id: int, hash: string}>
 	 */
 	public function connect_local_manifest() {
-		$post_ids = get_posts(
+		$post_ids = $this->connect_source_ids(
 			[
-				'post_type'      => $this->connect_indexed_post_types(),
-				'post_status'    => 'any',
-				'fields'         => 'ids',
-				'posts_per_page' => -1,
-				'meta_key'       => '_hyve_added', // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key -- reconcile read, not a hot path.
+				[
+					'key'     => '_hyve_added',
+					'compare' => 'EXISTS',
+				],
 			]
 		);
 
@@ -1464,7 +1488,7 @@ class DB_Table {
 	 *
 	 * Reconcile the cloud KB with local content via a drill-down: root aggregate
 	 * -> differing buckets -> scoped manifest. The cloud deletes orphans; the
-	 * plugin re-pushes stale/missing sources through the migration job.
+	 * plugin re-pushes stale/missing sources through the sync job.
 	 *
 	 * @return true|\WP_Error True when reconciled (or already in sync).
 	 */
@@ -1473,7 +1497,7 @@ class DB_Table {
 			return new \WP_Error( 'connect_inactive', __( 'Hyve Connect is not active.', 'hyve-lite' ) );
 		}
 
-		$status = $this->connect_migration_status();
+		$status = $this->connect_sync_status();
 
 		if ( ! empty( $status['in_progress'] ) ) {
 			return new \WP_Error( 'connect_busy', __( 'A sync is already in progress.', 'hyve-lite' ) );
@@ -1535,19 +1559,18 @@ class DB_Table {
 		}
 
 		// Stale (changed) + missing (never landed) -> re-push. Unmark them so the
-		// migration job picks exactly these up, then kick it.
+		// sync job picks exactly these up, then kick it.
 		$to_push = array_merge(
 			isset( $diff['stale'] ) ? $diff['stale'] : [],
 			isset( $diff['missing'] ) ? $diff['missing'] : []
 		);
 
 		foreach ( $to_push as $id ) {
-			delete_post_meta( (int) $id, '_hyve_connect_synced_hash' );
-			delete_post_meta( (int) $id, '_hyve_connect_synced_modified' );
+			$this->connect_forget_sync( $id );
 		}
 
 		if ( ! empty( $to_push ) ) {
-			$this->connect_start_migration();
+			$this->connect_start_sync();
 		}
 
 		return true;
