@@ -6,7 +6,7 @@ import { createReduxStore, register } from '@wordpress/data';
 const AI_MODE = window.hyve.aiMode || 'self_hosted';
 
 const DEFAULT_STATE = {
-	route: 'home',
+	route: window.hyve?.view || 'dashboard',
 	hasLoaded: false,
 	settings: {},
 	processed: [],

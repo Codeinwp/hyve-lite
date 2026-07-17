@@ -13,7 +13,7 @@ import { useEffect } from '@wordpress/element';
  * Internal dependencies.
  */
 import './style.scss';
-import { getRoutes, navigate, useRoute } from './router';
+import { getAccessibleRoutes, navigate, useRoute } from './router';
 import HeaderBar from './components/HeaderBar';
 import TabNav from './components/TabNav';
 import SideNav from './components/SideNav';
@@ -81,12 +81,18 @@ const App = () => {
 			document.dispatchEvent( new Event( 'themeisle:banner:init' ) );
 		};
 
-		fetchSettings();
+		// Support users without full access cannot read settings; skip the
+		// request so the app finishes loading instead of hanging on a 403.
+		if ( window.hyve?.canManage ) {
+			fetchSettings();
+		} else {
+			setLoading();
+		}
 
 		window.tsdk_reposition_notice?.();
 	}, [ setSettings, setLoading ] );
 
-	const routes = getRoutes();
+	const routes = getAccessibleRoutes();
 	const current = routes[ screen ];
 	const Screen = SCREENS[ screen ];
 
