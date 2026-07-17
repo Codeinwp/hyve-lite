@@ -339,9 +339,11 @@ class Stream {
 		);
 
 		if ( is_wp_error( $result ) ) {
+			$error_code = $result->get_error_code();
+
 			// An empty/purged KB is visitor-facing parity with self-hosted: show
 			// the site's default_message rather than an error.
-			if ( false !== strpos( $result->get_error_code(), 'kb_unavailable' ) ) {
+			if ( is_string( $error_code ) && false !== strpos( $error_code, 'kb_unavailable' ) ) {
 				$this->send_event(
 					'done',
 					[

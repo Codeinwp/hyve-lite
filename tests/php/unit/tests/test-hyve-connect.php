@@ -118,7 +118,7 @@ class HyveConnectTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * parse_sse preserves event order and decodes each frame's data.
+	 * Parse_sse preserves event order and decodes each frame's data.
 	 */
 	public function test_parse_sse_orders_events_and_decodes_data() {
 		$body = $this->sse(
@@ -153,7 +153,7 @@ class HyveConnectTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * kb_aggregate must match the platform's aggregate byte for byte: sha256 over
+	 * Kb_aggregate must match the platform's aggregate byte for byte: sha256 over
 	 * "id:hash" lines sorted by id as strings. This pins the string-sort ("10"
 	 * before "2") and the empty-KB value, so the reconcile fast-path stays valid.
 	 */
@@ -189,7 +189,7 @@ class HyveConnectTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * kb_bucket_of must match the platform's bucketOf: low 8 bits of crc32.
+	 * Kb_bucket_of must match the platform's bucketOf: low 8 bits of crc32.
 	 */
 	public function test_kb_bucket_of_matches_platform_formula() {
 		foreach ( [ '1', '2', '12345', 'custom-source' ] as $id ) {
@@ -203,7 +203,7 @@ class HyveConnectTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * kb_bucket_hashes groups a manifest by bucket and aggregates each group, so
+	 * Kb_bucket_hashes groups a manifest by bucket and aggregates each group, so
 	 * a source's bucket hash equals aggregating just that source.
 	 */
 	public function test_kb_bucket_hashes_group_by_bucket() {
@@ -235,7 +235,7 @@ class HyveConnectTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * kb_upsert POSTs the contract-shaped payload and returns the job_complete data.
+	 * Kb_upsert POSTs the contract-shaped payload and returns the job_complete data.
 	 */
 	public function test_kb_upsert_builds_request_and_returns_job_complete() {
 		$this->intercept(
@@ -389,7 +389,7 @@ class HyveConnectTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * user_message maps platform codes to visitor/admin wording.
+	 * User_message maps platform codes to visitor/admin wording.
 	 */
 	public function test_user_message_maps_codes() {
 		$quota   = new WP_Error( 'hyve_connect_quota_exceeded', 'x', [ 'code' => 'quota_exceeded' ] );
@@ -403,7 +403,7 @@ class HyveConnectTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * get_quota reads the plain-JSON aggregate over GET.
+	 * Get_quota reads the plain-JSON aggregate over GET.
 	 */
 	public function test_get_quota_returns_decoded_json() {
 		$this->intercept(
@@ -423,7 +423,7 @@ class HyveConnectTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * stats() caches the aggregate so a second read does not hit the network.
+	 * Stats() caches the aggregate so a second read does not hit the network.
 	 */
 	public function test_stats_are_cached_after_first_fetch() {
 		$this->intercept(

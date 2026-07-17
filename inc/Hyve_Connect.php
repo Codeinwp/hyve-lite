@@ -301,10 +301,11 @@ class Hyve_Connect {
 	 * @return array<string, mixed>|\WP_Error
 	 */
 	public function get_quota() {
-		$response = wp_remote_get(
+		$response = wp_safe_remote_get(
 			$this->base_url() . self::PATH_QUOTA,
 			[
 				'headers' => $this->get_headers( 'application/json' ),
+				// phpcs:ignore WordPressVIPMinimum.Performance.RemoteRequestTimeout.timeout_timeout -- Hosted service aggregate; a short timeout would flap on cold starts.
 				'timeout' => 30,
 			]
 		);
@@ -338,8 +339,8 @@ class Hyve_Connect {
 	 * The terminal `job_complete` payload (reply, answered, sources, thread_id,
 	 * usage) is returned to the caller.
 	 *
-	 * @param array<string, mixed>          $payload  hyve-chat input ({message,thread_id,settings,stream}).
-	 * @param callable(string, array): void $on_event Receives each intra-stream event (delta, kb_state, sources).
+	 * @param array<string, mixed>                         $payload  hyve-chat input ({message,thread_id,settings,stream}).
+	 * @param callable(string, array<string, mixed>): void $on_event Receives each intra-stream event (delta, kb_state, sources).
 	 *
 	 * @return array<string, mixed>|\WP_Error The job_complete payload, or an error.
 	 */
@@ -524,9 +525,9 @@ class Hyve_Connect {
 		$code = isset( $data['code'] ) ? $data['code'] : $error->get_error_code();
 
 		$messages = [
-			'quota_exceeded'     => __( 'You have reached your Hyve Connect limit for now. Upgrade your plan for more.', 'hyve-lite' ),
-			'kb_unavailable'     => __( 'The knowledge base is being prepared. Please try again shortly.', 'hyve-lite' ),
-			'provider_error'     => __( 'The hosted AI is temporarily unavailable. Please try again.', 'hyve-lite' ),
+			'quota_exceeded' => __( 'You have reached your Hyve Connect limit for now. Upgrade your plan for more.', 'hyve-lite' ),
+			'kb_unavailable' => __( 'The knowledge base is being prepared. Please try again shortly.', 'hyve-lite' ),
+			'provider_error' => __( 'The hosted AI is temporarily unavailable. Please try again.', 'hyve-lite' ),
 		];
 
 		foreach ( $messages as $needle => $message ) {
@@ -568,6 +569,7 @@ class Hyve_Connect {
 			[
 				'headers' => $this->get_headers(),
 				'body'    => $body,
+				// phpcs:ignore WordPressVIPMinimum.Performance.RemoteRequestTimeout.timeout_timeout -- Buffered SSE workflow (moderation + embedding + storage) legitimately runs longer.
 				'timeout' => 60,
 			]
 		);

@@ -189,16 +189,16 @@ class DB_Table {
 	 */
 	public function get_columns() {
 		return [
-			'date'         => '%s',
-			'modified'     => '%s',
-			'post_id'      => '%s',
-			'post_title'   => '%s',
-			'post_content' => '%s',
-			'embeddings'   => '%s',
+			'date'            => '%s',
+			'modified'        => '%s',
+			'post_id'         => '%s',
+			'post_title'      => '%s',
+			'post_content'    => '%s',
+			'embeddings'      => '%s',
 			'embedding_model' => '%s',
-			'token_count'  => '%d',
-			'post_status'  => '%s',
-			'storage'      => '%s',
+			'token_count'     => '%d',
+			'post_status'     => '%s',
+			'storage'         => '%s',
 		];
 	}
 
@@ -211,16 +211,16 @@ class DB_Table {
 	 */
 	public function get_column_defaults() {
 		return [
-			'date'         => gmdate( 'Y-m-d H:i:s' ),
-			'modified'     => gmdate( 'Y-m-d H:i:s' ),
-			'post_id'      => '',
-			'post_title'   => '',
-			'post_content' => '',
-			'embeddings'   => '',
+			'date'            => gmdate( 'Y-m-d H:i:s' ),
+			'modified'        => gmdate( 'Y-m-d H:i:s' ),
+			'post_id'         => '',
+			'post_title'      => '',
+			'post_content'    => '',
+			'embeddings'      => '',
 			'embedding_model' => '',
-			'token_count'  => 0,
-			'post_status'  => 'scheduled',
-			'storage'      => 'WordPress',
+			'token_count'     => 0,
+			'post_status'     => 'scheduled',
+			'storage'         => 'WordPress',
 		];
 	}
 
@@ -1103,9 +1103,11 @@ class DB_Table {
 		$result = Hyve_Connect::instance()->kb_upsert( $documents );
 
 		if ( is_wp_error( $result ) ) {
+			$error_code = $result->get_error_code();
+
 			// Over the plan's storage/churn cap: retrying will not help until the
 			// user upgrades or trims content, so stop and surface the block.
-			if ( false !== strpos( $result->get_error_code(), 'quota_exceeded' ) ) {
+			if ( is_string( $error_code ) && false !== strpos( $error_code, 'quota_exceeded' ) ) {
 				$data = $result->get_error_data();
 
 				$this->connect_block_sync(
@@ -1120,7 +1122,10 @@ class DB_Table {
 			return;
 		}
 
-		if ( ! Hyve_Connect::is_active() ) {
+		$live_settings = get_option( 'hyve_settings', [] );
+		$live_mode     = is_array( $live_settings ) ? ( $live_settings['ai_mode'] ?? '' ) : '';
+
+		if ( Hyve_Connect::MODE_CONNECT !== $live_mode ) {
 			$this->connect_finish_sync();
 			return;
 		}
@@ -1297,7 +1302,7 @@ class DB_Table {
 		$status['in_progress'] = false;
 		$status['blocked']     = true;
 		$status['message']     = (string) $message;
-		$status['quota']       = is_array( $quota ) ? $quota : [];
+		$status['quota']       = $quota;
 
 		update_option( self::CONNECT_SYNC_OPTION, $status );
 		Hyve_Connect::flush_stats();

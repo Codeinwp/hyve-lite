@@ -2038,7 +2038,7 @@ class API extends BaseAPI {
 	private function chat_rate_limited() {
 		// REMOTE_ADDR is the transport peer (not a spoofable forwarded header);
 		// validate it and key the coarse throttle on it.
-		$raw = isset( $_SERVER['REMOTE_ADDR'] ) ? wp_unslash( $_SERVER['REMOTE_ADDR'] ) : ''; // phpcs:ignore WordPressVIPMinimum.Variables.ServerVariables.UserControlledHeaders, WordPressVIPMinimum.Variables.RestrictedVariables.cache_constraints___SERVER__REMOTE_ADDR__
+		$raw = isset( $_SERVER['REMOTE_ADDR'] ) ? wp_unslash( $_SERVER['REMOTE_ADDR'] ) : ''; // phpcs:ignore WordPressVIPMinimum.Variables.ServerVariables.UserControlledHeaders, WordPressVIPMinimum.Variables.RestrictedVariables.cache_constraints___SERVER__REMOTE_ADDR__, WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- Validated as an IP on the next line.
 		$ip  = filter_var( $raw, FILTER_VALIDATE_IP );
 
 		if ( ! $ip ) {

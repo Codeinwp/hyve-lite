@@ -247,7 +247,7 @@ test.describe( 'Settings', () => {
 		await expect( page.getByLabel( 'Qdrant API key' ) ).toBeVisible();
 		await expect( page.getByLabel( 'Qdrant endpoint' ) ).toBeVisible();
 		await expect(
-			page.getByRole( 'button', { name: 'Connect' } )
+			page.getByRole( 'button', { name: 'Connect', exact: true } )
 		).toBeVisible();
 	} );
 
