@@ -878,16 +878,26 @@ p.hyve-next-notice__text {
 .hyve-next-grid2 {
 	display: grid;
 	gap: 16px;
-	grid-template-columns: 1.7fr 1fr;
+	grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr);
 
 	@media (max-width: 980px) {
-		grid-template-columns: 1fr;
+		grid-template-columns: minmax(0, 1fr);
 	}
 
 	> .hyve-next-card {
 		display: flex;
 		flex-direction: column;
 		margin-bottom: 0;
+		min-width: 0;
+	}
+
+	.hyve-next-act__row {
+		align-items: center;
+		flex: 1;
+	}
+
+	.hyve-next-act__note {
+		margin: auto 0;
 	}
 }
 
