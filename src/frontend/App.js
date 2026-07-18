@@ -24,6 +24,9 @@ class App {
 		this.recordID = null;
 		this.isMenuOpen = false;
 		this.isInline = false;
+		this.gateLocked = false;
+		this.gatePending = false;
+		this.preChatGateShown = false;
 
 		if ( Boolean( window.hyveClient?.canShow ) ) {
 			this.initialize();
@@ -131,6 +134,10 @@ class App {
 
 	add( message, sender, id = null, sound = true ) {
 		const time = new Date();
+
+		if ( 'user' === sender && this.gateLocked ) {
+			return;
+		}
 
 		if ( 'user' === sender ) {
 			message = this.sanitize( message );
@@ -276,6 +283,7 @@ class App {
 				// Contextual follow-ups on the poll path (Pro), mirroring the
 				// streaming flow. Present only on a successful, grounded answer.
 				this.renderSuggestions( response.follow_ups );
+				this.afterBotReply( response );
 			}
 
 			if ( 'failed' === response.status ) {
@@ -644,6 +652,7 @@ class App {
 		// Contextual follow-ups ride on the terminal event (Pro). They are only
 		// present on a successful, grounded answer.
 		this.renderSuggestions( data?.follow_ups );
+		this.afterBotReply( data );
 	}
 
 	/**
@@ -811,6 +820,22 @@ class App {
 			return;
 		}
 
+		// Event entries render as a centered divider; unknown keys are skipped.
+		if ( 'event' === sender ) {
+			if ( 'contact_form' !== message ) {
+				return;
+			}
+
+			const eventDiv = this.createElement( 'div', {
+				className: 'hyve-event-message',
+			} );
+			eventDiv.textContent = strings.leadEvent ?? '';
+
+			chatMessageBox.appendChild( eventDiv );
+			chatMessageBox.scrollTop = chatMessageBox.scrollHeight;
+			return;
+		}
+
 		const date = this.formatDate( time );
 
 		let messageHTML = `<div>${ message }</div>`;
@@ -919,8 +944,13 @@ class App {
 			setTimeout( () => {
 				this.add( welcomeMessage, 'bot' );
 				this.addSuggestions();
+				this.maybeShowPreChatGate();
 			}, 1000 );
+
+			return;
 		}
+
+		this.maybeShowPreChatGate();
 	}
 
 	addSuggestions() {
@@ -938,7 +968,12 @@ class App {
 	 * @return {void}
 	 */
 	renderSuggestions( questions ) {
-		if ( ! Array.isArray( questions ) ) {
+		// Chips wait while the pre-chat form is up.
+		if (
+			this.gateLocked ||
+			this.gatePending ||
+			! Array.isArray( questions )
+		) {
 			return;
 		}
 
@@ -1006,6 +1041,544 @@ class App {
 		}
 	}
 
+	/**
+	 * The lead-form config injected by Pro, or null when unavailable.
+	 *
+	 * @return {Object|null} The config ({ fields, triggers }).
+	 */
+	leadConfig() {
+		return window.hyveClient?.leadForm ?? null;
+	}
+
+	/**
+	 * Resolve a piece of lead-form copy, preferring the admin's custom text
+	 * and falling back to the localized default.
+	 *
+	 * @param {string} key      The messages key (heading|offer|thanks).
+	 * @param {string} fallback The default string.
+	 * @return {string} The copy to show.
+	 */
+	leadMessage( key, fallback ) {
+		const custom = this.leadConfig()?.messages?.[ key ];
+
+		return custom ? custom : fallback;
+	}
+
+	/**
+	 * Client handlers keyed by action type; unknown types are ignored.
+	 *
+	 * @return {Object} Handlers keyed by action type.
+	 */
+	getActionHandlers() {
+		return {
+			contact_form: () => this.offerLeadForm(),
+		};
+	}
+
+	/**
+	 * Dispatch server-declared actions to their client handlers.
+	 *
+	 * @param {Array<{type: string}>} actions Actions from the reply payload.
+	 * @return {void}
+	 */
+	handleActions( actions ) {
+		if ( ! Array.isArray( actions ) ) {
+			return;
+		}
+
+		const handlers = this.getActionHandlers();
+
+		actions.forEach( ( action ) => {
+			const handler = handlers[ action?.type ];
+
+			if ( handler ) {
+				handler( action );
+			}
+		} );
+	}
+
+	/**
+	 * Run server-declared actions, then the client-side unanswered trigger.
+	 *
+	 * @param {any} data The reply payload ({ success, actions, ... }).
+	 * @return {void}
+	 */
+	afterBotReply( data ) {
+		const config = this.leadConfig();
+
+		if ( ! config ) {
+			return;
+		}
+
+		this.handleActions( data?.actions );
+
+		if ( false === data?.success && config.triggers?.unanswered ) {
+			this.offerLeadForm();
+		}
+	}
+
+	/**
+	 * The visitor's lead-form decision ('submitted' | 'dismissed' | null),
+	 * kept for 24h.
+	 *
+	 * @return {string|null} The stored status.
+	 */
+	leadFormStatus() {
+		if ( this.isPreview() ) {
+			return this.previewLeadStatus ?? null;
+		}
+
+		try {
+			const raw = window.localStorage.getItem( 'hyve-lead-form' );
+
+			if ( ! raw ) {
+				return null;
+			}
+
+			const state = JSON.parse( raw );
+			const DAY = 24 * 60 * 60 * 1000;
+			const ts = new Date( state.timestamp ).getTime();
+
+			if ( isNaN( ts ) || Date.now() - ts > DAY ) {
+				window.localStorage.removeItem( 'hyve-lead-form' );
+				return null;
+			}
+
+			return state.status ?? null;
+		} catch {
+			return null;
+		}
+	}
+
+	/**
+	 * Persist the visitor's lead-form decision.
+	 *
+	 * @param {string} status 'submitted' or 'dismissed'.
+	 * @return {void}
+	 */
+	setLeadFormStatus( status ) {
+		if ( this.isPreview() ) {
+			this.previewLeadStatus = status;
+			return;
+		}
+
+		try {
+			window.localStorage.setItem(
+				'hyve-lead-form',
+				JSON.stringify( { status, timestamp: new Date() } )
+			);
+		} catch {}
+	}
+
+	clearLeadFormStatus() {
+		this.previewLeadStatus = null;
+
+		try {
+			window.localStorage.removeItem( 'hyve-lead-form' );
+		} catch {}
+	}
+
+	isLeadFormVisible() {
+		return Boolean( document.querySelector( '.hyve-lead-form' ) );
+	}
+
+	removeLeadOffer() {
+		document.querySelector( '.hyve-lead-offer' )?.remove();
+	}
+
+	/**
+	 * Offer the contact form with accept/decline; a decline is remembered.
+	 *
+	 * @return {void}
+	 */
+	offerLeadForm() {
+		const config = this.leadConfig();
+		const status = this.leadFormStatus();
+
+		// A pre-chat skip ('gate_skipped') is weak intent, so mid-chat triggers
+		// may still offer the form; only a real decline or a submission stops it.
+		if (
+			! config ||
+			this.gateLocked ||
+			'dismissed' === status ||
+			'submitted' === status ||
+			this.isLeadFormVisible()
+		) {
+			return;
+		}
+
+		const chatMessageBox = document.getElementById( 'hyve-message-box' );
+
+		if ( ! chatMessageBox ) {
+			return;
+		}
+
+		this.removeLeadOffer();
+
+		const offer = this.createElement( 'div', {
+			className: 'hyve-lead-offer',
+		} );
+
+		const label = this.createElement( 'span' );
+		label.textContent = this.leadMessage( 'offer', strings.leadOffer );
+		offer.appendChild( label );
+
+		const accept = this.createElement( 'button', {
+			className: 'hyve-lead-offer__yes',
+		} );
+		accept.textContent = strings.leadOfferButton;
+		accept.addEventListener( 'click', () => {
+			this.removeLeadOffer();
+			this.renderLeadForm( { dismissible: true } );
+		} );
+		offer.appendChild( accept );
+
+		const decline = this.createElement( 'button', {
+			className: 'hyve-lead-offer__no',
+		} );
+		decline.textContent = strings.leadNoThanks;
+		decline.addEventListener( 'click', () => {
+			this.removeLeadOffer();
+			this.setLeadFormStatus( 'dismissed' );
+		} );
+		offer.appendChild( decline );
+
+		if ( window.hyveClient.colors?.user_background ) {
+			offer.classList.add( 'is-dark' );
+		}
+
+		if (
+			! window.hyveClient.colors?.user_background &&
+			undefined !== window.hyveClient.colors?.user_background
+		) {
+			offer.classList.add( 'is-light' );
+		}
+
+		chatMessageBox.appendChild( offer );
+		chatMessageBox.scrollTop = chatMessageBox.scrollHeight;
+	}
+
+	/**
+	 * Show the pre-chat form once, before the first message; when required,
+	 * the input stays locked until it is submitted.
+	 *
+	 * @return {void}
+	 */
+	maybeShowPreChatGate() {
+		const config = this.leadConfig();
+
+		if (
+			! config?.triggers?.preChat ||
+			this.preChatGateShown ||
+			this.leadFormStatus() ||
+			this.hasUserMessages() ||
+			this.isLeadFormVisible()
+		) {
+			return;
+		}
+
+		this.preChatGateShown = true;
+		this.gatePending = true;
+
+		// Suggestions wait until the visitor submits or skips the form.
+		this.removeSuggestions();
+
+		const required = Boolean( config.triggers.preChatRequired );
+
+		if ( required ) {
+			this.setGateLock( true );
+		}
+
+		this.renderLeadForm( { dismissible: ! required, gate: true } );
+	}
+
+	/**
+	 * Lock or unlock the chat input while the required pre-chat form is up.
+	 *
+	 * @param {boolean} locked Whether the input should be locked.
+	 * @return {void}
+	 */
+	setGateLock( locked ) {
+		this.gateLocked = locked;
+
+		const chatInputText = document.querySelector( '#hyve-text-input' );
+		const chatSendButton = document.querySelector(
+			'.hyve-send-button button'
+		);
+
+		if ( chatInputText ) {
+			chatInputText.disabled = locked;
+		}
+
+		if ( chatSendButton ) {
+			chatSendButton.disabled = locked;
+		}
+
+		if ( locked ) {
+			this.removeSuggestions();
+		}
+	}
+
+	/**
+	 * Render the contact form as a bot-authored block inside the chat.
+	 *
+	 * @param {Object}  options             Options.
+	 * @param {boolean} options.dismissible Whether a decline button shows.
+	 * @param {boolean} [options.gate]      Whether this is the pre-chat gate.
+	 * @return {void}
+	 */
+	renderLeadForm( options = {} ) {
+		const config = this.leadConfig();
+
+		if ( ! config || this.isLeadFormVisible() ) {
+			return;
+		}
+
+		const chatMessageBox = document.getElementById( 'hyve-message-box' );
+
+		if ( ! chatMessageBox ) {
+			return;
+		}
+
+		const form = this.createElement( 'form', {
+			className: 'hyve-bot-message hyve-lead-form',
+		} );
+
+		if ( window.hyveClient.colors?.assistant_background ) {
+			form.classList.add( 'is-dark' );
+		}
+
+		const intro = this.createElement( 'p', {
+			className: 'hyve-lead-form__intro',
+		} );
+		intro.textContent = this.leadMessage( 'heading', strings.leadIntro );
+		form.appendChild( intro );
+
+		const inputs = {};
+
+		( config.fields ?? [] ).forEach( ( field ) => {
+			if ( ! field?.id ) {
+				return;
+			}
+
+			const row = this.createElement( 'div', {
+				className: 'hyve-lead-form__row',
+			} );
+
+			const labelText =
+				( field.label || '' ) + ( field.required ? ' *' : '' );
+
+			if ( 'checkbox' === field.type ) {
+				const label = this.createElement( 'label', {
+					className: 'hyve-lead-form__check',
+				} );
+				const input = this.createElement( 'input', {
+					type: 'checkbox',
+				} );
+
+				label.appendChild( input );
+				label.appendChild( document.createTextNode( ' ' + labelText ) );
+				row.appendChild( label );
+				inputs[ field.id ] = input;
+			} else {
+				const label = this.createElement( 'label' );
+				label.textContent = labelText;
+				row.appendChild( label );
+
+				let input;
+
+				if ( 'textarea' === field.type ) {
+					input = this.createElement( 'textarea', { rows: 3 } );
+				} else {
+					const types = { email: 'email', phone: 'tel' };
+					input = this.createElement( 'input', {
+						type: types[ field.type ] ?? 'text',
+					} );
+				}
+
+				row.appendChild( input );
+				inputs[ field.id ] = input;
+			}
+
+			form.appendChild( row );
+		} );
+
+		// Prefill the first long-text field with the visitor's last question.
+		if ( ! options.gate ) {
+			const lastUser = [ ...this.messages ]
+				.reverse()
+				.find( ( { sender } ) => 'user' === sender );
+			const textareaField = ( config.fields ?? [] ).find(
+				( { type } ) => 'textarea' === type
+			);
+
+			if ( lastUser && textareaField && inputs[ textareaField.id ] ) {
+				const tempDiv = document.createElement( 'div' );
+				tempDiv.innerHTML = lastUser.message;
+				inputs[ textareaField.id ].value = tempDiv.textContent ?? '';
+			}
+		}
+
+		const error = this.createElement( 'p', {
+			className: 'hyve-lead-form__error',
+		} );
+		error.hidden = true;
+		form.appendChild( error );
+
+		const buttons = this.createElement( 'div', {
+			className: 'hyve-lead-form__buttons',
+		} );
+
+		const submit = this.createElement( 'button', {
+			type: 'submit',
+			className: 'hyve-lead-form__submit',
+		} );
+		submit.textContent = strings.leadSubmit;
+
+		if (
+			! window.hyveClient.colors?.user_background &&
+			undefined !== window.hyveClient.colors?.user_background
+		) {
+			submit.classList.add( 'is-light' );
+		}
+
+		buttons.appendChild( submit );
+
+		if ( options.dismissible ) {
+			const skip = this.createElement( 'button', {
+				type: 'button',
+				className: 'hyve-lead-form__skip',
+			} );
+			skip.textContent = strings.leadSkip;
+			skip.addEventListener( 'click', () => {
+				form.remove();
+				this.setLeadFormStatus(
+					options.gate ? 'gate_skipped' : 'dismissed'
+				);
+
+				if ( options.gate ) {
+					this.gatePending = false;
+
+					if ( ! this.hasUserMessages() ) {
+						this.addSuggestions();
+					}
+				}
+			} );
+			buttons.appendChild( skip );
+		}
+
+		form.appendChild( buttons );
+
+		form.addEventListener( 'submit', ( event ) => {
+			event.preventDefault();
+			this.submitLeadForm( {
+				form,
+				inputs,
+				error,
+				submit,
+				gate: Boolean( options.gate ),
+			} );
+		} );
+
+		chatMessageBox.appendChild( form );
+		chatMessageBox.scrollTop = chatMessageBox.scrollHeight;
+	}
+
+	/**
+	 * Validate and send the contact form.
+	 *
+	 * @param {Object}  args        Arguments.
+	 * @param {Element} args.form   The form element.
+	 * @param {Object}  args.inputs Field inputs keyed by field id.
+	 * @param {Element} args.error  The inline error element.
+	 * @param {Element} args.submit The submit button.
+	 * @param {boolean} args.gate   Whether this was the pre-chat gate.
+	 * @return {Promise<void>} Resolves when handled.
+	 */
+	async submitLeadForm( { form, inputs, error, submit, gate } ) {
+		const config = this.leadConfig();
+		const fields = {};
+		let missing = false;
+
+		( config?.fields ?? [] ).forEach( ( field ) => {
+			const input = inputs[ field.id ];
+
+			if ( ! input ) {
+				return;
+			}
+
+			const value =
+				'checkbox' === field.type ? input.checked : input.value.trim();
+
+			if (
+				field.required &&
+				( 'checkbox' === field.type ? ! value : '' === value )
+			) {
+				missing = true;
+			}
+
+			fields[ field.id ] = value;
+		} );
+
+		if ( missing ) {
+			error.textContent = strings.leadRequired;
+			error.hidden = false;
+			return;
+		}
+
+		error.hidden = true;
+		submit.disabled = true;
+
+		try {
+			// The admin preview never stores real leads.
+			if ( ! this.isPreview() ) {
+				await apiFetch( {
+					path: `${ window.hyveClient.api }/leads`,
+					method: 'POST',
+					data: {
+						fields,
+						record_id: this.recordID ?? 0,
+						thread_id: this.threadID ?? '',
+						page_url: window.location.href,
+					},
+					headers: this.getDefaultHeaders(),
+				} );
+			}
+
+			form.remove();
+			this.setLeadFormStatus( 'submitted' );
+			this.addEventEntry( 'contact_form' );
+			this.add( this.leadMessage( 'thanks', strings.leadThanks ), 'bot' );
+
+			if ( gate ) {
+				this.setGateLock( false );
+				this.gatePending = false;
+
+				if ( ! this.hasUserMessages() ) {
+					this.addSuggestions();
+				}
+			}
+		} catch ( err ) {
+			submit.disabled = false;
+			error.textContent = err?.message || strings.tryAgain;
+			error.hidden = false;
+		}
+	}
+
+	/**
+	 * Record an event entry in the transcript.
+	 *
+	 * @param {string} key The event key, e.g. 'contact_form'.
+	 * @return {void}
+	 */
+	addEventEntry( key ) {
+		const time = new Date();
+
+		this.messages.push( { time, message: key, sender: 'event', id: null } );
+		this.addMessage( time, key, 'event', null, false );
+		this.updateStorage();
+	}
+
 	clearConversation() {
 		// Clear messages from UI
 		const chatMessageBox = document.getElementById( 'hyve-message-box' );
@@ -1018,9 +1591,13 @@ class App {
 		this.recordID = null;
 		this.hasSuggestions = false;
 		this.isInitialToggle = true;
+		this.preChatGateShown = false;
+		this.gatePending = false;
+		this.setGateLock( false );
 
 		// Clear local storage
 		window.localStorage.removeItem( 'hyve-chat' );
+		this.clearLeadFormStatus();
 
 		// Close menu
 		this.toggleMenu( false );
@@ -1031,7 +1608,10 @@ class App {
 			setTimeout( () => {
 				this.add( window.hyveClient.welcome, 'bot' );
 				this.addSuggestions();
+				this.maybeShowPreChatGate();
 			}, 500 );
+		} else {
+			this.maybeShowPreChatGate();
 		}
 	}
 

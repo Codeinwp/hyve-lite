@@ -23,6 +23,7 @@ import { isLicenseActive, setUtm } from '../utils';
 import Card from '../components/Card';
 import Chip from '../components/Chip';
 import Pagination from '../components/Pagination';
+import Slot from '../components/Slot';
 
 // Threads already fetched for the list, so the drill-in can open instantly.
 const threadCache = new Map();
@@ -186,6 +187,14 @@ const ConversationsPanel = () => {
 									<td className="hyve-next-table__main">
 										<span className="hyve-next-table__title">
 											{ post.title }
+											{ Boolean( post.lead_id ) && (
+												<Chip tone="ok" dot={ false }>
+													{ __(
+														'Lead',
+														'hyve-lite'
+													) }
+												</Chip>
+											) }
 										</span>
 										{ snippet( post ) && (
 											<span className="hyve-next-table__sub">
@@ -240,6 +249,112 @@ const ConversationsPanel = () => {
 			) }
 		</Card>
 	);
+};
+
+const DEMO_LEADS = [
+	{
+		name: 'Jane Cooper',
+		email: 'jane@example.com',
+		date: __( 'Apr 12', 'hyve-lite' ),
+	},
+	{
+		name: 'Devon Lane',
+		email: 'devon@example.com',
+		date: __( 'Apr 9', 'hyve-lite' ),
+	},
+	{
+		name: 'Courtney Henry',
+		email: 'courtney@example.com',
+		date: __( 'Apr 2', 'hyve-lite' ),
+	},
+];
+
+const LeadsPanel = () => {
+	const hasPro = Boolean( window.hyve?.license );
+
+	if ( hasPro ) {
+		return (
+			<Slot
+				name="messages-leads"
+				fallback={
+					<div className="hyve-next__card">
+						<p>
+							{ __(
+								'The leads list is on its way here.',
+								'hyve-lite'
+							) }
+						</p>
+					</div>
+				}
+			/>
+		);
+	}
+
+	return (
+		<Card
+			title={ __( 'Leads', 'hyve-lite' ) }
+			actions={
+				<Chip tone="pro" dot={ false }>
+					{ __( 'Pro', 'hyve-lite' ) }
+				</Chip>
+			}
+		>
+			<div className="hyve-next-table-wrap hyve-next-demo">
+				<table className="hyve-next-table">
+					<thead>
+						<tr>
+							<th>{ __( 'Contact', 'hyve-lite' ) }</th>
+							<th>{ __( 'Conversation', 'hyve-lite' ) }</th>
+							<th>{ __( 'Date', 'hyve-lite' ) }</th>
+						</tr>
+					</thead>
+					<tbody>
+						{ DEMO_LEADS.map( ( lead ) => (
+							<tr key={ lead.email }>
+								<td className="hyve-next-table__main">
+									<span className="hyve-next-table__title">
+										{ lead.name }
+									</span>
+									<span className="hyve-next-table__sub">
+										{ lead.email }
+									</span>
+								</td>
+								<td>
+									<Button variant="secondary" disabled>
+										{ __( 'View', 'hyve-lite' ) }
+									</Button>
+								</td>
+								<td>{ lead.date }</td>
+							</tr>
+						) ) }
+					</tbody>
+				</table>
+			</div>
+
+			<div className="hyve-next-act__upsell">
+				<strong>
+					{ __( 'Turn conversations into leads', 'hyve-lite' ) }
+				</strong>
+				<p>
+					{ __(
+						'With Hyve Pro, visitors can leave their contact details right in the chat. Every lead lands here, linked to the conversation it came from, and webhooks can send it to your CRM the moment it arrives.',
+						'hyve-lite'
+					) }
+				</p>
+				<Button
+					variant="primary"
+					href={ setUtm( window.hyve?.pro, 'leads-list' ) }
+					target="_blank"
+				>
+					{ __( 'Unlock with Pro', 'hyve-lite' ) }
+				</Button>
+			</div>
+		</Card>
+	);
+};
+
+const EVENT_LABELS = {
+	contact_form: __( 'Visitor submitted the contact form', 'hyve-lite' ),
 };
 
 const ThreadView = ( { item } ) => {
@@ -382,6 +497,19 @@ const ThreadView = ( { item } ) => {
 								{ thread.thread_id.replace( 'thread_', '' ) }
 							</>
 						) }
+						{ Boolean( thread.lead_id ) && (
+							<>
+								{ ' · ' }
+								<Button
+									variant="link"
+									onClick={ () =>
+										navigate( 'messages', 'leads' )
+									}
+								>
+									{ __( 'View lead', 'hyve-lite' ) }
+								</Button>
+							</>
+						) }
 					</div>
 
 					<div className="hyve-next-thread">
@@ -411,6 +539,25 @@ const ThreadView = ( { item } ) => {
 										className="hyve-next-bubble is-user"
 									>
 										<p>{ message.message }</p>
+										<time>
+											{ timeOfDay( message.time ) }
+										</time>
+									</div>
+								);
+							}
+
+							if (
+								'event' === message.sender &&
+								EVENT_LABELS[ message.message ]
+							) {
+								return (
+									<div
+										key={ index }
+										className="hyve-next-thread__event"
+									>
+										<span>
+											{ EVENT_LABELS[ message.message ] }
+										</span>
 										<time>
 											{ timeOfDay( message.time ) }
 										</time>
@@ -464,6 +611,10 @@ const ThreadView = ( { item } ) => {
 const Messages = ( { sub, item } ) => {
 	if ( 'thread' === sub && item ) {
 		return <ThreadView item={ item } />;
+	}
+
+	if ( 'leads' === sub ) {
+		return <LeadsPanel />;
 	}
 
 	return <ConversationsPanel />;

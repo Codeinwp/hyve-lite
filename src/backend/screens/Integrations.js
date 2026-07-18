@@ -7,6 +7,7 @@ import apiFetch from '@wordpress/api-fetch';
 
 import {
 	Button,
+	CheckboxControl,
 	ExternalLink,
 	Modal,
 	TextControl,
@@ -321,6 +322,118 @@ export const QdrantPanel = () => {
 				</Modal>
 			) }
 		</>
+	);
+};
+
+export const WebhooksPanel = () => {
+	const hasPro = Boolean( window.hyve?.license );
+
+	if ( hasPro ) {
+		return (
+			<Slot
+				name="settings-webhooks"
+				fallback={
+					<div className="hyve-next__card">
+						<p>
+							{ __(
+								'The webhook settings are on their way here.',
+								'hyve-lite'
+							) }
+						</p>
+					</div>
+				}
+			/>
+		);
+	}
+
+	return (
+		<Card
+			title={ __( 'Webhooks', 'hyve-lite' ) }
+			actions={
+				<Chip tone="pro" dot={ false }>
+					{ __( 'Pro', 'hyve-lite' ) }
+				</Chip>
+			}
+		>
+			<div className="hyve-next-card__intro">
+				<p>
+					{ __(
+						'Send chat activity to any URL as JSON events, as it happens. Route the events to Google Sheets, Slack, your CRM or a ticketing system with automation tools like Zapier, Make or n8n.',
+						'hyve-lite'
+					) }
+				</p>
+			</div>
+
+			<FieldRow
+				label={ __( 'Endpoint URL', 'hyve-lite' ) }
+				description={ __(
+					'Every selected event is sent to this URL as a signed POST request.',
+					'hyve-lite'
+				) }
+			>
+				<TextControl
+					__nextHasNoMarginBottom
+					hideLabelFromVision
+					label={ __( 'Endpoint URL', 'hyve-lite' ) }
+					type="url"
+					placeholder="https://hooks.example.com/hyve"
+					value=""
+					disabled
+					onChange={ () => {} }
+				/>
+			</FieldRow>
+
+			<FieldRow
+				label={ __( 'Events', 'hyve-lite' ) }
+				description={ __(
+					'Choose which events are sent, so metered tools only receive what you use.',
+					'hyve-lite'
+				) }
+			>
+				<div className="hyve-next-stack">
+					<CheckboxControl
+						__nextHasNoMarginBottom
+						label={ __( 'Visitor messages', 'hyve-lite' ) }
+						checked
+						disabled
+						onChange={ () => {} }
+					/>
+					<CheckboxControl
+						__nextHasNoMarginBottom
+						label={ __( 'Bot replies', 'hyve-lite' ) }
+						checked
+						disabled
+						onChange={ () => {} }
+					/>
+					<CheckboxControl
+						__nextHasNoMarginBottom
+						label={ __( 'Actions', 'hyve-lite' ) }
+						checked
+						disabled
+						onChange={ () => {} }
+					/>
+				</div>
+			</FieldRow>
+
+			<div className="hyve-next-act__upsell">
+				<strong>
+					{ __( 'Put your chat data to work', 'hyve-lite' ) }
+				</strong>
+				<p>
+					{ __(
+						'Webhooks send conversations and captured leads to the tools your team already uses, the moment they happen. Part of Hyve Pro.',
+						'hyve-lite'
+					) }
+				</p>
+				<Button
+					variant="primary"
+					href={ setUtm( window.hyve?.pro, 'webhooks-settings' ) }
+					target="_blank"
+				>
+					{ __( 'Unlock with Pro', 'hyve-lite' ) }
+				</Button>
+			</div>
+		</Card>
 	);
 };
 

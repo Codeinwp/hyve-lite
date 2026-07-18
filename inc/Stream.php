@@ -374,6 +374,16 @@ class Stream {
 			$payload['follow_ups'] = $result['follow_ups'];
 		}
 
+		// Platform-detected signals; folded into the payload so the generic
+		// actions mapper (hyve_chat_reply_data) turns each into an action.
+		if ( isset( $result['signals'] ) && is_array( $result['signals'] ) ) {
+			foreach ( $result['signals'] as $type => $value ) {
+				if ( $value ) {
+					$payload[ $type ] = true;
+				}
+			}
+		}
+
 		if ( ! $is_test ) {
 			$record_id = apply_filters( 'hyve_chat_request', $thread, $record_id, $message );
 			do_action( 'hyve_chat_response', $thread, $thread, $message, $record_id, $payload, $final );

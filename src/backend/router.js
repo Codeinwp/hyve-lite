@@ -127,6 +127,10 @@ const ROUTES = {
 				label: __( 'Conversations', 'hyve-lite' ),
 				default: true,
 			},
+			leads: {
+				label: __( 'Leads', 'hyve-lite' ),
+				isPro: true,
+			},
 			thread: {
 				label: __( 'Conversation', 'hyve-lite' ),
 				hidden: true,
@@ -155,6 +159,11 @@ const ROUTES = {
 				group: __( 'Chat', 'hyve-lite' ),
 				requiresAPI: true,
 			},
+			'chat-leads': {
+				label: __( 'Leads', 'hyve-lite' ),
+				group: __( 'Chat', 'hyve-lite' ),
+				requiresAPI: true,
+			},
 			'hyve-connect': {
 				label: __( 'Hyve Connect', 'hyve-lite' ),
 				group: __( 'AI', 'hyve-lite' ),
@@ -170,6 +179,11 @@ const ROUTES = {
 			},
 			'api-access': {
 				label: __( 'API access', 'hyve-lite' ),
+				group: __( 'Integrations', 'hyve-lite' ),
+				requiresAPI: true,
+			},
+			webhooks: {
+				label: __( 'Webhooks', 'hyve-lite' ),
 				group: __( 'Integrations', 'hyve-lite' ),
 				requiresAPI: true,
 			},
