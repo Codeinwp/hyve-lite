@@ -241,10 +241,11 @@ class Page_Context {
 	 *
 	 * Indexed pages send identity only (the platform holds their chunks and
 	 * pins them server-side); unindexed pages also carry the extracted content.
+	 * Loop pages resolve without a post id or title, so those keys are omitted.
 	 *
 	 * @param array{id:int,title:string,url:string,indexed:bool} $page Resolved page.
 	 *
-	 * @return array{id:int,title:string,url:string,content?:string}
+	 * @return array{url:string,id?:int,title?:string,content?:string}
 	 */
 	public function payload( $page ) {
 		$payload = [ 'url' => $page['url'] ];
