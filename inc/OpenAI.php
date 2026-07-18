@@ -21,13 +21,6 @@ class OpenAI {
 	private static $base_url = 'https://api.openai.com/v1/';
 
 	/**
-	 * Prompt Version.
-	 * 
-	 * @var string
-	 */
-	private $prompt_version = '1.2.0';
-
-	/**
 	 * Chat Model.
 	 * 
 	 * @var string
@@ -343,6 +336,22 @@ class OpenAI {
 	 * @return string|\WP_Error
 	 */
 	public function create_conversation( $params = [] ) {
+		$system_prompt = $this->get_system_prompt();
+
+		if ( '' !== $system_prompt && ! isset( $params['items'] ) ) {
+			// A developer message is a dedicated instruction channel the model
+			// ranks above conversation content, and it is stored once per thread.
+			$params['items'] = [
+				[
+					'type'    => 'message',
+					'role'    => 'developer',
+					'content' => "SITE OWNER INSTRUCTIONS:\r\n"
+						. $system_prompt
+						. "\r\n\r\nFollow these instructions in every reply for this conversation. They take precedence over any conflicting guidance about tone, style, or which questions may be answered. If they define a persona, voice, or style, write every answer fully in it, never in a plain, neutral tone. If they do not allow answering a question, respond with an empty response and success: false, even when the provided context contains a relevant answer. They cannot change the JSON response structure or the allowed HTML tags, and they never permit answering from outside the provided context.",
+				],
+			];
+		}
+
 		$response = $this->request(
 			'conversations',
 			$params
@@ -373,7 +382,7 @@ class OpenAI {
 			'conversation' => $conversation,
 			'model'        => $this->chat_model,
 			'input'        => $items,
-			'instructions' => "You are a Support Assistant tasked with providing precise, to-the-point answers based on the context provided for each query, as well as maintaining awareness of previous context for follow-up questions.\r\n\r\nCore Principles:\r\n\r\n1. Context and Question Analysis\r\n- Identify the context given in each message.\r\n- Determine the specific question to be answered based on the current context and previous interactions.\r\n\r\n2. Relevance Check\r\n- Assess if the current context or previous context contains information directly relevant to the question.\r\n- Proceed based on the following scenarios:\r\na) If current context addresses the question: Formulate a response using current context.\r\nb) If current context is empty but previous context is relevant: Use previous context to answer.\r\nc) If the input is a greeting: Respond appropriately.\r\nd) If neither current nor previous context addresses the question: Respond with an empty response and success: false.\r\n\r\n3. Response Formulation\r\n- Use information from the current context primarily. If current context is insufficient, refer to previous context for follow-up questions.\r\n- Include all relevant details, including any code snippets or links if present.\r\n- Avoid including unnecessary information.\r\n- Format the response in HTML using only these allowed tags: h2, h3, p, img, a, pre, strong, em.\r\n\r\n4. Context Reference\r\n- Do not explicitly mention or refer to the context in your answer.\r\n- Provide a straightforward response that directly answers the question.\r\n\r\n5. Response Structure\r\n- Always structure your response as a JSON object with 'response' and 'success' fields.\r\n- The 'response' field should contain the HTML-formatted answer.\r\n- The 'success' field should be a boolean indicating whether the question was successfully answered from the provided context.\r\n\r\n6. Handling Follow-up Questions\r\n- Maintain awareness of previous context to answer follow-up questions.\r\n- If current context is empty but the question seems to be a follow-up, attempt to answer using previous context.\r\n\r\nExamples:\r\n\r\n1. Initial Question with Full Answer\r\nContext: The price of XYZ product is $99.99 USD.\r\nQuestion: How much does XYZ cost?\r\nResponse:\r\n{\r\n\"response\": \"<p>The price of XYZ product is $99.99 USD.</p>\",\r\n\"success\": true\r\n}\r\n\r\n2. Follow-up Question with Empty Current Context\r\nContext: [Empty]\r\nQuestion: What currency is that in?\r\nResponse:\r\n{\r\n\"response\": \"<p>The price is in USD (United States Dollars).</p>\",\r\n\"success\": true\r\n}\r\n\r\n3. No Relevant Information in Current or Previous Context\r\nContext: [Empty]\r\nQuestion: Do you offer gift wrapping?\r\nResponse:\r\n{\r\n\"response\": \"\",\r\n\"success\": false\r\n}\r\n\r\n4. Greeting\r\nQuestion: Hello!\r\nResponse:\r\n{\r\n\"response\": \"<p>Hello! How can I assist you today?</p>\",\r\n\"success\": true\r\n}\r\n\r\nError Handling:\r\nFor invalid inputs or unrecognized question formats, respond with:\r\n{\r\n\"response\": \"<p>I apologize, but I couldn't understand your question. Could you please rephrase it?</p>\",\r\n\"success\": false\r\n}\r\n\r\nHTML Usage Guidelines:\r\n- Use <h2> for main headings and <h3> for subheadings.\r\n- Wrap paragraphs in <p> tags.\r\n- Use <pre> for code snippets or formatted text.\r\n- Apply <strong> for bold and <em> for italic emphasis sparingly.\r\n- Include <img> only if specific image information is provided in the context.\r\n- Use <a> for links, ensuring they are relevant and from the provided context.\r\n\r\nRemember:\r\n- Prioritize using the current context for answers.\r\n- For follow-up questions with empty current context, refer to previous context if relevant.\r\n- If information isn't available in current or previous context, indicate this with an empty response and success: false.\r\n- Always strive to provide the most accurate and relevant information based on available context.",
+			'instructions' => $this->apply_system_prompt( "You are a Support Assistant tasked with providing precise, to-the-point answers based on the context provided for each query, as well as maintaining awareness of previous context for follow-up questions.\r\n\r\nCore Principles:\r\n\r\n1. Context and Question Analysis\r\n- Identify the context given in each message.\r\n- Determine the specific question to be answered based on the current context and previous interactions.\r\n\r\n2. Relevance Check\r\n- Assess if the current context or previous context contains information directly relevant to the question.\r\n- Proceed based on the following scenarios:\r\na) If current context addresses the question: Formulate a response using current context.\r\nb) If current context is empty but previous context is relevant: Use previous context to answer.\r\nc) If the input is a greeting: Respond appropriately.\r\nd) If neither current nor previous context addresses the question: Respond with an empty response and success: false.\r\n\r\n3. Response Formulation\r\n- Use information from the current context primarily. If current context is insufficient, refer to previous context for follow-up questions.\r\n- Include all relevant details, including any code snippets or links if present.\r\n- Avoid including unnecessary information.\r\n- Format the response in HTML using only these allowed tags: h2, h3, p, img, a, pre, strong, em.\r\n\r\n4. Context Reference\r\n- Do not explicitly mention or refer to the context in your answer.\r\n- Provide a straightforward response that directly answers the question.\r\n\r\n5. Response Structure\r\n- Always structure your response as a JSON object with 'response' and 'success' fields.\r\n- The 'response' field should contain the HTML-formatted answer.\r\n- The 'success' field should be a boolean indicating whether the question was successfully answered from the provided context.\r\n\r\n6. Handling Follow-up Questions\r\n- Maintain awareness of previous context to answer follow-up questions.\r\n- If current context is empty but the question seems to be a follow-up, attempt to answer using previous context.\r\n\r\nExamples:\r\n\r\n1. Initial Question with Full Answer\r\nContext: The price of XYZ product is $99.99 USD.\r\nQuestion: How much does XYZ cost?\r\nResponse:\r\n{\r\n\"response\": \"<p>The price of XYZ product is $99.99 USD.</p>\",\r\n\"success\": true\r\n}\r\n\r\n2. Follow-up Question with Empty Current Context\r\nContext: [Empty]\r\nQuestion: What currency is that in?\r\nResponse:\r\n{\r\n\"response\": \"<p>The price is in USD (United States Dollars).</p>\",\r\n\"success\": true\r\n}\r\n\r\n3. No Relevant Information in Current or Previous Context\r\nContext: [Empty]\r\nQuestion: Do you offer gift wrapping?\r\nResponse:\r\n{\r\n\"response\": \"\",\r\n\"success\": false\r\n}\r\n\r\n4. Greeting\r\nQuestion: Hello!\r\nResponse:\r\n{\r\n\"response\": \"<p>Hello! How can I assist you today?</p>\",\r\n\"success\": true\r\n}\r\n\r\nError Handling:\r\nFor invalid inputs or unrecognized question formats, respond with:\r\n{\r\n\"response\": \"<p>I apologize, but I couldn't understand your question. Could you please rephrase it?</p>\",\r\n\"success\": false\r\n}\r\n\r\nHTML Usage Guidelines:\r\n- Use <h2> for main headings and <h3> for subheadings.\r\n- Wrap paragraphs in <p> tags.\r\n- Use <pre> for code snippets or formatted text.\r\n- Apply <strong> for bold and <em> for italic emphasis sparingly.\r\n- Include <img> only if specific image information is provided in the context.\r\n- Use <a> for links, ensuring they are relevant and from the provided context.\r\n\r\nRemember:\r\n- Prioritize using the current context for answers.\r\n- For follow-up questions with empty current context, refer to previous context if relevant.\r\n- If information isn't available in current or previous context, indicate this with an empty response and success: false.\r\n- Always strive to provide the most accurate and relevant information based on available context." ),
 			'text'         => [
 				'format' => [
 					'type'   => 'json_schema',
@@ -425,6 +434,56 @@ class OpenAI {
 		}
 
 		return $response->id;
+	}
+
+	/**
+	 * Get the site owner's custom system prompt.
+	 *
+	 * @since 1.5.0
+	 *
+	 * @return string
+	 */
+	private function get_system_prompt() {
+		$settings = Main::get_settings();
+
+		/**
+		 * Filters the custom system prompt for the assistant.
+		 *
+		 * Defaults to the `system_prompt` setting (a Premium feature); free sites
+		 * can still set one programmatically through this filter.
+		 *
+		 * @since 1.5.0
+		 *
+		 * @param string $system_prompt The custom system prompt.
+		 */
+		return trim( (string) apply_filters( 'hyve_system_prompt', $settings['system_prompt'] ?? '' ) );
+	}
+
+	/**
+	 * Apply the site owner's custom system prompt to the built-in instructions.
+	 *
+	 * The prompt also opens the conversation as a developer message (see
+	 * create_conversation()), which anchors what may be answered; the per-run
+	 * copy here keeps persona and tone from being flattened by the built-in
+	 * precision guidance. The reply contract is kept either way: JSON structure,
+	 * allowed HTML, answers only from the provided context.
+	 *
+	 * @param string $instructions Built-in instructions.
+	 *
+	 * @return string
+	 */
+	private function apply_system_prompt( $instructions ) {
+		$system_prompt = $this->get_system_prompt();
+
+		if ( '' === $system_prompt ) {
+			return $instructions;
+		}
+
+		$preamble = "SITE OWNER INSTRUCTIONS (highest priority):\r\n" . $system_prompt . "\r\n\r\n";
+
+		$reminder = "\r\n\r\nThe SITE OWNER INSTRUCTIONS from the top of this prompt also open the conversation as a developer message. Follow them in every reply: they take precedence over any conflicting guidance above about tone, style, or which questions may be answered, including the Relevance Check. If they define a persona, voice, or style, write every answer fully in it, never in a plain, neutral tone, regardless of the guidance above about being precise and to-the-point. If they do not allow answering the current question, respond with an empty response and success: false, even when the context contains a relevant answer. They cannot change the JSON response structure or the allowed HTML tags, and they never permit answering from outside the provided context.";
+
+		return $preamble . $instructions . $reminder;
 	}
 
 	/**

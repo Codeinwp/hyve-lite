@@ -210,6 +210,24 @@ export const setUtm = ( urlAdress, linkArea ) => {
 	return urlLink.toString();
 };
 
+/**
+ * Whether the license currently unlocks Pro features.
+ *
+ * Mirrors the server-side rule: a valid or expired-but-activated license
+ * keeps features; a missing, invalid or deactivated one locks them. The Pro
+ * plugin being installed is not enough on its own.
+ *
+ * @return {boolean} Whether Pro features are unlocked.
+ */
+export const isLicenseActive = () => {
+	const license = window.hyve?.license || {};
+
+	return (
+		[ 'valid', 'active_expired' ].includes( license.valid ) ||
+		'valid' === license.license
+	);
+};
+
 export const getChatIcons = () => [
 	{
 		icon: ChatBubbleLeftEllipsisIcon,
