@@ -339,7 +339,7 @@ class Hyve_Connect {
 	 * The terminal `job_complete` payload (reply, answered, sources, thread_id,
 	 * usage) is returned to the caller.
 	 *
-	 * @param array<string, mixed>                         $payload  hyve-chat input ({message,thread_id,settings,stream}).
+	 * @param array<string, mixed>                         $payload  hyve-chat input ({message,thread_id,settings,stream,page?}).
 	 * @param callable(string, array<string, mixed>): void $on_event Receives each intra-stream event (delta, kb_state, sources).
 	 *
 	 * @return array<string, mixed>|\WP_Error The job_complete payload, or an error.
@@ -437,7 +437,7 @@ class Hyve_Connect {
 	 * Same envelope as the stream, minus `delta` events; returns the terminal
 	 * `job_complete` payload.
 	 *
-	 * @param array<string, mixed> $payload hyve-chat input ({message,thread_id,settings,stream:false}).
+	 * @param array<string, mixed> $payload hyve-chat input ({message,thread_id,settings,stream:false,page?}).
 	 *
 	 * @return array<string, mixed>|\WP_Error
 	 */

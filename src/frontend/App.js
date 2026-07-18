@@ -423,6 +423,7 @@ class App {
 						? { record_id: this.recordID }
 						: {} ),
 					...( this.isPreview() ? { is_test: true } : {} ),
+					...this.getPageContext(),
 				},
 				headers: this.getDefaultHeaders(),
 			} );
@@ -638,6 +639,10 @@ class App {
 			this.setRecordID( data.record_id );
 		}
 
+		if ( data?.thread_id && data.thread_id !== this.threadID ) {
+			this.setThreadID( data.thread_id );
+		}
+
 		const message = data?.message ?? strings.tryAgain;
 		this.add( message, 'bot' );
 		this.setLoading( false );
@@ -668,6 +673,7 @@ class App {
 						? { record_id: this.recordID }
 						: {} ),
 					...( this.isPreview() ? { is_test: true } : {} ),
+					...this.getPageContext(),
 				},
 				headers: this.getDefaultHeaders(),
 			} );
@@ -771,6 +777,22 @@ class App {
 	 */
 	isPreview() {
 		return Boolean( window.hyveClient?.isPreview );
+	}
+
+	/**
+	 * Chat payload fields identifying the page the widget is rendered on, so
+	 * the backend can ground "this page" questions. The URL covers loop pages
+	 * (home, archives) too; the backend validates it is same-origin and
+	 * resolves it to a post when one exists. Empty in preview mode.
+	 *
+	 * @return {Object} `{ page_url }`, or an empty object.
+	 */
+	getPageContext() {
+		if ( this.isPreview() || ! window.location?.href ) {
+			return {};
+		}
+
+		return { page_url: window.location.href };
 	}
 
 	/**
