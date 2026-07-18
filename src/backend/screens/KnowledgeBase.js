@@ -23,7 +23,7 @@ import { addQueryArgs } from '@wordpress/url';
  * Internal dependencies.
  */
 import { getRoutes, navigate } from '../router';
-import { onProcessData, setUtm } from '../utils';
+import { isLicenseActive, onProcessData, setUtm } from '../utils';
 import Card from '../components/Card';
 import Chip from '../components/Chip';
 import ChunkLimitNotice from '../components/ChunkLimitNotice';
@@ -54,7 +54,7 @@ const getSources = () =>
 	);
 
 const SourcesGrid = () => {
-	const isPro = Boolean( window.hyve?.license );
+	const isPro = isLicenseActive();
 
 	return (
 		<Card title={ __( 'Add a source', 'hyve-lite' ) }>
@@ -1493,7 +1493,7 @@ const LOCKED_PREVIEWS = {
 };
 
 const LockedSource = ( { subKey } ) => {
-	const isPro = Boolean( window.hyve?.license );
+	const isPro = isLicenseActive();
 
 	const source = getRoutes().kb?.subs?.[ subKey ];
 	const copy = LOCKED_COPY[ subKey ];
@@ -1589,7 +1589,7 @@ const FAQ_PREVIEW = [
 
 // The working FAQ panel is pro-owned (`GET {api}/faq`) and ships with P2.
 const FaqPanel = () => {
-	const isPro = Boolean( window.hyve?.license );
+	const isPro = isLicenseActive();
 
 	return (
 		<Card
