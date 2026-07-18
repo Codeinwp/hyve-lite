@@ -1349,7 +1349,7 @@ class API extends BaseAPI {
 	 * @return void
 	 */
 	private function connect_drop_unsynced() {
-		$this->connect_forget_sources(
+		$candidates = $this->table->connect_source_ids(
 			[
 				[
 					'key'     => '_hyve_added',
@@ -1361,6 +1361,19 @@ class API extends BaseAPI {
 				],
 			]
 		);
+
+		if ( empty( $candidates ) ) {
+			return;
+		}
+
+		// Keep unsynced sources that still have local chunks (a cancelled sync never reached them); only forget the ones with nothing behind them.
+		$counts = $this->table->get_counts_by_post_ids( $candidates );
+
+		foreach ( $candidates as $post_id ) {
+			if ( empty( $counts[ (int) $post_id ] ) ) {
+				$this->connect_forget_source( (int) $post_id );
+			}
+		}
 	}
 
 	/**
