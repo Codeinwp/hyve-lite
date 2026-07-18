@@ -19,7 +19,7 @@ import { useCallback, useEffect, useRef, useState } from '@wordpress/element';
 /**
  * Internal dependencies.
  */
-import { setUtm } from '../utils';
+import { isLicenseActive, setUtm } from '../utils';
 import Card from '../components/Card';
 import Chip from '../components/Chip';
 import FieldRow from '../components/FieldRow';
@@ -325,7 +325,7 @@ export const QdrantPanel = () => {
 };
 
 export const ApiAccessPanel = () => {
-	const isPro = Boolean( window.hyve?.license );
+	const isPro = isLicenseActive();
 
 	return (
 		<>
