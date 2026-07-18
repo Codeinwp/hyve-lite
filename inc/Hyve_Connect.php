@@ -459,10 +459,12 @@ class Hyve_Connect {
 			$settings = Main::get_settings();
 		}
 
+		$instructions = trim( (string) apply_filters( 'hyve_system_prompt', $settings['system_prompt'] ?? '' ) );
+
 		return apply_filters(
 			'hyve_connect_chat_settings',
 			[
-				'instructions' => isset( $settings['instructions'] ) ? $settings['instructions'] : '',
+				'instructions' => mb_substr( $instructions, 0, 4000 ),
 			],
 			$settings
 		);

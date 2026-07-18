@@ -332,6 +332,44 @@ class HyveConnectTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * The custom instructions sent to the platform come from the same
+	 * system_prompt setting that drives self-hosted chat.
+	 */
+	public function test_chat_settings_sends_system_prompt() {
+		update_option( 'hyve_settings', [ 'system_prompt' => 'Reply like a pirate.' ] );
+
+		$sent = Hyve_Connect::chat_settings();
+
+		$this->assertSame( 'Reply like a pirate.', $sent['instructions'] );
+	}
+
+	/**
+	 * The prompt flows through hyve_system_prompt, so the Pro license gate
+	 * (and any programmatic override) applies to Connect mode too.
+	 */
+	public function test_chat_settings_respects_system_prompt_filter() {
+		update_option( 'hyve_settings', [ 'system_prompt' => 'Reply like a pirate.' ] );
+
+		add_filter( 'hyve_system_prompt', '__return_empty_string' );
+		$sent = Hyve_Connect::chat_settings();
+		remove_filter( 'hyve_system_prompt', '__return_empty_string' );
+
+		$this->assertSame( '', $sent['instructions'] );
+	}
+
+	/**
+	 * Instructions are capped to the platform's input limit so an oversized
+	 * prompt cannot fail the whole chat request server-side.
+	 */
+	public function test_chat_settings_caps_instructions_length() {
+		update_option( 'hyve_settings', [ 'system_prompt' => str_repeat( 'a', 5000 ) ] );
+
+		$sent = Hyve_Connect::chat_settings();
+
+		$this->assertSame( 4000, strlen( $sent['instructions'] ) );
+	}
+
+	/**
 	 * A terminal SSE error becomes a coded WP_Error.
 	 */
 	public function test_sse_error_maps_to_wp_error_with_code() {
