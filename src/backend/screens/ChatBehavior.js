@@ -479,7 +479,7 @@ const TRIGGER_DESCRIPTIONS = {
 };
 
 const ProactiveCard = () => {
-	const isPro = Boolean( window.hyve?.license );
+	const isPro = isLicenseActive();
 
 	const { settings, isSaving, save } = useSaveSettings();
 
