@@ -18,7 +18,7 @@ import { createInterpolateElement } from '@wordpress/element';
 /**
  * Internal dependencies.
  */
-import { setUtm } from '../utils';
+import { isLicenseActive, setUtm } from '../utils';
 import Card from '../components/Card';
 import Chip from '../components/Chip';
 import FieldRow from '../components/FieldRow';
@@ -207,7 +207,7 @@ const VisibilityCard = () => {
 };
 
 const ConversationCard = () => {
-	const isPro = Boolean( window.hyve?.license );
+	const isPro = isLicenseActive();
 	const { settings, isSaving, save } = useSaveSettings();
 
 	const { setSetting } = useDispatch( 'hyve' );
@@ -361,7 +361,7 @@ const ConversationCard = () => {
 };
 
 const SuggestionsCard = () => {
-	const isPro = Boolean( window.hyve?.license );
+	const isPro = isLicenseActive();
 
 	const { settings, isSaving, save } = useSaveSettings();
 

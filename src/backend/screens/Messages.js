@@ -19,7 +19,7 @@ import { addQueryArgs } from '@wordpress/url';
  * Internal dependencies.
  */
 import { navigate } from '../router';
-import { setUtm } from '../utils';
+import { isLicenseActive, setUtm } from '../utils';
 import Card from '../components/Card';
 import Chip from '../components/Chip';
 import Pagination from '../components/Pagination';
@@ -87,7 +87,7 @@ const ExportAction = () => {
 };
 
 const ConversationsPanel = () => {
-	const isPro = Boolean( window.hyve?.license );
+	const isPro = isLicenseActive();
 
 	const [ posts, setPosts ] = useState( [] );
 	const [ hasMore, setHasMore ] = useState( false );

@@ -23,7 +23,7 @@ import { addQueryArgs } from '@wordpress/url';
  * Internal dependencies.
  */
 import { getRoutes, navigate } from '../router';
-import { onProcessData, setUtm } from '../utils';
+import { isLicenseActive, onProcessData, setUtm } from '../utils';
 import Card from '../components/Card';
 import Chip from '../components/Chip';
 import ChunkLimitNotice from '../components/ChunkLimitNotice';
@@ -54,7 +54,7 @@ const getSources = () =>
 	);
 
 const SourcesGrid = () => {
-	const isPro = Boolean( window.hyve?.license );
+	const isPro = isLicenseActive();
 
 	return (
 		<Card title={ __( 'Add a source', 'hyve-lite' ) }>
@@ -125,6 +125,10 @@ const IndexedContent = () => {
 	const [ total, setTotal ] = useState( 0 );
 	const [ refresh, setRefresh ] = useState( 0 );
 	const [ sourceType, setSourceType ] = useState( 'any' );
+	const [ search, setSearch ] = useState( '' );
+
+	// Guards against out-of-order responses when the query changes mid-fetch.
+	const requestRef = useRef( 0 );
 
 	// Page size comes from the endpoint.
 	const perPageRef = useRef( 20 );
@@ -147,9 +151,11 @@ const IndexedContent = () => {
 	const { createNotice } = useDispatch( 'core/notices' );
 
 	useEffect( () => {
-		const fetchPosts = async () => {
-			setLoading( true );
+		const request = ++requestRef.current;
 
+		setLoading( true );
+
+		const handler = setTimeout( async () => {
 			try {
 				// `hyve:all` asks pro to include its sources in the union;
 				// plain `any` stays WordPress-only so the old dashboard's
@@ -163,9 +169,14 @@ const IndexedContent = () => {
 					path: addQueryArgs( `${ window.hyve.api }/data`, {
 						offset: page * perPageRef.current,
 						status: 'included',
+						search,
 						type,
 					} ),
 				} );
+
+				if ( request !== requestRef.current ) {
+					return;
+				}
 
 				setRows( response.posts ?? [] );
 				setHasMore( Boolean( response.more ) );
@@ -176,14 +187,18 @@ const IndexedContent = () => {
 					perPageRef.current = Number( response.per_page );
 				}
 			} catch {
+				if ( request !== requestRef.current ) {
+					return;
+				}
+
 				setHasMore( false );
 			}
 
 			setLoading( false );
-		};
+		}, 500 );
 
-		fetchPosts();
-	}, [ page, refresh, sourceType, setTotalChunks ] );
+		return () => clearTimeout( handler );
+	}, [ page, refresh, search, sourceType, setTotalChunks ] );
 
 	const onDelete = async ( id ) => {
 		setDeleting( ( prev ) => [ ...prev, id ] );
@@ -271,7 +286,16 @@ const IndexedContent = () => {
 							setPage( 0 );
 						} }
 					/>
-					<span className="hyve-next-toolbar__grow"></span>
+					<SearchControl
+						__nextHasNoMarginBottom
+						className="hyve-next-toolbar__grow"
+						label={ __( 'Search indexed content', 'hyve-lite' ) }
+						value={ search }
+						onChange={ ( value ) => {
+							setSearch( value );
+							setPage( 0 );
+						} }
+					/>
 					{ ! isLoading && (
 						<span className="hyve-next-toolbar__count">
 							{ sprintf(
@@ -387,10 +411,17 @@ const IndexedContent = () => {
 				] }
 				rows={ rows }
 				isLoading={ isLoading }
-				empty={ __(
-					'Content you add to the Knowledge Base will appear here.',
-					'hyve-lite'
-				) }
+				empty={
+					search
+						? __(
+								'No indexed content matches your search.',
+								'hyve-lite'
+						  )
+						: __(
+								'Content you add to the Knowledge Base will appear here.',
+								'hyve-lite'
+						  )
+				}
 			/>
 
 			{ confirmRemove && (
@@ -1501,7 +1532,7 @@ const LOCKED_PREVIEWS = {
 };
 
 const LockedSource = ( { subKey } ) => {
-	const isPro = Boolean( window.hyve?.license );
+	const isPro = isLicenseActive();
 
 	const source = getRoutes().kb?.subs?.[ subKey ];
 	const copy = LOCKED_COPY[ subKey ];
@@ -1597,7 +1628,7 @@ const FAQ_PREVIEW = [
 
 // The working FAQ panel is pro-owned (`GET {api}/faq`) and ships with P2.
 const FaqPanel = () => {
-	const isPro = Boolean( window.hyve?.license );
+	const isPro = isLicenseActive();
 
 	return (
 		<Card
