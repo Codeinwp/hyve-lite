@@ -689,7 +689,8 @@ class API extends BaseAPI {
 		$search = $request->get_param( 'search' );
 
 		if ( ! empty( $search ) ) {
-			$args['s'] = $search;
+			$args['s']              = $search;
+			$args['search_columns'] = [ 'post_title' ];
 		}
 
 		$status = $request->get_param( 'status' );
