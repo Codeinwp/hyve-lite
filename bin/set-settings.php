@@ -8,9 +8,7 @@ $settings = [
 	'chat_enabled'         => false,
 	'welcome_message'      => 'Hello! How can I help you today?',
 	'default_message'      => 'Sorry, I\'m not able to help with that.',
-	'chat_model'           => 'gpt-4o-mini',
-	'temperature'          => 1,
-	'top_p'                => 1,
+	'chat_model'           => 'gpt-5.4-nano',
 ];
 
 update_option( 'hyve_settings', $settings );

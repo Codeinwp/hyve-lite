@@ -97,7 +97,7 @@ class API extends BaseAPI {
 		}
 
 		$routes = [
-			'settings' => [
+			'settings'    => [
 				[
 					'methods'  => \WP_REST_Server::READABLE,
 					'callback' => [ $this, 'get_settings' ],
@@ -116,7 +116,7 @@ class API extends BaseAPI {
 					'callback' => [ $this, 'update_settings' ],
 				],
 			],
-			'data'     => [
+			'data'        => [
 				[
 					'methods'  => \WP_REST_Server::READABLE,
 					'args'     => [
@@ -166,7 +166,19 @@ class API extends BaseAPI {
 					'callback' => [ $this, 'delete_data' ],
 				],
 			],
-			'threads'  => [
+			'data/counts' => [
+				[
+					'methods'  => \WP_REST_Server::READABLE,
+					'callback' => [ $this, 'get_data_counts' ],
+				],
+			],
+			'stats'       => [
+				[
+					'methods'  => \WP_REST_Server::READABLE,
+					'callback' => [ $this, 'get_stats' ],
+				],
+			],
+			'threads'     => [
 				[
 					'methods'             => \WP_REST_Server::READABLE,
 					'args'                => [
@@ -195,7 +207,7 @@ class API extends BaseAPI {
 					},
 				],
 			],
-			'qdrant'   => [
+			'qdrant'      => [
 				[
 					'methods'  => \WP_REST_Server::READABLE,
 					'callback' => [ $this, 'qdrant_status' ],
@@ -205,7 +217,7 @@ class API extends BaseAPI {
 					'callback' => [ $this, 'qdrant_deactivate' ],
 				],
 			],
-			'chat'     => [
+			'chat'        => [
 				[
 					'methods'             => \WP_REST_Server::READABLE,
 					'args'                => [
@@ -396,18 +408,6 @@ class API extends BaseAPI {
 					},
 					'sanitize' => 'sanitize_text_field',
 				],
-				'temperature'                => [
-					'validate' => function ( $value ) {
-						return is_numeric( $value );
-					},
-					'sanitize' => 'floatval',
-				],
-				'top_p'                      => [
-					'validate' => function ( $value ) {
-						return is_numeric( $value );
-					},
-					'sanitize' => 'floatval',
-				],
 				'similarity_score_threshold' => [
 					'validate' => function ( $value ) {
 						return is_numeric( $value );
@@ -462,6 +462,13 @@ class API extends BaseAPI {
 		);
 
 		foreach ( $updated as $key => $value ) {
+			// Unknown keys (e.g. settings removed in an update but still
+			// present in the stored option) are dropped, not fatal.
+			if ( ! isset( $validation[ $key ] ) ) {
+				unset( $updated[ $key ] );
+				continue;
+			}
+
 			if ( ! $validation[ $key ]['validate']( $value ) ) {
 				return $this->settings_response(
 					[
@@ -625,7 +632,8 @@ class API extends BaseAPI {
 		$search = $request->get_param( 'search' );
 
 		if ( ! empty( $search ) ) {
-			$args['s'] = $search;
+			$args['s']              = $search;
+			$args['search_columns'] = [ 'post_title' ];
 		}
 
 		$status = $request->get_param( 'status' );
@@ -670,9 +678,22 @@ class API extends BaseAPI {
 			];
 		}
 
-		$page = $this->query_page( $args );
+		/**
+		 * Filters the WP_Query arguments of the dashboard data listings.
+		 *
+		 * Lets Pro include its own sources (custom data, links, documents) in
+		 * the unified Knowledge Base listing.
+		 *
+		 * @param array<string, mixed> $args   WP_Query arguments.
+		 * @param string               $status Requested listing status.
+		 * @param string               $type   Requested type filter.
+		 */
+		$args = apply_filters( 'hyve_data_query_args', $args, (string) $status, (string) $request->get_param( 'type' ) );
 
-		$posts_data = [];
+		$page = $this->query_page( $args, 20, true );
+
+		$posts_data   = [];
+		$chunk_counts = $this->table->get_counts_by_post_ids( $page['posts'] );
 
 		foreach ( $page['posts'] as $post_id ) {
 			/**
@@ -680,10 +701,15 @@ class API extends BaseAPI {
 			 *
 			 * @var int $post_id
 			 */
+			$post_type        = get_post_type( $post_id );
+			$post_type_object = $post_type ? get_post_type_object( $post_type ) : null;
+
 			$post_data = [
 				'ID'         => $post_id,
 				'title'      => html_entity_decode( get_the_title( $post_id ), ENT_QUOTES, 'UTF-8' ),
 				'visibility' => $this->get_post_visibility( $post_id ),
+				'type'       => $post_type_object ? $post_type_object->labels->singular_name : $post_type,
+				'chunks'     => $chunk_counts[ $post_id ] ?? 0,
 			];
 
 			if ( 'moderation' === $status ) {
@@ -702,16 +728,102 @@ class API extends BaseAPI {
 				$post_data['error'] = $processing_error;
 			}
 
-			$posts_data[] = $post_data;
+			/**
+			 * Filters a row of the dashboard data listings.
+			 *
+			 * Pro decorates its own sources with their source label and the
+			 * `permanent` deletion flag.
+			 *
+			 * @param array<string, mixed> $post_data Row payload.
+			 * @param int                  $post_id   Post ID.
+			 */
+			$posts_data[] = apply_filters( 'hyve_data_post', $post_data, $post_id );
 		}
 
 		$posts = [
 			'posts'       => $posts_data,
 			'more'        => $page['more'],
+			'total'       => $page['total'],
+			'per_page'    => 20,
 			'totalChunks' => $this->table->get_count(),
 		];
 
 		return rest_ensure_response( $posts );
+	}
+
+	/**
+	 * Count posts matching a meta query.
+	 *
+	 * @param array<int|string, array<string, string>|string> $meta_query Meta query, including an optional `relation` key.
+	 *
+	 * @return int
+	 */
+	private function count_posts_by_meta( $meta_query ) {
+		$query = new \WP_Query(
+			[
+				'post_type'      => 'any',
+				'post_status'    => [ 'publish', 'private' ],
+				'fields'         => 'ids',
+				'posts_per_page' => 1,
+				'no_found_rows'  => false,
+				'meta_query'     => $meta_query,
+			]
+		);
+
+		return intval( $query->found_posts );
+	}
+
+	/**
+	 * Get the counts feeding the Needs Attention badge.
+	 *
+	 * @return \WP_REST_Response
+	 */
+	public function get_data_counts() {
+		$pending = $this->count_posts_by_meta(
+			[
+				'relation' => 'AND',
+				[
+					'key'     => '_hyve_needs_update',
+					'value'   => '1',
+					'compare' => '=',
+				],
+				[
+					'key'     => '_hyve_moderation_failed',
+					'compare' => 'NOT EXISTS',
+				],
+			]
+		);
+
+		$moderation = $this->count_posts_by_meta(
+			[
+				[
+					'key'     => '_hyve_moderation_failed',
+					'value'   => '1',
+					'compare' => '=',
+				],
+			]
+		);
+
+		return rest_ensure_response(
+			[
+				'pending'    => $pending,
+				'moderation' => $moderation,
+			]
+		);
+	}
+
+	/**
+	 * Get the dashboard stats and chart data.
+	 *
+	 * @return \WP_REST_Response
+	 */
+	public function get_stats() {
+		return rest_ensure_response(
+			[
+				'stats' => apply_filters( 'hyve_stats', [] ),
+				'chart' => apply_filters( 'hyve_chart_data', [] ),
+			]
+		);
 	}
 
 	/**
@@ -792,6 +904,17 @@ class API extends BaseAPI {
 		delete_post_meta( $id, '_hyve_moderation_failed' );
 		delete_post_meta( $id, '_hyve_moderation_review' );
 		delete_post_meta( $id, '_hyve_processing_error' );
+
+		/**
+		 * Fires after content is removed from the Knowledge Base.
+		 *
+		 * Pro uses it to delete its own entries (custom data, links,
+		 * documents), which have no life outside the Knowledge Base.
+		 *
+		 * @param int $id Post ID.
+		 */
+		do_action( 'hyve_data_deleted', (int) $id );
+
 		return rest_ensure_response( true );
 	}
 
@@ -863,8 +986,10 @@ class API extends BaseAPI {
 		}
 
 		$posts = [
-			'posts' => $posts_data,
-			'more'  => $page['more'],
+			'posts'    => $posts_data,
+			'more'     => $page['more'],
+			'total'    => intval( Threads::get_thread_count() ),
+			'per_page' => $pages,
 		];
 
 		return rest_ensure_response( $posts );

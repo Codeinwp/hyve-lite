@@ -75,14 +75,30 @@ class BaseAPI {
 	 * Fetches one row beyond the page size to tell whether there is a next page,
 	 * which avoids the found-rows count (SQL_CALC_FOUND_ROWS) that
 	 * WP_Query::$found_posts otherwise requires. The extra row is trimmed off the
-	 * returned set.
+	 * returned set. Pass `$with_total` when the caller drives a numbered pager;
+	 * that trades the trick for the found-rows count and adds `total`.
 	 *
-	 * @param array<string, mixed> $args     WP_Query arguments, without paging.
-	 * @param int                  $per_page Page size.
+	 * @param array<string, mixed> $args       WP_Query arguments, without paging.
+	 * @param int                  $per_page   Page size.
+	 * @param bool                 $with_total Also count all matching rows.
 	 *
-	 * @return array{posts: array<int, mixed>, more: bool}
+	 * @return ($with_total is true ? array{posts: array<int, mixed>, more: bool, total: int} : array{posts: array<int, mixed>, more: bool})
 	 */
-	protected function query_page( $args, $per_page = 20 ) {
+	protected function query_page( $args, $per_page = 20, $with_total = false ) {
+		if ( $with_total ) {
+			$args['posts_per_page'] = $per_page;
+			$args['no_found_rows']  = false;
+
+			$query = new \WP_Query( $args );
+			$total = intval( $query->found_posts );
+
+			return [
+				'posts' => $query->posts,
+				'more'  => intval( $args['offset'] ?? 0 ) + count( $query->posts ) < $total,
+				'total' => $total,
+			];
+		}
+
 		$args['posts_per_page'] = $per_page + 1;
 		$args['no_found_rows']  = true;
 

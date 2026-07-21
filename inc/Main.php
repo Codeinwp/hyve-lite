@@ -63,6 +63,7 @@ class Main {
 
 		add_filter( 'hyve_global_chat_enabled', [ $this, 'is_global_chat_enabled' ] );
 		add_filter( 'hyve_stats', [ $this, 'get_stats' ] );
+		add_filter( 'hyve_chart_data', [ $this, 'get_chart_data' ] );
 		add_filter( 'hyve_options_data', [ $this, 'append_services_error' ] );
 		add_filter( 'hyve_similarity_score_threshold', [ $this, 'get_similarity_threshold_score' ] );
 
@@ -171,30 +172,65 @@ class Main {
 	 * @return void
 	 */
 	public function register_menu_page() {
-		add_menu_page(
+		$hook = add_menu_page(
 			__( 'Hyve', 'hyve-lite' ),
 			__( 'Hyve', 'hyve-lite' ),
-			'manage_options',
+			'hyve_read_messages',
 			'hyve',
 			[ $this, 'menu_page' ],
 			'dashicons-format-chat',
 			99
 		);
 
-		foreach ( $this->get_submenu_pages() as $slug => $submenu ) {
-			$hook = add_submenu_page(
-				'hyve',
-				$submenu['label'],
-				$submenu['label'],
-				$submenu['capability'],
-				$slug,
-				[ $this, 'menu_page' ]
-			);
-
-			if ( $hook ) {
-				add_action( "admin_print_scripts-$hook", [ $this, 'enqueue_options_assets' ] );
-			}
+		if ( $hook ) {
+			add_action( "admin_print_scripts-$hook", [ $this, 'enqueue_options_assets' ] );
 		}
+
+		global $submenu;
+
+		foreach ( $this->get_submenu_pages() as $submenu_page ) {
+			// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- WordPress requires submenu entries to be registered through this global.
+			$submenu['hyve'][] = [
+				$submenu_page['label'],
+				$submenu_page['capability'],
+				add_query_arg(
+					[
+						'page' => 'hyve',
+						'nav'  => $submenu_page['route'],
+					],
+					admin_url( 'admin.php' )
+				),
+				$submenu_page['label'],
+			];
+		}
+
+		/*
+		 * Keep the dashboard tab active when WordPress renders a canonical
+		 * `page=hyve&nav=...` submenu URL.
+		 */
+		add_filter(
+			'submenu_file',
+			function ( $submenu_file, $parent_file ) {
+				// phpcs:ignore WordPress.Security.NonceVerification.Recommended, WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- Reading a sanitized admin URL parameter to identify the active menu item; no state change.
+				$current_page = isset( $_GET['page'] ) ? sanitize_key( wp_unslash( $_GET['page'] ) ) : '';
+				if ( 'hyve' !== $parent_file || 'hyve' !== $current_page ) {
+					return $submenu_file;
+				}
+
+				// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Reading a sanitized admin URL parameter to identify the active menu item; no state change.
+				$nav = isset( $_GET['nav'] ) ? sanitize_key( wp_unslash( $_GET['nav'] ) ) : 'dashboard';
+
+				return add_query_arg(
+					[
+						'page' => 'hyve',
+						'nav'  => $nav,
+					],
+					admin_url( 'admin.php' )
+				);
+			},
+			10,
+			2
+		);
 	}
 
 	/**
@@ -214,22 +250,17 @@ class Main {
 			'hyve'                => [
 				'label'      => __( 'Dashboard', 'hyve-lite' ),
 				'capability' => 'manage_options',
-				'route'      => 'home',
+				'route'      => 'dashboard',
 			],
 			'hyve-knowledge-base' => [
 				'label'      => __( 'Knowledge Base', 'hyve-lite' ),
 				'capability' => 'manage_options',
-				'route'      => 'data',
+				'route'      => 'kb',
 			],
 			'hyve-messages'       => [
 				'label'      => __( 'Messages', 'hyve-lite' ),
 				'capability' => 'hyve_read_messages',
 				'route'      => 'messages',
-			],
-			'hyve-integrations'   => [
-				'label'      => __( 'Integrations', 'hyve-lite' ),
-				'capability' => 'manage_options',
-				'route'      => 'integrations',
 			],
 			'hyve-settings'       => [
 				'label'      => __( 'Settings', 'hyve-lite' ),
@@ -272,12 +303,30 @@ class Main {
 
 		$submenu_pages = $this->get_submenu_pages();
 
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Reading the current admin page to set the document title, no state change.
+		$current_nav = isset( $_GET['nav'] ) ? sanitize_key( wp_unslash( $_GET['nav'] ) ) : 'dashboard';
+		global $title;
+		foreach ( $submenu_pages as $submenu_page ) {
+			if ( $submenu_page['route'] === $current_nav ) {
+				// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- WordPress reads the current admin page title from this global.
+				$title = $submenu_page['label'];
+				break;
+			}
+		}
+
 		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Reading the current admin page to pick the initial app screen, no state change.
 		$current_page = isset( $_GET['page'] ) ? sanitize_key( wp_unslash( $_GET['page'] ) ) : 'hyve';
-		$current_view = isset( $submenu_pages[ $current_page ] ) ? $submenu_pages[ $current_page ]['route'] : 'home';
+		$current_view = 'hyve' === $current_page ? $current_nav : ( $submenu_pages[ $current_page ]['route'] ?? 'home' );
 
 		add_filter(
 			'hyve_options_data',
+			/**
+			 * Localize the dashboard data.
+			 *
+			 * @param array<string, mixed> $data Localized dashboard data.
+			 *
+			 * @return array<string, mixed>
+			 */
 			function ( $data ) use ( $settings, $post_types_for_js, $current_view ) {
 				/**
 				 * PHPStan false positive: the return type is an array, but PHPStan cannot infer it because of the dynamic nature of the filter.
@@ -289,8 +338,10 @@ class Main {
 					[
 						'view'              => $current_view,
 						'canManage'         => current_user_can( 'manage_options' ),
+						'canReadMessages'   => current_user_can( 'hyve_read_messages' ),
 						'canManageMessages' => current_user_can( 'hyve_manage_messages' ),
 						'api'               => $this->api->get_endpoint(),
+						'version'           => HYVE_LITE_VERSION,
 						'rest_url'          => rest_url( $this->api->get_endpoint() ),
 						'postTypes'         => $post_types_for_js,
 						'hasAPIKey'         => isset( $settings['api_key'] ) && ! empty( $settings['api_key'] ),
@@ -376,9 +427,7 @@ class Main {
 				'api_key'                    => '',
 				'qdrant_api_key'             => '',
 				'qdrant_endpoint'            => '',
-				'chat_model'                 => 'gpt-4o-mini',
-				'temperature'                => 1,
-				'top_p'                      => 1,
+				'chat_model'                 => 'gpt-5.4-nano',
 				'welcome_message'            => '',
 				'default_message'            => '',
 				'similarity_score_threshold' => 0.4,
@@ -929,6 +978,14 @@ class Main {
 		$added = get_post_meta( $post_id, '_hyve_added', true );
 
 		if ( ! $added ) {
+			return;
+		}
+
+		// The edited-since-indexing flag is for site content edited by
+		// people. Non-viewable types are the ingest pipeline's own entries
+		// (crawled pages, documents, custom data); it re-indexes them itself,
+		// and the update cron could never see them to clear the flag.
+		if ( ! is_post_type_viewable( $post->post_type ) ) {
 			return;
 		}
 

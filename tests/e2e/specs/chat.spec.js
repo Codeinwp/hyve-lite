@@ -5,12 +5,23 @@ test.describe( 'Chat', () => {
 	/**
 	 * Initialize the Chat App.
 	 *
-	 * This bypass the knowledge base check.
+	 * The app auto-initializes on load when it is allowed to show; a second
+	 * initialize would render a duplicate widget whose duplicated element ids
+	 * leave dead event listeners. Only initialize manually when nothing
+	 * rendered.
 	 *
 	 * @param {import('@playwright/test').Page} page
 	 */
 	async function initializeChatApp( page ) {
 		await page.evaluate( () => {
+			if (
+				document.querySelector(
+					'#hyve-open, #hyve-window, .hyve-input-text'
+				)
+			) {
+				return;
+			}
+
 			window?.hyveApp?.initialize();
 		} );
 	}

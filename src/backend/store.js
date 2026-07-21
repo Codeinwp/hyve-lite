@@ -4,13 +4,16 @@
 import { createReduxStore, register } from '@wordpress/data';
 
 const DEFAULT_STATE = {
-	route: window.hyve?.view || 'home',
+	route: window.hyve?.view || 'dashboard',
 	hasLoaded: false,
 	settings: {},
 	processed: [],
 	hasAPI: Boolean( window.hyve.hasAPIKey ),
 	isQdrantActive: Boolean( window.hyve.isQdrantActive ),
-	totalChunks: 0,
+	stats: window.hyve.stats || {},
+	chart: window.hyve.chart || null,
+	totalChunks: Number( window.hyve.stats?.totalChunks ?? 0 ),
+	attentionCount: null,
 	serviceErrors: window.hyve.serviceErrors || [],
 };
 
@@ -51,10 +54,28 @@ const actions = {
 			totalChunks,
 		};
 	},
+	setStats( stats ) {
+		return {
+			type: 'SET_STATS',
+			stats,
+		};
+	},
+	setChart( chart ) {
+		return {
+			type: 'SET_CHART',
+			chart,
+		};
+	},
 	setQdrantStatus( isQdrantActive ) {
 		return {
 			type: 'SET_QDRANT_STATUS',
 			isQdrantActive,
+		};
+	},
+	setAttentionCount( attentionCount ) {
+		return {
+			type: 'SET_ATTENTION_COUNT',
+			attentionCount,
 		};
 	},
 	setServiceErrors( serviceErrors ) {
@@ -81,14 +102,23 @@ const selectors = {
 	getTotalChunks( state ) {
 		return state.totalChunks;
 	},
+	getStats( state ) {
+		return state.stats;
+	},
+	getChart( state ) {
+		return state.chart;
+	},
 	hasReachedLimit( state ) {
 		return (
 			window.hyve.chunksLimit <= Number( state.totalChunks ) &&
-			! Boolean( window.hyve.isQdrantActive )
+			! state.isQdrantActive
 		);
 	},
 	isQdrantActive( state ) {
 		return state.isQdrantActive;
+	},
+	getAttentionCount( state ) {
+		return state.attentionCount;
 	},
 	getServiceErrors( state ) {
 		return state.serviceErrors;
@@ -130,10 +160,25 @@ const reducer = ( state = DEFAULT_STATE, action ) => {
 				...state,
 				totalChunks: action.totalChunks,
 			};
+		case 'SET_STATS':
+			return {
+				...state,
+				stats: action.stats,
+			};
+		case 'SET_CHART':
+			return {
+				...state,
+				chart: action.chart,
+			};
 		case 'SET_QDRANT_STATUS':
 			return {
 				...state,
 				isQdrantActive: action.isQdrantActive,
+			};
+		case 'SET_ATTENTION_COUNT':
+			return {
+				...state,
+				attentionCount: action.attentionCount,
 			};
 		case 'SET_SERVICE_ERRORS':
 			return {
