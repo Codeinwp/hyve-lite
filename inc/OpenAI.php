@@ -21,13 +21,6 @@ class OpenAI {
 	private static $base_url = 'https://api.openai.com/v1/';
 
 	/**
-	 * Prompt Version.
-	 * 
-	 * @var string
-	 */
-	private $prompt_version = '1.2.0';
-
-	/**
 	 * Chat Model.
 	 * 
 	 * @var string
