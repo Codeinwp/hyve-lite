@@ -19,11 +19,7 @@ import { addQueryArgs } from '@wordpress/url';
  * Internal dependencies.
  */
 import { navigate } from '../router';
-<<<<<<< HEAD
-import { setUtm } from '../utils';
-=======
 import { isLicenseActive, setUtm } from '../utils';
->>>>>>> origin/development
 import Card from '../components/Card';
 import Chip from '../components/Chip';
 import Pagination from '../components/Pagination';
@@ -64,13 +60,10 @@ const snippet = ( thread ) => {
 };
 
 const ExportAction = () => {
-<<<<<<< HEAD
-=======
 	if ( ! window.hyve?.canManageMessages ) {
 		return null;
 	}
 
->>>>>>> origin/development
 	const exportURL = window.hyve?.exportMessagesURL;
 
 	if ( exportURL ) {
@@ -94,11 +87,7 @@ const ExportAction = () => {
 };
 
 const ConversationsPanel = () => {
-<<<<<<< HEAD
-	const isPro = Boolean( window.hyve?.license );
-=======
 	const isPro = isLicenseActive();
->>>>>>> origin/development
 
 	const [ posts, setPosts ] = useState( [] );
 	const [ hasMore, setHasMore ] = useState( false );
@@ -288,13 +277,10 @@ const ThreadView = ( { item } ) => {
 	}, [ thread, item ] );
 
 	const onDelete = async () => {
-<<<<<<< HEAD
-=======
 		if ( ! window.hyve?.canManageMessages ) {
 			return;
 		}
 
->>>>>>> origin/development
 		setDeleting( true );
 
 		try {
@@ -364,17 +350,6 @@ const ThreadView = ( { item } ) => {
 				<Card
 					title={ thread.title }
 					actions={
-<<<<<<< HEAD
-						<Button
-							variant="secondary"
-							isDestructive
-							isBusy={ isDeleting }
-							disabled={ isDeleting }
-							onClick={ () => setConfirmOpen( true ) }
-						>
-							{ __( 'Delete conversation', 'hyve-lite' ) }
-						</Button>
-=======
 						window.hyve?.canManageMessages && (
 							<Button
 								variant="secondary"
@@ -386,7 +361,6 @@ const ThreadView = ( { item } ) => {
 								{ __( 'Delete conversation', 'hyve-lite' ) }
 							</Button>
 						)
->>>>>>> origin/development
 					}
 				>
 					<div className="hyve-next-thread__meta">

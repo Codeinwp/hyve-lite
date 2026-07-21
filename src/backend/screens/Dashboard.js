@@ -19,11 +19,7 @@ import { archive, brush, cloud, comment, help, people } from '@wordpress/icons';
  * Internal dependencies.
  */
 import { navigate } from '../router';
-<<<<<<< HEAD
-import { setUtm } from '../utils';
-=======
 import { isLicenseActive, setUtm } from '../utils';
->>>>>>> origin/development
 import Card from '../components/Card';
 import Chip from '../components/Chip';
 import SetupChecklist from '../components/SetupChecklist';
@@ -298,11 +294,7 @@ const UsageCard = () => {
 };
 
 const RecentConversations = () => {
-<<<<<<< HEAD
-	const isPro = Boolean( window.hyve?.license );
-=======
 	const isPro = isLicenseActive();
->>>>>>> origin/development
 	const limit = isPro ? 5 : 3;
 
 	const [ threads, setThreads ] = useState( null );

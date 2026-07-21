@@ -28,11 +28,7 @@ import { applyFilters } from '@wordpress/hooks';
 /**
  * Internal dependencies.
  */
-<<<<<<< HEAD
-import { setUtm } from '../utils';
-=======
 import { isLicenseActive, setUtm } from '../utils';
->>>>>>> origin/development
 import Card from '../components/Card';
 import Chip from '../components/Chip';
 import FieldRow from '../components/FieldRow';
@@ -163,11 +159,7 @@ const ColorTile = ( { label, value, disabled, onChange } ) => {
 };
 
 const ChatAppearance = () => {
-<<<<<<< HEAD
-	const isPro = Boolean( window.hyve?.license );
-=======
 	const isPro = isLicenseActive();
->>>>>>> origin/development
 
 	const { settings, isSaving, save } = useSaveSettings();
 

@@ -345,11 +345,7 @@ class Main {
 			 *
 			 * @return array<string, mixed>
 			 */
-<<<<<<< HEAD
-			function ( $data ) use ( $settings, $post_types_for_js ) {
-=======
 			function ( $data ) use ( $settings, $post_types_for_js, $current_view ) {
->>>>>>> origin/development
 				/**
 				 * PHPStan false positive: the return type is an array, but PHPStan cannot infer it because of the dynamic nature of the filter.
 				 * 

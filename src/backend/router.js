@@ -185,8 +185,6 @@ const ROUTES = {
 export const getRoutes = () => applyFilters( 'hyve.routes', ROUTES );
 
 /**
-<<<<<<< HEAD
-=======
  * Check whether the current user can access a route.
  *
  * Route capabilities are also enforced by WordPress REST permissions; this
@@ -226,7 +224,6 @@ export const getAccessibleRoutes = () =>
 	);
 
 /**
->>>>>>> origin/development
  * Resolve a screen's sub-panel, falling back to its default panel.
  *
  * @param {Object}  route Screen entry from the registry.
@@ -256,16 +253,6 @@ const resolveSub = ( route, sub ) => {
  * @return {{screen: string, sub: ?string, item: ?string}} Current route.
  */
 const parseLocation = () => {
-<<<<<<< HEAD
-	const routes = getRoutes();
-	const params = new URLSearchParams( window.location.search );
-
-	let screen = params.get( 'nav' ) || 'dashboard';
-	const sub = params.get( 'sub' );
-
-	if ( ! routes[ screen ] ) {
-		screen = 'dashboard';
-=======
 	const routes = getAccessibleRoutes();
 	const params = new URLSearchParams( window.location.search );
 
@@ -274,7 +261,6 @@ const parseLocation = () => {
 
 	if ( ! routes[ screen ] ) {
 		screen = Object.keys( routes )[ 0 ] || 'dashboard';
->>>>>>> origin/development
 	}
 
 	return {
@@ -303,11 +289,7 @@ export const navigate = (
 	sub = null,
 	{ replace = false, item = null } = {}
 ) => {
-<<<<<<< HEAD
-	const routes = getRoutes();
-=======
 	const routes = getAccessibleRoutes();
->>>>>>> origin/development
 
 	if ( ! routes[ screen ] ) {
 		return;

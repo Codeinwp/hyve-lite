@@ -167,21 +167,6 @@ class API extends BaseAPI {
 				],
 			],
 			'data/counts' => [
-<<<<<<< HEAD
-				[
-					'methods'  => \WP_REST_Server::READABLE,
-					'callback' => [ $this, 'get_data_counts' ],
-				],
-			],
-			'stats'       => [
-				[
-					'methods'  => \WP_REST_Server::READABLE,
-					'callback' => [ $this, 'get_stats' ],
-				],
-			],
-			'threads'     => [
-=======
->>>>>>> origin/development
 				[
 					'methods'  => \WP_REST_Server::READABLE,
 					'callback' => [ $this, 'get_data_counts' ],
