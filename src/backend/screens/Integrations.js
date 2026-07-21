@@ -19,7 +19,11 @@ import { useCallback, useEffect, useRef, useState } from '@wordpress/element';
 /**
  * Internal dependencies.
  */
+<<<<<<< HEAD
 import { setUtm } from '../utils';
+=======
+import { isLicenseActive, setUtm } from '../utils';
+>>>>>>> origin/development
 import Card from '../components/Card';
 import Chip from '../components/Chip';
 import FieldRow from '../components/FieldRow';
@@ -325,7 +329,12 @@ export const QdrantPanel = () => {
 };
 
 export const ApiAccessPanel = () => {
+<<<<<<< HEAD
 	const isPro = Boolean( window.hyve?.license );
+=======
+	const isPro = isLicenseActive();
+	const hasPro = Boolean( window.hyve?.license );
+>>>>>>> origin/development
 
 	return (
 		<>
@@ -368,7 +377,11 @@ export const ApiAccessPanel = () => {
 						].join( '\n' ) }
 					</pre>
 				</div>
+<<<<<<< HEAD
 				{ ! isPro && (
+=======
+				{ ! hasPro && (
+>>>>>>> origin/development
 					<div className="hyve-next-act__upsell">
 						<strong>
 							{ __(
@@ -393,7 +406,11 @@ export const ApiAccessPanel = () => {
 				) }
 			</Card>
 
+<<<<<<< HEAD
 			{ isPro && (
+=======
+			{ hasPro && (
+>>>>>>> origin/development
 				<Slot
 					name="api-access-tokens"
 					fallback={

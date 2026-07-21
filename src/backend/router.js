@@ -185,6 +185,48 @@ const ROUTES = {
 export const getRoutes = () => applyFilters( 'hyve.routes', ROUTES );
 
 /**
+<<<<<<< HEAD
+=======
+ * Check whether the current user can access a route.
+ *
+ * Route capabilities are also enforced by WordPress REST permissions; this
+ * keeps unauthorized sections out of the dashboard navigation and prevents
+ * direct URL access from rendering them.
+ *
+ * @param {Object} route Screen entry from the registry.
+ *
+ * @return {boolean} Whether the current user can access the route.
+ */
+const canAccessRoute = ( route ) => {
+	if ( ! route?.capability ) {
+		return true;
+	}
+
+	if ( 'manage_options' === route.capability ) {
+		return Boolean( window.hyve?.canManage );
+	}
+
+	if ( 'hyve_read_messages' === route.capability ) {
+		return Boolean( window.hyve?.canReadMessages );
+	}
+
+	return true;
+};
+
+/**
+ * Get routes available to the current user.
+ *
+ * @return {Object} The filtered route registry.
+ */
+export const getAccessibleRoutes = () =>
+	Object.fromEntries(
+		Object.entries( getRoutes() ).filter( ( [ , route ] ) =>
+			canAccessRoute( route )
+		)
+	);
+
+/**
+>>>>>>> origin/development
  * Resolve a screen's sub-panel, falling back to its default panel.
  *
  * @param {Object}  route Screen entry from the registry.
@@ -214,6 +256,7 @@ const resolveSub = ( route, sub ) => {
  * @return {{screen: string, sub: ?string, item: ?string}} Current route.
  */
 const parseLocation = () => {
+<<<<<<< HEAD
 	const routes = getRoutes();
 	const params = new URLSearchParams( window.location.search );
 
@@ -222,6 +265,16 @@ const parseLocation = () => {
 
 	if ( ! routes[ screen ] ) {
 		screen = 'dashboard';
+=======
+	const routes = getAccessibleRoutes();
+	const params = new URLSearchParams( window.location.search );
+
+	let screen = params.get( 'nav' ) || window.hyve?.view || 'dashboard';
+	const sub = params.get( 'sub' );
+
+	if ( ! routes[ screen ] ) {
+		screen = Object.keys( routes )[ 0 ] || 'dashboard';
+>>>>>>> origin/development
 	}
 
 	return {
@@ -250,7 +303,11 @@ export const navigate = (
 	sub = null,
 	{ replace = false, item = null } = {}
 ) => {
+<<<<<<< HEAD
 	const routes = getRoutes();
+=======
+	const routes = getAccessibleRoutes();
+>>>>>>> origin/development
 
 	if ( ! routes[ screen ] ) {
 		return;

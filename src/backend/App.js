@@ -13,7 +13,11 @@ import { useEffect } from '@wordpress/element';
  * Internal dependencies.
  */
 import './style.scss';
+<<<<<<< HEAD
 import { getRoutes, navigate, useRoute } from './router';
+=======
+import { getAccessibleRoutes, navigate, useRoute } from './router';
+>>>>>>> origin/development
 import HeaderBar from './components/HeaderBar';
 import TabNav from './components/TabNav';
 import SideNav from './components/SideNav';
@@ -77,6 +81,7 @@ const App = () => {
 			document.dispatchEvent( new Event( 'themeisle:banner:init' ) );
 		};
 
+<<<<<<< HEAD
 		fetchSettings();
 
 		window.tsdk_reposition_notice?.();
@@ -107,6 +112,53 @@ const App = () => {
 			if ( fallback ) {
 				navigate( screen, fallback, { replace: true } );
 			}
+=======
+		// Support users without full access cannot read settings; skip the
+		// request so the app finishes loading instead of hanging on a 403.
+		if ( window.hyve?.canManage ) {
+			fetchSettings();
+		} else {
+			setLoading();
+		}
+
+		window.tsdk_reposition_notice?.();
+	}, [ setSettings, setLoading ] );
+
+	const routes = getAccessibleRoutes();
+	const current = routes[ screen ];
+	const Screen = SCREENS[ screen ];
+
+	useEffect( () => {
+		if ( hasAPI || ! current ) {
+			return;
+		}
+
+		if ( current.requiresAPI ) {
+			navigate( 'dashboard', null, { replace: true } );
+			return;
+>>>>>>> origin/development
+		}
+	}, [ hasAPI, current, screen, sub ] );
+
+<<<<<<< HEAD
+	const subs = current?.subs
+		? Object.entries( current.subs ).filter(
+				( [ , entry ] ) => ! entry.hidden
+		  )
+		: [];
+
+=======
+		// Key-gated sub-panel without a key: land on the first open panel.
+		if ( sub && current.subs?.[ sub ]?.requiresAPI ) {
+			const fallback = Object.keys( current.subs ).find(
+				( key ) =>
+					! current.subs[ key ].requiresAPI &&
+					! current.subs[ key ].hidden
+			);
+
+			if ( fallback ) {
+				navigate( screen, fallback, { replace: true } );
+			}
 		}
 	}, [ hasAPI, current, screen, sub ] );
 
@@ -116,6 +168,7 @@ const App = () => {
 		  )
 		: [];
 
+>>>>>>> origin/development
 	const screenContent = Screen ? (
 		<Screen sub={ sub } item={ item } />
 	) : (

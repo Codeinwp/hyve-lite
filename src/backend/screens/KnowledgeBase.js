@@ -23,7 +23,11 @@ import { addQueryArgs } from '@wordpress/url';
  * Internal dependencies.
  */
 import { getRoutes, navigate } from '../router';
+<<<<<<< HEAD
 import { onProcessData, setUtm } from '../utils';
+=======
+import { isLicenseActive, onProcessData, setUtm } from '../utils';
+>>>>>>> origin/development
 import Card from '../components/Card';
 import Chip from '../components/Chip';
 import ChunkLimitNotice from '../components/ChunkLimitNotice';
@@ -54,7 +58,11 @@ const getSources = () =>
 	);
 
 const SourcesGrid = () => {
+<<<<<<< HEAD
 	const isPro = Boolean( window.hyve?.license );
+=======
+	const isPro = isLicenseActive();
+>>>>>>> origin/development
 
 	return (
 		<Card title={ __( 'Add a source', 'hyve-lite' ) }>
@@ -125,6 +133,13 @@ const IndexedContent = () => {
 	const [ total, setTotal ] = useState( 0 );
 	const [ refresh, setRefresh ] = useState( 0 );
 	const [ sourceType, setSourceType ] = useState( 'any' );
+<<<<<<< HEAD
+=======
+	const [ search, setSearch ] = useState( '' );
+
+	// Guards against out-of-order responses when the query changes mid-fetch.
+	const requestRef = useRef( 0 );
+>>>>>>> origin/development
 
 	// Page size comes from the endpoint.
 	const perPageRef = useRef( 20 );
@@ -137,9 +152,17 @@ const IndexedContent = () => {
 	const { createNotice } = useDispatch( 'core/notices' );
 
 	useEffect( () => {
+<<<<<<< HEAD
 		const fetchPosts = async () => {
 			setLoading( true );
 
+=======
+		const request = ++requestRef.current;
+
+		setLoading( true );
+
+		const handler = setTimeout( async () => {
+>>>>>>> origin/development
 			try {
 				// `hyve:all` asks pro to include its sources in the union;
 				// plain `any` stays WordPress-only so the old dashboard's
@@ -153,10 +176,21 @@ const IndexedContent = () => {
 					path: addQueryArgs( `${ window.hyve.api }/data`, {
 						offset: page * perPageRef.current,
 						status: 'included',
+<<<<<<< HEAD
+=======
+						search,
+>>>>>>> origin/development
 						type,
 					} ),
 				} );
 
+<<<<<<< HEAD
+=======
+				if ( request !== requestRef.current ) {
+					return;
+				}
+
+>>>>>>> origin/development
 				setRows( response.posts ?? [] );
 				setHasMore( Boolean( response.more ) );
 				setTotal( Number( response.total ?? 0 ) );
@@ -166,14 +200,28 @@ const IndexedContent = () => {
 					perPageRef.current = Number( response.per_page );
 				}
 			} catch {
+<<<<<<< HEAD
+=======
+				if ( request !== requestRef.current ) {
+					return;
+				}
+
+>>>>>>> origin/development
 				setHasMore( false );
 			}
 
 			setLoading( false );
+<<<<<<< HEAD
 		};
 
 		fetchPosts();
 	}, [ page, refresh, sourceType, setTotalChunks ] );
+=======
+		}, 500 );
+
+		return () => clearTimeout( handler );
+	}, [ page, refresh, search, sourceType, setTotalChunks ] );
+>>>>>>> origin/development
 
 	const onDelete = async ( id ) => {
 		setDeleting( ( prev ) => [ ...prev, id ] );
@@ -261,7 +309,20 @@ const IndexedContent = () => {
 							setPage( 0 );
 						} }
 					/>
+<<<<<<< HEAD
 					<span className="hyve-next-toolbar__grow"></span>
+=======
+					<SearchControl
+						__nextHasNoMarginBottom
+						className="hyve-next-toolbar__grow"
+						label={ __( 'Search indexed content', 'hyve-lite' ) }
+						value={ search }
+						onChange={ ( value ) => {
+							setSearch( value );
+							setPage( 0 );
+						} }
+					/>
+>>>>>>> origin/development
 					{ ! isLoading && (
 						<span className="hyve-next-toolbar__count">
 							{ sprintf(
@@ -348,10 +409,24 @@ const IndexedContent = () => {
 				] }
 				rows={ rows }
 				isLoading={ isLoading }
+<<<<<<< HEAD
 				empty={ __(
 					'Content you add to the Knowledge Base will appear here.',
 					'hyve-lite'
 				) }
+=======
+				empty={
+					search
+						? __(
+								'No indexed content matches your search.',
+								'hyve-lite'
+						  )
+						: __(
+								'Content you add to the Knowledge Base will appear here.',
+								'hyve-lite'
+						  )
+				}
+>>>>>>> origin/development
 			/>
 
 			{ confirmRemove && (
@@ -1462,7 +1537,11 @@ const LOCKED_PREVIEWS = {
 };
 
 const LockedSource = ( { subKey } ) => {
+<<<<<<< HEAD
 	const isPro = Boolean( window.hyve?.license );
+=======
+	const isPro = isLicenseActive();
+>>>>>>> origin/development
 
 	const source = getRoutes().kb?.subs?.[ subKey ];
 	const copy = LOCKED_COPY[ subKey ];
@@ -1558,7 +1637,11 @@ const FAQ_PREVIEW = [
 
 // The working FAQ panel is pro-owned (`GET {api}/faq`) and ships with P2.
 const FaqPanel = () => {
+<<<<<<< HEAD
 	const isPro = Boolean( window.hyve?.license );
+=======
+	const isPro = isLicenseActive();
+>>>>>>> origin/development
 
 	return (
 		<Card
