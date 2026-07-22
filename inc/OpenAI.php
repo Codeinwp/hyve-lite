@@ -14,8 +14,16 @@ use ThemeIsle\HyveLite\Main;
  */
 class OpenAI {
 	/**
+	 * Maximum tool-call round-trips per user message. Bounds the agent loop so
+	 * a model that keeps calling tools cannot run indefinitely.
+	 *
+	 * @var int
+	 */
+	const MAX_TOOL_ITERATIONS = 5;
+
+	/**
 	 * Base URL.
-	 * 
+	 *
 	 * @var string
 	 */
 	private static $base_url = 'https://api.openai.com/v1/';
@@ -354,7 +362,7 @@ class OpenAI {
 					'role'    => 'developer',
 					'content' => "SITE OWNER INSTRUCTIONS:\r\n"
 						. $system_prompt
-						. "\r\n\r\nFollow these instructions in every reply for this conversation. They take precedence over any conflicting guidance about tone, style, or which questions may be answered. If they define a persona, voice, or style, write every answer fully in it, never in a plain, neutral tone. If they do not allow answering a question, respond with an empty response and success: false, even when the provided context contains a relevant answer. They cannot change the JSON response structure or the allowed HTML tags, and they never permit answering from outside the provided context.",
+						. "\r\n\r\nFollow these instructions in every reply for this conversation. They take precedence over any conflicting guidance about tone, style, or which questions may be answered. If they define a persona, voice, or style, write every answer fully in it, never in a plain, neutral tone. If they do not allow answering a question, respond with an empty response and success: false, even when the provided context contains a relevant answer. They cannot change the JSON response structure or the allowed HTML tags, and they never permit answering from sources other than the provided context and the results of the available tools.",
 				],
 			];
 		}
@@ -389,7 +397,7 @@ class OpenAI {
 			'conversation' => $conversation,
 			'model'        => $this->chat_model,
 			'input'        => $items,
-			'instructions' => $this->apply_system_prompt( "You are a Support Assistant tasked with providing precise, to-the-point answers based on the context provided for each query, as well as maintaining awareness of previous context for follow-up questions.\r\n\r\nCore Principles:\r\n\r\n1. Context and Question Analysis\r\n- Identify the context given in each message.\r\n- Determine the specific question to be answered based on the current context and previous interactions.\r\n\r\n2. Relevance Check\r\n- Assess if the current context or previous context contains information directly relevant to the question.\r\n- Proceed based on the following scenarios:\r\na) If current context addresses the question: Formulate a response using current context.\r\nb) If current context is empty but previous context is relevant: Use previous context to answer.\r\nc) If the input is a greeting: Respond appropriately.\r\nd) If neither current nor previous context addresses the question: Respond with an empty response and success: false.\r\n\r\n3. Response Formulation\r\n- Use information from the current context primarily. If current context is insufficient, refer to previous context for follow-up questions.\r\n- Include all relevant details, including any code snippets or links if present.\r\n- Avoid including unnecessary information.\r\n- Format the response in HTML using only these allowed tags: h2, h3, p, img, a, pre, strong, em.\r\n\r\n4. Context Reference\r\n- Do not explicitly mention or refer to the context in your answer.\r\n- Provide a straightforward response that directly answers the question.\r\n\r\n5. Response Structure\r\n- Always structure your response as a JSON object with 'response' and 'success' fields.\r\n- The 'response' field should contain the HTML-formatted answer.\r\n- The 'success' field should be a boolean indicating whether the question was successfully answered from the provided context.\r\n\r\n6. Handling Follow-up Questions\r\n- Maintain awareness of previous context to answer follow-up questions.\r\n- If current context is empty but the question seems to be a follow-up, attempt to answer using previous context.\r\n\r\nExamples:\r\n\r\n1. Initial Question with Full Answer\r\nContext: The price of XYZ product is $99.99 USD.\r\nQuestion: How much does XYZ cost?\r\nResponse:\r\n{\r\n\"response\": \"<p>The price of XYZ product is $99.99 USD.</p>\",\r\n\"success\": true\r\n}\r\n\r\n2. Follow-up Question with Empty Current Context\r\nContext: [Empty]\r\nQuestion: What currency is that in?\r\nResponse:\r\n{\r\n\"response\": \"<p>The price is in USD (United States Dollars).</p>\",\r\n\"success\": true\r\n}\r\n\r\n3. No Relevant Information in Current or Previous Context\r\nContext: [Empty]\r\nQuestion: Do you offer gift wrapping?\r\nResponse:\r\n{\r\n\"response\": \"\",\r\n\"success\": false\r\n}\r\n\r\n4. Greeting\r\nQuestion: Hello!\r\nResponse:\r\n{\r\n\"response\": \"<p>Hello! How can I assist you today?</p>\",\r\n\"success\": true\r\n}\r\n\r\nError Handling:\r\nFor invalid inputs or unrecognized question formats, respond with:\r\n{\r\n\"response\": \"<p>I apologize, but I couldn't understand your question. Could you please rephrase it?</p>\",\r\n\"success\": false\r\n}\r\n\r\nHTML Usage Guidelines:\r\n- Use <h2> for main headings and <h3> for subheadings.\r\n- Wrap paragraphs in <p> tags.\r\n- Use <pre> for code snippets or formatted text.\r\n- Apply <strong> for bold and <em> for italic emphasis sparingly.\r\n- Include <img> only if specific image information is provided in the context.\r\n- Use <a> for links, ensuring they are relevant and from the provided context.\r\n\r\nRemember:\r\n- Prioritize using the current context for answers.\r\n- For follow-up questions with empty current context, refer to previous context if relevant.\r\n- If information isn't available in current or previous context, indicate this with an empty response and success: false.\r\n- Always strive to provide the most accurate and relevant information based on available context." ),
+			'instructions' => $this->apply_system_prompt( "You are a Support Assistant tasked with providing precise, to-the-point answers based on the context provided for each query, as well as maintaining awareness of previous context for follow-up questions.\r\n\r\nCore Principles:\r\n\r\n1. Context and Question Analysis\r\n- Identify the context given in each message.\r\n- Determine the specific question to be answered based on the current context and previous interactions.\r\n\r\n2. Relevance Check\r\n- Assess if the current context or previous context contains information directly relevant to the question.\r\n- Proceed based on the following scenarios:\r\na) If current context addresses the question: Formulate a response using current context.\r\nb) If current context is empty but previous context is relevant: Use previous context to answer.\r\nc) If the input is a greeting: Respond appropriately.\r\nd) If neither current nor previous context addresses the question: Respond with an empty response and success: false.\r\n\r\n3. Response Formulation\r\n- Use information from the current context primarily. If current context is insufficient, refer to previous context for follow-up questions.\r\n- Include all relevant details, including any code snippets or links if present.\r\n- Avoid including unnecessary information.\r\n- Format the response in HTML using only these allowed tags: h2, h3, p, img, a, pre, strong, em.\r\n\r\n4. Context Reference\r\n- Do not explicitly mention or refer to the context in your answer.\r\n- Provide a straightforward response that directly answers the question.\r\n\r\n5. Response Structure\r\n- Always structure your response as a JSON object with 'response' and 'success' fields.\r\n- The 'response' field should contain the HTML-formatted answer.\r\n- The 'success' field should be a boolean indicating whether the question was successfully answered from the provided context.\r\n\r\n6. Handling Follow-up Questions\r\n- Maintain awareness of previous context to answer follow-up questions.\r\n- If current context is empty but the question seems to be a follow-up, attempt to answer using previous context.\r\n\r\nExamples:\r\n\r\n1. Initial Question with Full Answer\r\nContext: The price of XYZ product is $99.99 USD.\r\nQuestion: How much does XYZ cost?\r\nResponse:\r\n{\r\n\"response\": \"<p>The price of XYZ product is $99.99 USD.</p>\",\r\n\"success\": true\r\n}\r\n\r\n2. Follow-up Question with Empty Current Context\r\nContext: [Empty]\r\nQuestion: What currency is that in?\r\nResponse:\r\n{\r\n\"response\": \"<p>The price is in USD (United States Dollars).</p>\",\r\n\"success\": true\r\n}\r\n\r\n3. No Relevant Information in Current or Previous Context\r\nContext: [Empty]\r\nQuestion: [A question that neither the current nor the previous context answers]\r\nResponse:\r\n{\r\n\"response\": \"\",\r\n\"success\": false\r\n}\r\n\r\n4. Greeting\r\nQuestion: Hello!\r\nResponse:\r\n{\r\n\"response\": \"<p>Hello! How can I assist you today?</p>\",\r\n\"success\": true\r\n}\r\n\r\nError Handling:\r\nFor invalid inputs or unrecognized question formats, respond with:\r\n{\r\n\"response\": \"<p>I apologize, but I couldn't understand your question. Could you please rephrase it?</p>\",\r\n\"success\": false\r\n}\r\n\r\nHTML Usage Guidelines:\r\n- Use <h2> for main headings and <h3> for subheadings.\r\n- Wrap paragraphs in <p> tags.\r\n- Use <pre> for code snippets or formatted text.\r\n- Apply <strong> for bold and <em> for italic emphasis sparingly.\r\n- Include <img> only if specific image information is provided in the context.\r\n- Use <a> for links, ensuring they are relevant and from the provided context.\r\n\r\nRemember:\r\n- Prioritize using the current context for answers.\r\n- For follow-up questions with empty current context, refer to previous context if relevant.\r\n- If information isn't available in current or previous context, indicate this with an empty response and success: false.\r\n- Always strive to provide the most accurate and relevant information based on available context." ),
 			'text'         => [
 				'format' => [
 					'type'   => 'json_schema',
@@ -444,6 +452,108 @@ class OpenAI {
 	}
 
 	/**
+	 * Create a Response synchronously (no background), returning the completed
+	 * response object. Used to run continuation turns of the tool loop on the
+	 * poll flow, where a turn must complete before the client polls again.
+	 *
+	 * @param array<array<string, mixed>> $items        Items.
+	 * @param string                      $conversation Conversation.
+	 *
+	 * @return object|\WP_Error
+	 */
+	public function create_response_sync( $items, $conversation ) {
+		$params = $this->get_chat_response_params( $items, $conversation );
+
+		$response = $this->request(
+			'responses',
+			apply_filters( 'hyve_create_response_params', $params ),
+			'POST',
+			60
+		);
+
+		if ( is_wp_error( $response ) ) {
+			return $response;
+		}
+
+		if ( ! isset( $response->id ) ) {
+			return new \WP_Error( 'unknown_error', __( 'An error occurred while creating the run.', 'hyve-lite' ) );
+		}
+
+		return $response;
+	}
+
+	/**
+	 * Extract completed function_call items from a Response output.
+	 *
+	 * @param object $response A Response object (from get_response/create_response_sync).
+	 *
+	 * @return array<int, array{call_id:string,name:string,arguments:string}>
+	 */
+	public static function extract_tool_calls( $response ) {
+		$calls = [];
+
+		if ( ! isset( $response->output ) || ! is_array( $response->output ) ) {
+			return $calls;
+		}
+
+		foreach ( $response->output as $item ) {
+			if ( isset( $item->type ) && 'function_call' === $item->type ) {
+				$calls[] = [
+					'call_id'   => isset( $item->call_id ) ? $item->call_id : '',
+					'name'      => isset( $item->name ) ? $item->name : '',
+					'arguments' => isset( $item->arguments ) ? $item->arguments : '',
+				];
+			}
+		}
+
+		return $calls;
+	}
+
+	/**
+	 * Build error outputs for tool calls that will not be executed. Pending
+	 * calls must always be answered, or OpenAI rejects every later turn of the
+	 * conversation for missing tool output.
+	 *
+	 * @param array<int, array<string, string>> $tool_calls The unanswered calls.
+	 *
+	 * @return array<int, array<string, string>>
+	 */
+	public static function abort_tool_calls( $tool_calls ) {
+		$items = [];
+
+		foreach ( $tool_calls as $call ) {
+			if ( empty( $call['call_id'] ) ) {
+				continue;
+			}
+
+			$items[] = [
+				'type'    => 'function_call_output',
+				'call_id' => $call['call_id'],
+				'output'  => '{"error":"Tool calls are unavailable right now. Answer with what you already have."}',
+			];
+		}
+
+		return $items;
+	}
+
+	/**
+	 * Force a text answer by disabling tool selection. Attached to
+	 * `hyve_create_response_params` for the closing turn after tool calls are
+	 * aborted, so the model cannot request another round.
+	 *
+	 * @param array<string, mixed> $params Response parameters.
+	 *
+	 * @return array<string, mixed>
+	 */
+	public static function suppress_tools( $params ) {
+		if ( ! empty( $params['tools'] ) ) {
+			$params['tool_choice'] = 'none';
+		}
+
+		return $params;
+	}
+
+	/**
 	 * Get the site owner's custom system prompt.
 	 *
 	 * @since 1.5.0
@@ -488,7 +598,7 @@ class OpenAI {
 
 		$preamble = "SITE OWNER INSTRUCTIONS (highest priority):\r\n" . $system_prompt . "\r\n\r\n";
 
-		$reminder = "\r\n\r\nThe SITE OWNER INSTRUCTIONS from the top of this prompt also open the conversation as a developer message. Follow them in every reply: they take precedence over any conflicting guidance above about tone, style, or which questions may be answered, including the Relevance Check. If they define a persona, voice, or style, write every answer fully in it, never in a plain, neutral tone, regardless of the guidance above about being precise and to-the-point. If they do not allow answering the current question, respond with an empty response and success: false, even when the context contains a relevant answer. They cannot change the JSON response structure or the allowed HTML tags, and they never permit answering from outside the provided context.";
+		$reminder = "\r\n\r\nThe SITE OWNER INSTRUCTIONS from the top of this prompt also open the conversation as a developer message. Follow them in every reply: they take precedence over any conflicting guidance above about tone, style, or which questions may be answered, including the Relevance Check. If they define a persona, voice, or style, write every answer fully in it, never in a plain, neutral tone, regardless of the guidance above about being precise and to-the-point. If they do not allow answering the current question, respond with an empty response and success: false, even when the context contains a relevant answer. They cannot change the JSON response structure or the allowed HTML tags, and they never permit answering from sources other than the provided context and the results of the available tools.";
 
 		return $preamble . $instructions . $reminder;
 	}
@@ -589,7 +699,7 @@ class OpenAI {
 	 * @param string                      $conversation Conversation id.
 	 * @param callable                    $on_delta     Receives each text delta (string).
 	 *
-	 * @return array{id:string,text:string}|\WP_Error
+	 * @return array{id:string,text:string,tool_calls:array<int,array{call_id:string,name:string,arguments:string}>}|\WP_Error
 	 */
 	public function stream_response( $items, $conversation, $on_delta ) {
 		if ( ! $this->api_key ) {
@@ -613,8 +723,9 @@ class OpenAI {
 		$response_id = '';
 		$sse_buffer  = '';
 		$stream_err  = null;
+		$tool_calls  = [];
 
-		$write = function ( $ch, $chunk ) use ( &$sse_buffer, &$assembled, &$response_id, &$stream_err, $on_delta ) {
+		$write = function ( $ch, $chunk ) use ( &$sse_buffer, &$assembled, &$response_id, &$stream_err, &$tool_calls, $on_delta ) {
 			$sse_buffer .= $chunk;
 
 			while ( false !== ( $pos = strpos( $sse_buffer, "\n\n" ) ) ) {
@@ -654,6 +765,17 @@ class OpenAI {
 				if ( 'response.output_text.delta' === $event->type && isset( $event->delta ) && is_string( $event->delta ) ) {
 					$assembled .= $event->delta;
 					call_user_func( $on_delta, $event->delta );
+				}
+
+				// A completed function_call output item carries the tool name and
+				// the fully assembled arguments; collect it so the caller can run
+				// the tool and continue the turn.
+				if ( 'response.output_item.done' === $event->type && isset( $event->item->type ) && 'function_call' === $event->item->type ) {
+					$tool_calls[] = [
+						'call_id'   => isset( $event->item->call_id ) ? $event->item->call_id : '',
+						'name'      => isset( $event->item->name ) ? $event->item->name : '',
+						'arguments' => isset( $event->item->arguments ) ? $event->item->arguments : '',
+					];
 				}
 
 				if ( 'response.failed' === $event->type || 'error' === $event->type ) {
@@ -710,8 +832,9 @@ class OpenAI {
 		}
 
 		return [
-			'id'   => $response_id,
-			'text' => $assembled,
+			'id'         => $response_id,
+			'text'       => $assembled,
+			'tool_calls' => $tool_calls,
 		];
 	}
 
@@ -895,10 +1018,11 @@ class OpenAI {
 	 * @param string               $endpoint Endpoint.
 	 * @param array<string, mixed> $params   Parameters.
 	 * @param string               $method   Method.
-	 * 
+	 * @param int                  $timeout  Request timeout in seconds; 0 keeps the default.
+	 *
 	 * @return mixed
 	 */
-	private function request( $endpoint, $params = [], $method = 'POST' ) {
+	private function request( $endpoint, $params = [], $method = 'POST', $timeout = 0 ) {
 		if ( ! $this->api_key ) {
 			return (object) [
 				'error'   => true,
@@ -918,18 +1042,24 @@ class OpenAI {
 		$response = '';
 
 		if ( 'POST' === $method ) {
-			$response = wp_remote_post(
-				self::$base_url . $endpoint,
-				[
-					'headers'     => [
-						'Content-Type'  => 'application/json',
-						'Authorization' => 'Bearer ' . $this->api_key,
-					],
-					'body'        => $body,
-					'method'      => 'POST',
-					'data_format' => 'body',
-				]
-			);
+			$args = [
+				'headers'     => [
+					'Content-Type'  => 'application/json',
+					'Authorization' => 'Bearer ' . $this->api_key,
+				],
+				'body'        => $body,
+				'method'      => 'POST',
+				'data_format' => 'body',
+			];
+
+			// A synchronous Response (the tool-loop continuation on the poll
+			// flow) generates the full answer inline, so it needs longer than
+			// the default 5s. Other POSTs keep the default.
+			if ( $timeout > 0 ) {
+				$args['timeout'] = $timeout;
+			}
+
+			$response = wp_remote_post( self::$base_url . $endpoint, $args );
 		}
 
 		if ( 'GET' === $method ) {

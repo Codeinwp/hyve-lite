@@ -1371,6 +1371,93 @@ p.hyve-next-notice__text {
 	}
 }
 
+/* Flat sections separated by single dividers only where two groups meet:
+   the card supplies the frame, so nothing ever doubles up. */
+.hyve-next-skills__group + .hyve-next-skills__group {
+	border-top: 1px solid var(--hyve-border);
+}
+
+.hyve-next-skills__head {
+	align-items: center;
+	background: var(--hyve-surface);
+	display: flex;
+	gap: 12px;
+	justify-content: space-between;
+	padding: 16px 18px;
+
+	/* Divider only when the group is expanded and rows follow. */
+	&:not(:last-child) {
+		border-bottom: 1px solid var(--hyve-border);
+	}
+}
+
+.hyve-next-skills__toggle {
+	align-items: center;
+	background: none;
+	border: 0;
+	cursor: pointer;
+	display: flex;
+	flex: 1;
+	gap: 10px;
+	padding: 0;
+	text-align: left;
+}
+
+.hyve-next-skills__chevron {
+	color: var(--hyve-muted);
+	flex: none;
+	transition: transform 0.15s ease;
+}
+
+.hyve-next-skills__group-name {
+	font-weight: 600;
+}
+
+.hyve-next-skills__count {
+	color: var(--hyve-muted);
+	font-size: 12px;
+	font-variant-numeric: tabular-nums;
+}
+
+.hyve-next-skills__row {
+	border-bottom: 1px solid var(--hyve-border);
+	padding: 16px 18px;
+
+	&:last-child {
+		border-bottom: 0;
+	}
+
+	&.is-disabled {
+		opacity: 0.6;
+	}
+}
+
+.hyve-next-skills__meta {
+	align-items: center;
+	display: inline-flex;
+	flex-wrap: wrap;
+	gap: 8px;
+}
+
+.hyve-next-skills__label {
+	font-weight: 500;
+}
+
+.hyve-next-skills__badges {
+	align-items: center;
+	display: inline-flex;
+	flex-wrap: wrap;
+	gap: 6px;
+}
+
+.hyve-next-skills__desc {
+	color: var(--hyve-muted);
+	font-size: 12.5px;
+	line-height: 1.5;
+	/* Align under the label, past the checkbox gutter. */
+	margin: 6px 0 0 24px;
+}
+
 .hyve-next-pagination {
 	align-items: center;
 	display: flex;
@@ -1426,13 +1513,27 @@ p.hyve-next-notice__text {
 	margin: 6px 0;
 	max-width: 75%;
 
-	p {
+	// The message is model HTML (paragraphs, lists, source chips), so the
+	// bubble is a div and the inner tags are normalized to match the widget.
+	&__msg {
 		background: var(--hyve-bubble-bg);
 		border-radius: 6px;
 		color: var(--hyve-bubble-color);
 		font-size: 13px;
 		overflow-wrap: anywhere;
 		padding: 9px 12px;
+
+		:where(p, ul, ol) {
+			margin: 0;
+		}
+
+		:where(p + p, p + ul, ul + p, p + ol, ol + p) {
+			margin-top: 8px;
+		}
+
+		:where(ul, ol) {
+			padding-left: 18px;
+		}
 	}
 
 	time {
@@ -1440,6 +1541,74 @@ p.hyve-next-notice__text {
 		font-size: 10.5px;
 		margin-top: 3px;
 		padding: 0 2px;
+	}
+
+	// Source chips, same markup the widget renders after an answer.
+	.hyve-source {
+		align-items: center;
+		display: flex;
+		flex-wrap: wrap;
+		gap: 8px;
+		margin-top: 10px;
+	}
+
+	.hyve-source__intro {
+		color: var(--hyve-muted);
+		font-size: 12px;
+		font-weight: 500;
+	}
+
+	.hyve-source__link {
+		align-items: center;
+		background: #fff;
+		border: 1px solid var(--hyve-border);
+		border-radius: 7px;
+		color: var(--hyve-text);
+		display: inline-flex;
+		font-size: 12px;
+		font-variant-numeric: tabular-nums;
+		font-weight: 700;
+		height: 22px;
+		justify-content: center;
+		position: relative;
+		text-decoration: none;
+		width: 22px;
+
+		&:hover,
+		&:focus-visible {
+			background: var(--hyve-brand-b);
+			border-color: var(--hyve-brand-b);
+			color: #fff;
+		}
+	}
+
+	.hyve-source__label {
+		background: #141824;
+		border-radius: 7px;
+		bottom: calc(100% + 6px);
+		color: #fff;
+		font-size: 11.5px;
+		font-weight: 500;
+		left: 0;
+		line-height: 1.35;
+		max-width: 200px;
+		opacity: 0;
+		padding: 5px 9px;
+		pointer-events: none;
+		position: absolute;
+		transform: translateY(4px);
+		transition: opacity 0.15s ease, transform 0.15s ease;
+		visibility: hidden;
+		white-space: normal;
+		width: max-content;
+		z-index: 2;
+	}
+
+	.hyve-source__link:hover .hyve-source__label,
+	.hyve-source__link:focus-visible .hyve-source__label {
+		opacity: 1;
+		transform: translateY(0);
+		visibility: visible;
 	}
 
 	&.is-user {
@@ -1453,6 +1622,87 @@ p.hyve-next-notice__text {
 	&.is-bot {
 		align-items: flex-start;
 		margin-right: auto;
+	}
+}
+
+// Skill display cards under a bot reply, mirroring the widget's cards.
+.hyve-next-cards {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	margin-top: 6px;
+	width: 100%;
+
+	&__item {
+		align-items: center;
+		background: #fff;
+		border: 1px solid var(--hyve-border);
+		border-radius: 8px;
+		display: flex;
+		gap: 10px;
+		padding: 8px 10px;
+	}
+
+	&__image {
+		border-radius: 6px;
+		flex: 0 0 auto;
+		height: 40px;
+		object-fit: cover;
+		width: 40px;
+	}
+
+	&__body {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+		min-width: 0;
+	}
+
+	&__title {
+		color: var(--hyve-text);
+		font-size: 12.5px;
+		font-weight: 600;
+		line-height: 1.3;
+		text-decoration: none;
+
+		&:is(a):hover {
+			color: var(--hyve-brand-b);
+		}
+	}
+
+	&__desc {
+		color: var(--hyve-muted);
+		font-size: 12px;
+		line-height: 1.35;
+	}
+
+	&__meta {
+		color: var(--hyve-brand-b);
+		font-size: 12px;
+		font-weight: 600;
+	}
+
+	&__actions {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 6px;
+		margin-top: 4px;
+	}
+
+	&__action {
+		border: 1px solid var(--hyve-border);
+		border-radius: 999px;
+		color: var(--hyve-text);
+		font-size: 11.5px;
+		font-weight: 600;
+		line-height: 1;
+		padding: 5px 10px;
+		text-decoration: none;
+
+		&:is(a):hover {
+			border-color: var(--hyve-brand-b);
+			color: var(--hyve-brand-b);
+		}
 	}
 }
 

@@ -12,6 +12,7 @@ import { getRoutes } from '../router';
 import ChatBehavior from './ChatBehavior';
 import ChatAppearance from './ChatAppearance';
 import Leads from './Leads';
+import Skills from './Skills';
 import { ProviderPanel } from './AI';
 import SettingsGeneral from './SettingsGeneral';
 import { QdrantPanel, ApiAccessPanel, WebhooksPanel } from './Integrations';
@@ -26,6 +27,7 @@ const PANELS = {
 	qdrant: QdrantPanel,
 	'api-access': ApiAccessPanel,
 	webhooks: WebhooksPanel,
+	skills: Skills,
 	general: SettingsGeneral,
 };
 

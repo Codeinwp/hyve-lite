@@ -83,7 +83,8 @@ class App {
 				message.message,
 				message.sender,
 				message.id,
-				false
+				false,
+				message.display ?? null
 			);
 		} );
 	}
@@ -132,7 +133,7 @@ class App {
 		);
 	}
 
-	add( message, sender, id = null, sound = true ) {
+	add( message, sender, id = null, sound = true, display = null ) {
 		const time = new Date();
 
 		if ( 'user' === sender && this.gateLocked ) {
@@ -145,8 +146,8 @@ class App {
 
 		message = this.addTargetBlank( message );
 
-		this.messages.push( { time, message, sender, id } );
-		this.addMessage( time, message, sender, id, sound );
+		this.messages.push( { time, message, sender, id, display } );
+		this.addMessage( time, message, sender, id, sound, display );
 
 		this.updateStorage();
 
@@ -277,7 +278,15 @@ class App {
 			this.removeMessage( this.runID );
 
 			if ( 'completed' === response.status ) {
-				this.add( response.message, 'bot' );
+				// Rich display (product results / choices), mirroring the stream
+				// flow, rendered under the reply and stored with it for history.
+				this.add(
+					response.message,
+					'bot',
+					null,
+					true,
+					response.display
+				);
 				this.setLoading( false );
 
 				// Contextual follow-ups on the poll path (Pro), mirroring the
@@ -477,6 +486,8 @@ class App {
 		let timedOut = false;
 		let started = false;
 		let streamedText = '';
+		let typingTimer = null;
+		const typingId = 'hyve-stream-typing';
 
 		// Fall back if no real SSE event (delta/done/error) arrives in time. The
 		// ': connected' comment is deliberately NOT counted as content, so a proxy
@@ -519,6 +530,23 @@ class App {
 			this.removeMessage( 'hyve-preloader' );
 			this.addMessage( new Date(), '', 'bot', bubbleId, false );
 			started = true;
+		};
+
+		// The reply streams its text first, then the model may keep generating
+		// structured data (e.g. a product list) with no visible deltas. Show the
+		// typing indicator again during that lull so the wait never looks frozen.
+		const hideTyping = () => {
+			clearTimeout( typingTimer );
+			this.removeMessage( typingId );
+		};
+
+		const scheduleTyping = () => {
+			clearTimeout( typingTimer );
+			typingTimer = setTimeout( () => {
+				if ( started ) {
+					this.addPreloaderMessage( typingId );
+				}
+			}, 500 );
 		};
 
 		try {
@@ -570,10 +598,15 @@ class App {
 					}
 
 					if ( 'delta' === event ) {
+						hideTyping();
 						ensureBubble();
 						streamedText += data?.text || '';
 						renderInto( streamedText );
+						// Text paused? bring the indicator back until more arrives
+						// or the reply finishes.
+						scheduleTyping();
 					} else if ( 'done' === event ) {
+						hideTyping();
 						this.finalizeStream( bubbleId, data );
 						finished = true;
 						reading = false;
@@ -583,6 +616,7 @@ class App {
 						// Discard any partial and fall back to the poll flow for a
 						// complete, recorded-once answer.
 						clearTimeout( watchdog );
+						hideTyping();
 						this.removeMessage( bubbleId );
 						this.removeMessage( 'hyve-preloader' );
 						this.addPreloaderMessage( 'hyve-preloader' );
@@ -592,6 +626,7 @@ class App {
 			}
 
 			clearTimeout( watchdog );
+			hideTyping();
 
 			if ( finished ) {
 				return true;
@@ -609,6 +644,7 @@ class App {
 			return false;
 		} catch {
 			clearTimeout( watchdog );
+			hideTyping();
 
 			if ( started ) {
 				this.finalizeStream( bubbleId, {
@@ -634,6 +670,7 @@ class App {
 	 */
 	finalizeStream( bubbleId, data ) {
 		this.removeMessage( 'hyve-preloader' );
+		this.removeMessage( 'hyve-stream-typing' );
 		this.removeMessage( bubbleId );
 
 		// The streamed turn is recorded server-side only once the reply lands,
@@ -647,7 +684,10 @@ class App {
 		}
 
 		const message = data?.message ?? strings.tryAgain;
-		this.add( message, 'bot' );
+		// A rich, clickable display (product results or disambiguation choices)
+		// rides on the terminal event; it renders under the reply and is stored
+		// with it so history shows the same thing.
+		this.add( message, 'bot', null, true, data?.display );
 		this.setLoading( false );
 		// Contextual follow-ups ride on the terminal event (Pro). They are only
 		// present on a successful, grounded answer.
@@ -814,7 +854,7 @@ class App {
 		}
 	}
 
-	addMessage( time, message, sender, id, sound = true ) {
+	addMessage( time, message, sender, id, sound = true, display = null ) {
 		const chatMessageBox = document.getElementById( 'hyve-message-box' );
 		if ( ! chatMessageBox ) {
 			return;
@@ -875,6 +915,17 @@ class App {
 		}
 
 		chatMessageBox.appendChild( messageDiv );
+
+		// A skill display (cards / choices) rides with a bot reply and is
+		// rendered right under it, so it also replays with conversation history.
+		if ( 'bot' === sender && display ) {
+			const displayNode = this.buildDisplay( display );
+
+			if ( displayNode ) {
+				chatMessageBox.appendChild( displayNode );
+			}
+		}
+
 		chatMessageBox.scrollTop = chatMessageBox.scrollHeight;
 
 		if ( ! sound ) {
@@ -1039,6 +1090,154 @@ class App {
 			suggestions.remove();
 			this.hasSuggestions = false;
 		}
+	}
+
+	/**
+	 * Build a rich display node (product results, a single order, "which one
+	 * did you mean?" choices) to render under a bot reply.
+	 *
+	 * The payload is `{ type, items }`: `type` is a layout hint ('list' of
+	 * compact cards or a single spotlight 'item'); each item can carry
+	 * `actions` buttons (a URL opens it, a message is sent as the next turn).
+	 * An item with no actions falls back to being clickable itself: its URL,
+	 * or its label sent as the next message.
+	 *
+	 * All text is set with textContent and URLs are validated, so a
+	 * skill-provided payload cannot inject markup into the widget.
+	 *
+	 * @param {Object} display The display payload ({ type, items }).
+	 * @return {HTMLElement|null} The display element, or null when there is nothing to show.
+	 */
+	buildDisplay( display ) {
+		const isSafeUrl = ( url ) =>
+			'string' === typeof url && /^https?:\/\//i.test( url );
+
+		const valid = (
+			Array.isArray( display?.items ) ? display.items : []
+		).filter(
+			( item ) =>
+				item &&
+				'string' === typeof item.label &&
+				'' !== item.label.trim()
+		);
+
+		if ( 0 === valid.length ) {
+			return null;
+		}
+
+		const type = 'item' === display.type ? 'item' : 'list';
+		const displayDiv = this.createElement( 'div', {
+			className: `hyve-display hyve-display--${ type }`,
+		} );
+
+		valid.forEach( ( item ) => {
+			const actions = (
+				Array.isArray( item.actions ) ? item.actions : []
+			).filter(
+				( action ) =>
+					action &&
+					'string' === typeof action.label &&
+					'' !== action.label.trim() &&
+					( isSafeUrl( action.url ) ||
+						'string' === typeof action.message )
+			);
+
+			// With actions the card is a plain container and the buttons carry
+			// the behavior; without them the whole card is the affordance.
+			const isLink = 0 === actions.length && isSafeUrl( item.url );
+			let tag = isLink ? 'a' : 'button';
+
+			if ( actions.length ) {
+				tag = 'div';
+			}
+
+			const card = this.createElement( tag, {
+				className: 'hyve-display__item',
+			} );
+
+			if ( isLink ) {
+				card.setAttribute( 'href', item.url );
+				card.setAttribute( 'target', '_blank' );
+				card.setAttribute( 'rel', 'noopener noreferrer' );
+			} else if ( 'button' === tag ) {
+				card.addEventListener( 'click', () => {
+					this.add( item.label, 'user' );
+				} );
+			}
+
+			if ( isSafeUrl( item.image ) ) {
+				const img = this.createElement( 'img', {
+					className: 'hyve-display__image',
+				} );
+				img.setAttribute( 'src', item.image );
+				img.setAttribute( 'alt', '' );
+				card.appendChild( img );
+			}
+
+			const body = this.createElement( 'span', {
+				className: 'hyve-display__body',
+			} );
+
+			const title = this.createElement( 'span', {
+				className: 'hyve-display__title',
+			} );
+			title.textContent = item.label;
+			body.appendChild( title );
+
+			if (
+				'string' === typeof item.description &&
+				'' !== item.description
+			) {
+				const desc = this.createElement( 'span', {
+					className: 'hyve-display__desc',
+				} );
+				desc.textContent = item.description;
+				body.appendChild( desc );
+			}
+
+			if ( 'string' === typeof item.meta && '' !== item.meta ) {
+				const meta = this.createElement( 'span', {
+					className: 'hyve-display__meta',
+				} );
+				meta.textContent = item.meta;
+				body.appendChild( meta );
+			}
+
+			if ( actions.length ) {
+				const row = this.createElement( 'span', {
+					className: 'hyve-display__actions',
+				} );
+
+				actions.forEach( ( action ) => {
+					const isActionLink = isSafeUrl( action.url );
+					const button = this.createElement(
+						isActionLink ? 'a' : 'button',
+						{ className: 'hyve-display__action' }
+					);
+
+					button.textContent = action.label;
+
+					if ( isActionLink ) {
+						button.setAttribute( 'href', action.url );
+						button.setAttribute( 'target', '_blank' );
+						button.setAttribute( 'rel', 'noopener noreferrer' );
+					} else {
+						button.addEventListener( 'click', () => {
+							this.add( action.message, 'user' );
+						} );
+					}
+
+					row.appendChild( button );
+				} );
+
+				body.appendChild( row );
+			}
+
+			card.appendChild( body );
+			displayDiv.appendChild( card );
+		} );
+
+		return displayDiv;
 	}
 
 	/**

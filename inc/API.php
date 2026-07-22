@@ -1461,6 +1461,43 @@ class API extends BaseAPI {
 			return rest_ensure_response( [ 'status' => $response->status ] );
 		}
 
+		$source_run_id = $run_id;
+		$iterations    = 0;
+		$cancelled     = false;
+		$tool_calls    = OpenAI::extract_tool_calls( $response );
+
+		while ( ! empty( $tool_calls ) && ! $cancelled ) {
+			$outputs = $iterations < OpenAI::MAX_TOOL_ITERATIONS
+				? apply_filters( 'hyve_execute_tool_calls', null, $tool_calls )
+				: null;
+
+			if ( ! is_array( $outputs ) || empty( $outputs ) ) {
+				$outputs   = OpenAI::abort_tool_calls( $tool_calls );
+				$cancelled = true;
+
+				if ( empty( $outputs ) ) {
+					break;
+				}
+
+				add_filter( 'hyve_create_response_params', [ OpenAI::class, 'suppress_tools' ], 100 );
+			}
+
+			$next = $openai->create_response_sync( $outputs, $thread_id );
+
+			if ( is_wp_error( $next ) ) {
+				return rest_ensure_response( [ 'error' => $this->get_error_message( $next ) ] );
+			}
+
+			$response   = $next;
+			$run_id     = isset( $response->id ) ? $response->id : $run_id;
+			$tool_calls = OpenAI::extract_tool_calls( $response );
+			++$iterations;
+		}
+
+		if ( $cancelled ) {
+			remove_filter( 'hyve_create_response_params', [ OpenAI::class, 'suppress_tools' ], 100 );
+		}
+
 		$status = $response->status;
 
 		$message = array_filter(
@@ -1494,12 +1531,11 @@ class API extends BaseAPI {
 		$response = $interpreted['final'];
 		$answered = $interpreted['answered'];
 
-		if ( ! empty( $settings['show_source_link'] ) && $answered ) {
-			$response = $this->append_source_link( $response, $run_id );
-		}
-		// Skip recording for admin live-preview test chats (see send_chat).
-		if ( ! $request->get_param( 'is_test' ) ) {
-			do_action( 'hyve_chat_response', $run_id, $thread_id, $query, $record_id, $payload, $response );
+		// Source links cite the knowledge-base chunks behind an answer; a
+		// tool-driven reply (any continuation ran) is grounded in the tool
+		// result instead, so citing matched chunks would mislead.
+		if ( ! empty( $settings['show_source_link'] ) && $answered && 0 === $iterations ) {
+			$response = $this->append_source_link( $response, $source_run_id );
 		}
 
 		$data = [
@@ -1508,13 +1544,29 @@ class API extends BaseAPI {
 			'message' => $response,
 		];
 
-		// Let extensions attach extra reply data (e.g. follow-up suggestions from
-		// the structured payload). Shared with the streaming flow (Stream) so both
-		// paths surface the same data to the widget.
+		// Let extensions attach extra reply data (e.g. follow-up suggestions or a
+		// skill list). Shared with the streaming flow (Stream) so both paths
+		// surface the same data to the widget.
 		$reply = apply_filters( 'hyve_chat_reply_data', $data, $payload, $answered );
 
 		if ( is_array( $reply ) ) {
 			$data = $reply;
+		}
+
+		// Carry any display into the recorded reply so history shows it, and
+		// record the reply as filtered (e.g. with skill source chips): the
+		// transcript must match what the visitor saw.
+		if ( isset( $data['display'] ) ) {
+			$payload['display'] = $data['display'];
+		}
+
+		if ( isset( $data['message'] ) && is_string( $data['message'] ) ) {
+			$response = $data['message'];
+		}
+
+		// Skip recording for admin live-preview test chats (see send_chat).
+		if ( ! $request->get_param( 'is_test' ) ) {
+			do_action( 'hyve_chat_response', $run_id, $thread_id, $query, $record_id, $payload, $response );
 		}
 
 		return rest_ensure_response( $data );
@@ -2217,6 +2269,15 @@ class API extends BaseAPI {
 				'thread_id' => $thread_id,
 				'record_id' => $record_id,
 				'is_test'   => $is_test,
+				/**
+				 * Filters extra per-turn state carried from the request that ran
+				 * the Connect chat to the request that serves it to the widget
+				 * (extensions hold turn state in memory, which does not survive
+				 * the hop). Restored via `hyve_connect_run_resumed`.
+				 *
+				 * @param array<string, mixed> $extras Extension-owned values.
+				 */
+				'extras'    => apply_filters( 'hyve_connect_run_extras', [] ),
 			],
 			5 * MINUTE_IN_SECONDS
 		);
@@ -2251,6 +2312,14 @@ class API extends BaseAPI {
 
 		delete_transient( 'hyve_connect_run_' . $run_id );
 
+		/**
+		 * Restores the extension state stashed by `hyve_connect_run_extras` when
+		 * the chat ran, before the reply is assembled.
+		 *
+		 * @param array<string, mixed> $extras Extension-owned values.
+		 */
+		do_action( 'hyve_connect_run_resumed', isset( $job['extras'] ) && is_array( $job['extras'] ) ? $job['extras'] : [] );
+
 		Main::add_labels_to_default_settings();
 		$settings = Main::get_settings();
 
@@ -2265,8 +2334,18 @@ class API extends BaseAPI {
 			'response' => $answered ? $reply : '',
 		];
 
-		if ( empty( $job['is_test'] ) ) {
-			do_action( 'hyve_chat_response', (string) $run_id, $job['thread_id'], $job['message'], $job['record_id'], $payload, $final );
+		if ( $answered && ! empty( $result['follow_ups'] ) && is_array( $result['follow_ups'] ) ) {
+			$payload['follow_ups'] = $result['follow_ups'];
+		}
+
+		// Platform-detected signals; folded into the payload so the generic
+		// actions mapper (hyve_chat_reply_data) turns each into an action.
+		if ( isset( $result['signals'] ) && is_array( $result['signals'] ) ) {
+			foreach ( $result['signals'] as $type => $value ) {
+				if ( $value ) {
+					$payload[ $type ] = true;
+				}
+			}
 		}
 
 		$data = [
@@ -2275,9 +2354,28 @@ class API extends BaseAPI {
 			'message' => $final,
 		];
 
-		$reply = apply_filters( 'hyve_chat_reply_data', $data, $payload, $answered );
+		$filtered = apply_filters( 'hyve_chat_reply_data', $data, $payload, $answered );
 
-		return rest_ensure_response( is_array( $reply ) ? $reply : $data );
+		if ( is_array( $filtered ) ) {
+			$data = $filtered;
+		}
+
+		// Carry any display into the recorded reply so history shows it, and
+		// record the reply as filtered (e.g. with skill source chips): the
+		// transcript must match what the visitor saw.
+		if ( isset( $data['display'] ) ) {
+			$payload['display'] = $data['display'];
+		}
+
+		if ( isset( $data['message'] ) && is_string( $data['message'] ) ) {
+			$final = $data['message'];
+		}
+
+		if ( empty( $job['is_test'] ) ) {
+			do_action( 'hyve_chat_response', (string) $run_id, $job['thread_id'], $job['message'], $job['record_id'], $payload, $final );
+		}
+
+		return rest_ensure_response( $data );
 	}
 
 	/**
