@@ -637,7 +637,13 @@ class App {
 		this.removeMessage( bubbleId );
 
 		// The streamed turn is recorded server-side only once the reply lands,
-		// so adopt the returned record id to keep follow-ups on the same thread.
+		// so adopt the returned ids to keep follow-ups on the same thread. In
+		// Connect mode the platform mints the thread id during the stream, so
+		// the terminal event is the first place the widget can learn it.
+		if ( data?.thread_id && data.thread_id !== this.threadID ) {
+			this.setThreadID( data.thread_id );
+		}
+
 		if (
 			undefined !== data?.record_id &&
 			null !== data?.record_id &&
@@ -1104,6 +1110,11 @@ class App {
 	 * @return {void}
 	 */
 	afterBotReply( data ) {
+		// A lead captured before the conversation existed (pre-chat gate, or a
+		// submission that could not be linked) links up as soon as a recorded
+		// turn provides the ids.
+		this.maybeLinkLead();
+
 		const config = this.leadConfig();
 
 		if ( ! config ) {
@@ -1118,14 +1129,15 @@ class App {
 	}
 
 	/**
-	 * The visitor's lead-form decision ('submitted' | 'dismissed' | null),
-	 * kept for 24h.
+	 * The stored lead-form state ({ status, token, timestamp }), kept for 24h.
 	 *
-	 * @return {string|null} The stored status.
+	 * @return {Object|null} The stored state.
 	 */
-	leadFormStatus() {
+	leadFormState() {
 		if ( this.isPreview() ) {
-			return this.previewLeadStatus ?? null;
+			return this.previewLeadStatus
+				? { status: this.previewLeadStatus }
+				: null;
 		}
 
 		try {
@@ -1144,19 +1156,39 @@ class App {
 				return null;
 			}
 
-			return state.status ?? null;
+			return state;
 		} catch {
 			return null;
 		}
 	}
 
 	/**
+	 * The visitor's lead-form decision ('submitted' | 'dismissed' | null).
+	 *
+	 * @return {string|null} The stored status.
+	 */
+	leadFormStatus() {
+		return this.leadFormState()?.status ?? null;
+	}
+
+	/**
+	 * The pending link token of a lead stored without a conversation.
+	 *
+	 * @return {string|null} The stored token.
+	 */
+	leadToken() {
+		return this.leadFormState()?.token ?? null;
+	}
+
+	/**
 	 * Persist the visitor's lead-form decision.
 	 *
-	 * @param {string} status 'submitted' or 'dismissed'.
+	 * @param {string}      status 'submitted' or 'dismissed'.
+	 * @param {string|null} token  Link token for a lead stored without a
+	 *                             conversation.
 	 * @return {void}
 	 */
-	setLeadFormStatus( status ) {
+	setLeadFormStatus( status, token = null ) {
 		if ( this.isPreview() ) {
 			this.previewLeadStatus = status;
 			return;
@@ -1165,9 +1197,74 @@ class App {
 		try {
 			window.localStorage.setItem(
 				'hyve-lead-form',
-				JSON.stringify( { status, timestamp: new Date() } )
+				JSON.stringify( {
+					status,
+					...( token ? { token } : {} ),
+					timestamp: new Date(),
+				} )
 			);
 		} catch {}
+	}
+
+	/**
+	 * Drop the pending link token, keeping the decision itself.
+	 *
+	 * @return {void}
+	 */
+	clearLeadToken() {
+		if ( this.isPreview() ) {
+			return;
+		}
+
+		const state = this.leadFormState();
+
+		if ( ! state?.token ) {
+			return;
+		}
+
+		delete state.token;
+
+		try {
+			window.localStorage.setItem(
+				'hyve-lead-form',
+				JSON.stringify( state )
+			);
+		} catch {}
+	}
+
+	/**
+	 * Link a pending lead to the conversation once one exists.
+	 *
+	 * Fire-and-forget: a transient failure retries after the next reply; a
+	 * dead token (expired or already consumed) is dropped for good.
+	 *
+	 * @return {Promise<void>} Resolves when handled.
+	 */
+	async maybeLinkLead() {
+		const token = this.leadToken();
+
+		if ( ! token || ! this.recordID || ! this.threadID ) {
+			return;
+		}
+
+		try {
+			await apiFetch( {
+				path: `${ window.hyveClient.api }/leads/link`,
+				method: 'POST',
+				data: {
+					lead_token: token,
+					record_id: this.recordID,
+					thread_id: this.threadID,
+				},
+				headers: this.getDefaultHeaders(),
+			} );
+
+			this.clearLeadToken();
+		} catch ( err ) {
+			if ( 410 === err?.data?.status ) {
+				this.clearLeadToken();
+			}
+		}
 	}
 
 	clearLeadFormStatus() {
@@ -1530,9 +1627,11 @@ class App {
 		submit.disabled = true;
 
 		try {
+			let leadToken = null;
+
 			// The admin preview never stores real leads.
 			if ( ! this.isPreview() ) {
-				await apiFetch( {
+				const response = await apiFetch( {
 					path: `${ window.hyveClient.api }/leads`,
 					method: 'POST',
 					data: {
@@ -1543,10 +1642,15 @@ class App {
 					},
 					headers: this.getDefaultHeaders(),
 				} );
+
+				// A lead stored without a conversation (pre-chat gate) comes
+				// back with a link token; it is redeemed once a turn is
+				// recorded and ids exist.
+				leadToken = response?.lead_token ?? null;
 			}
 
 			form.remove();
-			this.setLeadFormStatus( 'submitted' );
+			this.setLeadFormStatus( 'submitted', leadToken );
 			this.addEventEntry( 'contact_form' );
 			this.add( this.leadMessage( 'thanks', strings.leadThanks ), 'bot' );
 

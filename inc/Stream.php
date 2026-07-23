@@ -282,6 +282,7 @@ class Stream {
 			'success'   => $answered,
 			'message'   => $final,
 			'record_id' => $record_id ? $record_id : null,
+			'thread_id' => $thread_id,
 		];
 
 		// Let extensions attach extra reply data (e.g. follow-up suggestions from
