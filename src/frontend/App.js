@@ -254,7 +254,6 @@ class App {
 				path: this.addCacheProtection(
 					addQueryArgs( `${ window.hyveClient.api }/chat`, query )
 				),
-				headers: this.getDefaultHeaders(),
 			} );
 
 			if ( response.error ) {
@@ -432,7 +431,6 @@ class App {
 						: {} ),
 					...( this.isPreview() ? { is_test: true } : {} ),
 				},
-				headers: this.getDefaultHeaders(),
 			} );
 
 			if ( setup.error ) {
@@ -684,7 +682,6 @@ class App {
 						: {} ),
 					...( this.isPreview() ? { is_test: true } : {} ),
 				},
-				headers: this.getDefaultHeaders(),
 			} );
 
 			this.removeMessage( 'hyve-preloader' );
@@ -1077,7 +1074,7 @@ class App {
 	 */
 	getActionHandlers() {
 		return {
-			contact_form: () => this.offerLeadForm(),
+			contact_form: () => this.offerLeadForm( { explicit: true } ),
 		};
 	}
 
@@ -1256,7 +1253,6 @@ class App {
 					record_id: this.recordID,
 					thread_id: this.threadID,
 				},
-				headers: this.getDefaultHeaders(),
 			} );
 
 			this.clearLeadToken();
@@ -1286,21 +1282,37 @@ class App {
 	/**
 	 * Offer the contact form with accept/decline; a decline is remembered.
 	 *
+	 * @param {Object}  [options]          Options.
+	 * @param {boolean} [options.explicit] Whether the visitor explicitly asked
+	 *                                     for a human (vs a passive trigger).
 	 * @return {void}
 	 */
-	offerLeadForm() {
+	offerLeadForm( { explicit = false } = {} ) {
 		const config = this.leadConfig();
+
+		if ( ! config || this.gateLocked || this.isLeadFormVisible() ) {
+			return;
+		}
+
 		const status = this.leadFormStatus();
 
+		// Details are already collected: never ask again, but an explicit ask
+		// for a human gets an acknowledgment instead of silence.
+		if ( 'submitted' === status ) {
+			if ( explicit ) {
+				this.add(
+					this.leadMessage( 'already', strings.leadAlready ),
+					'bot'
+				);
+			}
+
+			return;
+		}
+
 		// A pre-chat skip ('gate_skipped') is weak intent, so mid-chat triggers
-		// may still offer the form; only a real decline or a submission stops it.
-		if (
-			! config ||
-			this.gateLocked ||
-			'dismissed' === status ||
-			'submitted' === status ||
-			this.isLeadFormVisible()
-		) {
+		// may still offer the form; a real decline stops passive offers, but an
+		// explicit ask for a human overrides even that.
+		if ( 'dismissed' === status && ! explicit ) {
 			return;
 		}
 
@@ -1640,7 +1652,6 @@ class App {
 						thread_id: this.threadID ?? '',
 						page_url: window.location.href,
 					},
-					headers: this.getDefaultHeaders(),
 				} );
 
 				// A lead stored without a conversation (pre-chat gate) comes
@@ -1824,12 +1835,6 @@ class App {
 		return addQueryArgs( url, {
 			t: Date.now(),
 		} );
-	}
-
-	getDefaultHeaders() {
-		return {
-			'Cache-Control': 'no-cache',
-		};
 	}
 
 	/**
@@ -2339,6 +2344,36 @@ class App {
 					element.style.display = showTimestamp ? '' : 'none';
 				} );
 		}
+	}
+
+	/**
+	 * Live-update the lead form configuration from the admin Leads panel,
+	 * without a page reload. Only used in preview mode.
+	 *
+	 * The lead flow restarts from scratch: any rendered form or offer is
+	 * removed, the remembered decision is reset, and the pre-chat gate is
+	 * re-evaluated against the new config.
+	 *
+	 * @param {Object|null} leadForm The leadForm config ({ fields, triggers,
+	 *                               messages }), or null when disabled.
+	 * @return {void}
+	 */
+	applyPreviewLeadForm( leadForm ) {
+		if ( ! this.isPreview() ) {
+			return;
+		}
+
+		window.hyveClient.leadForm = leadForm ?? undefined;
+
+		this.previewLeadStatus = null;
+		this.preChatGateShown = false;
+		this.gatePending = false;
+		this.setGateLock( false );
+
+		document.querySelector( '.hyve-lead-form' )?.remove();
+		this.removeLeadOffer();
+
+		this.maybeShowPreChatGate();
 	}
 
 	/**

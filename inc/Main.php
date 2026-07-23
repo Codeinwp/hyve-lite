@@ -728,6 +728,7 @@ class Main {
 					'leadThanks'        => __( 'Thanks! Your details have been sent. We will get back to you soon.', 'hyve-lite' ),
 					'leadRequired'      => __( 'Please fill in the required fields.', 'hyve-lite' ),
 					'leadEvent'         => __( 'You shared your contact details.', 'hyve-lite' ),
+					'leadAlready'       => __( 'We already have your details. We will get back to you as soon as possible.', 'hyve-lite' ),
 				],
 				'icons'         => self::get_inline_icons( $icon_slugs ),
 				'canShow'       => $should_show_chat,
