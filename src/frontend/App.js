@@ -431,7 +431,13 @@ class App {
 				// A real content/server error (e.g. flagged) — not a transport
 				// problem, so surface it instead of falling back.
 				this.removeMessage( 'hyve-preloader' );
-				this.add( strings.tryAgain, 'bot' );
+				// The server sends the throttle message already translated.
+				this.add(
+					'rate_limited' === setup.code
+						? setup.error
+						: strings.tryAgain,
+					'bot'
+				);
 				this.setLoading( false );
 				return true;
 			}
@@ -675,12 +681,16 @@ class App {
 			this.removeMessage( 'hyve-preloader' );
 
 			if ( response.error ) {
-				this.add(
-					'content_flagged' === response.code
-						? strings.flagged
-						: strings.tryAgain,
-					'bot'
-				);
+				let text = strings.tryAgain;
+
+				if ( 'content_flagged' === response.code ) {
+					text = strings.flagged;
+				} else if ( 'rate_limited' === response.code ) {
+					// The server sends the throttle message already translated.
+					text = response.error;
+				}
+
+				this.add( text, 'bot' );
 				this.setLoading( false );
 				return;
 			}
