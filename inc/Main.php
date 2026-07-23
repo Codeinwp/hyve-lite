@@ -81,8 +81,11 @@ class Main {
 			add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_addons_assets' ] );
 		}
 
+		// The chat can run on a local OpenAI key or on Hyve Connect; either one
+		// makes the frontend assets meaningful.
 		if (
-			isset( $settings['api_key'] ) && ! empty( $settings['api_key'] )
+			( isset( $settings['api_key'] ) && ! empty( $settings['api_key'] ) )
+			|| Hyve_Connect::is_active()
 		) {
 			add_action( 'wp_enqueue_scripts', [ $this, 'enqueue_assets' ] );
 		}
@@ -731,17 +734,12 @@ class Main {
 	/**
 	 * Enqueue the chat widget on the Hyve dashboard as a live test preview.
 	 *
-	 * Available in the free version too: as long as an OpenAI API key is set the
-	 * widget appears on every Hyve settings screen, so admins can try the bot
-	 * and — with Pro — watch appearance changes apply live. Test chats are
-	 * flagged (`isPreview`) so they are not recorded in history or analytics.
-	 *
 	 * @return void
 	 */
 	public function enqueue_chat_preview() {
 		$settings = self::get_settings();
 
-		if ( empty( $settings['api_key'] ) ) {
+		if ( empty( $settings['api_key'] ) && ! Hyve_Connect::is_active() ) {
 			return;
 		}
 

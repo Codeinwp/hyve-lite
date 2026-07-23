@@ -925,6 +925,8 @@ class API extends BaseAPI {
 		// An explicit stats fetch force-refreshes the hosted aggregate (e.g. right
 		// after connecting or activating a license), bypassing the page-load cache.
 		if ( Hyve_Connect::is_active() ) {
+			$this->table->connect_sync_watchdog();
+
 			$data['connect']     = Hyve_Connect::instance()->stats( true );
 			$data['connectSync'] = $this->table->connect_sync_status();
 		}

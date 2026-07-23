@@ -118,6 +118,10 @@ class DB_Table {
 		add_action(
 			'hyve_process_post',
 			function ( $id ) {
+				if ( Hyve_Connect::is_active() ) {
+					return;
+				}
+
 				// Discard the return value: a cron/action callback must not return anything.
 				$this->process_post( $id );
 			},
@@ -1022,6 +1026,8 @@ class DB_Table {
 	 * @return void
 	 */
 	public function connect_start_sync() {
+		$this->connect_clear_processing_errors();
+
 		$pending = $this->connect_pending_count();
 
 		if ( 0 === $pending ) {
@@ -1042,6 +1048,37 @@ class DB_Table {
 
 		Hyve_Connect::flush_stats();
 		wp_schedule_single_event( time(), self::CONNECT_SYNC_HOOK );
+	}
+
+	/**
+	 * Forget per-source processing errors so a new sync round re-attempts them.
+	 *
+	 * An error recorded before the switch to Connect comes from the local
+	 * OpenAI pipeline (e.g. a bad key) and says nothing about whether the
+	 * platform can index the source; left in place it would exclude the source
+	 * from the pending set forever. An error recorded by a previous Connect
+	 * round gets one fresh attempt per new round (switch, recovery, identity
+	 * change), never a retry loop within the same round.
+	 *
+	 * @return void
+	 */
+	private function connect_clear_processing_errors() {
+		$post_ids = $this->connect_source_ids(
+			[
+				[
+					'key'     => '_hyve_added',
+					'compare' => 'EXISTS',
+				],
+				[
+					'key'     => '_hyve_processing_error',
+					'compare' => 'EXISTS',
+				],
+			]
+		);
+
+		foreach ( $post_ids as $post_id ) {
+			delete_post_meta( (int) $post_id, '_hyve_processing_error' );
+		}
 	}
 
 	/**

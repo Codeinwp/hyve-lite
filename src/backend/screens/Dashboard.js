@@ -333,8 +333,8 @@ const StatsGrid = () => {
 					label={ __( 'Hyve Connect', 'hyve-lite' ) }
 					value={ __( 'Hosted AI, no API key', 'hyve-lite' ) }
 					chip={
-						<Chip tone="pro" dot={ false }>
-							{ __( 'Free', 'hyve-lite' ) }
+						<Chip tone="muted" dot={ false }>
+							{ __( 'Not connected', 'hyve-lite' ) }
 						</Chip>
 					}
 					foot={

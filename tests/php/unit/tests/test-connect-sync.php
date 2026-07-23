@@ -116,6 +116,56 @@ class ConnectSyncTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * A stale processing error (e.g. a bad OpenAI key from before the switch)
+	 * must not keep a source out of the sync forever: starting a round clears
+	 * it so the source re-enters the pending set.
+	 */
+	public function test_start_sync_reattempts_sources_with_stale_errors() {
+		$this->enable_connect();
+		$post = $this->indexed_post( false );
+		update_post_meta( $post, '_hyve_processing_error', 'Incorrect OpenAI API key.' );
+
+		$this->assertSame( 0, DB_Table::instance()->connect_pending_count() );
+
+		DB_Table::instance()->connect_start_sync();
+
+		$this->assertSame( '', get_post_meta( $post, '_hyve_processing_error', true ) );
+		$this->assertSame( 1, DB_Table::instance()->connect_sync_status()['total'] );
+	}
+
+	/**
+	 * An embedding retry queued before the switch (hyve_process_post) must not
+	 * run the local OpenAI pipeline in Connect mode, where the missing key
+	 * would record a bogus error against the source.
+	 */
+	public function test_process_post_cron_noops_in_connect_mode() {
+		$this->enable_connect();
+		$post = $this->indexed_post( false );
+		$row  = DB_Table::instance()->insert(
+			[
+				'post_id'      => $post,
+				'post_title'   => 'Title',
+				'post_content' => 'Content',
+			]
+		);
+
+		$requests = 0;
+		add_filter(
+			'pre_http_request',
+			function ( $response ) use ( &$requests ) {
+				++$requests;
+				return $response;
+			}
+		);
+
+		do_action( 'hyve_process_post', $row );
+
+		$this->assertSame( 0, $requests );
+		$this->assertSame( '', get_post_meta( $post, '_hyve_processing_error', true ) );
+		$this->assertSame( 'scheduled', DB_Table::instance()->get( $row )->post_status );
+	}
+
+	/**
 	 * Starting the sync seeds the progress option and schedules the cron.
 	 */
 	public function test_start_sync_seeds_progress_and_schedules() {
