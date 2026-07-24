@@ -112,8 +112,9 @@ class Main {
 	/**
 	 * Register suggested privacy policy content.
 	 *
-	 * Surfaces Hyve's third-party data processing (message storage and OpenAI
-	 * processing) in the core Privacy Policy guide at Settings → Privacy.
+	 * Surfaces Hyve's third-party data processing in the core Privacy Policy
+	 * guide at Settings → Privacy. The disclosed data flow depends on the active
+	 * mode: Hyve Connect (hosted) or self-hosted with the site's own OpenAI key.
 	 *
 	 * @since 1.4.2
 	 *
@@ -128,13 +129,23 @@ class Main {
 			'<p class="privacy-policy-tutorial">' .
 			__( 'This information is provided to help you disclose how the Hyve chat assistant processes visitor data. Review it and adapt it to your site before publishing.', 'hyve-lite' ) .
 			'</p>' .
-			'<p>' . __( 'When visitors use the Hyve chat assistant on this site, the messages they send are stored on this website so the site administrator can review chat history. No account is required to use the chat.', 'hyve-lite' ) . '</p>' .
-			'<p>' . __( 'To generate replies, the messages are also sent to OpenAI, L.L.C. — a third-party service based in the United States. OpenAI processes the messages to moderate their content, to create numerical representations (embeddings) used to find relevant information, and to generate the assistant\'s responses.', 'hyve-lite' ) . '</p>' .
-			'<p>' . __( 'For details on how OpenAI handles data, see OpenAI\'s privacy policy at https://openai.com/policies/privacy-policy/.', 'hyve-lite' ) . '</p>';
+			'<p>' . __( 'When visitors use the Hyve chat assistant on this site, the messages they send are stored on this website so the site administrator can review chat history. No account is required to use the chat.', 'hyve-lite' ) . '</p>';
 
-		// Only disclose Qdrant when it is actually connected, so the suggested text reflects the site's real data flows.
-		if ( Qdrant_API::is_active() ) {
-			$content .= '<p>' . __( 'This site also uses Qdrant, a third-party vector database. A numerical representation (embedding) of your message is sent to Qdrant to look up relevant information. See Qdrant\'s privacy policy at https://qdrant.tech/legal/privacy-policy/.', 'hyve-lite' ) . '</p>';
+		// The AI provider differs by mode: Hyve Connect is the hosted service, otherwise the site uses its own OpenAI key. Disclose only the flow that is actually in use.
+		if ( Hyve_Connect::is_active() ) {
+			$content .=
+				'<p>' . __( 'To generate replies, the messages are also sent to Hyve Connect, a hosted service operated by ThemeIsle. Hyve Connect processes the messages on its servers, including through third-party AI providers, to moderate their content, to create numerical representations (embeddings) used to find relevant information, and to generate the assistant\'s responses.', 'hyve-lite' ) . '</p>' .
+				'<p>' . __( 'To answer questions about this site, the content of the pages selected for indexing is also sent to Hyve Connect and stored there in a vector database so it can be searched when visitors chat.', 'hyve-lite' ) . '</p>' .
+				'<p>' . __( 'For details on how ThemeIsle handles data, see ThemeIsle\'s privacy policy at https://themeisle.com/privacy-policy/.', 'hyve-lite' ) . '</p>';
+		} else {
+			$content .=
+				'<p>' . __( 'To generate replies, the messages are also sent to OpenAI, L.L.C. — a third-party service based in the United States. OpenAI processes the messages to moderate their content, to create numerical representations (embeddings) used to find relevant information, and to generate the assistant\'s responses.', 'hyve-lite' ) . '</p>' .
+				'<p>' . __( 'For details on how OpenAI handles data, see OpenAI\'s privacy policy at https://openai.com/policies/privacy-policy/.', 'hyve-lite' ) . '</p>';
+
+			// Only disclose Qdrant when it is actually connected, so the suggested text reflects the site's real data flows.
+			if ( Qdrant_API::is_active() ) {
+				$content .= '<p>' . __( 'This site also uses Qdrant, a third-party vector database. A numerical representation (embedding) of your message is sent to Qdrant to look up relevant information. See Qdrant\'s privacy policy at https://qdrant.tech/legal/privacy-policy/.', 'hyve-lite' ) . '</p>';
+			}
 		}
 
 		wp_add_privacy_policy_content( 'Hyve', wp_kses_post( $content ) );
