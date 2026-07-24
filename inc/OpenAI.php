@@ -712,6 +712,20 @@ PROMPT;
 	}
 
 	/**
+	 * Collapse an authored, multi-line prompt into the compact single-line form
+	 * sent on the wire. Prompts are kept as readable paragraphs in the source
+	 * (the class constants above) but stripped before injection so the request
+	 * payload stays lean.
+	 *
+	 * @param string $prompt The authored prompt.
+	 *
+	 * @return string
+	 */
+	private static function compact_prompt( $prompt ) {
+		return trim( (string) preg_replace( '/\s+/', ' ', (string) $prompt ) );
+	}
+
+	/**
 	 * Apply the site owner's custom system prompt to the built-in instructions.
 	 *
 	 * The prompt also opens the conversation as a developer message (see
@@ -724,20 +738,6 @@ PROMPT;
 	 *
 	 * @return string
 	 */
-	/**
-	 * Collapse an authored, multi-line prompt into the compact single-line form
-	 * sent on the wire. Prompts are kept as readable paragraphs in the source
-	 * (the class constants above) but stripped before injection so the request
-	 * payload stays lean.
-	 *
-	 * @param string $prompt The authored prompt.
-	 *
-	 * @return string
-	 */
-	private static function compact_prompt( $prompt ) {
-		return trim( preg_replace( '/\s+/', ' ', (string) $prompt ) );
-	}
-
 	private function apply_system_prompt( $instructions ) {
 		$system_prompt = $this->get_system_prompt();
 
