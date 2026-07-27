@@ -269,13 +269,14 @@ const DEMO_LEADS = [
 	},
 ];
 
-const LeadsPanel = () => {
+const LeadsPanel = ( { item } ) => {
 	const hasPro = Boolean( window.hyve?.license );
 
 	if ( hasPro ) {
 		return (
 			<Slot
 				name="messages-leads"
+				item={ item }
 				fallback={
 					<div className="hyve-next__card">
 						<p>
@@ -503,7 +504,9 @@ const ThreadView = ( { item } ) => {
 								<Button
 									variant="link"
 									onClick={ () =>
-										navigate( 'messages', 'leads' )
+										navigate( 'messages', 'leads', {
+											item: thread.lead_id,
+										} )
 									}
 								>
 									{ __( 'View lead', 'hyve-lite' ) }
@@ -614,7 +617,7 @@ const Messages = ( { sub, item } ) => {
 	}
 
 	if ( 'leads' === sub ) {
-		return <LeadsPanel />;
+		return <LeadsPanel item={ item } />;
 	}
 
 	return <ConversationsPanel />;

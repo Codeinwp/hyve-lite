@@ -485,16 +485,9 @@ class API extends BaseAPI {
 			]
 		);
 
-		$dropped = [];
-
 		foreach ( $updated as $key => $value ) {
-			// Unknown keys (e.g. settings removed in an update but still
-			// present in the stored option) are dropped, not fatal - but never
-			// silently: the response names them, so an edit that cannot be
-			// saved does not masquerade as saved.
 			if ( ! isset( $validation[ $key ] ) ) {
-				$dropped[] = $key;
-				unset( $updated[ $key ] );
+				unset( $updated[ $key ], $settings[ $key ] );
 				continue;
 			}
 
@@ -605,15 +598,6 @@ class API extends BaseAPI {
 
 		if ( ! empty( $api_warning ) ) {
 			return $this->settings_response( [ 'warning' => $api_warning ] );
-		}
-
-		if ( ! empty( $dropped ) ) {
-			return $this->settings_response(
-				[
-					// translators: %s: comma-separated list of setting keys.
-					'warning' => sprintf( __( 'These settings could not be saved: %s. If they belong to a premium feature, make sure your license is active.', 'hyve-lite' ), implode( ', ', $dropped ) ),
-				]
-			);
 		}
 
 		return $this->settings_response( [ 'success' => __( 'Settings updated.', 'hyve-lite' ) ] );
