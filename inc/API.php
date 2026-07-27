@@ -1553,11 +1553,14 @@ class API extends BaseAPI {
 			$data = $reply;
 		}
 
-		// Carry any display into the recorded reply so history shows it, and
-		// record the reply as filtered (e.g. with skill source chips): the
-		// transcript must match what the visitor saw.
+		// Carry the filtered display/success back so the recorded turn matches
+		// what the visitor saw (a skill turn may have been promoted to answered).
 		if ( isset( $data['display'] ) ) {
 			$payload['display'] = $data['display'];
+		}
+
+		if ( isset( $data['success'] ) ) {
+			$payload['success'] = $data['success'];
 		}
 
 		if ( isset( $data['message'] ) && is_string( $data['message'] ) ) {
@@ -2331,7 +2334,7 @@ class API extends BaseAPI {
 
 		$payload = [
 			'success'  => $answered,
-			'response' => $answered ? $reply : '',
+			'response' => $reply,
 		];
 
 		if ( $answered && ! empty( $result['follow_ups'] ) && is_array( $result['follow_ups'] ) ) {
@@ -2360,11 +2363,14 @@ class API extends BaseAPI {
 			$data = $filtered;
 		}
 
-		// Carry any display into the recorded reply so history shows it, and
-		// record the reply as filtered (e.g. with skill source chips): the
-		// transcript must match what the visitor saw.
+		// Carry the filtered display/success back so the recorded turn matches
+		// what the visitor saw (a skill turn may have been promoted to answered).
 		if ( isset( $data['display'] ) ) {
 			$payload['display'] = $data['display'];
+		}
+
+		if ( isset( $data['success'] ) ) {
+			$payload['success'] = $data['success'];
 		}
 
 		if ( isset( $data['message'] ) && is_string( $data['message'] ) ) {
