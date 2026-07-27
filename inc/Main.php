@@ -690,7 +690,7 @@ class Main {
 
 		wp_add_inline_script(
 			'hyve-lite-scripts',
-			'document.addEventListener("DOMContentLoaded", function() { const box = document.querySelector( ".hyve-input-box" ); if ( ! box ) { return; } const c = document.createElement("div"); c.className = "hyve-credits"; c.innerHTML = "<a href=\"https://themeisle.com/plugins/hyve/\" target=\"_blank\">Powered by Hyve</a>"; if ( document.querySelector( ".hyve-privacy-notice" ) ) { c.hidden = true; } box.before( c ); });'
+			'document.addEventListener("DOMContentLoaded", function() { const box = document.querySelector( ".hyve-input-box" ); if ( ! box ) { return; } const c = document.createElement("div"); c.className = "hyve-credits"; c.innerHTML = "<a href=\"https://themeisle.com/plugins/hyve/?utm_source=hyve&utm_medium=chatbot&utm_campaign=copyright\" target=\"_blank\">Powered by Hyve</a>"; if ( document.querySelector( ".hyve-privacy-notice" ) ) { c.hidden = true; } box.before( c ); });'
 		);
 	}
 
