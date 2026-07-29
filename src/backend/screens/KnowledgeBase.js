@@ -505,7 +505,16 @@ const WordPressDrill = () => {
 	const [ confirmPost, setConfirmPost ] = useState( null );
 	const [ page, setPage ] = useState( 0 );
 	const [ total, setTotal ] = useState( 0 );
-	const [ query, setQuery ] = useState( { type: 'any', search: '' } );
+	const [ query, setQuery ] = useState( {
+		type: 'any',
+		search: '',
+		terms: {},
+	} );
+
+	// Taxonomy filters adapt to the selected post type; fetched on type change.
+	const [ filterOptions, setFilterOptions ] = useState( {
+		taxonomies: [],
+	} );
 
 	// Selected rows keyed by ID; rows are kept so the queue can run across
 	// pages and check visibility without refetching.
@@ -533,11 +542,25 @@ const WordPressDrill = () => {
 
 		const handler = setTimeout( async () => {
 			try {
+				const { terms, ...rest } = query;
+
+				const params = {
+					offset: page * perPageRef.current,
+					...rest,
+				};
+
+				const tax = Object.entries( terms )
+					.filter( ( [ , termId ] ) => termId )
+					.map(
+						( [ taxonomy, termId ] ) => `${ taxonomy }:${ termId }`
+					);
+
+				if ( tax.length ) {
+					params.tax = tax;
+				}
+
 				const response = await apiFetch( {
-					path: addQueryArgs( `${ window.hyve.api }/data`, {
-						offset: page * perPageRef.current,
-						...query,
-					} ),
+					path: addQueryArgs( `${ window.hyve.api }/data`, params ),
 				} );
 
 				if ( request !== requestRef.current ) {
@@ -566,8 +589,47 @@ const WordPressDrill = () => {
 		return () => clearTimeout( handler );
 	}, [ query, page, setTotalChunks ] );
 
+	// Refresh the available filters whenever the post type changes.
+	useEffect( () => {
+		let active = true;
+
+		( async () => {
+			try {
+				const response = await apiFetch( {
+					path: addQueryArgs( `${ window.hyve.api }/filters`, {
+						type: query.type,
+					} ),
+				} );
+
+				if ( active ) {
+					setFilterOptions( {
+						taxonomies: response.taxonomies ?? [],
+					} );
+				}
+			} catch {
+				if ( active ) {
+					setFilterOptions( { taxonomies: [] } );
+				}
+			}
+		} )();
+
+		return () => {
+			active = false;
+		};
+	}, [ query.type ] );
+
 	const onChangeQuery = ( key, value ) => {
 		setQuery( ( prev ) => ( { ...prev, [ key ]: value } ) );
+		setPage( 0 );
+	};
+
+	// Post type drives which taxonomies apply, so reset them when it changes.
+	const onChangeType = ( value ) => {
+		setQuery( ( prev ) => ( {
+			...prev,
+			type: value,
+			terms: {},
+		} ) );
 		setPage( 0 );
 	};
 
@@ -849,10 +911,36 @@ const WordPressDrill = () => {
 							label={ __( 'Post type', 'hyve-lite' ) }
 							options={ getPostTypes() }
 							value={ query.type }
-							onChange={ ( value ) =>
-								onChangeQuery( 'type', value )
-							}
+							onChange={ onChangeType }
 						/>
+						{ filterOptions.taxonomies.map( ( taxonomy ) => (
+							<SelectControl
+								key={ taxonomy.name }
+								__next40pxDefaultSize
+								__nextHasNoMarginBottom
+								hideLabelFromVision
+								className="hyve-next-toolbar__filter"
+								label={ taxonomy.label }
+								options={ [
+									{
+										label: sprintf(
+											/* translators: %s: taxonomy name, e.g. Category. */
+											__( 'All %s', 'hyve-lite' ),
+											taxonomy.label
+										),
+										value: '',
+									},
+									...taxonomy.terms,
+								] }
+								value={ query.terms[ taxonomy.name ] ?? '' }
+								onChange={ ( value ) =>
+									onChangeQuery( 'terms', {
+										...query.terms,
+										[ taxonomy.name ]: value,
+									} )
+								}
+							/>
+						) ) }
 						<SearchControl
 							__nextHasNoMarginBottom
 							className="hyve-next-toolbar__grow"

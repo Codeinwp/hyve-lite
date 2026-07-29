@@ -138,6 +138,11 @@ class API extends BaseAPI {
 							'required' => false,
 							'type'     => 'string',
 						],
+						'tax'    => [
+							'required' => false,
+							'type'     => 'array',
+							'items'    => [ 'type' => 'string' ],
+						],
 					],
 					'callback' => [ $this, 'get_data' ],
 				],
@@ -164,6 +169,19 @@ class API extends BaseAPI {
 						],
 					],
 					'callback' => [ $this, 'delete_data' ],
+				],
+			],
+			'filters'           => [
+				[
+					'methods'  => \WP_REST_Server::READABLE,
+					'args'     => [
+						'type' => [
+							'required' => false,
+							'type'     => 'string',
+							'default'  => 'any',
+						],
+					],
+					'callback' => [ $this, 'get_filters' ],
 				],
 			],
 			'data/counts'       => [
@@ -742,6 +760,28 @@ class API extends BaseAPI {
 			$args['post_type'] = $this->table->connect_indexed_post_types();
 		}
 
+		$tax = $request->get_param( 'tax' );
+
+		if ( is_array( $tax ) && ! empty( $tax ) ) {
+			$tax_query = [ 'relation' => 'AND' ];
+
+			foreach ( $tax as $filter ) {
+				list( $taxonomy, $term ) = array_pad( explode( ':', (string) $filter, 2 ), 2, '' );
+
+				if ( '' !== $taxonomy && '' !== $term ) {
+					$tax_query[] = [
+						'taxonomy' => $taxonomy,
+						'field'    => 'term_id',
+						'terms'    => (int) $term,
+					];
+				}
+			}
+
+			if ( count( $tax_query ) > 1 ) {
+				$args['tax_query'] = $tax_query; // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_tax_query -- User-driven filtering of the picker listing.
+			}
+		}
+
 		/**
 		 * Filters the WP_Query arguments of the dashboard data listings.
 		 *
@@ -848,6 +888,72 @@ class API extends BaseAPI {
 		];
 
 		return rest_ensure_response( $posts );
+	}
+
+	/**
+	 * Get the filter options for the Knowledge Base picker.
+	 *
+	 * Options are scoped to the requested post type so the UI only offers
+	 * taxonomies that actually apply to it.
+	 *
+	 * @param \WP_REST_Request<array<string, mixed>> $request Request object.
+	 *
+	 * @return \WP_REST_Response
+	 */
+	public function get_filters( $request ) {
+		$type = (string) $request->get_param( 'type' );
+
+		$filters = [
+			'taxonomies' => [],
+		];
+
+		// Taxonomies belong to a concrete post type; `any` mixes types, so skip them.
+		if ( 'any' !== $type && post_type_exists( $type ) ) {
+			foreach ( get_object_taxonomies( $type, 'objects' ) as $taxonomy ) {
+				if ( ! $taxonomy->public ) {
+					continue;
+				}
+
+				$terms = get_terms(
+					[
+						'taxonomy'   => $taxonomy->name,
+						'hide_empty' => true,
+						'number'     => 100,
+					]
+				);
+
+				if ( is_wp_error( $terms ) || empty( $terms ) ) {
+					continue;
+				}
+
+				$options = [];
+
+				foreach ( $terms as $term ) {
+					$options[] = [
+						'value' => $term->term_id,
+						'label' => $term->name,
+					];
+				}
+
+				$filters['taxonomies'][] = [
+					'name'  => $taxonomy->name,
+					'label' => $taxonomy->labels->singular_name,
+					'terms' => $options,
+				];
+			}
+		}
+
+		/**
+		 * Filters the Knowledge Base picker filter options.
+		 *
+		 * Lets Pro expose filters for its own sources.
+		 *
+		 * @param array<string, mixed> $filters Available filter options, grouped by taxonomies.
+		 * @param string               $type    Requested post type.
+		 */
+		$filters = apply_filters( 'hyve_data_filters', $filters, $type );
+
+		return rest_ensure_response( $filters );
 	}
 
 	/**
