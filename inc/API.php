@@ -166,6 +166,19 @@ class API extends BaseAPI {
 					'callback' => [ $this, 'delete_data' ],
 				],
 			],
+			'data/enqueue'      => [
+				[
+					'methods'  => \WP_REST_Server::CREATABLE,
+					'args'     => [
+						'ids' => [
+							'required' => true,
+							'type'     => 'array',
+							'items'    => [ 'type' => 'integer' ],
+						],
+					],
+					'callback' => [ $this, 'enqueue_data' ],
+				],
+			],
 			'data/counts'       => [
 				[
 					'methods'  => \WP_REST_Server::READABLE,
@@ -980,6 +993,41 @@ class API extends BaseAPI {
 		}
 
 		return rest_ensure_response( true );
+	}
+
+	/**
+	 * Queue a whole selection for Hyve Connect in one request.
+	 *
+	 * Unlike {@see add_data()}, which pushes a single post synchronously, this
+	 * persists every selected post as pending up front and lets the sync cron
+	 * drain them in the background. A refresh mid-add therefore cannot lose the
+	 * items still waiting: they are already durably queued server-side.
+	 *
+	 * @param \WP_REST_Request<array<string, mixed>> $request Request object.
+	 *
+	 * @return \WP_REST_Response
+	 */
+	public function enqueue_data( $request ) {
+		if ( ! Hyve_Connect::is_active() ) {
+			return rest_ensure_response( [ 'error' => __( 'Bulk queueing is only available with Hyve Connect.', 'hyve-lite' ) ] );
+		}
+
+		$ids = $request->get_param( 'ids' );
+		$ids = is_array( $ids ) ? array_filter( array_map( 'intval', $ids ) ) : [];
+
+		if ( empty( $ids ) ) {
+			return rest_ensure_response( [ 'error' => __( 'No content to queue.', 'hyve-lite' ) ] );
+		}
+
+		$queued = $this->table->connect_enqueue_posts( $ids );
+
+		return rest_ensure_response(
+			[
+				'success'     => true,
+				'queued'      => $queued,
+				'connectSync' => $this->table->connect_sync_status(),
+			]
+		);
 	}
 
 	/**

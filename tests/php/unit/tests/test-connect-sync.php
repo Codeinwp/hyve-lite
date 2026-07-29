@@ -194,6 +194,70 @@ class ConnectSyncTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Bulk enqueue durably marks the whole selection pending in one pass and
+	 * kicks the sync, so a refresh mid-add cannot drop the waiting items.
+	 */
+	public function test_enqueue_marks_selection_pending_and_schedules() {
+		$this->enable_connect();
+		$a = self::factory()->post->create();
+		$b = self::factory()->post->create();
+
+		$queued = DB_Table::instance()->connect_enqueue_posts( [ $a, $b ] );
+
+		$this->assertSame( 2, $queued );
+		$this->assertSame( '1', get_post_meta( $a, '_hyve_added', true ) );
+		$this->assertSame( '1', get_post_meta( $b, '_hyve_added', true ) );
+		$this->assertSame( 2, DB_Table::instance()->connect_pending_count() );
+		$this->assertSame( 2, DB_Table::instance()->connect_sync_status()['total'] );
+		$this->assertNotFalse( wp_next_scheduled( DB_Table::CONNECT_SYNC_HOOK ) );
+	}
+
+	/**
+	 * Enqueue skips a source already on the platform and clears the terminal
+	 * markers a previous rejected/failed attempt left, so it re-enters the queue.
+	 */
+	public function test_enqueue_skips_synced_and_clears_stale_markers() {
+		$this->enable_connect();
+		$synced = $this->indexed_post( true );
+		$failed = self::factory()->post->create();
+		update_post_meta( $failed, '_hyve_moderation_failed', 1 );
+		update_post_meta( $failed, '_hyve_processing_error', 'stale' );
+
+		$queued = DB_Table::instance()->connect_enqueue_posts( [ $synced, $failed ] );
+
+		$this->assertSame( 1, $queued );
+		$this->assertSame( '', get_post_meta( $failed, '_hyve_moderation_failed', true ) );
+		$this->assertSame( '', get_post_meta( $failed, '_hyve_processing_error', true ) );
+		$this->assertContains( $failed, DB_Table::instance()->connect_pending_posts( -1 ) );
+		$this->assertNotContains( $synced, DB_Table::instance()->connect_pending_posts( -1 ) );
+	}
+
+	/**
+	 * Enqueuing into a sync already in flight folds the new work into its total
+	 * without resetting the progress already made.
+	 */
+	public function test_enqueue_folds_into_running_sync() {
+		$this->enable_connect();
+		update_option(
+			DB_Table::CONNECT_SYNC_OPTION,
+			[
+				'total'       => 5,
+				'current'     => 3,
+				'in_progress' => true,
+				'blocked'     => false,
+			]
+		);
+		$post = self::factory()->post->create();
+
+		DB_Table::instance()->connect_enqueue_posts( [ $post ] );
+
+		$status = DB_Table::instance()->connect_sync_status();
+		$this->assertSame( 3, $status['current'] );
+		$this->assertSame( 4, $status['total'] );
+		$this->assertNotFalse( wp_next_scheduled( DB_Table::CONNECT_SYNC_HOOK ) );
+	}
+
+	/**
 	 * A run pushes the batch, marks each source synced, and finishes when drained.
 	 */
 	public function test_run_sync_syncs_batch_and_finishes() {

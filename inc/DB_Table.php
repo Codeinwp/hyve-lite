@@ -87,6 +87,15 @@ class DB_Table {
 	const CONNECT_SYNC_STALL = 300;
 
 	/**
+	 * How long a post may carry the `_hyve_post_processing` flag before it is
+	 * treated as leaked (an add interrupted mid-request) and ignored. Comfortably
+	 * beyond a single synchronous add, so a live one is never mistaken for stale.
+	 *
+	 * @var int
+	 */
+	const PROCESSING_STALL = 300;
+
+	/**
 	 * The single instance of the class.
 	 *
 	 * @var DB_Table
@@ -556,7 +565,9 @@ class DB_Table {
 	 * @throws \Exception If Qdrant API fails.
 	 */
 	public function add_post( $post_id, $action = 'add' ) {
-		update_post_meta( $post_id, '_hyve_post_processing', 1 );
+		// Stamped with the start time so an add interrupted before the matching
+		// delete below leaves a flag that can be aged out instead of sticking.
+		update_post_meta( $post_id, '_hyve_post_processing', time() );
 
 		$content = Hyve_Connect::is_active()
 			? get_post_field( 'post_content', $post_id )
@@ -1048,6 +1059,75 @@ class DB_Table {
 
 		Hyve_Connect::flush_stats();
 		wp_schedule_single_event( time(), self::CONNECT_SYNC_HOOK );
+	}
+
+	/**
+	 * Durably queue posts for the to-Connect sync job in a single pass.
+	 *
+	 * Each post is marked as belonging to the Knowledge Base (`_hyve_added`)
+	 * without a synced hash, which is exactly the pending state the sync drain
+	 * looks for, and then the cron is kicked. Because the whole selection is
+	 * persisted up front (rather than one REST call per post), a page refresh
+	 * mid-add can no longer drop the items still waiting to be pushed.
+	 *
+	 * @param array<int> $post_ids Post ids to queue.
+	 *
+	 * @return int How many posts were newly queued.
+	 */
+	public function connect_enqueue_posts( $post_ids ) {
+		$queued = 0;
+
+		foreach ( $post_ids as $post_id ) {
+			$post_id = (int) $post_id;
+
+			if ( $post_id <= 0 || ! get_post( $post_id ) ) {
+				continue;
+			}
+
+			// Already on the platform: nothing to push.
+			if ( '' !== (string) get_post_meta( $post_id, '_hyve_connect_synced_hash', true ) ) {
+				continue;
+			}
+
+			// A fresh queueing clears the terminal markers a previous interrupted
+			// or rejected attempt may have left, so the source re-enters the
+			// pending set instead of being skipped forever.
+			delete_post_meta( $post_id, '_hyve_moderation_failed' );
+			delete_post_meta( $post_id, '_hyve_moderation_review' );
+			delete_post_meta( $post_id, '_hyve_processing_error' );
+			delete_post_meta( $post_id, '_hyve_post_processing' );
+
+			update_post_meta( $post_id, '_hyve_added', 1 );
+			++$queued;
+		}
+
+		if ( 0 === $queued ) {
+			return 0;
+		}
+
+		$status = $this->connect_sync_status();
+
+		// Fold the new work into a run already in flight (e.g. a mode-switch
+		// sync): bump its total and make sure a pass is queued to carry it. The
+		// drain re-derives the pending set each pass, so it picks the posts up.
+		if ( ! empty( $status['in_progress'] ) ) {
+			// total tracks the whole job (done + still pending), not just what
+			// is left, so the progress bar stays honest as new work folds in.
+			$status['total']     = (int) ( $status['current'] ?? 0 ) + $this->connect_pending_count();
+			$status['heartbeat'] = time();
+			update_option( self::CONNECT_SYNC_OPTION, $status );
+			Hyve_Connect::flush_stats();
+
+			if ( ! wp_next_scheduled( self::CONNECT_SYNC_HOOK ) ) {
+				wp_schedule_single_event( time(), self::CONNECT_SYNC_HOOK );
+			}
+
+			return $queued;
+		}
+
+		$this->connect_start_sync();
+
+		return $queued;
 	}
 
 	/**

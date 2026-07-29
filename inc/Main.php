@@ -866,9 +866,17 @@ class Main {
 	 * @return array<string, mixed>
 	 */
 	public function add_to_knowledge_base_row_action( $actions, $post ) {
-		if ( get_post_meta( $post->ID, '_hyve_post_processing', true ) ) {
-			$actions['hyve_knowledge_base_processing'] = __( 'Hyve is processing the post', 'hyve-lite' );
-			return $actions;
+		$processing = (int) get_post_meta( $post->ID, '_hyve_post_processing', true );
+
+		if ( $processing ) {
+			if ( ( time() - $processing ) < DB_Table::PROCESSING_STALL ) {
+				$actions['hyve_knowledge_base_processing'] = __( 'Hyve is processing the post', 'hyve-lite' );
+				return $actions;
+			}
+
+			// A leaked flag from an add interrupted mid-request; clear it and
+			// fall through to the normal add/remove action.
+			delete_post_meta( $post->ID, '_hyve_post_processing' );
 		}
 
 		$label  = __( 'Add to Hyve', 'hyve-lite' );

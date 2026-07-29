@@ -520,10 +520,14 @@ const WordPressDrill = () => {
 	// Page size comes from the endpoint.
 	const perPageRef = useRef( 20 );
 
-	const { setTotalChunks, setAttentionCount } = useDispatch( 'hyve' );
+	const { setTotalChunks, setAttentionCount, setConnectSync } =
+		useDispatch( 'hyve' );
 	const { createNotice } = useDispatch( 'core/notices' );
 	const hasReachedLimit = useSelect( ( select ) =>
 		select( 'hyve' ).hasReachedLimit()
+	);
+	const isConnectActive = useSelect( ( select ) =>
+		select( 'hyve' ).isConnectActive()
 	);
 
 	useEffect( () => {
@@ -661,7 +665,75 @@ const WordPressDrill = () => {
 		} );
 	};
 
+	// Connect mode drains a durable server-side queue, so the whole selection is
+	// enqueued in one request and synced in the background. Persisting it up
+	// front is what makes a page refresh mid-add safe: nothing is left to a
+	// client loop that a refresh could interrupt.
+	const runConnectQueue = async ( items ) => {
+		setBulk( { done: 0, total: items.length } );
+
+		try {
+			const response = await apiFetch( {
+				path: `${ window.hyve.api }/data/enqueue`,
+				method: 'POST',
+				data: { ids: items.map( ( item ) => item.ID ) },
+			} );
+
+			if ( response.error ) {
+				throw new Error( response.error );
+			}
+
+			const queued = response.queued ?? items.length;
+
+			// Drop the queued posts from the "available" list and reflect the
+			// sync progress the background job will advance from here.
+			setProcessedPosts( ( prev ) => [
+				...prev,
+				...items.map( ( item ) => item.ID ),
+			] );
+			setSelected( ( prev ) => {
+				const next = { ...prev };
+				items.forEach( ( item ) => delete next[ item.ID ] );
+				return next;
+			} );
+			setConnectSync( response.connectSync ?? null );
+
+			window.hyveTrk?.add?.( {
+				feature: 'knowledge-base',
+				featureComponent: 'add-data',
+				featureValue: 'import-wordpress-data',
+			} );
+
+			createNotice(
+				'success',
+				sprintf(
+					/* translators: %s: number of items queued. */
+					_n(
+						'%s item queued. It will sync to Hyve Connect in the background.',
+						'%s items queued. They will sync to Hyve Connect in the background.',
+						queued,
+						'hyve-lite'
+					),
+					queued
+				),
+				{ type: 'snackbar', isDismissible: true }
+			);
+		} catch ( error ) {
+			createNotice( 'error', error?.message ?? String( error ), {
+				type: 'snackbar',
+				isDismissible: true,
+			} );
+		}
+
+		setBulk( null );
+		fetchAttentionCount( setAttentionCount );
+	};
+
 	const runBulk = async ( items ) => {
+		if ( isConnectActive ) {
+			return runConnectQueue( items );
+		}
+
 		setBulk( { done: 0, total: items.length } );
 
 		let added = 0;
