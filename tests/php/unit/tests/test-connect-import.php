@@ -215,7 +215,12 @@ class ConnectImportTest extends WP_UnitTestCase {
 		update_post_meta( $empty, '_hyve_added', 1 );
 
 		// Platform is empty (the sync had barely started), delete-all succeeds.
-		$this->intercept( [ 'items' => [], 'next_cursor' => null ] );
+		$this->intercept(
+			[
+				'items'       => [],
+				'next_cursor' => null,
+			]
+		);
 
 		$request = new WP_REST_Request( 'POST', '/hyve/v1/connect/disconnect' );
 		$request->set_param( 'mode', 'import' );
