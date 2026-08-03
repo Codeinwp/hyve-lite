@@ -187,7 +187,9 @@ test.describe( 'Messages', () => {
 			page.getByText( 'Read every conversation' )
 		).toBeVisible();
 		await expect(
-			page.getByRole( 'link', { name: 'Upgrade to Pro' } )
+			page
+				.locator( '.hyve-next-act__upsell' )
+				.getByRole( 'link', { name: 'Upgrade to Pro' } )
 		).toBeVisible();
 	} );
 } );
