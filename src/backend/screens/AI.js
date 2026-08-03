@@ -181,6 +181,12 @@ export const ProviderPanel = () => {
 	const providerLocked = isConnectActive;
 	const apiKeyLocked = isConnectActive && ! hasStoredKey;
 
+	const resetDefaults = () => {
+		Object.entries( ADVANCED_DEFAULTS ).forEach( ( [ key, value ] ) =>
+			setSetting( key, value )
+		);
+	};
+
 	const onSave = async () => {
 		const response = await save();
 
@@ -244,14 +250,23 @@ export const ProviderPanel = () => {
 		<Card
 			title={ __( 'OpenAI', 'hyve-lite' ) }
 			footer={
-				<Button
-					variant="primary"
-					isBusy={ isSaving }
-					disabled={ isSaving }
-					onClick={ onSave }
-				>
-					{ __( 'Save changes', 'hyve-lite' ) }
-				</Button>
+				<>
+					<Button
+						variant="primary"
+						isBusy={ isSaving }
+						disabled={ isSaving }
+						onClick={ onSave }
+					>
+						{ __( 'Save changes', 'hyve-lite' ) }
+					</Button>
+					<Button
+						variant="secondary"
+						disabled={ isSaving }
+						onClick={ resetDefaults }
+					>
+						{ __( 'Reset to defaults', 'hyve-lite' ) }
+					</Button>
+				</>
 			}
 		>
 			{ isConnectActive && (
@@ -342,47 +357,7 @@ export const ProviderPanel = () => {
 					</ExternalLink>
 				</p>
 			</FieldRow>
-		</Card>
-	);
-};
 
-export const AdvancedPanel = () => {
-	const { settings, isSaving, save } = useSaveSettings();
-
-	const { setSetting } = useDispatch( 'hyve' );
-	const isConnectActive = useSelect( ( select ) =>
-		select( 'hyve' ).isConnectActive()
-	);
-
-	const resetDefaults = () => {
-		Object.entries( ADVANCED_DEFAULTS ).forEach( ( [ key, value ] ) =>
-			setSetting( key, value )
-		);
-	};
-
-	return (
-		<Card
-			title={ __( 'Advanced tuning', 'hyve-lite' ) }
-			footer={
-				<>
-					<Button
-						variant="primary"
-						isBusy={ isSaving }
-						disabled={ isSaving }
-						onClick={ save }
-					>
-						{ __( 'Save changes', 'hyve-lite' ) }
-					</Button>
-					<Button
-						variant="secondary"
-						disabled={ isSaving }
-						onClick={ resetDefaults }
-					>
-						{ __( 'Reset to defaults', 'hyve-lite' ) }
-					</Button>
-				</>
-			}
-		>
 			<FieldRow
 				label={ __( 'Similarity threshold', 'hyve-lite' ) }
 				description={ __(
