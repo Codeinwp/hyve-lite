@@ -11,10 +11,19 @@ const StatCard = ( {
 	meter,
 	foot,
 	chip,
+	compact = false,
 	planned = false,
 } ) => {
+	const classes = [
+		'hyve-next-stat',
+		compact ? 'is-compact' : '',
+		planned ? 'is-planned' : '',
+	]
+		.filter( Boolean )
+		.join( ' ' );
+
 	return (
-		<div className={ `hyve-next-stat${ planned ? ' is-planned' : '' }` }>
+		<div className={ classes }>
 			<div className="hyve-next-stat__top">
 				{ icon && <Icon icon={ icon } size={ 16 } /> }
 				<span className="hyve-next-stat__label">{ label }</span>

@@ -3,12 +3,17 @@
  */
 import { createReduxStore, register } from '@wordpress/data';
 
+const AI_MODE = window.hyve.aiMode || 'self_hosted';
+
 const DEFAULT_STATE = {
 	route: window.hyve?.view || 'dashboard',
 	hasLoaded: false,
 	settings: {},
 	processed: [],
-	hasAPI: Boolean( window.hyve.hasAPIKey ),
+	aiMode: AI_MODE,
+	connect: window.hyve.connect || null,
+	connectSync: window.hyve.connectSync || null,
+	hasKey: Boolean( window.hyve.hasAPIKey ),
 	isQdrantActive: Boolean( window.hyve.isQdrantActive ),
 	stats: window.hyve.stats || {},
 	chart: window.hyve.chart || null,
@@ -72,6 +77,24 @@ const actions = {
 			isQdrantActive,
 		};
 	},
+	setAiMode( aiMode ) {
+		return {
+			type: 'SET_AI_MODE',
+			aiMode,
+		};
+	},
+	setConnect( connect ) {
+		return {
+			type: 'SET_CONNECT',
+			connect,
+		};
+	},
+	setConnectSync( connectSync ) {
+		return {
+			type: 'SET_CONNECT_SYNC',
+			connectSync,
+		};
+	},
 	setAttentionCount( attentionCount ) {
 		return {
 			type: 'SET_ATTENTION_COUNT',
@@ -97,7 +120,8 @@ const selectors = {
 		return state.settings;
 	},
 	hasAPI( state ) {
-		return state.hasAPI;
+		// A saved key, or Connect handling the AI, both count as "AI is set up".
+		return state.hasKey || 'hyve_connect' === state.aiMode;
 	},
 	getTotalChunks( state ) {
 		return state.totalChunks;
@@ -111,11 +135,21 @@ const selectors = {
 	hasReachedLimit( state ) {
 		return (
 			window.hyve.chunksLimit <= Number( state.totalChunks ) &&
-			! state.isQdrantActive
+			! state.isQdrantActive &&
+			'hyve_connect' !== state.aiMode
 		);
 	},
 	isQdrantActive( state ) {
 		return state.isQdrantActive;
+	},
+	isConnectActive( state ) {
+		return 'hyve_connect' === state.aiMode;
+	},
+	getConnect( state ) {
+		return state.connect;
+	},
+	getConnectSync( state ) {
+		return state.connectSync;
 	},
 	getAttentionCount( state ) {
 		return state.attentionCount;
@@ -153,7 +187,7 @@ const reducer = ( state = DEFAULT_STATE, action ) => {
 		case 'SET_HAS_API':
 			return {
 				...state,
-				hasAPI: action.hasAPI,
+				hasKey: action.hasAPI,
 			};
 		case 'SET_TOTAL_CHUNKS':
 			return {
@@ -174,6 +208,21 @@ const reducer = ( state = DEFAULT_STATE, action ) => {
 			return {
 				...state,
 				isQdrantActive: action.isQdrantActive,
+			};
+		case 'SET_AI_MODE':
+			return {
+				...state,
+				aiMode: action.aiMode,
+			};
+		case 'SET_CONNECT':
+			return {
+				...state,
+				connect: action.connect,
+			};
+		case 'SET_CONNECT_SYNC':
+			return {
+				...state,
+				connectSync: action.connectSync,
 			};
 		case 'SET_ATTENTION_COUNT':
 			return {

@@ -181,6 +181,14 @@ class Stream {
 
 		$this->open_stream();
 
+		// Connect mode relays the platform's own stream: it already emits clean
+		// `delta` events (plus kb_state/sources), so they are forwarded straight
+		// through and the terminal reply is assembled from job_complete.
+		if ( Hyve_Connect::is_active() ) {
+			$this->stream_connect( $message, $thread_id, $record_id, $is_test, $settings, $default_message );
+			exit;
+		}
+
 		$items = OpenAI::build_chat_items( $context, $message );
 
 		// Stream the `response` field of the structured reply as it grows so the
@@ -289,6 +297,102 @@ class Stream {
 		$this->send_event( 'done', $data );
 
 		exit;
+	}
+
+	/**
+	 * Relay a Hyve Connect chat turn to the browser.
+	 *
+	 * The platform streams clean `delta` events (and a `sources` event), which
+	 * are forwarded as-is; the terminal `job_complete` carries the raw pieces
+	 * from which the plugin assembles the final reply, owning presentation
+	 * (default_message on unanswered, source links) exactly as self-hosted.
+	 *
+	 * @param string               $message         Visitor message.
+	 * @param string               $thread_id       Thread id (empty starts a conversation).
+	 * @param int|null             $record_id       Existing conversation record.
+	 * @param bool                 $is_test         Admin live-preview chat (not recorded).
+	 * @param array<string, mixed> $settings        Plugin settings.
+	 * @param string               $default_message Fallback shown when the model cannot answer.
+	 *
+	 * @return void
+	 */
+	private function stream_connect( $message, $thread_id, $record_id, $is_test, $settings, $default_message ) {
+		$sources = [];
+
+		$on_event = function ( $event, $data ) use ( &$sources ) {
+			if ( 'delta' === $event ) {
+				$this->send_event( 'delta', [ 'text' => isset( $data['text'] ) ? $data['text'] : '' ] );
+			} elseif ( 'sources' === $event && isset( $data['items'] ) && is_array( $data['items'] ) ) {
+				$sources = $data['items'];
+			}
+			// kb_state is informational here; the terminal event drives the outcome.
+		};
+
+		$result = Hyve_Connect::instance()->stream_chat(
+			[
+				'message'   => $message,
+				'thread_id' => '' !== $thread_id ? $thread_id : null,
+				'settings'  => Hyve_Connect::chat_settings( $settings ),
+				'stream'    => true,
+			],
+			$on_event
+		);
+
+		if ( is_wp_error( $result ) ) {
+			$error_code = $result->get_error_code();
+
+			// An empty/purged KB is visitor-facing parity with self-hosted: show
+			// the site's default_message rather than an error.
+			if ( is_string( $error_code ) && false !== strpos( $error_code, 'kb_unavailable' ) ) {
+				$this->send_event(
+					'done',
+					[
+						'success'   => false,
+						'message'   => esc_html( $default_message ),
+						'record_id' => $record_id ? $record_id : null,
+					]
+				);
+			} else {
+				$this->send_event( 'error', [ 'message' => Hyve_Connect::visitor_message() ] );
+			}
+
+			return;
+		}
+
+		$resolved = API::instance()->connect_reply_final( $result, $settings, esc_html( $default_message ) );
+		$answered = $resolved['answered'];
+		$reply    = $resolved['reply'];
+		$final    = $resolved['final'];
+		$thread   = isset( $result['thread_id'] ) ? $result['thread_id'] : $thread_id;
+
+		$payload = [
+			'success'  => $answered,
+			'response' => $answered ? $reply : '',
+		];
+
+		if ( $answered && ! empty( $result['follow_ups'] ) && is_array( $result['follow_ups'] ) ) {
+			$payload['follow_ups'] = $result['follow_ups'];
+		}
+
+		if ( ! $is_test ) {
+			$record_id = apply_filters( 'hyve_chat_request', $thread, $record_id, $message );
+			do_action( 'hyve_chat_response', $thread, $thread, $message, $record_id, $payload, $final );
+		}
+
+		$data = [
+			'success'   => $answered,
+			'message'   => $final,
+			'record_id' => $record_id ? $record_id : null,
+			'thread_id' => $thread,
+		];
+
+		$reply = apply_filters( 'hyve_chat_reply_data', $data, $payload, $answered );
+
+		if ( is_array( $reply ) ) {
+			$data = $reply;
+		}
+
+		$this->send_event( 'done', $data );
 	}
 
 	/**

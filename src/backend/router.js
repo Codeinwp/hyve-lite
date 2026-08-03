@@ -155,6 +155,10 @@ const ROUTES = {
 				group: __( 'Chat', 'hyve-lite' ),
 				requiresAPI: true,
 			},
+			'hyve-connect': {
+				label: __( 'Hyve Connect', 'hyve-lite' ),
+				group: __( 'AI', 'hyve-lite' ),
+			},
 			'ai-provider': {
 				label: __( 'Provider & model', 'hyve-lite' ),
 				group: __( 'AI', 'hyve-lite' ),

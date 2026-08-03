@@ -61,6 +61,10 @@ const App = () => {
 		select( 'hyve' ).getAttentionCount()
 	);
 
+	const isConnectActive = useSelect( ( select ) =>
+		select( 'hyve' ).isConnectActive()
+	);
+
 	const { setSettings, setLoading } = useDispatch( 'hyve' );
 
 	useEffect( () => {
@@ -118,7 +122,10 @@ const App = () => {
 
 	const subs = current?.subs
 		? Object.entries( current.subs ).filter(
-				( [ , entry ] ) => ! entry.hidden
+				( [ key, entry ] ) =>
+					! entry.hidden &&
+					// Qdrant and Hyve Connect are mutually exclusive.
+					! ( 'qdrant' === key && isConnectActive )
 		  )
 		: [];
 

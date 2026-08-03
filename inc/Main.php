@@ -58,7 +58,8 @@ class Main {
 		add_action( 'admin_menu', [ $this, 'register_menu_page' ] );
 		add_filter( 'user_has_cap', [ $this, 'grant_message_capabilities' ] );
 		add_action( 'save_post', [ $this, 'update_meta' ], 10, 3 );
-		add_action( 'delete_post', [ $this, 'delete_post' ] );
+		add_action( 'before_delete_post', [ $this, 'delete_post' ] );
+		add_action( DB_Table::CONNECT_SYNC_HOOK, [ $this->table, 'connect_run_sync' ] );
 		add_filter( 'themeisle_sdk_enable_telemetry', '__return_true' );
 
 		add_filter( 'hyve_global_chat_enabled', [ $this, 'is_global_chat_enabled' ] );
@@ -80,8 +81,11 @@ class Main {
 			add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_addons_assets' ] );
 		}
 
+		// The chat can run on a local OpenAI key or on Hyve Connect; either one
+		// makes the frontend assets meaningful.
 		if (
-			isset( $settings['api_key'] ) && ! empty( $settings['api_key'] )
+			( isset( $settings['api_key'] ) && ! empty( $settings['api_key'] ) )
+			|| Hyve_Connect::is_active()
 		) {
 			add_action( 'wp_enqueue_scripts', [ $this, 'enqueue_assets' ] );
 		}
@@ -127,8 +131,9 @@ class Main {
 	/**
 	 * Register suggested privacy policy content.
 	 *
-	 * Surfaces Hyve's third-party data processing (message storage and OpenAI
-	 * processing) in the core Privacy Policy guide at Settings → Privacy.
+	 * Surfaces Hyve's third-party data processing in the core Privacy Policy
+	 * guide at Settings → Privacy. The disclosed data flow depends on the active
+	 * mode: Hyve Connect (hosted) or self-hosted with the site's own OpenAI key.
 	 *
 	 * @since 1.4.2
 	 *
@@ -143,13 +148,23 @@ class Main {
 			'<p class="privacy-policy-tutorial">' .
 			__( 'This information is provided to help you disclose how the Hyve chat assistant processes visitor data. Review it and adapt it to your site before publishing.', 'hyve-lite' ) .
 			'</p>' .
-			'<p>' . __( 'When visitors use the Hyve chat assistant on this site, the messages they send are stored on this website so the site administrator can review chat history. No account is required to use the chat.', 'hyve-lite' ) . '</p>' .
-			'<p>' . __( 'To generate replies, the messages are also sent to OpenAI, L.L.C. — a third-party service based in the United States. OpenAI processes the messages to moderate their content, to create numerical representations (embeddings) used to find relevant information, and to generate the assistant\'s responses.', 'hyve-lite' ) . '</p>' .
-			'<p>' . __( 'For details on how OpenAI handles data, see OpenAI\'s privacy policy at https://openai.com/policies/privacy-policy/.', 'hyve-lite' ) . '</p>';
+			'<p>' . __( 'When visitors use the Hyve chat assistant on this site, the messages they send are stored on this website so the site administrator can review chat history. No account is required to use the chat.', 'hyve-lite' ) . '</p>';
 
-		// Only disclose Qdrant when it is actually connected, so the suggested text reflects the site's real data flows.
-		if ( Qdrant_API::is_active() ) {
-			$content .= '<p>' . __( 'This site also uses Qdrant, a third-party vector database. A numerical representation (embedding) of your message is sent to Qdrant to look up relevant information. See Qdrant\'s privacy policy at https://qdrant.tech/legal/privacy-policy/.', 'hyve-lite' ) . '</p>';
+		// The AI provider differs by mode: Hyve Connect is the hosted service, otherwise the site uses its own OpenAI key. Disclose only the flow that is actually in use.
+		if ( Hyve_Connect::is_active() ) {
+			$content .=
+				'<p>' . __( 'To generate replies, the messages are also sent to Hyve Connect, a hosted service operated by ThemeIsle. Hyve Connect processes the messages on its servers, including through third-party AI providers, to moderate their content, to create numerical representations (embeddings) used to find relevant information, and to generate the assistant\'s responses.', 'hyve-lite' ) . '</p>' .
+				'<p>' . __( 'To answer questions about this site, the content of the pages selected for indexing is also sent to Hyve Connect and stored there in a vector database so it can be searched when visitors chat.', 'hyve-lite' ) . '</p>' .
+				'<p>' . __( 'For details on how ThemeIsle handles data, see ThemeIsle\'s privacy policy at https://themeisle.com/privacy-policy/.', 'hyve-lite' ) . '</p>';
+		} else {
+			$content .=
+				'<p>' . __( 'To generate replies, the messages are also sent to OpenAI, L.L.C. — a third-party service based in the United States. OpenAI processes the messages to moderate their content, to create numerical representations (embeddings) used to find relevant information, and to generate the assistant\'s responses.', 'hyve-lite' ) . '</p>' .
+				'<p>' . __( 'For details on how OpenAI handles data, see OpenAI\'s privacy policy at https://openai.com/policies/privacy-policy/.', 'hyve-lite' ) . '</p>';
+
+			// Only disclose Qdrant when it is actually connected, so the suggested text reflects the site's real data flows.
+			if ( Qdrant_API::is_active() ) {
+				$content .= '<p>' . __( 'This site also uses Qdrant, a third-party vector database. A numerical representation (embedding) of your message is sent to Qdrant to look up relevant information. See Qdrant\'s privacy policy at https://qdrant.tech/legal/privacy-policy/.', 'hyve-lite' ) . '</p>';
+			}
 		}
 
 		wp_add_privacy_policy_content( 'Hyve', wp_kses_post( $content ) );
@@ -310,6 +325,17 @@ class Main {
 	public function admin_init() {
 		$settings = self::get_settings();
 
+		if ( Hyve_Connect::is_active() ) {
+			if ( false === get_transient( 'hyve_connect_recovery_check' ) ) {
+				set_transient( 'hyve_connect_recovery_check', 1, HOUR_IN_SECONDS );
+				$this->table->connect_check_recovery();
+			}
+
+			$this->table->connect_check_identity();
+			$this->table->connect_maybe_resume_blocked();
+			$this->table->connect_sync_watchdog();
+		}
+
 		$post_types        = get_post_types( [ 'public' => true ], 'objects' );
 		$post_types_for_js = [];
 
@@ -366,6 +392,9 @@ class Main {
 						'hasAPIKey'         => isset( $settings['api_key'] ) && ! empty( $settings['api_key'] ),
 						'isApiKeyConnected' => self::is_api_key_connected( $settings ),
 						'chunksLimit'       => apply_filters( 'hyve_chunks_limit', 500 ),
+						'aiMode'            => Hyve_Connect::get_mode(),
+						'connect'           => Hyve_Connect::is_active() ? Hyve_Connect::instance()->stats() : null,
+						'connectSync'       => Hyve_Connect::is_active() ? $this->table->connect_sync_status() : null,
 						'isQdrantActive'    => Qdrant_API::is_active(),
 						'assets'            => [
 							'images' => HYVE_LITE_URL . 'assets/images/',
@@ -443,6 +472,7 @@ class Main {
 		return apply_filters(
 			'hyve_default_settings',
 			[
+				'ai_mode'                    => 'self_hosted',
 				'api_key'                    => '',
 				'qdrant_api_key'             => '',
 				'qdrant_endpoint'            => '',
@@ -806,17 +836,12 @@ class Main {
 	/**
 	 * Enqueue the chat widget on the Hyve dashboard as a live test preview.
 	 *
-	 * Available in the free version too: as long as an OpenAI API key is set the
-	 * widget appears on every Hyve settings screen, so admins can try the bot
-	 * and — with Pro — watch appearance changes apply live. Test chats are
-	 * flagged (`isPreview`) so they are not recorded in history or analytics.
-	 *
 	 * @return void
 	 */
 	public function enqueue_chat_preview() {
 		$settings = self::get_settings();
 
-		if ( empty( $settings['api_key'] ) ) {
+		if ( empty( $settings['api_key'] ) && ! Hyve_Connect::is_active() ) {
 			return;
 		}
 
@@ -932,9 +957,17 @@ class Main {
 	 * @return array<string, mixed>
 	 */
 	public function add_to_knowledge_base_row_action( $actions, $post ) {
-		if ( get_post_meta( $post->ID, '_hyve_post_processing', true ) ) {
-			$actions['hyve_knowledge_base_processing'] = __( 'Hyve is processing the post', 'hyve-lite' );
-			return $actions;
+		$processing = (int) get_post_meta( $post->ID, '_hyve_post_processing', true );
+
+		if ( $processing ) {
+			if ( ( time() - $processing ) < DB_Table::PROCESSING_STALL ) {
+				$actions['hyve_knowledge_base_processing'] = __( 'Hyve is processing the post', 'hyve-lite' );
+				return $actions;
+			}
+
+			// A leaked flag from an add interrupted mid-request; clear it and
+			// fall through to the normal add/remove action.
+			delete_post_meta( $post->ID, '_hyve_post_processing' );
 		}
 
 		$label  = __( 'Add to Hyve', 'hyve-lite' );
@@ -960,10 +993,19 @@ class Main {
 	 * @return array<string, mixed>
 	 */
 	public function get_stats() {
+		// In Connect mode the knowledge base lives on the platform, so the chunk
+		// count comes from the hosted aggregate, not the (dormant) local table.
+		if ( Hyve_Connect::is_active() ) {
+			$connect      = Hyve_Connect::instance()->stats();
+			$total_chunks = isset( $connect['kb']['chunks'] ) ? (int) $connect['kb']['chunks'] : 0;
+		} else {
+			$total_chunks = $this->table->get_count();
+		}
+
 		return [
 			'threads'     => Threads::get_thread_count(),
 			'messages'    => Threads::get_messages_count(),
-			'totalChunks' => $this->table->get_count(),
+			'totalChunks' => $total_chunks,
 		];
 	}
 
@@ -1083,6 +1125,8 @@ class Main {
 		update_post_meta( $post_id, '_hyve_needs_update', 1 );
 		delete_post_meta( $post_id, '_hyve_moderation_failed' );
 		delete_post_meta( $post_id, '_hyve_moderation_review' );
+		// An edit may fix whatever failed indexing (e.g. no text content).
+		delete_post_meta( $post_id, '_hyve_processing_error' );
 
 		wp_schedule_single_event( time(), 'hyve_update_posts' );
 	}
@@ -1101,6 +1145,9 @@ class Main {
 
 		if ( Qdrant_API::is_active() ) {
 			$this->qdrant->delete_point( $post_id );
+		} elseif ( Hyve_Connect::is_active() && get_post_meta( $post_id, '_hyve_added', true ) ) {
+			Hyve_Connect::instance()->kb_delete( [ (int) $post_id ] );
+			Hyve_Connect::flush_stats();
 		}
 	}
 

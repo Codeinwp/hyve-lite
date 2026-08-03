@@ -19,7 +19,7 @@ import { archive, brush, cloud, comment, help, people } from '@wordpress/icons';
  * Internal dependencies.
  */
 import { navigate } from '../router';
-import { isLicenseActive, setUtm } from '../utils';
+import { isLicenseActive, percentOf, quotaOf, setUtm } from '../utils';
 import Card from '../components/Card';
 import Chip from '../components/Chip';
 import SetupChecklist from '../components/SetupChecklist';
@@ -145,23 +145,85 @@ const VisibilityNotice = ( { mode } ) => {
 };
 
 const StatsGrid = () => {
-	const { stats, totalChunks, isQdrantActive } = useSelect( ( select ) => ( {
-		stats: select( 'hyve' ).getStats(),
-		totalChunks: select( 'hyve' ).getTotalChunks(),
-		isQdrantActive: select( 'hyve' ).isQdrantActive(),
-	} ) );
+	const { stats, totalChunks, isQdrantActive, isConnectActive, connect } =
+		useSelect( ( select ) => ( {
+			stats: select( 'hyve' ).getStats(),
+			totalChunks: select( 'hyve' ).getTotalChunks(),
+			isQdrantActive: select( 'hyve' ).isQdrantActive(),
+			isConnectActive: select( 'hyve' ).isConnectActive(),
+			connect: select( 'hyve' ).getConnect(),
+		} ) );
 
 	const sessions = Number( stats.threads ?? 0 );
 	const messages = Number( stats.messages ?? 0 );
 	const chunks = Number( totalChunks ?? 0 );
 	const chunksLimit = Number( window.hyve?.chunksLimit ?? 500 );
 
-	const usedPercent = Math.min(
-		100,
-		Math.round( ( chunks / chunksLimit ) * 100 )
-	);
+	const usedPercent = percentOf( chunks, chunksLimit );
 
-	const needsStorage = ! isQdrantActive && 400 < chunks;
+	const needsStorage = ! isQdrantActive && ! isConnectActive && 400 < chunks;
+
+	// The Knowledge Base card reflects where content actually lives: the free
+	// local limit, an unlimited Qdrant cluster, or the Hyve Connect plan quota.
+	const kbQuota = quotaOf( connect, 'kb' );
+
+	let kbCard;
+
+	if ( isConnectActive ) {
+		kbCard = {
+			value: kbQuota.used.toLocaleString(),
+			suffix: sprintf(
+				/* translators: %s: the chunk limit of the Hyve Connect plan. */
+				__( '/ %s chunks', 'hyve-lite' ),
+				kbQuota.limit.toLocaleString()
+			),
+			meter: kbQuota.percent,
+			foot: kbQuota.full
+				? __( 'Plan limit reached.', 'hyve-lite' )
+				: sprintf(
+						/* translators: %d: percentage of the Hyve Connect plan used. */
+						__(
+							'%d%% of your Hyve Connect plan used.',
+							'hyve-lite'
+						),
+						kbQuota.percent
+				  ),
+		};
+	} else if ( isQdrantActive ) {
+		kbCard = {
+			value: chunks.toLocaleString(),
+			suffix: __( 'chunks', 'hyve-lite' ),
+			meter: undefined,
+			foot: __( 'Stored in your Qdrant cluster.', 'hyve-lite' ),
+		};
+	} else {
+		kbCard = {
+			value: chunks.toLocaleString(),
+			suffix: sprintf(
+				/* translators: %s: the chunk limit of the free plan. */
+				__( '/ %s chunks', 'hyve-lite' ),
+				chunksLimit.toLocaleString()
+			),
+			meter: usedPercent,
+			foot: (
+				<>
+					{ sprintf(
+						/* translators: %d: percentage of the free limit used. */
+						__( '%d%% of the free limit used.', 'hyve-lite' ),
+						usedPercent
+					) }{ ' ' }
+					{ needsStorage && (
+						<Button
+							variant="link"
+							onClick={ () => navigate( 'settings', 'qdrant' ) }
+						>
+							{ __( 'Need more storage?', 'hyve-lite' ) }
+						</Button>
+					) }
+				</>
+			),
+		};
+	}
 
 	return (
 		<div className="hyve-next-stats">
@@ -188,60 +250,111 @@ const StatsGrid = () => {
 			<StatCard
 				icon={ archive }
 				label={ __( 'Knowledge Base', 'hyve-lite' ) }
-				value={ chunks.toLocaleString() }
-				suffix={
-					isQdrantActive
-						? __( 'chunks', 'hyve-lite' )
-						: sprintf(
-								/* translators: %s: the chunk limit of the free plan. */
-								__( '/ %s chunks', 'hyve-lite' ),
-								chunksLimit.toLocaleString()
-						  )
-				}
-				meter={ isQdrantActive ? undefined : usedPercent }
-				foot={
-					isQdrantActive ? (
-						__( 'Stored in your Qdrant cluster.', 'hyve-lite' )
-					) : (
-						<>
-							{ sprintf(
-								/* translators: %d: percentage of the free limit used. */
-								__(
-									'%d%% of the free limit used.',
-									'hyve-lite'
-								),
-								usedPercent
-							) }{ ' ' }
-							{ needsStorage && (
-								<Button
-									variant="link"
-									onClick={ () =>
-										navigate( 'settings', 'qdrant' )
-									}
-								>
-									{ __( 'Need more storage?', 'hyve-lite' ) }
-								</Button>
-							) }
-						</>
-					)
-				}
+				value={ kbCard.value }
+				suffix={ kbCard.suffix }
+				meter={ kbCard.meter }
+				foot={ kbCard.foot }
 			/>
 
-			<StatCard
-				planned
-				icon={ cloud }
-				label={ __( 'Hyve Connect', 'hyve-lite' ) }
-				value={ __( 'N/A', 'hyve-lite' ) }
-				chip={
-					<Chip tone="planned" dot={ false }>
-						{ __( 'Coming soon', 'hyve-lite' ) }
-					</Chip>
-				}
-				foot={ __(
-					'Hosted AI usage will show up here once Hyve Connect launches.',
-					'hyve-lite'
-				) }
-			/>
+			{ isConnectActive ? (
+				( () => {
+					const { used, limit, percent, full } = quotaOf(
+						connect,
+						'chat'
+					);
+					const offline = connect?.service === 'error';
+
+					let connectChip = (
+						<Chip tone="ok">
+							{ __( 'Connected', 'hyve-lite' ) }
+						</Chip>
+					);
+					if ( offline ) {
+						connectChip = (
+							<Chip tone="bad">
+								{ __( 'Offline', 'hyve-lite' ) }
+							</Chip>
+						);
+					} else if ( full ) {
+						connectChip = (
+							<Chip tone="warn">
+								{ __( 'Limit reached', 'hyve-lite' ) }
+							</Chip>
+						);
+					}
+
+					return (
+						<StatCard
+							icon={ cloud }
+							label={ __( 'Hyve Connect', 'hyve-lite' ) }
+							value={
+								offline
+									? __( 'N/A', 'hyve-lite' )
+									: used.toLocaleString()
+							}
+							suffix={
+								offline
+									? undefined
+									: sprintf(
+											/* translators: %s: monthly message limit. */
+											__( '/ %s messages', 'hyve-lite' ),
+											limit.toLocaleString()
+									  )
+							}
+							meter={ offline ? undefined : percent }
+							chip={ connectChip }
+							foot={
+								offline ? (
+									__(
+										"Can't reach Hyve Connect right now.",
+										'hyve-lite'
+									)
+								) : (
+									<Button
+										variant="link"
+										onClick={ () =>
+											navigate(
+												'settings',
+												'hyve-connect'
+											)
+										}
+									>
+										{ __( 'Manage', 'hyve-lite' ) }
+									</Button>
+								)
+							}
+						/>
+					);
+				} )()
+			) : (
+				<StatCard
+					compact
+					icon={ cloud }
+					label={ __( 'Hyve Connect', 'hyve-lite' ) }
+					value={ __( 'Hosted AI, no API key', 'hyve-lite' ) }
+					chip={
+						<Chip tone="muted" dot={ false }>
+							{ __( 'Not connected', 'hyve-lite' ) }
+						</Chip>
+					}
+					foot={
+						<>
+							{ __(
+								'Answer questions and index your content with zero setup.',
+								'hyve-lite'
+							) }{ ' ' }
+							<Button
+								variant="link"
+								onClick={ () =>
+									navigate( 'settings', 'hyve-connect' )
+								}
+							>
+								{ __( 'Enable Hyve Connect', 'hyve-lite' ) }
+							</Button>
+						</>
+					}
+				/>
+			) }
 		</div>
 	);
 };

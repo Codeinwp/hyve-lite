@@ -211,6 +211,46 @@ export const setUtm = ( urlAdress, linkArea ) => {
 };
 
 /**
+ * Usage as a whole-number percent of an allowance, clamped to 0-100.
+ *
+ * @param {number} used  Amount used.
+ * @param {number} limit Allowance (0 or falsy yields 0).
+ * @return {number} Percent, 0-100.
+ */
+export const percentOf = ( used, limit ) =>
+	limit
+		? Math.min(
+				100,
+				Math.round( ( Number( used ) / Number( limit ) ) * 100 )
+		  )
+		: 0;
+
+/**
+ * Read a Hyve Connect stats block's usage for one dimension. KB usage lives on
+ * the storage sub-block (falling back to the chunk count); chat is a flat block.
+ *
+ * @param {Object} connect The `connect` stats object.
+ * @param {string} kind    'kb' or 'chat'.
+ * @return {{used: number, limit: number, percent: number, full: boolean}} Usage.
+ */
+export const quotaOf = ( connect, kind ) => {
+	const block = connect?.[ kind ] ?? {};
+	const used =
+		'kb' === kind
+			? Number( block.storage?.used ?? block.chunks ?? 0 )
+			: Number( block.used ?? 0 );
+	const limit = Number(
+		( 'kb' === kind ? block.storage?.limit : block.limit ) ?? 0
+	);
+
+	return {
+		used,
+		limit,
+		percent: percentOf( used, limit ),
+		full: limit > 0 && used >= limit,
+	};
+};
+/**
  * Whether the license currently unlocks Pro features.
  *
  * Mirrors the server-side rule: a valid or expired-but-activated license

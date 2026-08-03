@@ -97,7 +97,7 @@ class API extends BaseAPI {
 		}
 
 		$routes = [
-			'settings'    => [
+			'settings'          => [
 				[
 					'methods'  => \WP_REST_Server::READABLE,
 					'callback' => [ $this, 'get_settings' ],
@@ -116,7 +116,7 @@ class API extends BaseAPI {
 					'callback' => [ $this, 'update_settings' ],
 				],
 			],
-			'data'        => [
+			'data'              => [
 				[
 					'methods'  => \WP_REST_Server::READABLE,
 					'args'     => [
@@ -166,19 +166,32 @@ class API extends BaseAPI {
 					'callback' => [ $this, 'delete_data' ],
 				],
 			],
-			'data/counts' => [
+			'data/enqueue'      => [
+				[
+					'methods'  => \WP_REST_Server::CREATABLE,
+					'args'     => [
+						'ids' => [
+							'required' => true,
+							'type'     => 'array',
+							'items'    => [ 'type' => 'integer' ],
+						],
+					],
+					'callback' => [ $this, 'enqueue_data' ],
+				],
+			],
+			'data/counts'       => [
 				[
 					'methods'  => \WP_REST_Server::READABLE,
 					'callback' => [ $this, 'get_data_counts' ],
 				],
 			],
-			'stats'       => [
+			'stats'             => [
 				[
 					'methods'  => \WP_REST_Server::READABLE,
 					'callback' => [ $this, 'get_stats' ],
 				],
 			],
-			'threads'     => [
+			'threads'           => [
 				[
 					'methods'             => \WP_REST_Server::READABLE,
 					'args'                => [
@@ -207,7 +220,7 @@ class API extends BaseAPI {
 					},
 				],
 			],
-			'qdrant'      => [
+			'qdrant'            => [
 				[
 					'methods'  => \WP_REST_Server::READABLE,
 					'callback' => [ $this, 'qdrant_status' ],
@@ -217,7 +230,25 @@ class API extends BaseAPI {
 					'callback' => [ $this, 'qdrant_deactivate' ],
 				],
 			],
-			'chat'        => [
+			'connect'           => [
+				[
+					'methods'  => \WP_REST_Server::CREATABLE,
+					'callback' => [ $this, 'connect_disconnect' ],
+					'args'     => [
+						'mode' => [
+							'type' => 'string',
+							'enum' => [ 'import', 'clear' ],
+						],
+					],
+				],
+			],
+			'connect/reconcile' => [
+				[
+					'methods'  => \WP_REST_Server::CREATABLE,
+					'callback' => [ $this, 'connect_reconcile' ],
+				],
+			],
+			'chat'              => [
 				[
 					'methods'             => \WP_REST_Server::READABLE,
 					'args'                => [
@@ -339,6 +370,12 @@ class API extends BaseAPI {
 		$validation = apply_filters(
 			'hyve_settings_validation',
 			[
+				'ai_mode'                    => [
+					'validate' => function ( $value ) {
+						return in_array( $value, [ Hyve_Connect::MODE_CONNECT, Hyve_Connect::MODE_SELF ], true );
+					},
+					'sanitize' => 'sanitize_text_field',
+				],
 				'api_key'                    => [
 					'validate' => function ( $value ) {
 						return is_string( $value );
@@ -481,6 +518,30 @@ class API extends BaseAPI {
 			$updated[ $key ] = $validation[ $key ]['sanitize']( $value );
 		}
 
+		// The mode this save resolves to: any incoming ai_mode wins, else the
+		// stored one (get_settings always provides a default). Capture the prior
+		// mode too so we can detect a switch into Connect after the save lands.
+		$prev_mode = isset( $settings['ai_mode'] ) ? $settings['ai_mode'] : Hyve_Connect::MODE_SELF;
+		$mode      = isset( $updated['ai_mode'] ) ? $updated['ai_mode'] : $settings['ai_mode'];
+
+		// Qdrant and Hyve Connect are mutually exclusive; refuse the switch
+		// while Qdrant is still active. Disconnect Qdrant first.
+		if ( Hyve_Connect::MODE_CONNECT === $mode && Qdrant_API::is_active() ) {
+			return $this->settings_response(
+				[
+					'error' => __( 'Disconnect Qdrant before enabling Hyve Connect.', 'hyve-lite' ),
+				]
+			);
+		}
+
+		if ( Hyve_Connect::MODE_SELF === $mode && Hyve_Connect::MODE_CONNECT === $prev_mode ) {
+			return $this->settings_response(
+				[
+					'error' => __( 'Use the Disconnect option to leave Hyve Connect.', 'hyve-lite' ),
+				]
+			);
+		}
+
 		$api_warning   = '';
 		$api_key_error = null;
 		$key_validated = false;
@@ -488,7 +549,8 @@ class API extends BaseAPI {
 		foreach ( $updated as $key => $value ) {
 			$settings[ $key ] = $value;
 
-			if ( 'api_key' === $key && ! empty( $value ) ) {
+			// Connect mode runs on hosted AI, so there is no OpenAI key to validate.
+			if ( 'api_key' === $key && ! empty( $value ) && Hyve_Connect::MODE_SELF === $mode ) {
 				$openai = new OpenAI( $value );
 
 				// Validate against the embeddings endpoint. Suppress automatic
@@ -517,7 +579,7 @@ class API extends BaseAPI {
 			}
 		}
 
-		if ( ( isset( $updated['qdrant_api_key'] ) && ! empty( $updated['qdrant_api_key'] ) ) || ( isset( $updated['qdrant_endpoint'] ) && ! empty( $updated['qdrant_endpoint'] ) ) ) {
+		if ( Hyve_Connect::MODE_SELF === $mode && ( ( isset( $updated['qdrant_api_key'] ) && ! empty( $updated['qdrant_api_key'] ) ) || ( isset( $updated['qdrant_endpoint'] ) && ! empty( $updated['qdrant_endpoint'] ) ) ) ) {
 			$qdrant = new Qdrant_API( $data['qdrant_api_key'], $data['qdrant_endpoint'] );
 			$init   = $qdrant->init();
 
@@ -535,6 +597,14 @@ class API extends BaseAPI {
 		}
 
 		Encryption::maybe_reset_key_check();
+
+		// Switching into Connect: push any existing self-hosted content up to the
+		// platform so the site does not start with an empty hosted KB. Runs on a
+		// cron batch; fresh/empty sites are a no-op.
+		if ( Hyve_Connect::MODE_CONNECT === $mode && Hyve_Connect::MODE_CONNECT !== $prev_mode ) {
+			Hyve_Connect::flush_stats();
+			$this->table->connect_start_sync();
+		}
 
 		// Reconcile the dashboard service-error notice with the key that was just
 		// saved — only now that the save has actually landed (no earlier exit can
@@ -686,6 +756,13 @@ class API extends BaseAPI {
 			];
 		}
 
+		// The unified "Indexed content" listing includes the plugin-owned sources,
+		// so a site without Pro can still see and remove them. hyve_docs must
+		// be named explicitly: it is exclude_from_search, which `any` skips.
+		if ( 'included' === $status && 'any' === $request->get_param( 'type' ) ) {
+			$args['post_type'] = $this->table->connect_indexed_post_types();
+		}
+
 		/**
 		 * Filters the WP_Query arguments of the dashboard data listings.
 		 *
@@ -720,6 +797,33 @@ class API extends BaseAPI {
 				'chunks'     => $chunk_counts[ $post_id ] ?? 0,
 			];
 
+			// In Connect mode a source can be indexed locally but not (yet)
+			// on the platform (mid-sync, or skipped over the plan limit);
+			// report it so the listing does not call it indexed.
+			if ( Hyve_Connect::is_active() ) {
+				$post_data['synced'] = '' !== (string) get_post_meta( $post_id, '_hyve_connect_synced_hash', true );
+			}
+
+			// Plugin-owned sources: label them by origin and flag that
+			// removing one is permanent (no life outside the Knowledge Base).
+			if ( 'hyve_docs' === $post_type ) {
+				$labels = [
+					''         => __( 'Custom Data', 'hyve-lite' ),
+					'link'     => __( 'URL', 'hyve-lite' ),
+					'sitemap'  => __( 'Sitemap', 'hyve-lite' ),
+					'document' => __( 'Document', 'hyve-lite' ),
+				];
+
+				$docs_type = (string) get_post_meta( $post_id, '_hyve_type', true );
+
+				$post_data['type']      = $labels[ $docs_type ] ?? $labels[''];
+				$post_data['permanent'] = true;
+
+				if ( empty( $post_data['title'] ) ) {
+					$post_data['title'] = (string) get_post_meta( $post_id, '_hyve_source', true );
+				}
+			}
+
 			if ( 'moderation' === $status ) {
 				$review = get_post_meta( $post_id, '_hyve_moderation_review', true );
 
@@ -748,12 +852,20 @@ class API extends BaseAPI {
 			$posts_data[] = apply_filters( 'hyve_data_post', $post_data, $post_id );
 		}
 
+		// Connect mode keeps no local rows; the KB footprint is the hosted total.
+		if ( Hyve_Connect::is_active() ) {
+			$connect      = Hyve_Connect::instance()->stats();
+			$total_chunks = isset( $connect['kb']['chunks'] ) ? (int) $connect['kb']['chunks'] : 0;
+		} else {
+			$total_chunks = $this->table->get_count();
+		}
+
 		$posts = [
 			'posts'       => $posts_data,
 			'more'        => $page['more'],
 			'total'       => $page['total'],
 			'per_page'    => 20,
-			'totalChunks' => $this->table->get_count(),
+			'totalChunks' => $total_chunks,
 		];
 
 		return rest_ensure_response( $posts );
@@ -826,12 +938,21 @@ class API extends BaseAPI {
 	 * @return \WP_REST_Response
 	 */
 	public function get_stats() {
-		return rest_ensure_response(
-			[
-				'stats' => apply_filters( 'hyve_stats', [] ),
-				'chart' => apply_filters( 'hyve_chart_data', [] ),
-			]
-		);
+		$data = [
+			'stats' => apply_filters( 'hyve_stats', [] ),
+			'chart' => apply_filters( 'hyve_chart_data', [] ),
+		];
+
+		// An explicit stats fetch force-refreshes the hosted aggregate (e.g. right
+		// after connecting or activating a license), bypassing the page-load cache.
+		if ( Hyve_Connect::is_active() ) {
+			$this->table->connect_sync_watchdog();
+
+			$data['connect']     = Hyve_Connect::instance()->stats( true );
+			$data['connectSync'] = $this->table->connect_sync_status();
+		}
+
+		return rest_ensure_response( $data );
 	}
 
 	/**
@@ -883,6 +1004,41 @@ class API extends BaseAPI {
 	}
 
 	/**
+	 * Queue a whole selection for Hyve Connect in one request.
+	 *
+	 * Unlike {@see add_data()}, which pushes a single post synchronously, this
+	 * persists every selected post as pending up front and lets the sync cron
+	 * drain them in the background. A refresh mid-add therefore cannot lose the
+	 * items still waiting: they are already durably queued server-side.
+	 *
+	 * @param \WP_REST_Request<array<string, mixed>> $request Request object.
+	 *
+	 * @return \WP_REST_Response
+	 */
+	public function enqueue_data( $request ) {
+		if ( ! Hyve_Connect::is_active() ) {
+			return rest_ensure_response( [ 'error' => __( 'Bulk queueing is only available with Hyve Connect.', 'hyve-lite' ) ] );
+		}
+
+		$ids = $request->get_param( 'ids' );
+		$ids = is_array( $ids ) ? array_filter( array_map( 'intval', $ids ) ) : [];
+
+		if ( empty( $ids ) ) {
+			return rest_ensure_response( [ 'error' => __( 'No content to queue.', 'hyve-lite' ) ] );
+		}
+
+		$queued = $this->table->connect_enqueue_posts( $ids );
+
+		return rest_ensure_response(
+			[
+				'success'     => true,
+				'queued'      => $queued,
+				'connectSync' => $this->table->connect_sync_status(),
+			]
+		);
+	}
+
+	/**
 	 * Delete data.
 	 *
 	 * @param \WP_REST_Request<array<string, mixed>> $request Request object.
@@ -893,7 +1049,13 @@ class API extends BaseAPI {
 	public function delete_data( $request ) {
 		$id = $request->get_param( 'id' );
 
-		if ( Qdrant_API::is_active() ) {
+		if ( Hyve_Connect::is_active() ) {
+			$deleted = Hyve_Connect::instance()->kb_delete( [ (int) $id ] );
+
+			if ( is_wp_error( $deleted ) ) {
+				return rest_ensure_response( [ 'error' => Hyve_Connect::user_message( $deleted ) ] );
+			}
+		} elseif ( Qdrant_API::is_active() ) {
 			try {
 				$delete_result = Qdrant_API::instance()->delete_point( $id );
 
@@ -922,6 +1084,12 @@ class API extends BaseAPI {
 		 * @param int $id Post ID.
 		 */
 		do_action( 'hyve_data_deleted', (int) $id );
+
+		// Without Pro listening on the action above, plugin-owned sources are
+		// removed here; they exist only as Knowledge Base entries.
+		if ( 'hyve_docs' === get_post_type( $id ) ) {
+			wp_delete_post( (int) $id, true );
+		}
 
 		return rest_ensure_response( true );
 	}
@@ -1055,6 +1223,286 @@ class API extends BaseAPI {
 	}
 
 	/**
+	 * Disconnect Hyve Connect, on one of two user-chosen paths.
+	 *
+	 * `import`: pull the hosted content back into local rows (no re-embed, the
+	 * model matches), then remove the hosted copy. `clear`: delete everything
+	 * locally and on the platform. Both flip the mode back to self-hosted.
+	 *
+	 * @param \WP_REST_Request<array<string, mixed>> $request Request object.
+	 *
+	 * @return \WP_REST_Response
+	 */
+	public function connect_disconnect( $request ) {
+		$mode     = 'clear' === $request->get_param( 'mode' ) ? 'clear' : 'import';
+		$settings = Main::get_settings();
+
+		$blocked = apply_filters( 'hyve_connect_disconnect_blocked_reason', '', $mode );
+
+		if ( is_string( $blocked ) && '' !== $blocked ) {
+			return rest_ensure_response( [ 'error' => $blocked ] );
+		}
+
+		wp_clear_scheduled_hook( DB_Table::CONNECT_SYNC_HOOK );
+
+		if ( 'import' === $mode ) {
+			$imported = $this->connect_import();
+
+			if ( is_wp_error( $imported ) ) {
+				return rest_ensure_response( [ 'error' => Hyve_Connect::user_message( $imported ) ] );
+			}
+		}
+
+		// Both paths remove the hosted copy for this identity.
+		$deleted = Hyve_Connect::instance()->kb_delete_all();
+
+		if ( is_wp_error( $deleted ) ) {
+			return rest_ensure_response( [ 'error' => Hyve_Connect::user_message( $deleted ) ] );
+		}
+
+		// The hosted copy is gone: leave Connect mode BEFORE the local cleanup,
+		// or `before_delete_post` fires a platform delete per removed source
+		// (thousands of sequential requests; times out on large KBs).
+		$settings['ai_mode'] = Hyve_Connect::MODE_SELF;
+		update_option( 'hyve_settings', $settings );
+
+		if ( 'clear' === $mode ) {
+			// Nothing is indexed anywhere now: drop the local bookkeeping too.
+			$this->connect_clear_local();
+		} else {
+			// Sources that never reached the platform (over the plan limit or
+			// rejected) had nothing to export: unmark them, or they would list
+			// as indexed with no local chunks behind them.
+			$this->connect_drop_unsynced();
+
+			// Import keeps the sources but the hosted copy is gone, so forget the
+			// synced markers; a future re-enable then re-pushes cleanly.
+			$this->table->connect_reset_sync_markers();
+
+			// Back on the local engine the local chunk limit applies again:
+			// prune the oldest content over it, same as Qdrant deactivation.
+			$over_limit = $this->table->get_posts_over_limit();
+
+			if ( ! empty( $over_limit ) ) {
+				wp_schedule_single_event( time(), 'hyve_delete_posts', [ $over_limit ] );
+			}
+		}
+
+		delete_option( DB_Table::CONNECT_SYNC_OPTION );
+		Hyve_Connect::flush_stats();
+
+		return rest_ensure_response( true );
+	}
+
+	/**
+	 * Reconcile the hosted knowledge base against local content (the source of
+	 * truth): the cloud drops orphaned sources and the plugin re-pushes any that
+	 * are stale or missing. Triggered by the "Sync" control on the Connect screen.
+	 *
+	 * @param \WP_REST_Request<array<string, mixed>> $request Request object.
+	 *
+	 * @return \WP_REST_Response
+	 */
+	public function connect_reconcile( $request ) {
+		$result = $this->table->connect_reconcile();
+
+		if ( is_wp_error( $result ) ) {
+			$message = 0 === strpos( (string) $result->get_error_code(), 'connect_' )
+				? $result->get_error_message()
+				: Hyve_Connect::user_message( $result );
+
+			return rest_ensure_response( [ 'error' => $message ] );
+		}
+
+		Hyve_Connect::flush_stats();
+
+		return rest_ensure_response( true );
+	}
+
+	/**
+	 * Pull the hosted knowledge base back into local rows for self-hosted use.
+	 *
+	 * Paginates `hyve-kb export` and rebuilds native per-chunk rows
+	 * (`storage = WordPress`) directly from the returned vectors, so no
+	 * re-embedding is needed (the export model matches the local model).
+	 *
+	 * @return true|\WP_Error
+	 */
+	private function connect_import() {
+		$client = Hyve_Connect::instance();
+		$cursor = null;
+		$seen   = [];
+
+		// Compare by model base name: the platform reports a provider-prefixed
+		// name (e.g. "openai/text-embedding-3-small") for the same model the local
+		// engine calls "text-embedding-3-small".
+		$model_base = static function ( $model ) {
+			$model = strtolower( trim( (string) $model ) );
+			$slash = strrpos( $model, '/' );
+
+			return false === $slash ? $model : substr( $model, $slash + 1 );
+		};
+
+		do {
+			$batch = $client->kb_export( $cursor, 50 );
+
+			if ( is_wp_error( $batch ) ) {
+				return $batch;
+			}
+
+			// The export vectors are only reusable if they share the local
+			// embedding space; importing a different model's vectors would make
+			// local search return garbage, so reject it (the user can "clear").
+			$model = isset( $batch['model'] ) ? (string) $batch['model'] : '';
+
+			if ( '' !== $model && $model_base( $model ) !== $model_base( OpenAI::EMBEDDING_MODEL ) ) {
+				return new \WP_Error(
+					'connect_import_model_mismatch',
+					__( 'The hosted content was indexed with a different embedding model and cannot be imported.', 'hyve-lite' )
+				);
+			}
+
+			$items = isset( $batch['items'] ) && is_array( $batch['items'] ) ? $batch['items'] : [];
+
+			foreach ( $items as $item ) {
+				$post_id = (int) ( $item['id'] ?? 0 );
+
+				// A source whose local post is gone would import as an unreachable
+				// ghost chunk (nothing to manage or display it): skip it.
+				if ( 0 === $post_id || false === get_post_status( $post_id ) ) {
+					continue;
+				}
+
+				// Idempotent per post: clear any rows left by an earlier failed
+				// import once, before appending this run's chunks, so a retried
+				// disconnect never duplicates the knowledge base.
+				if ( ! isset( $seen[ $post_id ] ) ) {
+					$this->table->delete_by_post_id( $post_id );
+					$seen[ $post_id ] = true;
+				}
+
+				$this->table->insert(
+					[
+						'post_id'         => $post_id,
+						'post_title'      => get_the_title( $post_id ),
+						'post_content'    => (string) ( $item['content'] ?? '' ),
+						'embedding_model' => OpenAI::EMBEDDING_MODEL,
+						'token_count'     => (int) ( $item['token_count'] ?? 0 ),
+						'embeddings'      => wp_json_encode( $item['embedding'] ?? [] ),
+						'post_status'     => 'processed',
+						'storage'         => 'WordPress',
+					]
+				);
+			}
+
+			$cursor = $batch['next_cursor'] ?? null;
+		} while ( ! empty( $cursor ) );
+
+		return true;
+	}
+
+	/**
+	 * Unmark sources that never reached the platform after an import.
+	 *
+	 * @return void
+	 */
+	private function connect_drop_unsynced() {
+		$candidates = $this->table->connect_source_ids(
+			[
+				[
+					'key'     => '_hyve_added',
+					'compare' => 'EXISTS',
+				],
+				[
+					'key'     => '_hyve_connect_synced_hash',
+					'compare' => 'NOT EXISTS',
+				],
+			]
+		);
+
+		if ( empty( $candidates ) ) {
+			return;
+		}
+
+		// Keep unsynced sources that still have local chunks (a cancelled sync never reached them); only forget the ones with nothing behind them.
+		$counts = $this->table->get_counts_by_post_ids( $candidates );
+
+		foreach ( $candidates as $post_id ) {
+			if ( empty( $counts[ (int) $post_id ] ) ) {
+				$this->connect_forget_source( (int) $post_id );
+			}
+		}
+	}
+
+	/**
+	 * Clear local Knowledge Base bookkeeping when disconnecting with "clear".
+	 *
+	 * @return void
+	 */
+	private function connect_clear_local() {
+		$this->connect_forget_sources(
+			[
+				[
+					'key'     => '_hyve_added',
+					'compare' => 'EXISTS',
+				],
+			],
+			true
+		);
+	}
+
+	/**
+	 * Forget every indexed source matching a meta query (disconnect cleanup).
+	 *
+	 * @param array<int, array<string, mixed>> $meta_query    A meta_query clause list.
+	 * @param bool                             $delete_chunks Also delete each source's local chunk rows.
+	 *
+	 * @return void
+	 */
+	private function connect_forget_sources( array $meta_query, $delete_chunks = false ) {
+		foreach ( $this->table->connect_source_ids( $meta_query ) as $post_id ) {
+			$this->connect_forget_source( (int) $post_id, $delete_chunks );
+		}
+	}
+
+	/**
+	 * Remove a source from the local Knowledge Base bookkeeping.
+	 *
+	 * Plugin-owned sources (custom data, URLs, imported pages) exist only as
+	 * KB entries, so forgetting one deletes the post itself.
+	 *
+	 * @param int  $post_id       Post id.
+	 * @param bool $delete_chunks Also delete the post's local chunk rows (clear, not import).
+	 *
+	 * @return void
+	 */
+	private function connect_forget_source( $post_id, $delete_chunks = false ) {
+		if ( 'hyve_docs' === get_post_type( $post_id ) ) {
+			wp_delete_post( $post_id, true );
+			do_action( 'hyve_data_deleted', $post_id );
+
+			return;
+		}
+
+		delete_post_meta( $post_id, '_hyve_added' );
+		$this->table->connect_forget_sync( $post_id );
+		delete_post_meta( $post_id, '_hyve_needs_update' );
+		delete_post_meta( $post_id, '_hyve_moderation_failed' );
+		delete_post_meta( $post_id, '_hyve_moderation_review' );
+		delete_post_meta( $post_id, '_hyve_processing_error' );
+
+		// A "clear" disconnect wipes the local index too. In Connect mode the sync
+		// deletes each post's local chunk rows as it uploads, but a disconnect that
+		// interrupts an in-flight sync leaves the not-yet-synced posts' rows behind,
+		// so drop them here. Import keeps them, hence the flag.
+		if ( $delete_chunks ) {
+			$this->table->delete_by_post_id( $post_id );
+		}
+
+		do_action( 'hyve_data_deleted', $post_id );
+	}
+
+	/**
 	 * Get chat.
 	 *
 	 * @param \WP_REST_Request<array<string, mixed>> $request Request object.
@@ -1062,6 +1510,10 @@ class API extends BaseAPI {
 	 * @return \WP_REST_Response
 	 */
 	public function get_chat( $request ) {
+		if ( Hyve_Connect::is_active() ) {
+			return $this->get_chat_connect( $request );
+		}
+
 		$run_id    = $request->get_param( 'run_id' );
 		$thread_id = $request->get_param( 'thread_id' );
 		$query     = $request->get_param( 'message' );
@@ -1524,6 +1976,42 @@ class API extends BaseAPI {
 	}
 
 	/**
+	 * Resolve a Connect chat result to its final reply text, shared by the poll
+	 * and stream response paths: the model reply plus an optional source link,
+	 * or the unanswered fallback.
+	 *
+	 * @param array<string, mixed> $result     The platform job result.
+	 * @param array<string, mixed> $settings   Hyve settings (reads show_source_link).
+	 * @param string               $unanswered Message shown when the KB could not answer.
+	 *
+	 * @return array{answered: bool, reply: string, final: string}
+	 */
+	public function connect_reply_final( $result, $settings, $unanswered ) {
+		$answered = ! empty( $result['answered'] );
+		$reply    = isset( $result['reply'] ) ? (string) $result['reply'] : '';
+
+		if ( ! $answered ) {
+			return [
+				'answered' => false,
+				'reply'    => $reply,
+				'final'    => $unanswered,
+			];
+		}
+
+		$final = $reply;
+
+		if ( ! empty( $settings['show_source_link'] ) && ! empty( $result['sources'] ) ) {
+			$final = $this->maybe_append_source_link( $final, array_column( $result['sources'], 'id' ) );
+		}
+
+		return [
+			'answered' => true,
+			'reply'    => $reply,
+			'final'    => $final,
+		];
+	}
+
+	/**
 	 * Append source links to a chat response for the publicly accessible sources.
 	 *
 	 * Renders up to a filterable number of links (default 3), keeping the highest
@@ -1619,6 +2107,47 @@ class API extends BaseAPI {
 	}
 
 	/**
+	 * Whether the requesting IP has exceeded the chat rate limit. Fixed-window
+	 * per-IP counters (filterable window => max), so a steady visitor is fine
+	 * but a flood is capped before it reaches the metered backend.
+	 *
+	 * @return bool
+	 */
+	private function chat_rate_limited() {
+		// REMOTE_ADDR is the transport peer (not a spoofable forwarded header);
+		// validate it and key the coarse throttle on it.
+		$raw = isset( $_SERVER['REMOTE_ADDR'] ) ? wp_unslash( $_SERVER['REMOTE_ADDR'] ) : ''; // phpcs:ignore WordPressVIPMinimum.Variables.ServerVariables.UserControlledHeaders, WordPressVIPMinimum.Variables.RestrictedVariables.cache_constraints___SERVER__REMOTE_ADDR__, WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- Validated as an IP on the next line.
+		$ip  = filter_var( $raw, FILTER_VALIDATE_IP );
+
+		if ( ! $ip ) {
+			return false;
+		}
+
+		$limits = apply_filters(
+			'hyve_chat_rate_limits',
+			[
+				MINUTE_IN_SECONDS => 15,
+				HOUR_IN_SECONDS   => 100,
+			]
+		);
+
+		$base = 'hyve_chat_rl_' . md5( $ip );
+
+		foreach ( $limits as $window => $max ) {
+			$key   = $base . '_' . $window . '_' . (int) floor( time() / $window );
+			$count = (int) get_transient( $key );
+
+			if ( $count >= $max ) {
+				return true;
+			}
+
+			set_transient( $key, $count + 1, $window );
+		}
+
+		return false;
+	}
+
+	/**
 	 * Send chat.
 	 *
 	 * @param \WP_REST_Request<array<string, mixed>> $request Request object.
@@ -1626,6 +2155,18 @@ class API extends BaseAPI {
 	 * @return \WP_REST_Response
 	 */
 	public function send_chat( $request ) {
+		// Public chat is metered (platform allowance in Connect mode, the site's
+		// OpenAI key otherwise). Throttle logged-out visitors per IP so a loop
+		// cannot drain the allowance; admins (the preview) are exempt.
+		if ( ! current_user_can( 'manage_options' ) && $this->chat_rate_limited() ) {
+			return rest_ensure_response(
+				[
+					'error' => __( 'You are sending messages too quickly. Please wait a moment and try again.', 'hyve-lite' ),
+					'code'  => 'rate_limited',
+				]
+			);
+		}
+
 		$prepared = $this->prepare_chat( $request );
 
 		if ( is_wp_error( $prepared ) ) {
@@ -1670,6 +2211,12 @@ class API extends BaseAPI {
 			);
 		}
 
+		// Connect mode has no OpenAI background run; the platform answers in one
+		// synchronous call. Buffer it and hand back a token the poll flow reads.
+		if ( Hyve_Connect::is_active() ) {
+			return $this->send_chat_connect( $prepared, $is_test, $request_record );
+		}
+
 		// Default path: background run + client polling (unchanged behavior).
 		$thread_id = $prepared['thread_id'];
 		$query_run = $this->create_background_run( $prepared['context'], $prepared['message'], $thread_id );
@@ -1693,6 +2240,117 @@ class API extends BaseAPI {
 	}
 
 	/**
+	 * Answer a chat turn through Hyve Connect (buffered) and stash it for the poll.
+	 *
+	 * The platform run is synchronous, so the whole answer is fetched here and
+	 * stored under a run token that `get_chat` reads back, keeping the widget's
+	 * send-then-poll contract intact without an OpenAI background run.
+	 *
+	 * @param array{thread_id:string,message:string,context:string} $prepared  Prepared turn.
+	 * @param bool                                                  $is_test   Admin live-preview chat.
+	 * @param int|null                                              $record_id Existing conversation record.
+	 *
+	 * @return \WP_REST_Response
+	 */
+	private function send_chat_connect( $prepared, $is_test, $record_id ) {
+		$result = Hyve_Connect::instance()->chat(
+			[
+				'message'   => $prepared['message'],
+				'thread_id' => '' !== $prepared['thread_id'] ? $prepared['thread_id'] : null,
+				'settings'  => Hyve_Connect::chat_settings(),
+				'stream'    => false,
+			]
+		);
+
+		if ( is_wp_error( $result ) ) {
+			return rest_ensure_response(
+				[
+					'error' => Hyve_Connect::visitor_message(),
+					'code'  => $result->get_error_code(),
+				]
+			);
+		}
+
+		$thread_id = isset( $result['thread_id'] ) ? $result['thread_id'] : $prepared['thread_id'];
+
+		if ( ! $is_test ) {
+			$record_id = apply_filters( 'hyve_chat_request', $thread_id, $record_id, $prepared['message'] );
+		}
+
+		$token = wp_generate_password( 24, false );
+
+		set_transient(
+			'hyve_connect_run_' . $token,
+			[
+				'result'    => $result,
+				'message'   => $prepared['message'],
+				'thread_id' => $thread_id,
+				'record_id' => $record_id,
+				'is_test'   => $is_test,
+			],
+			5 * MINUTE_IN_SECONDS
+		);
+
+		return rest_ensure_response(
+			[
+				'thread_id' => $thread_id,
+				'query_run' => $token,
+				'record_id' => $record_id ? $record_id : null,
+				'content'   => '',
+			]
+		);
+	}
+
+	/**
+	 * Serve a buffered Hyve Connect reply for the poll flow.
+	 *
+	 * The plugin owns presentation exactly as in self-hosted mode: the
+	 * default_message fallback on `answered:false` and source-link rendering.
+	 *
+	 * @param \WP_REST_Request<array<string, mixed>> $request Request object.
+	 *
+	 * @return \WP_REST_Response
+	 */
+	private function get_chat_connect( $request ) {
+		$run_id = $request->get_param( 'run_id' );
+		$job    = $run_id ? get_transient( 'hyve_connect_run_' . $run_id ) : false;
+
+		if ( ! is_array( $job ) ) {
+			return rest_ensure_response( [ 'error' => __( 'No messages found.', 'hyve-lite' ) ] );
+		}
+
+		delete_transient( 'hyve_connect_run_' . $run_id );
+
+		Main::add_labels_to_default_settings();
+		$settings = Main::get_settings();
+
+		$result   = is_array( $job['result'] ) ? $job['result'] : [];
+		$resolved = $this->connect_reply_final( $result, $settings, $settings['default_message'] );
+		$answered = $resolved['answered'];
+		$reply    = $resolved['reply'];
+		$final    = $resolved['final'];
+
+		$payload = [
+			'success'  => $answered,
+			'response' => $answered ? $reply : '',
+		];
+
+		if ( empty( $job['is_test'] ) ) {
+			do_action( 'hyve_chat_response', (string) $run_id, $job['thread_id'], $job['message'], $job['record_id'], $payload, $final );
+		}
+
+		$data = [
+			'status'  => 'completed',
+			'success' => $answered,
+			'message' => $final,
+		];
+
+		$reply = apply_filters( 'hyve_chat_reply_data', $data, $payload, $answered );
+
+		return rest_ensure_response( is_array( $reply ) ? $reply : $data );
+	}
+
+	/**
 	 * Prepare a chat turn before a model run is created.
 	 *
 	 * Runs the shared, transport-agnostic work: moderation, embeddings,
@@ -1710,6 +2368,20 @@ class API extends BaseAPI {
 
 		if ( empty( $message ) ) {
 			return new \WP_Error( 'missing_message', __( 'Message was flagged.', 'hyve-lite' ) );
+		}
+
+		// Connect mode: moderation, embedding, retrieval, and thread minting all
+		// happen server-side inside hyve-chat, so there is no local prep. The
+		// platform mints the thread id on turn 1 and echoes it back.
+		if ( Hyve_Connect::is_active() ) {
+			$this->source_post_ids = [];
+			$thread_id             = $request->get_param( 'thread_id' );
+
+			return [
+				'thread_id' => $thread_id ? $thread_id : '',
+				'message'   => $message,
+				'context'   => '',
+			];
 		}
 
 		$moderation = OpenAI::instance()->moderate_chunks( $message );
