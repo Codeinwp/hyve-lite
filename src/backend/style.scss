@@ -1244,19 +1244,21 @@ p.hyve-next-notice__text {
 .hyve-next-toolbar {
 	align-items: center;
 	display: flex;
+	flex-wrap: wrap;
 	gap: 10px;
 
 	> :first-child {
 		min-width: 160px;
 	}
+}
 
-	@media (max-width: 782px) {
-		flex-wrap: wrap;
-	}
+.hyve-next-toolbar__filter {
+	min-width: 150px;
 }
 
 .hyve-next-toolbar__grow {
 	flex: 1;
+	min-width: 200px;
 }
 
 .hyve-next-toolbar__count {
