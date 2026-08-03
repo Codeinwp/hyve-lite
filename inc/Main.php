@@ -105,8 +105,27 @@ class Main {
 		}
 
 		add_filter( 'themeisle_sdk_blackfriday_data', [ $this, 'add_black_friday_data' ] );
+		add_filter( 'hyve_lite_about_us_metadata', [ $this, 'about_us_metadata' ] );
 		add_action( 'admin_init', [ $this, 'admin_init' ] );
 		add_action( 'admin_init', [ $this, 'add_privacy_policy_content' ] );
+		add_action( 'admin_notices', [ $this, 'encryption_key_notice' ] );
+		add_filter( 'hyve_encryption_key_check_can_reset', [ __CLASS__, 'can_reset_encryption_key_check' ] );
+	}
+
+	/**
+	 * Warn administrators when encrypted credentials cannot be decrypted.
+	 *
+	 * @return void
+	 */
+	public function encryption_key_notice() {
+		if ( ! current_user_can( 'manage_options' ) || ! Encryption::has_key_changed() ) {
+			return;
+		}
+		?>
+		<div class="notice notice-error">
+			<p><?php esc_html_e( 'Hyve encryption keys have changed. Please update your OpenAI and Qdrant connection settings and regenerate API access tokens to avoid service disruption.', 'hyve-lite' ); ?></p>
+		</div>
+		<?php
 	}
 
 	/**
@@ -487,6 +506,15 @@ class Main {
 			$saved = [];
 		}
 
+		foreach ( self::get_encrypted_settings() as $key ) {
+			if ( ! isset( $saved[ $key ] ) ) {
+				continue;
+			}
+
+			$decrypted     = Encryption::decrypt( $saved[ $key ] );
+			$saved[ $key ] = false === $decrypted ? '' : $decrypted;
+		}
+
 		$settings                      = $saved;
 		$settings['telemetry_enabled'] = 'yes' === get_option( 'hyve_lite_logger_flag', 'no' );
 
@@ -503,6 +531,69 @@ class Main {
 		}
 
 		return $settings;
+	}
+
+	/**
+	 * Get settings that must be encrypted at rest.
+	 *
+	 * @return string[]
+	 */
+	public static function get_encrypted_settings() {
+		return [ 'api_key', 'qdrant_api_key' ];
+	}
+
+	/**
+	 * Persist settings while keeping sensitive values encrypted at rest.
+	 *
+	 * @param mixed $settings Settings to persist.
+	 * @return bool Whether the settings were saved successfully.
+	 */
+	public static function save_settings( $settings ) {
+		if ( ! is_array( $settings ) ) {
+			return false;
+		}
+
+		foreach ( self::get_encrypted_settings() as $key ) {
+			if ( ! isset( $settings[ $key ] ) || '' === $settings[ $key ] ) {
+				continue;
+			}
+
+			$encrypted = Encryption::encrypt( $settings[ $key ] );
+
+			if ( false === $encrypted ) {
+				return false;
+			}
+
+			$settings[ $key ] = $encrypted;
+		}
+
+		return update_option( 'hyve_settings', $settings ) || get_option( 'hyve_settings' ) === $settings;
+	}
+
+	/**
+	 * Keep the changed-key marker until Lite's unreadable credentials are replaced.
+	 *
+	 * @param bool $can_reset Whether other plugin components are recovered.
+	 * @return bool Whether Lite's credentials are recovered too.
+	 */
+	public static function can_reset_encryption_key_check( $can_reset ) {
+		if ( ! $can_reset ) {
+			return false;
+		}
+
+		$settings = get_option( 'hyve_settings', [] );
+
+		if ( ! is_array( $settings ) ) {
+			return true;
+		}
+
+		foreach ( self::get_encrypted_settings() as $key ) {
+			if ( isset( $settings[ $key ] ) && Encryption::is_encrypted( $settings[ $key ] ) && false === Encryption::decrypt( $settings[ $key ] ) ) {
+				return false;
+			}
+		}
+
+		return true;
 	}
 
 	/**
@@ -629,7 +720,7 @@ class Main {
 
 		wp_add_inline_script(
 			'hyve-lite-scripts',
-			'document.addEventListener("DOMContentLoaded", function() { const box = document.querySelector( ".hyve-input-box" ); if ( ! box ) { return; } const c = document.createElement("div"); c.className = "hyve-credits"; c.innerHTML = "<a href=\"https://themeisle.com/plugins/hyve/\" target=\"_blank\">Powered by Hyve</a>"; if ( document.querySelector( ".hyve-privacy-notice" ) ) { c.hidden = true; } box.before( c ); });'
+			'document.addEventListener("DOMContentLoaded", function() { const box = document.querySelector( ".hyve-input-box" ); if ( ! box ) { return; } const c = document.createElement("div"); c.className = "hyve-credits"; c.innerHTML = "<a href=\"https://themeisle.com/plugins/hyve/?utm_source=hyve&utm_medium=chatbot&utm_campaign=copyright\" target=\"_blank\">Powered by Hyve</a>"; if ( document.querySelector( ".hyve-privacy-notice" ) ) { c.hidden = true; } box.before( c ); });'
 		);
 	}
 
@@ -1094,6 +1185,22 @@ class Main {
 		$configs[ HYVE_PRODUCT_SLUG ] = $config;
 
 		return $configs;
+	}
+
+	/**
+	 * Provide metadata for the ThemeIsle SDK About Us page.
+	 *
+	 * @return array<string, mixed>
+	 */
+	public function about_us_metadata() {
+		return [
+			'location'         => 'hyve',
+			'logo'             => 'https://ps.w.org/hyve-lite/assets/icon-256x256.png',
+			'has_upgrade_menu' => 'valid' !== apply_filters( 'product_hyve_license_status', false ),
+			'upgrade_link'     => tsdk_utmify( 'https://themeisle.com/plugins/hyve/', 'about-us' ),
+			'upgrade_text'     => __( 'Get Pro Version', 'hyve-lite' ),
+			'review_link'      => 'https://wordpress.org/support/plugin/hyve-lite/reviews/',
+		];
 	}
 
 	/**

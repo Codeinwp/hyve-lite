@@ -588,7 +588,15 @@ class API extends BaseAPI {
 			}
 		}
 
-		update_option( 'hyve_settings', $settings );
+		if ( ! Encryption::has_key_changed() && ! Encryption::ensure_key_check() ) {
+			return $this->settings_response( [ 'error' => __( 'Unable to prepare encryption for connection credentials.', 'hyve-lite' ) ] );
+		}
+
+		if ( ! Main::save_settings( $settings ) ) {
+			return $this->settings_response( [ 'error' => __( 'Unable to encrypt connection credentials.', 'hyve-lite' ) ] );
+		}
+
+		Encryption::maybe_reset_key_check();
 
 		// Switching into Connect: push any existing self-hosted content up to the
 		// platform so the site does not start with an empty hosted KB. Runs on a
@@ -1207,7 +1215,7 @@ class API extends BaseAPI {
 		$settings['qdrant_api_key']  = '';
 		$settings['qdrant_endpoint'] = '';
 
-		update_option( 'hyve_settings', $settings );
+		Main::save_settings( $settings );
 		update_option( 'hyve_qdrant_status', 'inactive' );
 		delete_option( 'hyve_qdrant_migration' );
 
