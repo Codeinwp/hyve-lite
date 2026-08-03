@@ -46,7 +46,7 @@
   "homepage": "https://github.com/Codeinwp/hyve-lite#readme",
   "devDependencies": {
     "@playwright/test": "^1.62.1",
-    "@semantic-release/changelog": "^6.0.3",
+    "@semantic-release/changelog": "^7.0.0",
     "@semantic-release/exec": "^6.0.3",
     "@semantic-release/git": "^11.0.1",
     "@wordpress/e2e-test-utils-playwright": "^1.50.0",
