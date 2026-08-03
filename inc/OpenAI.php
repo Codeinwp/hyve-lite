@@ -77,8 +77,7 @@ class OpenAI {
 	 * Base support-assistant instructions shared by the reply flows.
 	 *
 	 * Authored as readable paragraphs and kept in sync with the platform's
-	 * ChatWorkflow::BASE_SYSTEM_PROMPT. It is stripped to a compact single line
-	 * by compact_prompt() before being sent.
+	 * ChatWorkflow::BASE_SYSTEM_PROMPT.
 	 *
 	 * @var string
 	 */
@@ -117,10 +116,6 @@ d) If neither current nor previous context addresses the question: Respond with 
 6. Handling Follow-up Questions
 - Maintain awareness of previous context to answer follow-up questions.
 - If current context is empty but the question seems to be a follow-up, attempt to answer using previous context.
-
-7. Tool Usage
-- The provided context is your primary source. When it already contains the answer, answer from it directly and do not call any available tool.
-- Call a tool only when the provided context does not contain the information the question needs, such as live or account-specific data.
 
 Examples:
 
@@ -184,8 +179,6 @@ PROMPT;
 	/**
 	 * Reminder appended after the site owner's prompt in the developer message.
 	 *
-	 * Stripped to a compact single line by compact_prompt() before being sent.
-	 *
 	 * @var string
 	 */
 	private const OWNER_INSTRUCTIONS_FOOTER = <<<'PROMPT'
@@ -198,8 +191,6 @@ PROMPT;
 	/**
 	 * Reminder appended after the built-in instructions when the site owner set
 	 * a custom prompt, restating its precedence over the guidance above.
-	 *
-	 * Stripped to a compact single line by compact_prompt() before being sent.
 	 *
 	 * @var string
 	 */
@@ -497,7 +488,7 @@ PROMPT;
 				[
 					'type'    => 'message',
 					'role'    => 'developer',
-					'content' => self::compact_prompt( "SITE OWNER INSTRUCTIONS:\r\n" . $system_prompt . "\r\n\r\n" . self::OWNER_INSTRUCTIONS_FOOTER ),
+					'content' => "SITE OWNER INSTRUCTIONS:\r\n" . $system_prompt . "\r\n\r\n" . self::OWNER_INSTRUCTIONS_FOOTER,
 				],
 			];
 		}
@@ -532,7 +523,7 @@ PROMPT;
 			'conversation' => $conversation,
 			'model'        => $this->chat_model,
 			'input'        => $items,
-			'instructions' => self::compact_prompt( $this->apply_system_prompt( self::BASE_SYSTEM_PROMPT ) ),
+			'instructions' => $this->apply_system_prompt( self::BASE_SYSTEM_PROMPT ),
 			'text'         => [
 				'format' => [
 					'type'   => 'json_schema',
@@ -709,20 +700,6 @@ PROMPT;
 		 * @param string $system_prompt The custom system prompt.
 		 */
 		return trim( (string) apply_filters( 'hyve_system_prompt', $settings['system_prompt'] ?? '' ) );
-	}
-
-	/**
-	 * Collapse an authored, multi-line prompt into the compact single-line form
-	 * sent on the wire. Prompts are kept as readable paragraphs in the source
-	 * (the class constants above) but stripped before injection so the request
-	 * payload stays lean.
-	 *
-	 * @param string $prompt The authored prompt.
-	 *
-	 * @return string
-	 */
-	private static function compact_prompt( $prompt ) {
-		return trim( (string) preg_replace( '/\s+/', ' ', (string) $prompt ) );
 	}
 
 	/**
