@@ -283,6 +283,7 @@ class Stream {
 			'success'   => $answered,
 			'message'   => $final,
 			'record_id' => $record_id ? $record_id : null,
+			'thread_id' => $thread_id,
 		];
 
 		// Let extensions attach extra reply data (e.g. follow-up suggestions from
@@ -377,6 +378,16 @@ class Stream {
 
 		if ( $answered && ! empty( $result['follow_ups'] ) && is_array( $result['follow_ups'] ) ) {
 			$payload['follow_ups'] = $result['follow_ups'];
+		}
+
+		// Platform-detected signals; folded into the payload so the generic
+		// actions mapper (hyve_chat_reply_data) turns each into an action.
+		if ( isset( $result['signals'] ) && is_array( $result['signals'] ) ) {
+			foreach ( $result['signals'] as $type => $value ) {
+				if ( $value ) {
+					$payload[ $type ] = true;
+				}
+			}
 		}
 
 		if ( ! $is_test ) {

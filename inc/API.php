@@ -503,10 +503,8 @@ class API extends BaseAPI {
 		);
 
 		foreach ( $updated as $key => $value ) {
-			// Unknown keys (e.g. settings removed in an update but still
-			// present in the stored option) are dropped, not fatal.
 			if ( ! isset( $validation[ $key ] ) ) {
-				unset( $updated[ $key ] );
+				unset( $updated[ $key ], $settings[ $key ] );
 				continue;
 			}
 
@@ -1168,6 +1166,7 @@ class API extends BaseAPI {
 				'date'      => get_the_date( 'c', $post_id ),
 				'thread'    => get_post_meta( $post_id, '_hyve_thread_data', true ),
 				'thread_id' => get_post_meta( $post_id, '_hyve_thread_id', true ),
+				'lead_id'   => (int) get_post_meta( $post_id, '_hyve_lead_id', true ),
 			];
 
 			$posts_data[] = $post_data;

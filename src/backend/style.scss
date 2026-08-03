@@ -790,6 +790,10 @@
 		max-width: 420px;
 		padding: 10px 12px;
 	}
+
+	&.is-full {
+		max-width: none;
+	}
 }
 
 .hyve-next-notice__body {
@@ -1023,6 +1027,30 @@ p.hyve-next-notice__text {
 	font-size: 12px;
 }
 
+/* Secret value with its actions on one line; the value gives way, never the
+   buttons. */
+.hyve-next-secret {
+	align-items: center;
+	display: flex;
+	gap: 8px;
+
+	code {
+		background: var(--hyve-surface-2);
+		border: 1px solid var(--hyve-border);
+		border-radius: var(--hyve-radius-in);
+		flex: 1;
+		min-width: 0;
+		overflow: hidden;
+		padding: 4px 8px;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.components-button {
+		flex-shrink: 0;
+	}
+}
+
 .hyve-next-code {
 	background: var(--hyve-surface-2);
 	border: 1px solid var(--hyve-border);
@@ -1103,6 +1131,11 @@ p.hyve-next-notice__text {
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
+
+	.hyve-next-chip {
+		margin-left: 8px;
+		vertical-align: middle;
+	}
 }
 
 .hyve-next-table__sub {
@@ -1274,6 +1307,80 @@ p.hyve-next-notice__text {
 	max-height: 60vh;
 	overflow-y: auto;
 	padding: 16px;
+}
+
+.hyve-next-thread__event {
+	align-items: center;
+	color: var(--hyve-muted);
+	display: flex;
+	font-size: 12px;
+	gap: 8px;
+	justify-content: center;
+	margin: 12px 0;
+	text-align: center;
+
+	&::before,
+	&::after {
+		background: var(--hyve-border);
+		content: "";
+		flex: 1;
+		height: 1px;
+	}
+
+	time {
+		white-space: nowrap;
+	}
+}
+
+/* Static free-tier preview of a Pro surface: visible but inert. */
+.hyve-next-demo {
+	opacity: 0.6;
+	pointer-events: none;
+	user-select: none;
+}
+
+/* Form-fields builder: inputs live inside table cells, so the row hover
+   highlight is noise and the checkbox column stays compact. */
+.hyve-next-leadfields {
+
+	tbody tr:hover td {
+		background: transparent;
+	}
+
+	tbody tr td:nth-child(2) {
+		width: 160px;
+	}
+
+	tbody tr td:nth-child(3) {
+		width: 90px;
+
+		.components-base-control__field {
+			margin-bottom: 0;
+		}
+	}
+
+	tbody tr td:last-child {
+		display: flex;
+		justify-content: flex-end;
+		white-space: nowrap;
+		width: 1%;
+	}
+}
+
+.hyve-next-lead__row {
+	border-bottom: 1px solid var(--hyve-border);
+	display: grid;
+	gap: 16px;
+	grid-template-columns: 140px minmax(0, 1fr);
+	padding: 8px 0;
+
+	&:last-child {
+		border-bottom: 0;
+	}
+
+	span {
+		overflow-wrap: anywhere;
+	}
 }
 
 .hyve-next-pagination {
