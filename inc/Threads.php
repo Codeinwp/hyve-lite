@@ -89,9 +89,8 @@ class Threads {
 			[
 				'thread_id' => $thread_id,
 				'sender'    => 'bot',
-				// The admin Messages screen renders this as HTML; strip anything
-				// unsafe (the reply is model/platform output, not trusted).
 				'message'   => wp_kses_post( $response ),
+				'display'   => isset( $message['display'] ) && is_array( $message['display'] ) ? $message['display'] : null,
 			]
 		);
 	}
@@ -131,11 +130,33 @@ class Threads {
 	
 
 	/**
+	 * Build a stored transcript entry, carrying an optional `display` (skill
+	 * cards or choices) alongside the message so history matches what was shown.
+	 *
+	 * @param array<string, mixed> $data The message data.
+	 *
+	 * @return array<string, mixed>
+	 */
+	private static function build_entry( $data ) {
+		$entry = [
+			'time'    => time(),
+			'sender'  => $data['sender'],
+			'message' => wp_kses_post( $data['message'] ),
+		];
+
+		if ( ! empty( $data['display'] ) && is_array( $data['display'] ) ) {
+			$entry['display'] = $data['display'];
+		}
+
+		return $entry;
+	}
+
+	/**
 	 * Create a new thread.
-	 * 
+	 *
 	 * @param string               $title The title of the thread.
 	 * @param array<string, mixed> $data The data of the thread.
-	 * 
+	 *
 	 * @return int
 	 */
 	public static function create_thread( $title, $data ) {
@@ -148,13 +169,7 @@ class Threads {
 			]
 		);
 
-		$thread_data = [
-			[
-				'time'    => time(),
-				'sender'  => $data['sender'],
-				'message' => wp_kses_post( $data['message'] ),
-			],
-		];
+		$thread_data = [ self::build_entry( $data ) ];
 
 		update_post_meta( $post_id, '_hyve_thread_data', $thread_data );
 		update_post_meta( $post_id, '_hyve_thread_count', 1 );
@@ -195,11 +210,7 @@ class Threads {
 
 		$thread_data = get_post_meta( $post_id, '_hyve_thread_data', true );
 
-		$thread_data[] = [
-			'time'    => time(),
-			'sender'  => $data['sender'],
-			'message' => wp_kses_post( $data['message'] ),
-		];
+		$thread_data[] = self::build_entry( $data );
 
 		update_post_meta( $post_id, '_hyve_thread_data', $thread_data );
 		update_post_meta( $post_id, '_hyve_thread_count', count( $thread_data ) );

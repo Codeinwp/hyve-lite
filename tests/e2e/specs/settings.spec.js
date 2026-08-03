@@ -219,17 +219,13 @@ test.describe( 'Settings', () => {
 		expect( saves[ 0 ]?.data?.chat_model ).toBe( 'gpt-4.1-nano' );
 	} );
 
-	test( 'advanced: sliders render and reset restores the defaults', async ( {
+	test( 'provider: the similarity slider resets to its default', async ( {
 		page,
 		admin,
 	} ) => {
 		await admin.visitAdminPage(
-			`${ HYVE_ADMIN }&nav=settings&sub=ai-advanced`
+			`${ HYVE_ADMIN }&nav=settings&sub=ai-provider`
 		);
-
-		await expect(
-			page.getByRole( 'heading', { name: 'Advanced tuning' } )
-		).toBeVisible();
 
 		const similarity = page
 			.getByRole( 'slider', { name: 'Similarity threshold' } )

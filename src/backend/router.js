@@ -172,9 +172,11 @@ const ROUTES = {
 				label: __( 'Provider & model', 'hyve-lite' ),
 				group: __( 'AI', 'hyve-lite' ),
 			},
-			'ai-advanced': {
-				label: __( 'Advanced', 'hyve-lite' ),
-				group: __( 'AI', 'hyve-lite' ),
+			skills: {
+				label: __( 'Skills', 'hyve-lite' ),
+				group: __( 'Integrations', 'hyve-lite' ),
+				requiresAPI: true,
+				isPro: true,
 			},
 			qdrant: {
 				label: __( 'Qdrant', 'hyve-lite' ),

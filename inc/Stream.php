@@ -182,9 +182,6 @@ class Stream {
 
 		$this->open_stream();
 
-		// Connect mode relays the platform's own stream: it already emits clean
-		// `delta` events (plus kb_state/sources), so they are forwarded straight
-		// through and the terminal reply is assembled from job_complete.
 		if ( Hyve_Connect::is_active() ) {
 			$this->stream_connect( $message, $thread_id, $record_id, $is_test, $settings, $default_message, $page );
 			exit;
@@ -192,9 +189,8 @@ class Stream {
 
 		$items = OpenAI::build_chat_items( $context, $message );
 
-		// Stream the `response` field of the structured reply as it grows so the
-		// browser can paint it progressively. The opener offset is cached once
-		// found so the buffer is not re-scanned for it on every delta.
+		$this->send_event( 'status', [ 'state' => 'thinking' ] );
+
 		$raw         = '';
 		$sent        = 0;
 		$value_start = null;
@@ -218,11 +214,60 @@ class Stream {
 			}
 		};
 
-		$result = OpenAI::instance()->stream_response( $items, $thread_id, $on_delta );
+		$result     = null;
+		$cancelled  = false;
+		$used_tools = false;
 
-		if ( is_wp_error( $result ) ) {
-			$this->send_event( 'error', [ 'message' => $result->get_error_message() ] );
-			exit;
+		for ( $i = 0; ; $i++ ) {
+			$raw         = '';
+			$sent        = 0;
+			$value_start = null;
+
+			$result = OpenAI::instance()->stream_response( $items, $thread_id, $on_delta );
+
+			if ( is_wp_error( $result ) ) {
+				$this->send_event( 'error', [ 'message' => $result->get_error_message() ] );
+				exit;
+			}
+
+			$tool_calls = $result['tool_calls'];
+
+			if ( empty( $tool_calls ) || $cancelled ) {
+				break;
+			}
+
+			$outputs = null;
+
+			if ( $i < OpenAI::MAX_TOOL_ITERATIONS ) {
+				/**
+				 * Execute the model's tool calls and return function_call_output
+				 * items to feed back on the next turn. Lite attaches no handler.
+				 *
+				 * @param array|null $outputs    Continuation items, or null when unhandled.
+				 * @param array      $tool_calls The requested calls (call_id, name, arguments).
+				 */
+				$outputs = apply_filters( 'hyve_execute_tool_calls', null, $tool_calls );
+			}
+
+			if ( ! is_array( $outputs ) || empty( $outputs ) ) {
+				$outputs   = OpenAI::abort_tool_calls( $tool_calls );
+				$cancelled = true;
+
+				if ( empty( $outputs ) ) {
+					break;
+				}
+
+				add_filter( 'hyve_create_response_params', [ OpenAI::class, 'suppress_tools' ], 100 );
+			}
+
+			$this->send_event( 'status', [ 'state' => 'tool' ] );
+
+			$used_tools = true;
+			$items      = $outputs;
+		}
+
+		if ( $cancelled ) {
+			remove_filter( 'hyve_create_response_params', [ OpenAI::class, 'suppress_tools' ], 100 );
 		}
 
 		// Best-effort guard: if the client already disconnected (it timed out on a
@@ -266,17 +311,19 @@ class Stream {
 			}
 		}
 
-		if ( $answered && ! empty( $settings['show_source_link'] ) ) {
+		// Source links cite the knowledge-base chunks behind an answer; a
+		// tool-driven reply is grounded in the tool result instead, so citing
+		// whatever chunks happened to match the question would mislead.
+		if ( $answered && ! $used_tools && ! empty( $settings['show_source_link'] ) ) {
 			$final = API::instance()->maybe_append_source_link( $final, $source_post_ids );
 		}
+
 		// Record the turn once, now that the reply has landed: the user message
 		// (hyve_chat_request) then the reply (hyve_chat_response), preserving the
 		// poll flow's contract so logging and analytics are unaffected. Test chats
 		// from the admin live preview are never recorded.
 		if ( ! $is_test ) {
 			$record_id = apply_filters( 'hyve_chat_request', $thread_id, $record_id, $message );
-
-			do_action( 'hyve_chat_response', $result['id'], $thread_id, $message, $record_id, $payload, $final );
 		}
 
 		$data = [
@@ -286,14 +333,32 @@ class Stream {
 			'thread_id' => $thread_id,
 		];
 
-		// Let extensions attach extra reply data (e.g. follow-up suggestions from
-		// the structured payload) to the terminal event. Shared with the poll flow
-		// (get_chat) so both paths surface the same data to the widget. A filter
-		// that returns a non-array is ignored so it cannot corrupt the done frame.
+		// Let extensions attach extra reply data (e.g. follow-up suggestions or a
+		// skill list) to the terminal event. Shared with the poll flow (get_chat)
+		// so both paths surface the same data to the widget. A filter that returns
+		// a non-array is ignored so it cannot corrupt the done frame.
 		$reply = apply_filters( 'hyve_chat_reply_data', $data, $payload, $answered );
 
 		if ( is_array( $reply ) ) {
 			$data = $reply;
+		}
+
+		// Carry the filtered display/success back so the recorded turn matches
+		// what the visitor saw (a skill turn may have been promoted to answered).
+		if ( isset( $data['display'] ) ) {
+			$payload['display'] = $data['display'];
+		}
+
+		if ( isset( $data['success'] ) ) {
+			$payload['success'] = $data['success'];
+		}
+
+		if ( isset( $data['message'] ) && is_string( $data['message'] ) ) {
+			$final = $data['message'];
+		}
+
+		if ( ! $is_test ) {
+			do_action( 'hyve_chat_response', $result['id'], $thread_id, $message, $record_id, $payload, $final );
 		}
 
 		$this->send_event( 'done', $data );
@@ -327,6 +392,8 @@ class Stream {
 				$this->send_event( 'delta', [ 'text' => isset( $data['text'] ) ? $data['text'] : '' ] );
 			} elseif ( 'sources' === $event && isset( $data['items'] ) && is_array( $data['items'] ) ) {
 				$sources = $data['items'];
+			} elseif ( 'status' === $event ) {
+				$this->send_event( 'status', is_array( $data ) ? $data : [] );
 			}
 			// kb_state is informational here; the terminal event drives the outcome.
 		};
@@ -373,7 +440,7 @@ class Stream {
 
 		$payload = [
 			'success'  => $answered,
-			'response' => $answered ? $reply : '',
+			'response' => $reply,
 		];
 
 		if ( $answered && ! empty( $result['follow_ups'] ) && is_array( $result['follow_ups'] ) ) {
@@ -392,7 +459,6 @@ class Stream {
 
 		if ( ! $is_test ) {
 			$record_id = apply_filters( 'hyve_chat_request', $thread, $record_id, $message );
-			do_action( 'hyve_chat_response', $thread, $thread, $message, $record_id, $payload, $final );
 		}
 
 		$data = [
@@ -406,6 +472,24 @@ class Stream {
 
 		if ( is_array( $reply ) ) {
 			$data = $reply;
+		}
+
+		// Carry the filtered display/success back so the recorded turn matches
+		// what the visitor saw (a skill turn may have been promoted to answered).
+		if ( isset( $data['display'] ) ) {
+			$payload['display'] = $data['display'];
+		}
+
+		if ( isset( $data['success'] ) ) {
+			$payload['success'] = $data['success'];
+		}
+
+		if ( isset( $data['message'] ) && is_string( $data['message'] ) ) {
+			$final = $data['message'];
+		}
+
+		if ( ! $is_test ) {
+			do_action( 'hyve_chat_response', $thread, $thread, $message, $record_id, $payload, $final );
 		}
 
 		$this->send_event( 'done', $data );

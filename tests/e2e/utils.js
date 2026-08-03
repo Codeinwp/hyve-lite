@@ -216,11 +216,13 @@ export async function mockConfirmDeleteThreadResponse( page ) {
 /**
  * Mock the response for the chat API.
  *
- * @param {import("@playwright/test").Page} page              The page.
+ * @param {import("@playwright/test").Page} page               The page.
  * @param {Object}                          [options]
- * @param {string}                          [options.message] The message to return in the response.
- * @param {number}                          [options.delay]   Delay in ms before fulfilling the response.
- * @param {string}                          [options.status]  The status to return in the response.
+ * @param {string}                          [options.message]  The message to return in the response.
+ * @param {number}                          [options.delay]    Delay in ms before fulfilling the response.
+ * @param {string}                          [options.status]   The status to return in the response.
+ * @param {Object}                          [options.display]  A skill display payload ({ type, items }) to return.
+ * @param {string}                          [options.threadId] A thread id to return, so the widget persists the conversation.
  */
 export async function mockChatResponse(
 	page,
@@ -228,6 +230,8 @@ export async function mockChatResponse(
 		message = '<p>Hello! How can I assist you today?</p>',
 		delay = 0,
 		status = 'completed',
+		display = null,
+		threadId = null,
 	} = {}
 ) {
 	await page.route( HYVE_CHAT_API_ROUTE_PATTERN, async ( route ) => {
@@ -239,6 +243,8 @@ export async function mockChatResponse(
 				status,
 				success: true,
 				message,
+				...( display ? { display } : {} ),
+				...( threadId ? { thread_id: threadId, record_id: 1 } : {} ),
 			} ),
 		} );
 	} );

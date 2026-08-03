@@ -49,6 +49,78 @@ const timeOfDay = ( unixSeconds ) =>
 		minute: '2-digit',
 	} ).format( new Date( unixSeconds * 1000 ) );
 
+// List URLs come through an extension filter, so only link http(s) ones.
+const isSafeUrl = ( url ) =>
+	'string' === typeof url && /^https?:\/\//i.test( url );
+
+// One skill display card, mirroring what the widget showed the visitor
+// (image, label, description, meta chip, action pills).
+const DisplayCard = ( { item } ) => {
+	const actions = Array.isArray( item.actions )
+		? item.actions.filter( ( action ) => action?.label )
+		: [];
+
+	return (
+		<div className="hyve-next-cards__item">
+			{ isSafeUrl( item.image ) && (
+				<img
+					className="hyve-next-cards__image"
+					src={ item.image }
+					alt=""
+				/>
+			) }
+			<span className="hyve-next-cards__body">
+				{ isSafeUrl( item.url ) ? (
+					<a
+						className="hyve-next-cards__title"
+						href={ item.url }
+						target="_blank"
+						rel="noreferrer"
+					>
+						{ item.label }
+					</a>
+				) : (
+					<span className="hyve-next-cards__title">
+						{ item.label }
+					</span>
+				) }
+				{ item.description && (
+					<span className="hyve-next-cards__desc">
+						{ item.description }
+					</span>
+				) }
+				{ item.meta && (
+					<span className="hyve-next-cards__meta">{ item.meta }</span>
+				) }
+				{ 0 < actions.length && (
+					<span className="hyve-next-cards__actions">
+						{ actions.map( ( action, i ) =>
+							isSafeUrl( action.url ) ? (
+								<a
+									key={ i }
+									className="hyve-next-cards__action"
+									href={ action.url }
+									target="_blank"
+									rel="noreferrer"
+								>
+									{ action.label }
+								</a>
+							) : (
+								<span
+									key={ i }
+									className="hyve-next-cards__action"
+								>
+									{ action.label }
+								</span>
+							)
+						) }
+					</span>
+				) }
+			</span>
+		</div>
+	);
+};
+
 const messageCount = ( thread ) =>
 	Array.isArray( thread.thread ) ? thread.thread.length : 0;
 
@@ -523,11 +595,26 @@ const ThreadView = ( { item } ) => {
 										key={ index }
 										className="hyve-next-bubble is-bot"
 									>
-										<p
+										<div
+											className="hyve-next-bubble__msg"
 											dangerouslySetInnerHTML={ {
 												__html: message.message,
 											} }
 										/>
+										{ Array.isArray(
+											message.display?.items
+										) && (
+											<div className="hyve-next-cards">
+												{ message.display.items.map(
+													( cardItem, i ) => (
+														<DisplayCard
+															key={ i }
+															item={ cardItem }
+														/>
+													)
+												) }
+											</div>
+										) }
 										<time>
 											{ timeOfDay( message.time ) }
 										</time>
@@ -541,7 +628,28 @@ const ThreadView = ( { item } ) => {
 										key={ index }
 										className="hyve-next-bubble is-user"
 									>
-										<p>{ message.message }</p>
+										<div className="hyve-next-bubble__msg">
+											{ message.message }
+										</div>
+										<time>
+											{ timeOfDay( message.time ) }
+										</time>
+									</div>
+								);
+							}
+
+							if (
+								'event' === message.sender &&
+								EVENT_LABELS[ message.message ]
+							) {
+								return (
+									<div
+										key={ index }
+										className="hyve-next-thread__event"
+									>
+										<span>
+											{ EVENT_LABELS[ message.message ] }
+										</span>
 										<time>
 											{ timeOfDay( message.time ) }
 										</time>
