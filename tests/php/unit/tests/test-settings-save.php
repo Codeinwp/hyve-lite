@@ -12,8 +12,7 @@ use ThemeIsle\HyveLite\Main;
  * Class Test_Settings_Save.
  *
  * Covers the settings save contract: keys the endpoint cannot validate are
- * dropped, but the response must say so instead of reporting a plain success
- * (see Codeinwp/hyve#168, "two states" report).
+ * dropped so stale premium settings do not remain stored in Lite.
  */
 class Test_Settings_Save extends WP_UnitTestCase {
 
@@ -41,10 +40,10 @@ class Test_Settings_Save extends WP_UnitTestCase {
 	}
 
 	/**
-	 * A changed key without a validation entry is dropped, and the response
-	 * carries a warning naming it; validated keys in the same request save.
+	 * A changed key without a validation entry is dropped; validated keys in the
+	 * same request save.
 	 */
-	public function test_unsavable_keys_warn_and_do_not_save() {
+	public function test_unsavable_keys_drop_and_do_not_save() {
 		update_option(
 			'hyve_settings',
 			[
@@ -62,12 +61,12 @@ class Test_Settings_Save extends WP_UnitTestCase {
 			)
 		)->get_data();
 
-		$this->assertArrayHasKey( 'warning', $response );
-		$this->assertStringContainsString( 'mystery_key', $response['warning'] );
+		$this->assertArrayHasKey( 'success', $response );
+		$this->assertArrayNotHasKey( 'warning', $response );
 
 		$settings = Main::get_settings();
 		$this->assertSame( 'Hello there', $settings['welcome_message'] );
-		$this->assertSame( 'old', $settings['mystery_key'] );
+		$this->assertArrayNotHasKey( 'mystery_key', $settings );
 	}
 
 	/**

@@ -174,6 +174,7 @@ class Stream {
 		$context         = isset( $job['context'] ) ? $job['context'] : '';
 		$is_test         = ! empty( $job['is_test'] );
 		$source_post_ids = isset( $job['source_post_ids'] ) ? $job['source_post_ids'] : [];
+		$page            = isset( $job['page'] ) && is_array( $job['page'] ) ? $job['page'] : null;
 
 		Main::add_labels_to_default_settings();
 		$settings        = Main::get_settings();
@@ -185,7 +186,7 @@ class Stream {
 		// `delta` events (plus kb_state/sources), so they are forwarded straight
 		// through and the terminal reply is assembled from job_complete.
 		if ( Hyve_Connect::is_active() ) {
-			$this->stream_connect( $message, $thread_id, $record_id, $is_test, $settings, $default_message );
+			$this->stream_connect( $message, $thread_id, $record_id, $is_test, $settings, $default_message, $page );
 			exit;
 		}
 
@@ -308,16 +309,17 @@ class Stream {
 	 * from which the plugin assembles the final reply, owning presentation
 	 * (default_message on unanswered, source links) exactly as self-hosted.
 	 *
-	 * @param string               $message         Visitor message.
-	 * @param string               $thread_id       Thread id (empty starts a conversation).
-	 * @param int|null             $record_id       Existing conversation record.
-	 * @param bool                 $is_test         Admin live-preview chat (not recorded).
-	 * @param array<string, mixed> $settings        Plugin settings.
-	 * @param string               $default_message Fallback shown when the model cannot answer.
+	 * @param string                    $message         Visitor message.
+	 * @param string                    $thread_id       Thread id (empty starts a conversation).
+	 * @param int|null                  $record_id       Existing conversation record.
+	 * @param bool                      $is_test         Admin live-preview chat (not recorded).
+	 * @param array<string, mixed>      $settings        Plugin settings.
+	 * @param string                    $default_message Fallback shown when the model cannot answer.
+	 * @param array<string, mixed>|null $page            Current page payload (see Page_Context::payload()).
 	 *
 	 * @return void
 	 */
-	private function stream_connect( $message, $thread_id, $record_id, $is_test, $settings, $default_message ) {
+	private function stream_connect( $message, $thread_id, $record_id, $is_test, $settings, $default_message, $page = null ) {
 		$sources = [];
 
 		$on_event = function ( $event, $data ) use ( &$sources ) {
@@ -329,15 +331,18 @@ class Stream {
 			// kb_state is informational here; the terminal event drives the outcome.
 		};
 
-		$result = Hyve_Connect::instance()->stream_chat(
-			[
-				'message'   => $message,
-				'thread_id' => '' !== $thread_id ? $thread_id : null,
-				'settings'  => Hyve_Connect::chat_settings( $settings ),
-				'stream'    => true,
-			],
-			$on_event
-		);
+		$payload = [
+			'message'   => $message,
+			'thread_id' => '' !== $thread_id ? $thread_id : null,
+			'settings'  => Hyve_Connect::chat_settings( $settings ),
+			'stream'    => true,
+		];
+
+		if ( ! empty( $page ) ) {
+			$payload['page'] = $page;
+		}
+
+		$result = Hyve_Connect::instance()->stream_chat( $payload, $on_event );
 
 		if ( is_wp_error( $result ) ) {
 			$error_code = $result->get_error_code();

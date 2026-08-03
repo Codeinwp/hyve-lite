@@ -87,6 +87,15 @@ class DB_Table {
 	const CONNECT_SYNC_STALL = 300;
 
 	/**
+	 * How long a post may carry the `_hyve_post_processing` flag before it is
+	 * treated as leaked (an add interrupted mid-request) and ignored. Comfortably
+	 * beyond a single synchronous add, so a live one is never mistaken for stale.
+	 *
+	 * @var int
+	 */
+	const PROCESSING_STALL = 300;
+
+	/**
 	 * The single instance of the class.
 	 *
 	 * @var DB_Table
@@ -118,6 +127,10 @@ class DB_Table {
 		add_action(
 			'hyve_process_post',
 			function ( $id ) {
+				if ( Hyve_Connect::is_active() ) {
+					return;
+				}
+
 				// Discard the return value: a cron/action callback must not return anything.
 				$this->process_post( $id );
 			},
@@ -499,6 +512,26 @@ class DB_Table {
 	}
 
 	/**
+	 * Get the processed chunks of a source post.
+	 *
+	 * Used to pin the visitor's current page into the chat context. Rows stay
+	 * in this table in both storage backends (Qdrant only holds the vectors),
+	 * so this works regardless of where embeddings live.
+	 *
+	 * @since 1.5.0
+	 *
+	 * @param int $post_id The source post ID.
+	 * @param int $limit   Maximum chunks to return.
+	 *
+	 * @return array<object{post_title: string, post_content: string, token_count: string}>
+	 */
+	public function get_chunks_by_post_id( $post_id, $limit = 20 ) {
+		global $wpdb;
+
+		return $wpdb->get_results( $wpdb->prepare( 'SELECT post_title, post_content, token_count FROM %i WHERE post_id = %d AND post_status = %s ORDER BY id ASC LIMIT %d', $this->table_name, $post_id, 'processed', $limit ) );
+	}
+
+	/**
 	 * Update storage of all rows.
 	 * 
 	 * @since 1.3.0
@@ -552,7 +585,13 @@ class DB_Table {
 	 * @throws \Exception If Qdrant API fails.
 	 */
 	public function add_post( $post_id, $action = 'add' ) {
-		update_post_meta( $post_id, '_hyve_post_processing', 1 );
+		// Stamped with the start time so an add interrupted before the matching
+		// delete below leaves a flag that can be aged out instead of sticking.
+		update_post_meta( $post_id, '_hyve_post_processing', time() );
+
+		$content = Hyve_Connect::is_active()
+			? get_post_field( 'post_content', $post_id )
+			: apply_filters( 'the_content', get_post_field( 'post_content', $post_id ) );
 
 		$content = Hyve_Connect::is_active()
 			? get_post_field( 'post_content', $post_id )
@@ -1022,6 +1061,8 @@ class DB_Table {
 	 * @return void
 	 */
 	public function connect_start_sync() {
+		$this->connect_clear_processing_errors();
+
 		$pending = $this->connect_pending_count();
 
 		if ( 0 === $pending ) {
@@ -1042,6 +1083,106 @@ class DB_Table {
 
 		Hyve_Connect::flush_stats();
 		wp_schedule_single_event( time(), self::CONNECT_SYNC_HOOK );
+	}
+
+	/**
+	 * Durably queue posts for the to-Connect sync job in a single pass.
+	 *
+	 * Each post is marked as belonging to the Knowledge Base (`_hyve_added`)
+	 * without a synced hash, which is exactly the pending state the sync drain
+	 * looks for, and then the cron is kicked. Because the whole selection is
+	 * persisted up front (rather than one REST call per post), a page refresh
+	 * mid-add can no longer drop the items still waiting to be pushed.
+	 *
+	 * @param array<int> $post_ids Post ids to queue.
+	 *
+	 * @return int How many posts were newly queued.
+	 */
+	public function connect_enqueue_posts( $post_ids ) {
+		$queued = 0;
+
+		foreach ( $post_ids as $post_id ) {
+			$post_id = (int) $post_id;
+
+			if ( $post_id <= 0 || ! get_post( $post_id ) ) {
+				continue;
+			}
+
+			// Already on the platform: nothing to push.
+			if ( '' !== (string) get_post_meta( $post_id, '_hyve_connect_synced_hash', true ) ) {
+				continue;
+			}
+
+			// A fresh queueing clears the terminal markers a previous interrupted
+			// or rejected attempt may have left, so the source re-enters the
+			// pending set instead of being skipped forever.
+			delete_post_meta( $post_id, '_hyve_moderation_failed' );
+			delete_post_meta( $post_id, '_hyve_moderation_review' );
+			delete_post_meta( $post_id, '_hyve_processing_error' );
+			delete_post_meta( $post_id, '_hyve_post_processing' );
+
+			update_post_meta( $post_id, '_hyve_added', 1 );
+			++$queued;
+		}
+
+		if ( 0 === $queued ) {
+			return 0;
+		}
+
+		$status = $this->connect_sync_status();
+
+		// Fold the new work into a run already in flight (e.g. a mode-switch
+		// sync): bump its total and make sure a pass is queued to carry it. The
+		// drain re-derives the pending set each pass, so it picks the posts up.
+		if ( ! empty( $status['in_progress'] ) ) {
+			// total tracks the whole job (done + still pending), not just what
+			// is left, so the progress bar stays honest as new work folds in.
+			$status['total']     = (int) ( $status['current'] ?? 0 ) + $this->connect_pending_count();
+			$status['heartbeat'] = time();
+			update_option( self::CONNECT_SYNC_OPTION, $status );
+			Hyve_Connect::flush_stats();
+
+			if ( ! wp_next_scheduled( self::CONNECT_SYNC_HOOK ) ) {
+				wp_schedule_single_event( time(), self::CONNECT_SYNC_HOOK );
+			}
+
+			return $queued;
+		}
+
+		$this->connect_start_sync();
+
+		return $queued;
+	}
+
+	/**
+	 * Forget per-source processing errors so a new sync round re-attempts them.
+	 *
+	 * An error recorded before the switch to Connect comes from the local
+	 * OpenAI pipeline (e.g. a bad key) and says nothing about whether the
+	 * platform can index the source; left in place it would exclude the source
+	 * from the pending set forever. An error recorded by a previous Connect
+	 * round gets one fresh attempt per new round (switch, recovery, identity
+	 * change), never a retry loop within the same round.
+	 *
+	 * @return void
+	 */
+	private function connect_clear_processing_errors() {
+		$post_ids = $this->connect_source_ids(
+			[
+				[
+					'key'     => '_hyve_added',
+					'compare' => 'EXISTS',
+				],
+				[
+					'key'     => '_hyve_processing_error',
+					'compare' => 'EXISTS',
+				],
+			]
+		);
+
+		foreach ( $post_ids as $post_id ) {
+			delete_post_meta( (int) $post_id, '_hyve_processing_error' );
+		}
 	}
 
 	/**

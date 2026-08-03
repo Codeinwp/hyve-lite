@@ -11,8 +11,8 @@ import { useSelect } from '@wordpress/data';
 import { getRoutes } from '../router';
 import ChatBehavior from './ChatBehavior';
 import ChatAppearance from './ChatAppearance';
+import { ProviderPanel, AdvancedPanel } from './AI';
 import Leads from './Leads';
-import { ProviderPanel } from './AI';
 import SettingsGeneral from './SettingsGeneral';
 import { QdrantPanel, ApiAccessPanel, WebhooksPanel } from './Integrations';
 import ConnectPanel from './Connect';
@@ -23,6 +23,7 @@ const PANELS = {
 	'chat-leads': Leads,
 	'ai-provider': ProviderPanel,
 	'hyve-connect': ConnectPanel,
+	'ai-advanced': AdvancedPanel,
 	qdrant: QdrantPanel,
 	'api-access': ApiAccessPanel,
 	webhooks: WebhooksPanel,

@@ -1137,6 +1137,94 @@ body.wp-admin {
 	to { opacity: 1; transform: translateY(0); }
 }
 
+// Proactive teaser: a small speech bubble next to the closed launcher.
+.hyve-teaser {
+	position: fixed;
+	bottom: 32px;
+	right: 96px;
+	z-index: $hyve-z;
+	display: flex;
+	align-items: flex-start;
+	max-width: min(300px, calc(100vw - 120px));
+	font-family: $hyve-font;
+	animation: hyve-message-in 0.25s ease both;
+
+	&.is-left {
+		right: auto;
+		left: 96px;
+	}
+
+	.hyve-teaser__message {
+		background: var( --assistant_background, #fff );
+		color: #111827;
+		border: none;
+		border-radius: $hyve-bubble-radius;
+		box-shadow: $hyve-shadow;
+		padding: 12px 16px;
+		font-size: 14px;
+		line-height: 1.45;
+		text-align: left;
+		cursor: pointer;
+		-webkit-appearance: none;
+		appearance: none;
+
+		&:hover {
+			box-shadow: 0 10px 24px rgba(15, 23, 42, 0.28);
+		}
+
+		&:focus-visible {
+			outline: 3px solid rgba(17, 85, 204, 0.4);
+			outline-offset: 2px;
+		}
+	}
+
+	.hyve-teaser__dismiss {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 22px;
+		height: 22px;
+		margin: -6px 0 0 -8px;
+		padding: 0;
+		background: var( --assistant_background, #fff );
+		color: #64748b;
+		border: none;
+		border-radius: 50%;
+		box-shadow: 0 2px 8px rgba(15, 23, 42, 0.2);
+		cursor: pointer;
+		-webkit-appearance: none;
+		appearance: none;
+
+		&:hover {
+			color: #111827;
+		}
+
+		&:focus-visible {
+			outline: 3px solid rgba(17, 85, 204, 0.4);
+			outline-offset: 2px;
+		}
+
+		svg {
+			fill: currentColor;
+		}
+	}
+
+	// Light text on a dark assistant background, matching .hyve-bot-message.
+	&.is-dark {
+		.hyve-teaser__message {
+			color: #f9fafb;
+		}
+
+		.hyve-teaser__dismiss {
+			color: rgba(249, 250, 251, 0.75);
+
+			&:hover {
+				color: #f9fafb;
+			}
+		}
+	}
+}
+
 // Respect users who prefer reduced motion.
 @media (prefers-reduced-motion: reduce) {
 	.hyve-window,
@@ -1144,7 +1232,8 @@ body.wp-admin {
 	.hyve-message-box .hyve-user-message,
 	.hyve-message-box .hyve-bot-message,
 	.hyve-bar-open .open,
-	.hyve-bar-close .close {
+	.hyve-bar-close .close,
+	.hyve-teaser {
 		transition: none;
 		animation: none;
 		transform: none;
@@ -1160,6 +1249,17 @@ body.wp-admin {
 		&.is-left {
 			right: auto;
 			left: 18px;
+		}
+	}
+
+	.hyve-teaser {
+		bottom: 26px;
+		right: 90px;
+		max-width: calc(100vw - 108px);
+
+		&.is-left {
+			right: auto;
+			left: 90px;
 		}
 	}
 
