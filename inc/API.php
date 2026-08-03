@@ -166,6 +166,19 @@ class API extends BaseAPI {
 					'callback' => [ $this, 'delete_data' ],
 				],
 			],
+			'data/enqueue'      => [
+				[
+					'methods'  => \WP_REST_Server::CREATABLE,
+					'args'     => [
+						'ids' => [
+							'required' => true,
+							'type'     => 'array',
+							'items'    => [ 'type' => 'integer' ],
+						],
+					],
+					'callback' => [ $this, 'enqueue_data' ],
+				],
+			],
 			'data/counts'       => [
 				[
 					'methods'  => \WP_REST_Server::READABLE,
@@ -579,7 +592,23 @@ class API extends BaseAPI {
 			}
 		}
 
-		update_option( 'hyve_settings', $settings );
+		if ( ! Encryption::has_key_changed() && ! Encryption::ensure_key_check() ) {
+			return $this->settings_response( [ 'error' => __( 'Unable to prepare encryption for connection credentials.', 'hyve-lite' ) ] );
+		}
+
+		if ( ! Main::save_settings( $settings ) ) {
+			return $this->settings_response( [ 'error' => __( 'Unable to encrypt connection credentials.', 'hyve-lite' ) ] );
+		}
+
+		Encryption::maybe_reset_key_check();
+
+		// Switching into Connect: push any existing self-hosted content up to the
+		// platform so the site does not start with an empty hosted KB. Runs on a
+		// cron batch; fresh/empty sites are a no-op.
+		if ( Hyve_Connect::MODE_CONNECT === $mode && Hyve_Connect::MODE_CONNECT !== $prev_mode ) {
+			Hyve_Connect::flush_stats();
+			$this->table->connect_start_sync();
+		}
 
 		// Switching into Connect: push any existing self-hosted content up to the
 		// platform so the site does not start with an empty hosted KB. Runs on a
@@ -929,6 +958,8 @@ class API extends BaseAPI {
 		// An explicit stats fetch force-refreshes the hosted aggregate (e.g. right
 		// after connecting or activating a license), bypassing the page-load cache.
 		if ( Hyve_Connect::is_active() ) {
+			$this->table->connect_sync_watchdog();
+
 			$data['connect']     = Hyve_Connect::instance()->stats( true );
 			$data['connectSync'] = $this->table->connect_sync_status();
 		}
@@ -982,6 +1013,41 @@ class API extends BaseAPI {
 		}
 
 		return rest_ensure_response( true );
+	}
+
+	/**
+	 * Queue a whole selection for Hyve Connect in one request.
+	 *
+	 * Unlike {@see add_data()}, which pushes a single post synchronously, this
+	 * persists every selected post as pending up front and lets the sync cron
+	 * drain them in the background. A refresh mid-add therefore cannot lose the
+	 * items still waiting: they are already durably queued server-side.
+	 *
+	 * @param \WP_REST_Request<array<string, mixed>> $request Request object.
+	 *
+	 * @return \WP_REST_Response
+	 */
+	public function enqueue_data( $request ) {
+		if ( ! Hyve_Connect::is_active() ) {
+			return rest_ensure_response( [ 'error' => __( 'Bulk queueing is only available with Hyve Connect.', 'hyve-lite' ) ] );
+		}
+
+		$ids = $request->get_param( 'ids' );
+		$ids = is_array( $ids ) ? array_filter( array_map( 'intval', $ids ) ) : [];
+
+		if ( empty( $ids ) ) {
+			return rest_ensure_response( [ 'error' => __( 'No content to queue.', 'hyve-lite' ) ] );
+		}
+
+		$queued = $this->table->connect_enqueue_posts( $ids );
+
+		return rest_ensure_response(
+			[
+				'success'     => true,
+				'queued'      => $queued,
+				'connectSync' => $this->table->connect_sync_status(),
+			]
+		);
 	}
 
 	/**
@@ -1161,7 +1227,7 @@ class API extends BaseAPI {
 		$settings['qdrant_api_key']  = '';
 		$settings['qdrant_endpoint'] = '';
 
-		update_option( 'hyve_settings', $settings );
+		Main::save_settings( $settings );
 		update_option( 'hyve_qdrant_status', 'inactive' );
 		delete_option( 'hyve_qdrant_migration' );
 
@@ -1353,7 +1419,7 @@ class API extends BaseAPI {
 	 * @return void
 	 */
 	private function connect_drop_unsynced() {
-		$this->connect_forget_sources(
+		$candidates = $this->table->connect_source_ids(
 			[
 				[
 					'key'     => '_hyve_added',
@@ -1365,6 +1431,19 @@ class API extends BaseAPI {
 				],
 			]
 		);
+
+		if ( empty( $candidates ) ) {
+			return;
+		}
+
+		// Keep unsynced sources that still have local chunks (a cancelled sync never reached them); only forget the ones with nothing behind them.
+		$counts = $this->table->get_counts_by_post_ids( $candidates );
+
+		foreach ( $candidates as $post_id ) {
+			if ( empty( $counts[ (int) $post_id ] ) ) {
+				$this->connect_forget_source( (int) $post_id );
+			}
+		}
 	}
 
 	/**

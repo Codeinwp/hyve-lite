@@ -189,4 +189,49 @@ class ConnectImportTest extends WP_UnitTestCase {
 		$this->assertSame( 0, (int) DB_Table::instance()->get_count() );
 		$this->assertSame( Hyve_Connect::MODE_CONNECT, ThemeIsle\HyveLite\Main::get_settings()['ai_mode'] );
 	}
+
+	/**
+	 * Cancelling a migration (disconnect-import before the sync finishes) must
+	 * not drop sources it never reached. A not-yet-synced source that still has
+	 * local chunks is kept; a truly empty one (rejected/failed, no chunks) is
+	 * forgotten and, if plugin-owned, deleted.
+	 */
+	public function test_import_keeps_unsynced_sources_with_local_chunks() {
+		update_option( 'hyve_settings', [ 'ai_mode' => Hyve_Connect::MODE_CONNECT ] );
+
+		// Not-yet-pushed source: marked, local chunks intact, no synced hash.
+		$pending = self::factory()->post->create();
+		update_post_meta( $pending, '_hyve_added', 1 );
+		DB_Table::instance()->insert(
+			[
+				'post_id'     => (string) $pending,
+				'post_status' => 'processed',
+				'storage'     => 'WordPress',
+			]
+		);
+
+		// Plugin-owned source that never had content to export (no chunks).
+		$empty = self::factory()->post->create( [ 'post_type' => 'hyve_docs' ] );
+		update_post_meta( $empty, '_hyve_added', 1 );
+
+		// Platform is empty (the sync had barely started), delete-all succeeds.
+		$this->intercept(
+			[
+				'items'       => [],
+				'next_cursor' => null,
+			]
+		);
+
+		$request = new WP_REST_Request( 'POST', '/hyve/v1/connect/disconnect' );
+		$request->set_param( 'mode', 'import' );
+
+		API::instance()->connect_disconnect( $request );
+
+		// The pending source survives with its marker and its chunk row.
+		$this->assertSame( '1', get_post_meta( $pending, '_hyve_added', true ) );
+		$this->assertSame( 1, (int) DB_Table::instance()->get_count() );
+
+		// The empty plugin-owned source is forgotten (post deleted).
+		$this->assertNull( get_post( $empty ) );
+	}
 }

@@ -137,6 +137,10 @@ const MODEL_OPTIONS = [
 	},
 ];
 
+const ADVANCED_DEFAULTS = {
+	similarity_score_threshold: 0.4,
+};
+
 const getInitialApiStatus = () => {
 	if ( window.hyve?.isApiKeyConnected ) {
 		return 'connected';
@@ -338,7 +342,47 @@ export const ProviderPanel = () => {
 					</ExternalLink>
 				</p>
 			</FieldRow>
+		</Card>
+	);
+};
 
+export const AdvancedPanel = () => {
+	const { settings, isSaving, save } = useSaveSettings();
+
+	const { setSetting } = useDispatch( 'hyve' );
+	const isConnectActive = useSelect( ( select ) =>
+		select( 'hyve' ).isConnectActive()
+	);
+
+	const resetDefaults = () => {
+		Object.entries( ADVANCED_DEFAULTS ).forEach( ( [ key, value ] ) =>
+			setSetting( key, value )
+		);
+	};
+
+	return (
+		<Card
+			title={ __( 'Advanced tuning', 'hyve-lite' ) }
+			footer={
+				<>
+					<Button
+						variant="primary"
+						isBusy={ isSaving }
+						disabled={ isSaving }
+						onClick={ save }
+					>
+						{ __( 'Save changes', 'hyve-lite' ) }
+					</Button>
+					<Button
+						variant="secondary"
+						disabled={ isSaving }
+						onClick={ resetDefaults }
+					>
+						{ __( 'Reset to defaults', 'hyve-lite' ) }
+					</Button>
+				</>
+			}
+		>
 			<FieldRow
 				label={ __( 'Similarity threshold', 'hyve-lite' ) }
 				description={ __(
@@ -354,7 +398,7 @@ export const ProviderPanel = () => {
 					min={ -1 }
 					max={ 1 }
 					step={ 0.01 }
-					disabled={ isSaving || providerLocked }
+					disabled={ isSaving || isConnectActive }
 					onChange={ ( value ) =>
 						setSetting( 'similarity_score_threshold', value )
 					}

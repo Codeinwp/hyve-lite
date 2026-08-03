@@ -19,7 +19,7 @@ import { archive, brush, cloud, comment, help, people } from '@wordpress/icons';
  * Internal dependencies.
  */
 import { navigate } from '../router';
-import { setUtm, percentOf, quotaOf, isLicenseActive } from '../utils';
+import { isLicenseActive, percentOf, quotaOf, setUtm } from '../utils';
 import Card from '../components/Card';
 import Chip from '../components/Chip';
 import SetupChecklist from '../components/SetupChecklist';
@@ -333,8 +333,8 @@ const StatsGrid = () => {
 					label={ __( 'Hyve Connect', 'hyve-lite' ) }
 					value={ __( 'Hosted AI, no API key', 'hyve-lite' ) }
 					chip={
-						<Chip tone="pro" dot={ false }>
-							{ __( 'Free', 'hyve-lite' ) }
+						<Chip tone="muted" dot={ false }>
+							{ __( 'Not connected', 'hyve-lite' ) }
 						</Chip>
 					}
 					foot={
