@@ -76,11 +76,8 @@ test.describe( 'Hyve Connect', () => {
 			page.getByText( 'Hyve Connect is handling AI.' )
 		).toBeVisible();
 
-		// Model and retrieval tuning do nothing under Connect, so they lock.
+		// The model does nothing under Connect, so it locks.
 		await expect( page.getByLabel( 'Model' ) ).toBeDisabled();
-		await expect(
-			page.getByRole( 'slider', { name: 'Similarity threshold' } ).first()
-		).toBeDisabled();
 
 		// The API key is editable under Connect only when one is already stored
 		// (so it can be removed); a key-less site cannot add one here.
@@ -94,5 +91,19 @@ test.describe( 'Hyve Connect', () => {
 		} else {
 			await expect( apiKey ).toBeDisabled();
 		}
+
+		// Retrieval tuning lives on the Advanced sub-screen and also does
+		// nothing under Connect, so its slider locks too. The full-page load
+		// resets the store, so drive it back into Connect mode.
+		await admin.visitAdminPage(
+			`${ HYVE_ADMIN }&nav=settings&sub=ai-advanced`
+		);
+		await page.evaluate( () =>
+			window.wp.data.dispatch( 'hyve' ).setAiMode( 'hyve_connect' )
+		);
+
+		await expect(
+			page.getByRole( 'slider', { name: 'Similarity threshold' } ).first()
+		).toBeDisabled();
 	} );
 } );

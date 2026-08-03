@@ -563,6 +563,16 @@
 		color: var(--hyve-muted);
 	}
 
+	&.is-planned {
+		background: var(--hyve-surface-2);
+		border: 1px dashed var(--hyve-border-2);
+		color: var(--hyve-muted);
+		font-size: 9.5px;
+		font-weight: 800;
+		letter-spacing: 0.04em;
+		text-transform: uppercase;
+	}
+
 	&.is-pro {
 		background: #f0f6fc;
 		border: 1px solid #c5d9ec;
@@ -793,11 +803,6 @@
 	@media (max-width: 640px) {
 		min-width: 220px;
 	}
-
-	/* The sync-progress bar sits under its label inside the notice body. */
-	.hyve-next-meter {
-		margin-top: 8px;
-	}
 }
 
 .hyve-next-notice__title {
@@ -833,6 +838,12 @@ p.hyve-next-notice__text {
 	box-shadow: var(--hyve-shadow);
 	padding: 16px;
 
+	&.is-planned {
+		background: transparent;
+		border-color: var(--hyve-border-2);
+		border-style: dashed;
+		box-shadow: none;
+	}
 }
 
 .hyve-next-stat__top {
@@ -862,6 +873,9 @@ p.hyve-next-notice__text {
 		font-weight: 500;
 	}
 
+	.is-planned & {
+		color: var(--hyve-faint);
+	}
 }
 
 .hyve-next-stat__meter {
@@ -906,15 +920,6 @@ p.hyve-next-notice__text {
 		 * the conversations column out of the grid. */
 		min-width: 0;
 	}
-
-	.hyve-next-act__row {
-		align-items: center;
-		flex: 1;
-	}
-
-	.hyve-next-act__note {
-		margin: auto 0;
-	}
 }
 
 .hyve-next-chart {
@@ -949,6 +954,15 @@ p.hyve-next-notice__text {
 	&:last-child {
 		border-bottom: 0;
 	}
+}
+
+.hyve-next-grid2 .hyve-next-act__row {
+	align-items: center;
+	flex: 1;
+}
+
+.hyve-next-grid2 .hyve-next-act__note {
+	margin: auto 0;
 }
 
 .hyve-next-act__body {
@@ -1328,15 +1342,16 @@ p.hyve-next-notice__text {
 /* Form-fields builder: inputs live inside table cells, so the row hover
    highlight is noise and the checkbox column stays compact. */
 .hyve-next-leadfields {
+
 	tbody tr:hover td {
 		background: transparent;
 	}
 
-	td:nth-child(2) {
+	tbody tr td:nth-child(2) {
 		width: 160px;
 	}
 
-	td:nth-child(3) {
+	tbody tr td:nth-child(3) {
 		width: 90px;
 
 		.components-base-control__field {
@@ -1344,14 +1359,11 @@ p.hyve-next-notice__text {
 		}
 	}
 
-	td:last-child {
+	tbody tr td:last-child {
+		display: flex;
+		justify-content: flex-end;
 		white-space: nowrap;
 		width: 1%;
-
-		.hyve-next-buttons {
-			flex-wrap: nowrap;
-			justify-content: flex-end;
-		}
 	}
 }
 
@@ -1876,6 +1888,11 @@ p.hyve-next-card__hint.is-warn {
 	}
 }
 
+/* The sync-progress bar sits under its label inside the notice body. */
+.hyve-next-notice__body .hyve-next-meter {
+	margin-top: 8px;
+}
+
 .hyve-next-modrows {
 	border: 1px solid var(--hyve-border);
 	border-radius: var(--hyve-radius);
@@ -2170,7 +2187,9 @@ div.notice.themeisle-sale {
 }
 
 /* Chat replies may carry code snippets (transcripts, message review). */
+/* stylelint-disable-next-line no-duplicate-selectors */
 .hyve-next-bubble {
+
 	pre {
 		background-color: #282c34;
 		border-radius: 4px;
@@ -2257,7 +2276,7 @@ div.notice.themeisle-sale {
 
 		&::before {
 			color: var(--hyve-ok);
-			content: '\2713';
+			content: "\2713";
 			font-weight: 700;
 			left: 0;
 			position: absolute;

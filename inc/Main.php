@@ -81,8 +81,11 @@ class Main {
 			add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_addons_assets' ] );
 		}
 
+		// The chat can run on a local OpenAI key or on Hyve Connect; either one
+		// makes the frontend assets meaningful.
 		if (
-			isset( $settings['api_key'] ) && ! empty( $settings['api_key'] )
+			( isset( $settings['api_key'] ) && ! empty( $settings['api_key'] ) )
+			|| Hyve_Connect::is_active()
 		) {
 			add_action( 'wp_enqueue_scripts', [ $this, 'enqueue_assets' ] );
 		}
@@ -102,15 +105,35 @@ class Main {
 		}
 
 		add_filter( 'themeisle_sdk_blackfriday_data', [ $this, 'add_black_friday_data' ] );
+		add_filter( 'hyve_lite_about_us_metadata', [ $this, 'about_us_metadata' ] );
 		add_action( 'admin_init', [ $this, 'admin_init' ] );
 		add_action( 'admin_init', [ $this, 'add_privacy_policy_content' ] );
+		add_action( 'admin_notices', [ $this, 'encryption_key_notice' ] );
+		add_filter( 'hyve_encryption_key_check_can_reset', [ __CLASS__, 'can_reset_encryption_key_check' ] );
+	}
+
+	/**
+	 * Warn administrators when encrypted credentials cannot be decrypted.
+	 *
+	 * @return void
+	 */
+	public function encryption_key_notice() {
+		if ( ! current_user_can( 'manage_options' ) || ! Encryption::has_key_changed() ) {
+			return;
+		}
+		?>
+		<div class="notice notice-error">
+			<p><?php esc_html_e( 'Hyve encryption keys have changed. Please update your OpenAI and Qdrant connection settings and regenerate API access tokens to avoid service disruption.', 'hyve-lite' ); ?></p>
+		</div>
+		<?php
 	}
 
 	/**
 	 * Register suggested privacy policy content.
 	 *
-	 * Surfaces Hyve's third-party data processing (message storage and OpenAI
-	 * processing) in the core Privacy Policy guide at Settings → Privacy.
+	 * Surfaces Hyve's third-party data processing in the core Privacy Policy
+	 * guide at Settings → Privacy. The disclosed data flow depends on the active
+	 * mode: Hyve Connect (hosted) or self-hosted with the site's own OpenAI key.
 	 *
 	 * @since 1.4.2
 	 *
@@ -125,13 +148,23 @@ class Main {
 			'<p class="privacy-policy-tutorial">' .
 			__( 'This information is provided to help you disclose how the Hyve chat assistant processes visitor data. Review it and adapt it to your site before publishing.', 'hyve-lite' ) .
 			'</p>' .
-			'<p>' . __( 'When visitors use the Hyve chat assistant on this site, the messages they send are stored on this website so the site administrator can review chat history. No account is required to use the chat.', 'hyve-lite' ) . '</p>' .
-			'<p>' . __( 'To generate replies, the messages are also sent to OpenAI, L.L.C. — a third-party service based in the United States. OpenAI processes the messages to moderate their content, to create numerical representations (embeddings) used to find relevant information, and to generate the assistant\'s responses.', 'hyve-lite' ) . '</p>' .
-			'<p>' . __( 'For details on how OpenAI handles data, see OpenAI\'s privacy policy at https://openai.com/policies/privacy-policy/.', 'hyve-lite' ) . '</p>';
+			'<p>' . __( 'When visitors use the Hyve chat assistant on this site, the messages they send are stored on this website so the site administrator can review chat history. No account is required to use the chat.', 'hyve-lite' ) . '</p>';
 
-		// Only disclose Qdrant when it is actually connected, so the suggested text reflects the site's real data flows.
-		if ( Qdrant_API::is_active() ) {
-			$content .= '<p>' . __( 'This site also uses Qdrant, a third-party vector database. A numerical representation (embedding) of your message is sent to Qdrant to look up relevant information. See Qdrant\'s privacy policy at https://qdrant.tech/legal/privacy-policy/.', 'hyve-lite' ) . '</p>';
+		// The AI provider differs by mode: Hyve Connect is the hosted service, otherwise the site uses its own OpenAI key. Disclose only the flow that is actually in use.
+		if ( Hyve_Connect::is_active() ) {
+			$content .=
+				'<p>' . __( 'To generate replies, the messages are also sent to Hyve Connect, a hosted service operated by ThemeIsle. Hyve Connect processes the messages on its servers, including through third-party AI providers, to moderate their content, to create numerical representations (embeddings) used to find relevant information, and to generate the assistant\'s responses.', 'hyve-lite' ) . '</p>' .
+				'<p>' . __( 'To answer questions about this site, the content of the pages selected for indexing is also sent to Hyve Connect and stored there in a vector database so it can be searched when visitors chat.', 'hyve-lite' ) . '</p>' .
+				'<p>' . __( 'For details on how ThemeIsle handles data, see ThemeIsle\'s privacy policy at https://themeisle.com/privacy-policy/.', 'hyve-lite' ) . '</p>';
+		} else {
+			$content .=
+				'<p>' . __( 'To generate replies, the messages are also sent to OpenAI, L.L.C. — a third-party service based in the United States. OpenAI processes the messages to moderate their content, to create numerical representations (embeddings) used to find relevant information, and to generate the assistant\'s responses.', 'hyve-lite' ) . '</p>' .
+				'<p>' . __( 'For details on how OpenAI handles data, see OpenAI\'s privacy policy at https://openai.com/policies/privacy-policy/.', 'hyve-lite' ) . '</p>';
+
+			// Only disclose Qdrant when it is actually connected, so the suggested text reflects the site's real data flows.
+			if ( Qdrant_API::is_active() ) {
+				$content .= '<p>' . __( 'This site also uses Qdrant, a third-party vector database. A numerical representation (embedding) of your message is sent to Qdrant to look up relevant information. See Qdrant\'s privacy policy at https://qdrant.tech/legal/privacy-policy/.', 'hyve-lite' ) . '</p>';
+			}
 		}
 
 		wp_add_privacy_policy_content( 'Hyve', wp_kses_post( $content ) );
@@ -473,6 +506,15 @@ class Main {
 			$saved = [];
 		}
 
+		foreach ( self::get_encrypted_settings() as $key ) {
+			if ( ! isset( $saved[ $key ] ) ) {
+				continue;
+			}
+
+			$decrypted     = Encryption::decrypt( $saved[ $key ] );
+			$saved[ $key ] = false === $decrypted ? '' : $decrypted;
+		}
+
 		$settings                      = $saved;
 		$settings['telemetry_enabled'] = 'yes' === get_option( 'hyve_lite_logger_flag', 'no' );
 
@@ -489,6 +531,69 @@ class Main {
 		}
 
 		return $settings;
+	}
+
+	/**
+	 * Get settings that must be encrypted at rest.
+	 *
+	 * @return string[]
+	 */
+	public static function get_encrypted_settings() {
+		return [ 'api_key', 'qdrant_api_key' ];
+	}
+
+	/**
+	 * Persist settings while keeping sensitive values encrypted at rest.
+	 *
+	 * @param mixed $settings Settings to persist.
+	 * @return bool Whether the settings were saved successfully.
+	 */
+	public static function save_settings( $settings ) {
+		if ( ! is_array( $settings ) ) {
+			return false;
+		}
+
+		foreach ( self::get_encrypted_settings() as $key ) {
+			if ( ! isset( $settings[ $key ] ) || '' === $settings[ $key ] ) {
+				continue;
+			}
+
+			$encrypted = Encryption::encrypt( $settings[ $key ] );
+
+			if ( false === $encrypted ) {
+				return false;
+			}
+
+			$settings[ $key ] = $encrypted;
+		}
+
+		return update_option( 'hyve_settings', $settings ) || get_option( 'hyve_settings' ) === $settings;
+	}
+
+	/**
+	 * Keep the changed-key marker until Lite's unreadable credentials are replaced.
+	 *
+	 * @param bool $can_reset Whether other plugin components are recovered.
+	 * @return bool Whether Lite's credentials are recovered too.
+	 */
+	public static function can_reset_encryption_key_check( $can_reset ) {
+		if ( ! $can_reset ) {
+			return false;
+		}
+
+		$settings = get_option( 'hyve_settings', [] );
+
+		if ( ! is_array( $settings ) ) {
+			return true;
+		}
+
+		foreach ( self::get_encrypted_settings() as $key ) {
+			if ( isset( $settings[ $key ] ) && Encryption::is_encrypted( $settings[ $key ] ) && false === Encryption::decrypt( $settings[ $key ] ) ) {
+				return false;
+			}
+		}
+
+		return true;
 	}
 
 	/**
@@ -615,7 +720,7 @@ class Main {
 
 		wp_add_inline_script(
 			'hyve-lite-scripts',
-			'document.addEventListener("DOMContentLoaded", function() { const box = document.querySelector( ".hyve-input-box" ); if ( ! box ) { return; } const c = document.createElement("div"); c.className = "hyve-credits"; c.innerHTML = "<a href=\"https://themeisle.com/plugins/hyve/\" target=\"_blank\">Powered by Hyve</a>"; if ( document.querySelector( ".hyve-privacy-notice" ) ) { c.hidden = true; } box.before( c ); });'
+			'document.addEventListener("DOMContentLoaded", function() { const box = document.querySelector( ".hyve-input-box" ); if ( ! box ) { return; } const c = document.createElement("div"); c.className = "hyve-credits"; c.innerHTML = "<a href=\"https://themeisle.com/plugins/hyve/?utm_source=hyve&utm_medium=chatbot&utm_campaign=copyright\" target=\"_blank\">Powered by Hyve</a>"; if ( document.querySelector( ".hyve-privacy-notice" ) ) { c.hidden = true; } box.before( c ); });'
 		);
 	}
 
@@ -728,6 +833,7 @@ class Main {
 					'leadThanks'        => __( 'Thanks! Your details have been sent. We will get back to you soon.', 'hyve-lite' ),
 					'leadRequired'      => __( 'Please fill in the required fields.', 'hyve-lite' ),
 					'leadEvent'         => __( 'You shared your contact details.', 'hyve-lite' ),
+					'leadAlready'       => __( 'We already have your details. We will get back to you as soon as possible.', 'hyve-lite' ),
 				],
 				'icons'         => self::get_inline_icons( $icon_slugs ),
 				'canShow'       => $should_show_chat,
@@ -740,17 +846,12 @@ class Main {
 	/**
 	 * Enqueue the chat widget on the Hyve dashboard as a live test preview.
 	 *
-	 * Available in the free version too: as long as an OpenAI API key is set the
-	 * widget appears on every Hyve settings screen, so admins can try the bot
-	 * and — with Pro — watch appearance changes apply live. Test chats are
-	 * flagged (`isPreview`) so they are not recorded in history or analytics.
-	 *
 	 * @return void
 	 */
 	public function enqueue_chat_preview() {
 		$settings = self::get_settings();
 
-		if ( empty( $settings['api_key'] ) ) {
+		if ( empty( $settings['api_key'] ) && ! Hyve_Connect::is_active() ) {
 			return;
 		}
 
@@ -866,9 +967,17 @@ class Main {
 	 * @return array<string, mixed>
 	 */
 	public function add_to_knowledge_base_row_action( $actions, $post ) {
-		if ( get_post_meta( $post->ID, '_hyve_post_processing', true ) ) {
-			$actions['hyve_knowledge_base_processing'] = __( 'Hyve is processing the post', 'hyve-lite' );
-			return $actions;
+		$processing = (int) get_post_meta( $post->ID, '_hyve_post_processing', true );
+
+		if ( $processing ) {
+			if ( ( time() - $processing ) < DB_Table::PROCESSING_STALL ) {
+				$actions['hyve_knowledge_base_processing'] = __( 'Hyve is processing the post', 'hyve-lite' );
+				return $actions;
+			}
+
+			// A leaked flag from an add interrupted mid-request; clear it and
+			// fall through to the normal add/remove action.
+			delete_post_meta( $post->ID, '_hyve_post_processing' );
 		}
 
 		$label  = __( 'Add to Hyve', 'hyve-lite' );
@@ -1086,6 +1195,22 @@ class Main {
 		$configs[ HYVE_PRODUCT_SLUG ] = $config;
 
 		return $configs;
+	}
+
+	/**
+	 * Provide metadata for the ThemeIsle SDK About Us page.
+	 *
+	 * @return array<string, mixed>
+	 */
+	public function about_us_metadata() {
+		return [
+			'location'         => 'hyve',
+			'logo'             => 'https://ps.w.org/hyve-lite/assets/icon-256x256.png',
+			'has_upgrade_menu' => 'valid' !== apply_filters( 'product_hyve_license_status', false ),
+			'upgrade_link'     => tsdk_utmify( 'https://themeisle.com/plugins/hyve/', 'about-us' ),
+			'upgrade_text'     => __( 'Get Pro Version', 'hyve-lite' ),
+			'review_link'      => 'https://wordpress.org/support/plugin/hyve-lite/reviews/',
+		];
 	}
 
 	/**
