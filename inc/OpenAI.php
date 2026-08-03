@@ -571,7 +571,7 @@ PROMPT;
 		}
 
 		if ( ! isset( $response->id ) || ( isset( $response->status ) && 'queued' !== $response->status ) ) {
-			return new \WP_Error( 'unknown_error', __( 'An error occurred while creating the run.', 'hyve-lite' ) );
+			return new \WP_Error( 'unknown_error', __( 'An error occurred while generating the response. Please try again.', 'hyve-lite' ) );
 		}
 
 		return $response->id;
@@ -827,11 +827,11 @@ PROMPT;
 	 */
 	public function stream_response( $items, $conversation, $on_delta ) {
 		if ( ! $this->api_key ) {
-			return new \WP_Error( 'no_api_key', __( 'API key is missing.', 'hyve-lite' ) );
+			return new \WP_Error( 'no_api_key', __( 'No OpenAI API key is set. Add your API key in the Hyve settings.', 'hyve-lite' ) );
 		}
 
 		if ( ! function_exists( 'curl_init' ) ) {
-			return new \WP_Error( 'no_curl', __( 'cURL is not available.', 'hyve-lite' ) );
+			return new \WP_Error( 'no_curl', __( 'cURL is not available on your server. Ask your hosting provider to enable the PHP cURL extension.', 'hyve-lite' ) );
 		}
 
 		$params           = $this->get_chat_response_params( $items, $conversation );
@@ -840,7 +840,7 @@ PROMPT;
 		$body = wp_json_encode( apply_filters( 'hyve_create_response_params', $params ) );
 
 		if ( false === $body ) {
-			return new \WP_Error( 'invalid_params', __( 'Invalid params.', 'hyve-lite' ) );
+			return new \WP_Error( 'invalid_params', __( 'Invalid request parameters.', 'hyve-lite' ) );
 		}
 
 		$assembled   = '';
@@ -903,7 +903,7 @@ PROMPT;
 				}
 
 				if ( 'response.failed' === $event->type || 'error' === $event->type ) {
-					$stream_err = isset( $event->response->error->message ) ? $event->response->error->message : ( isset( $event->message ) ? $event->message : __( 'Streaming failed.', 'hyve-lite' ) );
+					$stream_err = isset( $event->response->error->message ) ? $event->response->error->message : ( isset( $event->message ) ? $event->message : __( 'The response could not be streamed. Please try again.', 'hyve-lite' ) );
 				}
 			}
 
@@ -952,7 +952,7 @@ PROMPT;
 		}
 
 		if ( false === $ok && '' === $assembled && ! ( function_exists( 'connection_aborted' ) && connection_aborted() ) ) {
-			return new \WP_Error( 'stream_failed', $err ? $err : __( 'Streaming request failed.', 'hyve-lite' ) );
+			return new \WP_Error( 'stream_failed', $err ? $err : __( 'The response could not be streamed. Please try again.', 'hyve-lite' ) );
 		}
 
 		return [
@@ -1150,7 +1150,7 @@ PROMPT;
 		if ( ! $this->api_key ) {
 			return (object) [
 				'error'   => true,
-				'message' => 'API key is missing.',
+				'message' => 'No OpenAI API key is set. Add your API key in the Hyve settings.',
 			];
 		}
 
@@ -1159,7 +1159,7 @@ PROMPT;
 		if ( false === $body ) {
 			return (object) [
 				'error'   => true,
-				'message' => 'Invalid params.',
+				'message' => 'Invalid request parameters.',
 			];
 		}
 

@@ -237,7 +237,7 @@ const ConversationCard = () => {
 								) }
 								target="_blank"
 							>
-								{ __( 'Unlock with Pro', 'hyve-lite' ) }
+								{ __( 'Upgrade to Pro', 'hyve-lite' ) }
 							</Button>
 						</div>
 					) }
@@ -290,7 +290,7 @@ const ConversationCard = () => {
 					</>
 				}
 				description={ __(
-					'Shape the assistant’s tone and persona with your own instructions. The built-in answer format and Knowledge Base rules always stay in effect.',
+					"Shape the assistant's tone and persona with your own instructions. The built-in answer format and Knowledge Base rules always stay in effect.",
 					'hyve-lite'
 				) }
 			>
@@ -466,7 +466,7 @@ const SuggestionsCard = () => {
 						) }
 						target="_blank"
 					>
-						{ __( 'Unlock with Pro', 'hyve-lite' ) }
+						{ __( 'Upgrade to Pro', 'hyve-lite' ) }
 					</Button>
 				</div>
 			) }
@@ -659,7 +659,7 @@ const ProactiveCard = () => {
 						) }
 						target="_blank"
 					>
-						{ __( 'Unlock with Pro', 'hyve-lite' ) }
+						{ __( 'Upgrade to Pro', 'hyve-lite' ) }
 					</Button>
 				</div>
 			) }
@@ -740,7 +740,7 @@ const TrustCard = () => {
 							<p className="hyve-next-notice__text">
 								{ createInterpolateElement(
 									__(
-										'No Privacy Policy page is set, so the notice won’t appear on your site yet. Choose one under <a>Settings → Privacy</a>.',
+										"No Privacy Policy page is set, so the notice won't appear on your site yet. Choose one under <a>Settings → Privacy</a>.",
 										'hyve-lite'
 									),
 									{ a: privacyLink }

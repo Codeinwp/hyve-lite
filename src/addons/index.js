@@ -96,7 +96,11 @@ function initAddPostButton( btnElem ) {
 		} catch ( e ) {
 			if ( parent ) {
 				errorSpanRef = createErrorSpan(
-					e.message || __( 'Unknown error', 'hyve-lite' )
+					e.message ||
+						__(
+							'An unknown error occurred. Please try again.',
+							'hyve-lite'
+						)
 				);
 				parent.appendChild( errorSpanRef );
 			}

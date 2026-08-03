@@ -694,7 +694,7 @@ class DB_Table {
 
 			return new \WP_Error(
 				'content_failed_moderation',
-				__( 'The content failed moderation policies.', 'hyve-lite' ),
+				__( 'The content failed the moderation check.', 'hyve-lite' ),
 				[ 'review' => $moderation ]
 			);
 		}
@@ -707,7 +707,7 @@ class DB_Table {
 					$delete_result = Qdrant_API::instance()->delete_point( $post_id );
 
 					if ( is_wp_error( $delete_result ) || ! $delete_result ) {
-						throw new \Exception( is_wp_error( $delete_result ) ? $delete_result->get_error_message() : __( 'Failed to delete point in Qdrant.', 'hyve-lite' ) );
+						throw new \Exception( is_wp_error( $delete_result ) ? $delete_result->get_error_message() : __( 'Failed to delete the entry from Qdrant. Please try again or check your Qdrant connection.', 'hyve-lite' ) );
 					}
 				} catch ( \Exception $e ) {
 					return new \WP_Error( 'qdrant_error', $e->getMessage() );
@@ -740,7 +740,7 @@ class DB_Table {
 			);
 
 			if ( ! $post_id ) {
-				return new \WP_Error( 'failed_insert_post', __( 'Failed to insert post.', 'hyve-lite' ) );
+				return new \WP_Error( 'failed_insert_post', __( 'Failed to add post.', 'hyve-lite' ) );
 			}
 		}
 
@@ -2000,9 +2000,10 @@ class DB_Table {
 			$message = $error->get_error_message();
 		}
 
+		// translators: both sentences are appended after the error message that caused the failure.
 		$suffix = $will_retry
-			? __( 'It will be retried automatically.', 'hyve-lite' )
-			: __( 'Please fix the problem and re-add this content.', 'hyve-lite' );
+			? __( 'This content will be retried automatically.', 'hyve-lite' )
+			: __( 'Fix the reported issue and re-add this content.', 'hyve-lite' );
 
 		update_post_meta( $post_id, '_hyve_processing_error', $message . ' ' . $suffix );
 	}

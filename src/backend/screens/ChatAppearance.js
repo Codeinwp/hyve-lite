@@ -282,7 +282,7 @@ const ChatAppearance = () => {
 									) }
 									target="_blank"
 								>
-									{ __( 'Unlock with Pro', 'hyve-lite' ) }
+									{ __( 'Upgrade to Pro', 'hyve-lite' ) }
 								</Button>
 							</div>
 						) }

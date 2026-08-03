@@ -204,7 +204,7 @@ export async function mockConfirmDeleteThreadResponse( page ) {
 				contentType: 'application/json',
 				body: JSON.stringify( {
 					success: true,
-					data: 'Thread removed from local storage. It remains accessible via the OpenAI API.',
+					data: 'Thread removed from local storage. The thread remains accessible via the OpenAI API.',
 				} ),
 			} );
 		} else {

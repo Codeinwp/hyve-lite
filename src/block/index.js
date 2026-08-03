@@ -46,7 +46,7 @@ registerBlockType( metadata.name, {
 									'hyve-lite'
 								) }{ ' ' }
 								{ __(
-									'The Chat won’t be able to respond to questions until sources are added.',
+									"The Chat won't be able to respond to questions until sources are added.",
 									'hyve-lite'
 								) }
 								<Button
@@ -61,10 +61,7 @@ registerBlockType( metadata.name, {
 										);
 									} }
 								>
-									{ __(
-										'Click here to add content.',
-										'hyve-lite'
-									) }
+									{ __( 'Add content', 'hyve-lite' ) }
 								</Button>
 							</p>
 						</Notice>

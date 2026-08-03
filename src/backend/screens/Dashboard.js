@@ -505,7 +505,7 @@ const RecentConversations = () => {
 						href={ setUtm( window.hyve?.pro, 'messages-feature' ) }
 						target="_blank"
 					>
-						{ __( 'Unlock with Pro', 'hyve-lite' ) }
+						{ __( 'Upgrade to Pro', 'hyve-lite' ) }
 					</Button>
 				</div>
 			) }

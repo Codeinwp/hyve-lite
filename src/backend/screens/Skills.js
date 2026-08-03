@@ -22,7 +22,7 @@ const PREVIEW = [
 	{
 		label: __( 'Check order status', 'hyve-lite' ),
 		description: __(
-			'Look up the status of an order by its number or the customer’s email.',
+			"Look up the status of an order by its number or the customer's email.",
 			'hyve-lite'
 		),
 	},
@@ -72,7 +72,7 @@ const Skills = () => {
 			<div className="hyve-next-card__intro">
 				<p>
 					{ __(
-						'Let the assistant do things live, like checking an order or looking up stock, by calling functions your plugins provide. It only calls the ones you allow, and each call still respects that function’s own permissions.',
+						"Let the assistant do things live, like checking an order or looking up stock, by calling functions your plugins provide. It only calls the ones you allow, and each call still respects that function's own permissions.",
 						'hyve-lite'
 					) }
 				</p>

@@ -1176,7 +1176,7 @@ class API extends BaseAPI {
 				$delete_result = Qdrant_API::instance()->delete_point( $id );
 
 				if ( is_wp_error( $delete_result ) || ! $delete_result ) {
-					throw new \Exception( is_wp_error( $delete_result ) ? $delete_result->get_error_message() : __( 'Failed to delete point in Qdrant.', 'hyve-lite' ) );
+					throw new \Exception( is_wp_error( $delete_result ) ? $delete_result->get_error_message() : __( 'Failed to delete the entry from Qdrant. Please try again or check your Qdrant connection.', 'hyve-lite' ) );
 				}
 			} catch ( \Exception $e ) {
 				return rest_ensure_response( [ 'error' => $e->getMessage() ] );
@@ -1234,7 +1234,7 @@ class API extends BaseAPI {
 		return wp_send_json_success(
 			__( 'Thread removed from local storage.', 'hyve-lite' ) . ' ' . 
 			// translators: this sentence is after 'Thread removed from local storage.'.
-			__( 'It remains accessible via the OpenAI API.', 'hyve-lite' )
+			__( 'The thread remains accessible via the OpenAI API.', 'hyve-lite' )
 		);
 	}
 
@@ -2593,7 +2593,7 @@ class API extends BaseAPI {
 		$message = $request->get_param( 'message' );
 
 		if ( empty( $message ) ) {
-			return new \WP_Error( 'missing_message', __( 'Message was flagged.', 'hyve-lite' ) );
+			return new \WP_Error( 'missing_message', __( 'No message was provided.', 'hyve-lite' ) );
 		}
 
 		$page = Page_Context::instance()->for_request( $request );
@@ -2616,7 +2616,7 @@ class API extends BaseAPI {
 		$moderation = OpenAI::instance()->moderate_chunks( $message );
 
 		if ( true !== $moderation ) {
-			return new \WP_Error( 'content_flagged', __( 'Message was flagged.', 'hyve-lite' ) );
+			return new \WP_Error( 'content_flagged', __( 'This message was flagged by OpenAI moderation and was not answered.', 'hyve-lite' ) );
 		}
 
 		$openai          = OpenAI::instance();
@@ -2631,7 +2631,7 @@ class API extends BaseAPI {
 		$message_vector = $openai->create_embeddings( $retrieval_query );
 
 		if ( is_wp_error( $message_vector ) ) {
-			return new \WP_Error( 'no_embeddings', __( 'No embeddings found.', 'hyve-lite' ) );
+			return new \WP_Error( 'no_embeddings', __( 'Your message could not be processed. Please try again.', 'hyve-lite' ) );
 		}
 
 		$message_vector = reset( $message_vector );

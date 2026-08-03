@@ -914,7 +914,7 @@ const WordPressDrill = () => {
 				<div className="hyve-next-card__intro">
 					<p>
 						{ __(
-							'Select posts that are informative, engaging, and relevant. These will be the building blocks that empower your chat assistant to deliver precise and helpful responses. Whether it is answering FAQs or diving into detailed explanations, the content you choose here will shape how effectively your assistant interacts with users.',
+							'Select posts that are informative and relevant. Your assistant answers only from this content, so what you add here determines how well it can help visitors.',
 							'hyve-lite'
 						) }
 					</p>
@@ -1562,12 +1562,12 @@ const AttentionPanel = () => {
 const LOCKED_COPY = {
 	'source-custom': {
 		body: __(
-			'Custom Data allows you to privately feed specific data directly into your chatbot without displaying this information on your public website. With this, you can equip your bot with unique, specialized knowledge that aligns with your business needs and customer queries.',
+			'Custom Data lets you feed information to your chatbot privately, without publishing it on your site.',
 			'hyve-lite'
 		),
 		title: __( 'Custom Data is a Premium feature', 'hyve-lite' ),
 		text: __(
-			'Privately feed specific data directly into your chatbot, equipping it with specialized knowledge that aligns with your business needs and customer queries. Upgrade now!',
+			'Privately feed specific data directly into your chatbot, equipping it with specialized knowledge that aligns with your business needs and customer queries.',
 			'hyve-lite'
 		),
 		campaign: 'custom-data-feature',
@@ -1579,7 +1579,7 @@ const LOCKED_COPY = {
 		),
 		title: __( 'URL Crawling is a Premium feature', 'hyve-lite' ),
 		text: __(
-			'Crawl any web page and add its content to the Knowledge Base. Upgrade now!',
+			'Crawl any web page and add its content to the Knowledge Base.',
 			'hyve-lite'
 		),
 		campaign: 'website-crawling-feature',
@@ -1591,7 +1591,7 @@ const LOCKED_COPY = {
 		),
 		title: __( 'Sitemap Crawling is a Premium feature', 'hyve-lite' ),
 		text: __(
-			'Use this tool to crawl a website and add its content to the Knowledge Base using the sitemap. Upgrade now!',
+			'Use this tool to crawl a website and add its content to the Knowledge Base using the sitemap.',
 			'hyve-lite'
 		),
 		campaign: 'sitemap-crawling-feature',
@@ -1603,7 +1603,7 @@ const LOCKED_COPY = {
 		),
 		title: __( 'Document Import is a Premium feature', 'hyve-lite' ),
 		text: __(
-			'Upload PDF, Word, Markdown, Text, and CSV files and add their content to the Knowledge Base. Upgrade now!',
+			'Upload PDF, Word, Markdown, Text, and CSV files and add their content to the Knowledge Base.',
 			'hyve-lite'
 		),
 		campaign: 'document-import-feature',
@@ -1640,7 +1640,10 @@ const LOCKED_PREVIEWS = {
 		],
 		rows: [
 			__( 'Halloween Limited Time Deal Information', 'hyve-lite' ),
-			__( 'What to do if my order is missing an item?', 'hyve-lite' ),
+			__(
+				'What should I do if my order is missing an item?',
+				'hyve-lite'
+			),
 			__( 'How do I return an item?', 'hyve-lite' ),
 			__( 'How do I track my order?', 'hyve-lite' ),
 			__( 'How do I change my delivery address?', 'hyve-lite' ),
@@ -1749,7 +1752,7 @@ const LockedSource = ( { subKey } ) => {
 							href={ setUtm( window.hyve?.pro, copy.campaign ) }
 							target="_blank"
 						>
-							{ __( 'Unlock with Pro', 'hyve-lite' ) }
+							{ __( 'Upgrade to Pro', 'hyve-lite' ) }
 						</Button>
 					</div>
 				) }
@@ -1804,7 +1807,7 @@ const FaqPanel = () => {
 			<div className="hyve-next-card__body">
 				<p>
 					{ __(
-						"The FAQ captures frequently asked questions that went unanswered by our chatbot, providing you with a valuable insight into what your users are seeking. This feature allows you to review these queries and decide whether to incorporate them into your bot's knowledge base. By actively updating your FAQ, you can continuously refine your chatbot's ability to address user needs effectively and enhance their interactive experience. These aren't updated instantly.",
+						"FAQ lists the questions your chatbot couldn't answer, along with how often each was asked, so you can see what visitors need most. Review them and add answers to your Knowledge Base. This list updates periodically, not in real time.",
 						'hyve-lite'
 					) }
 				</p>
@@ -1870,7 +1873,7 @@ const FaqPanel = () => {
 						</strong>
 						<p>
 							{ __(
-								"Review unanswered questions, enhance your bot's knowledge base, and refine your users' interactive experience. Upgrade now!",
+								"Review unanswered questions, enhance your bot's knowledge base, and refine your users' interactive experience.",
 								'hyve-lite'
 							) }
 						</p>
@@ -1879,7 +1882,7 @@ const FaqPanel = () => {
 							href={ setUtm( window.hyve?.pro, 'faq-feature' ) }
 							target="_blank"
 						>
-							{ __( 'Unlock with Pro', 'hyve-lite' ) }
+							{ __( 'Upgrade to Pro', 'hyve-lite' ) }
 						</Button>
 					</div>
 				</>
