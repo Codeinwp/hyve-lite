@@ -657,6 +657,25 @@ const ThreadView = ( { item } ) => {
 								);
 							}
 
+							if (
+								'event' === message.sender &&
+								EVENT_LABELS[ message.message ]
+							) {
+								return (
+									<div
+										key={ index }
+										className="hyve-next-thread__event"
+									>
+										<span>
+											{ EVENT_LABELS[ message.message ] }
+										</span>
+										<time>
+											{ timeOfDay( message.time ) }
+										</time>
+									</div>
+								);
+							}
+
 							return null;
 						} ) }
 					</div>

@@ -137,6 +137,10 @@ const MODEL_OPTIONS = [
 	},
 ];
 
+const ADVANCED_DEFAULTS = {
+	similarity_score_threshold: 0.4,
+};
+
 const getInitialApiStatus = () => {
 	if ( window.hyve?.isApiKeyConnected ) {
 		return 'connected';
@@ -176,6 +180,12 @@ export const ProviderPanel = () => {
 	const hasStoredKey = Boolean( window.hyve?.hasAPIKey );
 	const providerLocked = isConnectActive;
 	const apiKeyLocked = isConnectActive && ! hasStoredKey;
+
+	const resetDefaults = () => {
+		Object.entries( ADVANCED_DEFAULTS ).forEach( ( [ key, value ] ) =>
+			setSetting( key, value )
+		);
+	};
 
 	const onSave = async () => {
 		const response = await save();
@@ -240,14 +250,23 @@ export const ProviderPanel = () => {
 		<Card
 			title={ __( 'OpenAI', 'hyve-lite' ) }
 			footer={
-				<Button
-					variant="primary"
-					isBusy={ isSaving }
-					disabled={ isSaving }
-					onClick={ onSave }
-				>
-					{ __( 'Save changes', 'hyve-lite' ) }
-				</Button>
+				<>
+					<Button
+						variant="primary"
+						isBusy={ isSaving }
+						disabled={ isSaving }
+						onClick={ onSave }
+					>
+						{ __( 'Save changes', 'hyve-lite' ) }
+					</Button>
+					<Button
+						variant="secondary"
+						disabled={ isSaving }
+						onClick={ resetDefaults }
+					>
+						{ __( 'Reset to defaults', 'hyve-lite' ) }
+					</Button>
+				</>
 			}
 		>
 			{ isConnectActive && (
@@ -354,7 +373,7 @@ export const ProviderPanel = () => {
 					min={ -1 }
 					max={ 1 }
 					step={ 0.01 }
-					disabled={ isSaving || providerLocked }
+					disabled={ isSaving || isConnectActive }
 					onChange={ ( value ) =>
 						setSetting( 'similarity_score_threshold', value )
 					}

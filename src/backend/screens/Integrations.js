@@ -439,6 +439,7 @@ export const WebhooksPanel = () => {
 
 export const ApiAccessPanel = () => {
 	const isPro = isLicenseActive();
+	const hasPro = Boolean( window.hyve?.license );
 
 	return (
 		<>
@@ -481,7 +482,7 @@ export const ApiAccessPanel = () => {
 						].join( '\n' ) }
 					</pre>
 				</div>
-				{ ! isPro && (
+				{ ! hasPro && (
 					<div className="hyve-next-act__upsell">
 						<strong>
 							{ __(
@@ -506,7 +507,7 @@ export const ApiAccessPanel = () => {
 				) }
 			</Card>
 
-			{ isPro && (
+			{ hasPro && (
 				<Slot
 					name="api-access-tokens"
 					fallback={

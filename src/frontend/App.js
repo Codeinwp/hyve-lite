@@ -24,6 +24,9 @@ class App {
 		this.recordID = null;
 		this.isMenuOpen = false;
 		this.isInline = false;
+		this.teaserTimeout = null;
+		this.teaserExitListener = null;
+		this.teaserScrollListener = null;
 		this.gateLocked = false;
 		this.gatePending = false;
 		this.preChatGateShown = false;
@@ -38,6 +41,7 @@ class App {
 		this.renderUI();
 		this.setupListeners();
 		this.restoreMessages();
+		this.setupProactive();
 
 		// The inline block is always visible, so there's no open action to
 		// trigger the greeting — show it on load instead.
@@ -255,7 +259,6 @@ class App {
 				path: this.addCacheProtection(
 					addQueryArgs( `${ window.hyveClient.api }/chat`, query )
 				),
-				headers: this.getDefaultHeaders(),
 			} );
 
 			if ( response.error ) {
@@ -440,15 +443,21 @@ class App {
 						? { record_id: this.recordID }
 						: {} ),
 					...( this.isPreview() ? { is_test: true } : {} ),
+					...this.getPageContext(),
 				},
-				headers: this.getDefaultHeaders(),
 			} );
 
 			if ( setup.error ) {
 				// A real content/server error (e.g. flagged) — not a transport
 				// problem, so surface it instead of falling back.
 				this.removeMessage( 'hyve-preloader' );
-				this.add( strings.tryAgain, 'bot' );
+				// The server sends the throttle message already translated.
+				this.add(
+					'rate_limited' === setup.code
+						? setup.error
+						: strings.tryAgain,
+					'bot'
+				);
 				this.setLoading( false );
 				return true;
 			}
@@ -674,13 +683,23 @@ class App {
 		this.removeMessage( bubbleId );
 
 		// The streamed turn is recorded server-side only once the reply lands,
-		// so adopt the returned record id to keep follow-ups on the same thread.
+		// so adopt the returned ids to keep follow-ups on the same thread. In
+		// Connect mode the platform mints the thread id during the stream, so
+		// the terminal event is the first place the widget can learn it.
+		if ( data?.thread_id && data.thread_id !== this.threadID ) {
+			this.setThreadID( data.thread_id );
+		}
+
 		if (
 			undefined !== data?.record_id &&
 			null !== data?.record_id &&
 			data.record_id !== this.recordID
 		) {
 			this.setRecordID( data.record_id );
+		}
+
+		if ( data?.thread_id && data.thread_id !== this.threadID ) {
+			this.setThreadID( data.thread_id );
 		}
 
 		const message = data?.message ?? strings.tryAgain;
@@ -717,19 +736,23 @@ class App {
 						? { record_id: this.recordID }
 						: {} ),
 					...( this.isPreview() ? { is_test: true } : {} ),
+					...this.getPageContext(),
 				},
-				headers: this.getDefaultHeaders(),
 			} );
 
 			this.removeMessage( 'hyve-preloader' );
 
 			if ( response.error ) {
-				this.add(
-					'content_flagged' === response.code
-						? strings.flagged
-						: strings.tryAgain,
-					'bot'
-				);
+				let text = strings.tryAgain;
+
+				if ( 'content_flagged' === response.code ) {
+					text = strings.flagged;
+				} else if ( 'rate_limited' === response.code ) {
+					// The server sends the throttle message already translated.
+					text = response.error;
+				}
+
+				this.add( text, 'bot' );
 				this.setLoading( false );
 				return;
 			}
@@ -761,7 +784,9 @@ class App {
 			return;
 		}
 
-		audioElement.play();
+		// Autoplay policies reject play() before the visitor interacts with
+		// the page (e.g. a proactive teaser on page load); stay silent then.
+		audioElement.play()?.catch( () => {} );
 	}
 
 	/**
@@ -820,6 +845,22 @@ class App {
 	 */
 	isPreview() {
 		return Boolean( window.hyveClient?.isPreview );
+	}
+
+	/**
+	 * Chat payload fields identifying the page the widget is rendered on, so
+	 * the backend can ground "this page" questions. The URL covers loop pages
+	 * (home, archives) too; the backend validates it is same-origin and
+	 * resolves it to a post when one exists. Empty in preview mode.
+	 *
+	 * @return {Object} `{ page_url }`, or an empty object.
+	 */
+	getPageContext() {
+		if ( this.isPreview() || ! window.location?.href ) {
+			return {};
+		}
+
+		return { page_url: window.location.href };
 	}
 
 	/**
@@ -952,6 +993,9 @@ class App {
 		}
 
 		if ( isOpen ) {
+			// The visitor found the chat; the teaser's job is done.
+			this.removeTeaser();
+
 			openButton.style.display = 'none';
 			closeButton.style.display = 'block';
 			chatWindow.style.display = 'flex';
@@ -1270,7 +1314,7 @@ class App {
 	 */
 	getActionHandlers() {
 		return {
-			contact_form: () => this.offerLeadForm(),
+			contact_form: () => this.offerLeadForm( { explicit: true } ),
 		};
 	}
 
@@ -1303,6 +1347,11 @@ class App {
 	 * @return {void}
 	 */
 	afterBotReply( data ) {
+		// A lead captured before the conversation existed (pre-chat gate, or a
+		// submission that could not be linked) links up as soon as a recorded
+		// turn provides the ids.
+		this.maybeLinkLead();
+
 		const config = this.leadConfig();
 
 		if ( ! config ) {
@@ -1317,14 +1366,15 @@ class App {
 	}
 
 	/**
-	 * The visitor's lead-form decision ('submitted' | 'dismissed' | null),
-	 * kept for 24h.
+	 * The stored lead-form state ({ status, token, timestamp }), kept for 24h.
 	 *
-	 * @return {string|null} The stored status.
+	 * @return {Object|null} The stored state.
 	 */
-	leadFormStatus() {
+	leadFormState() {
 		if ( this.isPreview() ) {
-			return this.previewLeadStatus ?? null;
+			return this.previewLeadStatus
+				? { status: this.previewLeadStatus }
+				: null;
 		}
 
 		try {
@@ -1343,19 +1393,39 @@ class App {
 				return null;
 			}
 
-			return state.status ?? null;
+			return state;
 		} catch {
 			return null;
 		}
 	}
 
 	/**
+	 * The visitor's lead-form decision ('submitted' | 'dismissed' | null).
+	 *
+	 * @return {string|null} The stored status.
+	 */
+	leadFormStatus() {
+		return this.leadFormState()?.status ?? null;
+	}
+
+	/**
+	 * The pending link token of a lead stored without a conversation.
+	 *
+	 * @return {string|null} The stored token.
+	 */
+	leadToken() {
+		return this.leadFormState()?.token ?? null;
+	}
+
+	/**
 	 * Persist the visitor's lead-form decision.
 	 *
-	 * @param {string} status 'submitted' or 'dismissed'.
+	 * @param {string}      status 'submitted' or 'dismissed'.
+	 * @param {string|null} token  Link token for a lead stored without a
+	 *                             conversation.
 	 * @return {void}
 	 */
-	setLeadFormStatus( status ) {
+	setLeadFormStatus( status, token = null ) {
 		if ( this.isPreview() ) {
 			this.previewLeadStatus = status;
 			return;
@@ -1364,9 +1434,73 @@ class App {
 		try {
 			window.localStorage.setItem(
 				'hyve-lead-form',
-				JSON.stringify( { status, timestamp: new Date() } )
+				JSON.stringify( {
+					status,
+					...( token ? { token } : {} ),
+					timestamp: new Date(),
+				} )
 			);
 		} catch {}
+	}
+
+	/**
+	 * Drop the pending link token, keeping the decision itself.
+	 *
+	 * @return {void}
+	 */
+	clearLeadToken() {
+		if ( this.isPreview() ) {
+			return;
+		}
+
+		const state = this.leadFormState();
+
+		if ( ! state?.token ) {
+			return;
+		}
+
+		delete state.token;
+
+		try {
+			window.localStorage.setItem(
+				'hyve-lead-form',
+				JSON.stringify( state )
+			);
+		} catch {}
+	}
+
+	/**
+	 * Link a pending lead to the conversation once one exists.
+	 *
+	 * Fire-and-forget: a transient failure retries after the next reply; a
+	 * dead token (expired or already consumed) is dropped for good.
+	 *
+	 * @return {Promise<void>} Resolves when handled.
+	 */
+	async maybeLinkLead() {
+		const token = this.leadToken();
+
+		if ( ! token || ! this.recordID || ! this.threadID ) {
+			return;
+		}
+
+		try {
+			await apiFetch( {
+				path: `${ window.hyveClient.api }/leads/link`,
+				method: 'POST',
+				data: {
+					lead_token: token,
+					record_id: this.recordID,
+					thread_id: this.threadID,
+				},
+			} );
+
+			this.clearLeadToken();
+		} catch ( err ) {
+			if ( 410 === err?.data?.status ) {
+				this.clearLeadToken();
+			}
+		}
 	}
 
 	clearLeadFormStatus() {
@@ -1388,21 +1522,37 @@ class App {
 	/**
 	 * Offer the contact form with accept/decline; a decline is remembered.
 	 *
+	 * @param {Object}  [options]          Options.
+	 * @param {boolean} [options.explicit] Whether the visitor explicitly asked
+	 *                                     for a human (vs a passive trigger).
 	 * @return {void}
 	 */
-	offerLeadForm() {
+	offerLeadForm( { explicit = false } = {} ) {
 		const config = this.leadConfig();
+
+		if ( ! config || this.gateLocked || this.isLeadFormVisible() ) {
+			return;
+		}
+
 		const status = this.leadFormStatus();
 
+		// Details are already collected: never ask again, but an explicit ask
+		// for a human gets an acknowledgment instead of silence.
+		if ( 'submitted' === status ) {
+			if ( explicit ) {
+				this.add(
+					this.leadMessage( 'already', strings.leadAlready ),
+					'bot'
+				);
+			}
+
+			return;
+		}
+
 		// A pre-chat skip ('gate_skipped') is weak intent, so mid-chat triggers
-		// may still offer the form; only a real decline or a submission stops it.
-		if (
-			! config ||
-			this.gateLocked ||
-			'dismissed' === status ||
-			'submitted' === status ||
-			this.isLeadFormVisible()
-		) {
+		// may still offer the form; a real decline stops passive offers, but an
+		// explicit ask for a human overrides even that.
+		if ( 'dismissed' === status && ! explicit ) {
 			return;
 		}
 
@@ -1729,9 +1879,11 @@ class App {
 		submit.disabled = true;
 
 		try {
+			let leadToken = null;
+
 			// The admin preview never stores real leads.
 			if ( ! this.isPreview() ) {
-				await apiFetch( {
+				const response = await apiFetch( {
 					path: `${ window.hyveClient.api }/leads`,
 					method: 'POST',
 					data: {
@@ -1740,12 +1892,16 @@ class App {
 						thread_id: this.threadID ?? '',
 						page_url: window.location.href,
 					},
-					headers: this.getDefaultHeaders(),
 				} );
+
+				// A lead stored without a conversation (pre-chat gate) comes
+				// back with a link token; it is redeemed once a turn is
+				// recorded and ids exist.
+				leadToken = response?.lead_token ?? null;
 			}
 
 			form.remove();
-			this.setLeadFormStatus( 'submitted' );
+			this.setLeadFormStatus( 'submitted', leadToken );
 			this.addEventEntry( 'contact_form' );
 			this.add( this.leadMessage( 'thanks', strings.leadThanks ), 'bot' );
 
@@ -1921,12 +2077,6 @@ class App {
 		} );
 	}
 
-	getDefaultHeaders() {
-		return {
-			'Cache-Control': 'no-cache',
-		};
-	}
-
 	/**
 	 * Whether the visitor has dismissed the privacy notice in this browser.
 	 *
@@ -1977,6 +2127,265 @@ class App {
 		try {
 			window.localStorage.setItem( 'hyve-privacy-dismissed', 'true' );
 		} catch {}
+	}
+
+	/**
+	 * Arm the proactive teaser: a configurable invite shown next to the closed
+	 * launcher when the selected trigger fires (Pro supplies the config through
+	 * `hyveClient.proactive`). UI only — no thread or API call happens until
+	 * the visitor actually sends a message.
+	 *
+	 * @return {void}
+	 */
+	setupProactive() {
+		const config = window.hyveClient?.proactive;
+
+		if ( ! config?.message || this.isInline || this.isPreview() ) {
+			return;
+		}
+
+		// The teaser anchors to the floating launcher.
+		if ( ! document.getElementById( 'hyve-open' ) ) {
+			return;
+		}
+
+		// A returning visitor with a conversation doesn't need an invite.
+		if ( this.threadID || this.hasUserMessages() ) {
+			return;
+		}
+
+		if ( this.isTeaserSuppressed() ) {
+			return;
+		}
+
+		this.armTeaserTrigger( config );
+	}
+
+	/**
+	 * Whether the teaser should stay hidden: dismissed in this browser, or
+	 * already shown once this session.
+	 *
+	 * @return {boolean} True when suppressed.
+	 */
+	isTeaserSuppressed() {
+		try {
+			return (
+				'true' ===
+					window.localStorage.getItem( 'hyve-teaser-dismissed' ) ||
+				'true' === window.sessionStorage.getItem( 'hyve-teaser-shown' )
+			);
+		} catch {
+			return true;
+		}
+	}
+
+	/**
+	 * Arm the configured trigger. Exactly one is active at a time.
+	 *
+	 * @param {Object} config               The proactive config.
+	 * @param {string} config.trigger       One of 'time', 'exit', 'scroll'.
+	 * @param {string} config.message       The teaser message.
+	 * @param {number} [config.delay]       Seconds on page (time trigger).
+	 * @param {number} [config.scrollDepth] Percent scrolled (scroll trigger).
+	 *
+	 * @return {void}
+	 */
+	armTeaserTrigger( config ) {
+		const show = () => this.showTeaser( config.message );
+
+		switch ( config.trigger ) {
+			case 'exit':
+				// Desktop only: fires when the pointer leaves toward the top
+				// of the viewport. Touch devices never emit it, so the teaser
+				// simply doesn't show there.
+				this.teaserExitListener = ( event ) => {
+					if ( ! event.relatedTarget && 0 >= event.clientY ) {
+						show();
+					}
+				};
+				document.addEventListener(
+					'mouseout',
+					this.teaserExitListener
+				);
+				break;
+			case 'scroll':
+				this.teaserScrollListener = () => {
+					const doc = document.documentElement;
+					const max = doc.scrollHeight - window.innerHeight;
+					const percent =
+						0 < max ? ( window.scrollY / max ) * 100 : 100;
+
+					if ( percent >= ( config.scrollDepth ?? 50 ) ) {
+						show();
+					}
+				};
+				window.addEventListener( 'scroll', this.teaserScrollListener, {
+					passive: true,
+				} );
+				break;
+			default:
+				this.teaserTimeout = window.setTimeout(
+					show,
+					1000 * ( config.delay ?? 0 )
+				);
+		}
+	}
+
+	/**
+	 * Cancel any armed teaser trigger.
+	 *
+	 * @return {void}
+	 */
+	disarmTeaserTrigger() {
+		if ( this.teaserTimeout ) {
+			window.clearTimeout( this.teaserTimeout );
+			this.teaserTimeout = null;
+		}
+
+		if ( this.teaserExitListener ) {
+			document.removeEventListener( 'mouseout', this.teaserExitListener );
+			this.teaserExitListener = null;
+		}
+
+		if ( this.teaserScrollListener ) {
+			window.removeEventListener( 'scroll', this.teaserScrollListener );
+			this.teaserScrollListener = null;
+		}
+	}
+
+	/**
+	 * Show the teaser bubble next to the closed launcher. Clicking the message
+	 * opens the chat (the normal welcome flow proceeds); the X dismisses it
+	 * for good. Focus is never moved — the bubble announces itself politely
+	 * via role="status".
+	 *
+	 * @param {string} message The teaser message.
+	 *
+	 * @return {void}
+	 */
+	showTeaser( message ) {
+		this.disarmTeaserTrigger();
+
+		// The moment may have passed: the chat could have been opened, or a
+		// conversation started, while the trigger was armed.
+		const openButton = document.getElementById( 'hyve-open' );
+
+		if (
+			! openButton ||
+			'none' === openButton.style.display ||
+			this.hasUserMessages() ||
+			document.getElementById( 'hyve-teaser' )
+		) {
+			return;
+		}
+
+		try {
+			window.sessionStorage.setItem( 'hyve-teaser-shown', 'true' );
+		} catch {}
+
+		this.renderTeaser( message );
+	}
+
+	/**
+	 * Show the teaser with a given message in the admin preview widget,
+	 * bypassing triggers and suppression state. Used by the settings screen.
+	 *
+	 * @param {string} message The teaser message to preview.
+	 *
+	 * @return {void}
+	 */
+	previewTeaser( message ) {
+		if ( ! message || this.isInline ) {
+			return;
+		}
+
+		const openButton = document.getElementById( 'hyve-open' );
+
+		if ( ! openButton ) {
+			return;
+		}
+
+		// The teaser anchors to the closed launcher, so close the window first.
+		if ( 'none' === openButton.style.display ) {
+			this.toggleChatWindow( false );
+		}
+
+		this.removeTeaser();
+		this.renderTeaser( message );
+	}
+
+	/**
+	 * Build and attach the teaser bubble next to the launcher.
+	 *
+	 * @param {string} message The teaser message.
+	 *
+	 * @return {void}
+	 */
+	renderTeaser( message ) {
+		const messageButton = this.createElement( 'button', {
+			className: 'hyve-teaser__message',
+			textContent: message,
+		} );
+
+		messageButton.addEventListener( 'click', () => {
+			this.removeTeaser();
+			this.toggleChatWindow( true );
+		} );
+
+		const dismissButton = this.createElement( 'button', {
+			className: 'hyve-teaser__dismiss',
+			ariaLabel: strings.dismissNotice ?? 'Dismiss',
+			innerHTML:
+				'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false"><path d="M12 13.06l3.712 3.713 1.061-1.06L13.061 12l3.712-3.712-1.06-1.06L12 10.938 8.288 7.227l-1.061 1.06L10.939 12l-3.712 3.712 1.06 1.061L12 13.061z"></path></svg>',
+		} );
+
+		dismissButton.addEventListener( 'click', () => {
+			// Never persist dismissal from the admin preview, or previewing
+			// would suppress the real teaser for the admin as a visitor.
+			if ( ! this.isPreview() ) {
+				try {
+					window.localStorage.setItem(
+						'hyve-teaser-dismissed',
+						'true'
+					);
+				} catch {}
+			}
+
+			this.removeTeaser();
+		} );
+
+		const teaser = this.createElement(
+			'div',
+			{ className: 'hyve-teaser', id: 'hyve-teaser' },
+			messageButton,
+			dismissButton
+		);
+
+		teaser.setAttribute( 'role', 'status' );
+
+		if ( 'left' === window.hyveClient?.chatPosition ) {
+			teaser.classList.add( 'is-left' );
+		}
+
+		// Match the bot-message contrast so the text stays readable on a dark
+		// assistant background.
+		if ( window.hyveClient?.colors?.assistant_background ) {
+			teaser.classList.add( 'is-dark' );
+		}
+
+		document.body.appendChild( teaser );
+
+		this.addAudioPlayback( pingAudio );
+	}
+
+	/**
+	 * Remove the teaser bubble and cancel any armed trigger.
+	 *
+	 * @return {void}
+	 */
+	removeTeaser() {
+		this.disarmTeaserTrigger();
+		document.getElementById( 'hyve-teaser' )?.remove();
 	}
 
 	/**
@@ -2434,6 +2843,36 @@ class App {
 					element.style.display = showTimestamp ? '' : 'none';
 				} );
 		}
+	}
+
+	/**
+	 * Live-update the lead form configuration from the admin Leads panel,
+	 * without a page reload. Only used in preview mode.
+	 *
+	 * The lead flow restarts from scratch: any rendered form or offer is
+	 * removed, the remembered decision is reset, and the pre-chat gate is
+	 * re-evaluated against the new config.
+	 *
+	 * @param {Object|null} leadForm The leadForm config ({ fields, triggers,
+	 *                               messages }), or null when disabled.
+	 * @return {void}
+	 */
+	applyPreviewLeadForm( leadForm ) {
+		if ( ! this.isPreview() ) {
+			return;
+		}
+
+		window.hyveClient.leadForm = leadForm ?? undefined;
+
+		this.previewLeadStatus = null;
+		this.preChatGateShown = false;
+		this.gatePending = false;
+		this.setGateLock( false );
+
+		document.querySelector( '.hyve-lead-form' )?.remove();
+		this.removeLeadOffer();
+
+		this.maybeShowPreChatGate();
 	}
 
 	/**

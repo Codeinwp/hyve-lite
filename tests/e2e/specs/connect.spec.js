@@ -76,11 +76,8 @@ test.describe( 'Hyve Connect', () => {
 			page.getByText( 'Hyve Connect is handling AI.' )
 		).toBeVisible();
 
-		// Model and retrieval tuning do nothing under Connect, so they lock.
+		// The model does nothing under Connect, so it locks.
 		await expect( page.getByLabel( 'Model' ) ).toBeDisabled();
-		await expect(
-			page.getByRole( 'slider', { name: 'Similarity threshold' } ).first()
-		).toBeDisabled();
 
 		// The API key is editable under Connect only when one is already stored
 		// (so it can be removed); a key-less site cannot add one here.
@@ -94,5 +91,11 @@ test.describe( 'Hyve Connect', () => {
 		} else {
 			await expect( apiKey ).toBeDisabled();
 		}
+
+		// Retrieval tuning shares the Provider & model panel and also does
+		// nothing under Connect, so its slider locks too.
+		await expect(
+			page.getByRole( 'slider', { name: 'Similarity threshold' } ).first()
+		).toBeDisabled();
 	} );
 } );
