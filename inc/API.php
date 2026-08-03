@@ -309,6 +309,10 @@ class API extends BaseAPI {
 							'type'     => 'string',
 							'enum'     => [ 'stream', 'background' ],
 						],
+						'page_url'  => [
+							'required' => false,
+							'type'     => 'string',
+						],
 					],
 					'callback'            => [ $this, 'send_chat' ],
 					'permission_callback' => function ( $request ) {
@@ -597,6 +601,14 @@ class API extends BaseAPI {
 		}
 
 		Encryption::maybe_reset_key_check();
+
+		// Switching into Connect: push any existing self-hosted content up to the
+		// platform so the site does not start with an empty hosted KB. Runs on a
+		// cron batch; fresh/empty sites are a no-op.
+		if ( Hyve_Connect::MODE_CONNECT === $mode && Hyve_Connect::MODE_CONNECT !== $prev_mode ) {
+			Hyve_Connect::flush_stats();
+			$this->table->connect_start_sync();
+		}
 
 		// Switching into Connect: push any existing self-hosted content up to the
 		// platform so the site does not start with an empty hosted KB. Runs on a
@@ -2197,6 +2209,7 @@ class API extends BaseAPI {
 					'context'         => $prepared['context'],
 					'is_test'         => $is_test,
 					'source_post_ids' => $this->source_post_ids,
+					'page'            => isset( $prepared['page'] ) ? $prepared['page'] : null,
 				],
 				5 * MINUTE_IN_SECONDS
 			);
@@ -2246,21 +2259,25 @@ class API extends BaseAPI {
 	 * stored under a run token that `get_chat` reads back, keeping the widget's
 	 * send-then-poll contract intact without an OpenAI background run.
 	 *
-	 * @param array{thread_id:string,message:string,context:string} $prepared  Prepared turn.
-	 * @param bool                                                  $is_test   Admin live-preview chat.
-	 * @param int|null                                              $record_id Existing conversation record.
+	 * @param array{thread_id:string,message:string,context:string,page:array<string, mixed>|null} $prepared  Prepared turn.
+	 * @param bool                                                                                 $is_test   Admin live-preview chat.
+	 * @param int|null                                                                             $record_id Existing conversation record.
 	 *
 	 * @return \WP_REST_Response
 	 */
 	private function send_chat_connect( $prepared, $is_test, $record_id ) {
-		$result = Hyve_Connect::instance()->chat(
-			[
-				'message'   => $prepared['message'],
-				'thread_id' => '' !== $prepared['thread_id'] ? $prepared['thread_id'] : null,
-				'settings'  => Hyve_Connect::chat_settings(),
-				'stream'    => false,
-			]
-		);
+		$payload = [
+			'message'   => $prepared['message'],
+			'thread_id' => '' !== $prepared['thread_id'] ? $prepared['thread_id'] : null,
+			'settings'  => Hyve_Connect::chat_settings(),
+			'stream'    => false,
+		];
+
+		if ( ! empty( $prepared['page'] ) ) {
+			$payload['page'] = $prepared['page'];
+		}
+
+		$result = Hyve_Connect::instance()->chat( $payload );
 
 		if ( is_wp_error( $result ) ) {
 			return rest_ensure_response(
@@ -2361,7 +2378,7 @@ class API extends BaseAPI {
 	 *
 	 * @param \WP_REST_Request<array<string, mixed>> $request Request.
 	 *
-	 * @return array{thread_id:string,message:string,context:string}|\WP_Error
+	 * @return array{thread_id:string,message:string,context:string,page:array<string, mixed>|null}|\WP_Error
 	 */
 	private function prepare_chat( $request ) {
 		$message = $request->get_param( 'message' );
@@ -2369,6 +2386,8 @@ class API extends BaseAPI {
 		if ( empty( $message ) ) {
 			return new \WP_Error( 'missing_message', __( 'Message was flagged.', 'hyve-lite' ) );
 		}
+
+		$page = Page_Context::instance()->for_request( $request );
 
 		// Connect mode: moderation, embedding, retrieval, and thread minting all
 		// happen server-side inside hyve-chat, so there is no local prep. The
@@ -2381,6 +2400,7 @@ class API extends BaseAPI {
 				'thread_id' => $thread_id ? $thread_id : '',
 				'message'   => $message,
 				'context'   => '',
+				'page'      => $page ? Page_Context::instance()->payload( $page ) : null,
 			];
 		}
 
@@ -2394,7 +2414,12 @@ class API extends BaseAPI {
 		$record_id       = $request->get_param( 'record_id' );
 		$record_id       = $record_id ? $record_id : null;
 		$retrieval_query = $this->build_retrieval_query( $message, $record_id, $request->get_param( 'thread_id' ) );
-		$message_vector  = $openai->create_embeddings( $retrieval_query );
+
+		if ( $page && '' !== $page['title'] ) {
+			$retrieval_query .= "\n" . $page['title'];
+		}
+
+		$message_vector = $openai->create_embeddings( $retrieval_query );
 
 		if ( is_wp_error( $message_vector ) ) {
 			return new \WP_Error( 'no_embeddings', __( 'No embeddings found.', 'hyve-lite' ) );
@@ -2429,6 +2454,23 @@ class API extends BaseAPI {
 
 		$article_context = $this->search_knowledge_base( $message_vector, $similarity_score_threshold );
 
+		if ( $page ) {
+			$article_context .= Page_Context::instance()->context_block( $page, $article_context );
+		}
+
+		// The visitor is already on this page; linking them to it as a
+		// source would be noise.
+		if ( $page && $page['id'] ) {
+			$this->source_post_ids = array_values(
+				array_filter(
+					$this->source_post_ids,
+					function ( $source_id ) use ( $page ) {
+						return intval( $source_id ) !== $page['id'];
+					}
+				)
+			);
+		}
+
 		$hash = hash( 'md5', strtolower( $message ) );
 		// TTL must outlast the slowest reply (streaming can run up to the 120s
 		// cURL cap) so the embedding is still available when hyve_chat_response
@@ -2439,6 +2481,7 @@ class API extends BaseAPI {
 			'thread_id' => $thread_id,
 			'message'   => $message,
 			'context'   => $article_context,
+			'page'      => null,
 		];
 	}
 

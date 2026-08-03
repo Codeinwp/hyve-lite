@@ -213,6 +213,7 @@ const ConversationCard = () => {
 	const { setSetting } = useDispatch( 'hyve' );
 
 	const soundEnabled = Boolean( settings.sound_enabled ?? true );
+	const pageAwareness = Boolean( settings.page_context_enabled ?? true );
 
 	return (
 		<Card
@@ -305,6 +306,32 @@ const ConversationCard = () => {
 					disabled={ ! isPro || isSaving }
 					onChange={ ( value ) =>
 						setSetting( 'system_prompt', value )
+					}
+				/>
+			</FieldRow>
+			<FieldRow
+				label={
+					<>
+						{ __( 'Page awareness', 'hyve-lite' ) }{ ' ' }
+						{ ! isPro && <ProChip /> }
+					</>
+				}
+				description={ __(
+					'Let the assistant see the page a visitor is chatting from, so questions like "how much does this cost?" get answered from that page, even when it isn\'t in the Knowledge Base.',
+					'hyve-lite'
+				) }
+			>
+				<ToggleControl
+					__nextHasNoMarginBottom
+					label={
+						pageAwareness
+							? __( 'Enabled', 'hyve-lite' )
+							: __( 'Disabled', 'hyve-lite' )
+					}
+					checked={ pageAwareness }
+					disabled={ ! isPro || isSaving }
+					onChange={ ( value ) =>
+						setSetting( 'page_context_enabled', Boolean( value ) )
 					}
 				/>
 			</FieldRow>

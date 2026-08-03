@@ -250,6 +250,7 @@ export const quotaOf = ( connect, kind ) => {
 		full: limit > 0 && used >= limit,
 	};
 };
+
 /**
  * Whether the license currently unlocks Pro features.
  *

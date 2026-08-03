@@ -512,6 +512,26 @@ class DB_Table {
 	}
 
 	/**
+	 * Get the processed chunks of a source post.
+	 *
+	 * Used to pin the visitor's current page into the chat context. Rows stay
+	 * in this table in both storage backends (Qdrant only holds the vectors),
+	 * so this works regardless of where embeddings live.
+	 *
+	 * @since 1.5.0
+	 *
+	 * @param int $post_id The source post ID.
+	 * @param int $limit   Maximum chunks to return.
+	 *
+	 * @return array<object{post_title: string, post_content: string, token_count: string}>
+	 */
+	public function get_chunks_by_post_id( $post_id, $limit = 20 ) {
+		global $wpdb;
+
+		return $wpdb->get_results( $wpdb->prepare( 'SELECT post_title, post_content, token_count FROM %i WHERE post_id = %d AND post_status = %s ORDER BY id ASC LIMIT %d', $this->table_name, $post_id, 'processed', $limit ) );
+	}
+
+	/**
 	 * Update storage of all rows.
 	 * 
 	 * @since 1.3.0
@@ -568,6 +588,10 @@ class DB_Table {
 		// Stamped with the start time so an add interrupted before the matching
 		// delete below leaves a flag that can be aged out instead of sticking.
 		update_post_meta( $post_id, '_hyve_post_processing', time() );
+
+		$content = Hyve_Connect::is_active()
+			? get_post_field( 'post_content', $post_id )
+			: apply_filters( 'the_content', get_post_field( 'post_content', $post_id ) );
 
 		$content = Hyve_Connect::is_active()
 			? get_post_field( 'post_content', $post_id )
