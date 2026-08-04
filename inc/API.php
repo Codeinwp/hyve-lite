@@ -1350,6 +1350,17 @@ class API extends BaseAPI {
 	 *
 	 * @return \WP_REST_Response
 	 */
+	/**
+	 * Whether the error is the service being unreachable.
+	 *
+	 * @param \WP_Error $error The error to classify.
+	 *
+	 * @return bool
+	 */
+	private function connect_is_unreachable( $error ) {
+		return is_wp_error( $error ) && 'hyve_connect_unreachable' === $error->get_error_code();
+	}
+
 	public function connect_disconnect( $request ) {
 		$mode     = 'clear' === $request->get_param( 'mode' ) ? 'clear' : 'import';
 		$settings = Main::get_settings();
@@ -1362,42 +1373,54 @@ class API extends BaseAPI {
 
 		wp_clear_scheduled_hook( DB_Table::CONNECT_SYNC_HOOK );
 
+		wp_clear_scheduled_hook( DB_Table::CONNECT_DELETE_HOOK );
+		delete_option( DB_Table::CONNECT_DELETE_OPTION );
+
+		// Best-effort so an unreachable service cannot trap the site.
+		$warning     = '';
+		$keep_hosted = false;
+
 		if ( 'import' === $mode ) {
 			$imported = $this->connect_import();
 
 			if ( is_wp_error( $imported ) ) {
-				return rest_ensure_response( [ 'error' => Hyve_Connect::user_message( $imported ) ] );
+				if ( ! $this->connect_is_unreachable( $imported ) ) {
+					return rest_ensure_response( [ 'error' => Hyve_Connect::user_message( $imported ) ] );
+				}
+
+				// Keep the hosted copy; deleting loses unimported content.
+				$warning     = Hyve_Connect::user_message( $imported );
+				$keep_hosted = true;
 			}
 		}
 
-		// Both paths remove the hosted copy for this identity.
-		$deleted = Hyve_Connect::instance()->kb_delete_all();
+		if ( ! $keep_hosted ) {
+			$deleted = Hyve_Connect::instance()->kb_delete_all();
 
-		if ( is_wp_error( $deleted ) ) {
-			return rest_ensure_response( [ 'error' => Hyve_Connect::user_message( $deleted ) ] );
+			if ( is_wp_error( $deleted ) ) {
+				if ( ! $this->connect_is_unreachable( $deleted ) ) {
+					return rest_ensure_response( [ 'error' => Hyve_Connect::user_message( $deleted ) ] );
+				}
+
+				$warning = '' !== $warning ? $warning : Hyve_Connect::user_message( $deleted );
+			}
 		}
 
-		// The hosted copy is gone: leave Connect mode BEFORE the local cleanup,
-		// or `before_delete_post` fires a platform delete per removed source
-		// (thousands of sequential requests; times out on large KBs).
+		// Leave Connect before cleanup, else before_delete_post deletes each source.
 		$settings['ai_mode'] = Hyve_Connect::MODE_SELF;
 		update_option( 'hyve_settings', $settings );
 
 		if ( 'clear' === $mode ) {
-			// Nothing is indexed anywhere now: drop the local bookkeeping too.
+			// Nothing indexed anywhere now: drop local bookkeeping too.
 			$this->connect_clear_local();
-		} else {
-			// Sources that never reached the platform (over the plan limit or
-			// rejected) had nothing to export: unmark them, or they would list
-			// as indexed with no local chunks behind them.
+		} elseif ( ! $keep_hosted ) {
+			// Drop sources that never reached the platform.
 			$this->connect_drop_unsynced();
 
-			// Import keeps the sources but the hosted copy is gone, so forget the
-			// synced markers; a future re-enable then re-pushes cleanly.
+			// Forget synced markers so a re-enable re-pushes cleanly.
 			$this->table->connect_reset_sync_markers();
 
-			// Back on the local engine the local chunk limit applies again:
-			// prune the oldest content over it, same as Qdrant deactivation.
+			// Local chunk limit applies again; prune the overflow.
 			$over_limit = $this->table->get_posts_over_limit();
 
 			if ( ! empty( $over_limit ) ) {
@@ -1408,7 +1431,7 @@ class API extends BaseAPI {
 		delete_option( DB_Table::CONNECT_SYNC_OPTION );
 		Hyve_Connect::flush_stats();
 
-		return rest_ensure_response( true );
+		return rest_ensure_response( '' !== $warning ? [ 'success' => true, 'warning' => $warning ] : true );
 	}
 
 	/**

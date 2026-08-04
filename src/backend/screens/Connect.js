@@ -189,19 +189,27 @@ export const ConnectPanel = () => {
 			setConnectSync( null );
 			setConfirmOpen( false );
 
-			createNotice(
-				'success',
-				'import' === disconnectMode
-					? __(
-							'Hyve Connect disconnected. Your content was imported back.',
-							'hyve-lite'
-					  )
-					: __(
-							'Hyve Connect disconnected and your knowledge base was cleared.',
-							'hyve-lite'
-					  ),
-				{ type: 'snackbar', isDismissible: true }
-			);
+			// Unreachable, but we still left Connect; warn the user.
+			if ( response.warning ) {
+				createNotice( 'warning', response.warning, {
+					type: 'snackbar',
+					isDismissible: true,
+				} );
+			} else {
+				createNotice(
+					'success',
+					'import' === disconnectMode
+						? __(
+								'Hyve Connect disconnected. Your content was imported back.',
+								'hyve-lite'
+						  )
+						: __(
+								'Hyve Connect disconnected and your knowledge base was cleared.',
+								'hyve-lite'
+						  ),
+					{ type: 'snackbar', isDismissible: true }
+				);
+			}
 		} catch ( error ) {
 			createNotice( 'error', error?.message ?? String( error ), {
 				type: 'snackbar',

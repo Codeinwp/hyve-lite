@@ -34,9 +34,11 @@ class ConnectSyncTest extends WP_UnitTestCase {
 		delete_option( 'hyve_settings' );
 		delete_option( DB_Table::CONNECT_SYNC_OPTION );
 		delete_option( DB_Table::CONNECT_IDENTITY_OPTION );
+		delete_option( DB_Table::CONNECT_DELETE_OPTION );
 		delete_transient( 'hyve_connect_stats' );
 		delete_transient( 'hyve_connect_recovery_check' );
 		wp_clear_scheduled_hook( DB_Table::CONNECT_SYNC_HOOK );
+		wp_clear_scheduled_hook( DB_Table::CONNECT_DELETE_HOOK );
 		parent::tearDown();
 	}
 
@@ -1481,5 +1483,72 @@ class ConnectSyncTest extends WP_UnitTestCase {
 		foreach ( $docs as $doc ) {
 			$this->assertNull( get_post( $doc ) );
 		}
+	}
+
+	/**
+	 * With no local sources, the bucketed reconcile can never detect cloud
+	 * orphans (empty manifest -> no bucket hashes -> nothing differs). Reconcile
+	 * must instead wipe the hosted copy outright, or the orphans are stranded.
+	 */
+	public function test_reconcile_wipes_hosted_copy_when_local_kb_is_empty() {
+		$this->enable_connect();
+		// No `_hyve_added` posts exist, so the local manifest is empty.
+
+		$deleted_all = false;
+
+		add_filter(
+			'pre_http_request',
+			function ( $pre, $args ) use ( &$deleted_all ) {
+				$payload = json_decode( isset( $args['body'] ) ? (string) $args['body'] : '', true );
+				$action  = is_array( $payload ) ? ( $payload['action'] ?? '' ) : '';
+
+				if ( 'delete' === $action && ! empty( $payload['all'] ) ) {
+					$deleted_all = true;
+					$body        = $this->sse( [ [ 'job_complete', [ 'deleted' => [], 'all' => true ] ] ] );
+				} else {
+					// Root reconcile: the cloud still holds content local does not.
+					$body = $this->sse( [ [ 'job_complete', [ 'in_sync' => false, 'aggregate' => 'CLOUD' ] ] ] );
+				}
+
+				return [ 'response' => [ 'code' => 200 ], 'body' => $body ];
+			},
+			10,
+			3
+		);
+
+		$result = DB_Table::instance()->connect_reconcile();
+
+		$this->assertTrue( $result );
+		$this->assertTrue( $deleted_all, 'An empty local KB must delete the whole hosted copy.' );
+	}
+
+	/**
+	 * A hosted delete that fails at delete time (server unreachable) must not be
+	 * dropped: it is queued and a later cron pass finishes it once the service is
+	 * back, so a deleted source never lingers as an orphan.
+	 */
+	public function test_failed_source_delete_is_queued_then_retried() {
+		$this->enable_connect();
+
+		// Delete-time call fails at the transport layer.
+		add_filter(
+			'pre_http_request',
+			function () {
+				return new \WP_Error( 'http_request_failed', 'down' );
+			}
+		);
+
+		DB_Table::instance()->connect_delete_source( [ 4242 ] );
+
+		$this->assertSame( [ 4242 ], get_option( DB_Table::CONNECT_DELETE_OPTION ) );
+		$this->assertNotFalse( wp_next_scheduled( DB_Table::CONNECT_DELETE_HOOK ) );
+
+		// Service back: the retry pass clears the queue.
+		remove_all_filters( 'pre_http_request' );
+		$this->intercept( $this->sse( [ [ 'job_complete', [ 'deleted' => [ 4242 ] ] ] ] ) );
+
+		DB_Table::instance()->connect_run_deletes();
+
+		$this->assertFalse( get_option( DB_Table::CONNECT_DELETE_OPTION ) );
 	}
 }

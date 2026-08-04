@@ -60,6 +60,7 @@ class Main {
 		add_action( 'save_post', [ $this, 'update_meta' ], 10, 3 );
 		add_action( 'before_delete_post', [ $this, 'delete_post' ] );
 		add_action( DB_Table::CONNECT_SYNC_HOOK, [ $this->table, 'connect_run_sync' ] );
+		add_action( DB_Table::CONNECT_DELETE_HOOK, [ $this->table, 'connect_run_deletes' ] );
 		add_filter( 'themeisle_sdk_enable_telemetry', '__return_true' );
 
 		add_filter( 'hyve_global_chat_enabled', [ $this, 'is_global_chat_enabled' ] );
@@ -1156,8 +1157,9 @@ class Main {
 		if ( Qdrant_API::is_active() ) {
 			$this->qdrant->delete_point( $post_id );
 		} elseif ( Hyve_Connect::is_active() && get_post_meta( $post_id, '_hyve_added', true ) ) {
-			Hyve_Connect::instance()->kb_delete( [ (int) $post_id ] );
-			Hyve_Connect::flush_stats();
+			// Retry-on-failure: a dropped delete would strand the hosted chunks as
+			// an orphan the empty-KB reconcile cannot later detect.
+			$this->table->connect_delete_source( [ (int) $post_id ] );
 		}
 	}
 

@@ -153,6 +153,66 @@ class ConnectImportTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Disconnect must escape to self-hosted when the server is unreachable.
+	 */
+	public function test_clear_disconnect_escapes_when_server_unreachable() {
+		update_option( 'hyve_settings', [ 'ai_mode' => Hyve_Connect::MODE_CONNECT ] );
+
+		// Every hosted call fails at the transport layer.
+		add_filter(
+			'pre_http_request',
+			function () {
+				return new \WP_Error( 'http_request_failed', 'Could not resolve host.' );
+			}
+		);
+
+		$request = new WP_REST_Request( 'POST', '/hyve/v1/connect/disconnect' );
+		$request->set_param( 'mode', 'clear' );
+
+		API::instance()->connect_disconnect( $request );
+
+		// The user must not be stuck in Connect mode.
+		$this->assertSame( Hyve_Connect::MODE_SELF, \ThemeIsle\HyveLite\Main::get_settings()['ai_mode'] );
+	}
+
+	/**
+	 * Import-mode disconnect escapes when unreachable but keeps the hosted copy.
+	 */
+	public function test_import_disconnect_escapes_but_keeps_hosted_when_unreachable() {
+		update_option( 'hyve_settings', [ 'ai_mode' => Hyve_Connect::MODE_CONNECT ] );
+
+		$delete_called = false;
+
+		add_filter(
+			'pre_http_request',
+			function ( $pre, $args ) use ( &$delete_called ) {
+				$payload = json_decode( isset( $args['body'] ) ? (string) $args['body'] : '', true );
+
+				if ( is_array( $payload ) && 'delete' === ( $payload['action'] ?? '' ) ) {
+					$delete_called = true;
+				}
+
+				return new \WP_Error( 'http_request_failed', 'Could not resolve host.' );
+			},
+			10,
+			3
+		);
+
+		$request = new WP_REST_Request( 'POST', '/hyve/v1/connect/disconnect' );
+		$request->set_param( 'mode', 'import' );
+
+		$response = API::instance()->connect_disconnect( $request )->get_data();
+
+		// Escaped to self-hosted...
+		$this->assertSame( Hyve_Connect::MODE_SELF, \ThemeIsle\HyveLite\Main::get_settings()['ai_mode'] );
+		// ...surfaced a warning rather than a hard error...
+		$this->assertIsArray( $response );
+		$this->assertArrayHasKey( 'warning', $response );
+		// ...and never wiped the hosted copy it could not import.
+		$this->assertFalse( $delete_called );
+	}
+
+	/**
 	 * A mismatched embedding model aborts the import (its vectors are unusable
 	 * locally) and leaves the site in Connect mode rather than half-migrated.
 	 */

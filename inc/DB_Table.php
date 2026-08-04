@@ -78,6 +78,22 @@ class DB_Table {
 	const CONNECT_SYNC_HOOK = 'hyve_lite_connect_sync';
 
 	/**
+	 * Source ids whose hosted copy still needs deleting because the delete-time
+	 * platform call failed (e.g. the server was unreachable). Retried by cron so
+	 * a failed delete never strands an orphan the empty-KB reconcile cannot see.
+	 *
+	 * @var string
+	 */
+	const CONNECT_DELETE_OPTION = 'hyve_connect_pending_deletes';
+
+	/**
+	 * The cron hook that retries pending hosted deletes.
+	 *
+	 * @var string
+	 */
+	const CONNECT_DELETE_HOOK = 'hyve_lite_connect_delete';
+
+	/**
 	 * How long an `in_progress` sync may go without advancing before the
 	 * watchdog treats its run as lost and reschedules it. Comfortably beyond a
 	 * single batch (a ~60s HTTP call plus the 10s inter-pass gap).
@@ -1688,6 +1704,86 @@ class DB_Table {
 	}
 
 	/**
+	 * Remove a source's hosted copy, retrying in the background if the platform
+	 * cannot be reached now.
+	 *
+	 * A fire-and-forget delete strands an orphan when the call fails (the post is
+	 * gone locally, so the empty-KB reconcile can never rediscover it). Queue the
+	 * failed ids instead so a cron pass finishes the delete once the service is
+	 * back.
+	 *
+	 * @param int[] $source_ids Source (post) ids whose hosted chunks to delete.
+	 *
+	 * @return void
+	 */
+	public function connect_delete_source( $source_ids ) {
+		$source_ids = array_values( array_unique( array_map( 'intval', (array) $source_ids ) ) );
+
+		if ( empty( $source_ids ) ) {
+			return;
+		}
+
+		$result = Hyve_Connect::instance()->kb_delete( $source_ids );
+
+		if ( is_wp_error( $result ) ) {
+			$this->connect_queue_deletes( $source_ids );
+		}
+
+		Hyve_Connect::flush_stats();
+	}
+
+	/**
+	 * Add source ids to the pending-delete queue and schedule a retry.
+	 *
+	 * @param int[] $source_ids Source ids that failed to delete on the platform.
+	 *
+	 * @return void
+	 */
+	private function connect_queue_deletes( $source_ids ) {
+		$pending = get_option( self::CONNECT_DELETE_OPTION, [] );
+		$pending = is_array( $pending ) ? $pending : [];
+		$pending = array_values( array_unique( array_merge( array_map( 'intval', $pending ), array_map( 'intval', $source_ids ) ) ) );
+
+		update_option( self::CONNECT_DELETE_OPTION, $pending );
+
+		if ( ! wp_next_scheduled( self::CONNECT_DELETE_HOOK ) ) {
+			wp_schedule_single_event( time() + 30, self::CONNECT_DELETE_HOOK );
+		}
+	}
+
+	/**
+	 * Retry the queued hosted deletes. Clears the queue on success, backs off and
+	 * reschedules while the platform is still unreachable.
+	 *
+	 * @return void
+	 */
+	public function connect_run_deletes() {
+		// Disconnected: the whole hosted copy is being cleared anyway, so the
+		// queue is moot.
+		if ( ! Hyve_Connect::is_active() ) {
+			delete_option( self::CONNECT_DELETE_OPTION );
+			return;
+		}
+
+		$pending = get_option( self::CONNECT_DELETE_OPTION, [] );
+		$pending = is_array( $pending ) ? array_values( array_unique( array_map( 'intval', $pending ) ) ) : [];
+
+		if ( empty( $pending ) ) {
+			return;
+		}
+
+		$result = Hyve_Connect::instance()->kb_delete( $pending );
+
+		if ( is_wp_error( $result ) ) {
+			wp_schedule_single_event( time() + 300, self::CONNECT_DELETE_HOOK );
+			return;
+		}
+
+		delete_option( self::CONNECT_DELETE_OPTION );
+		Hyve_Connect::flush_stats();
+	}
+
+	/**
 	 * Every local source that belongs on Hyve Connect, as a {id, hash} manifest
 	 * for reconcile. The hash is the cached last-synced hash while the post is
 	 * unchanged (no re-hash), or the current content hash once it changes. A
@@ -1781,6 +1877,22 @@ class DB_Table {
 		}
 
 		if ( ! empty( $root['in_sync'] ) ) {
+			$this->connect_clear_blocked_state( $was_blocked );
+			return true;
+		}
+
+		// Empty local KB but the cloud is not in sync (it still holds content):
+		// the bucketed reconcile below cannot clear it (an empty manifest yields
+		// no bucket hashes, so the platform reports nothing differing) and the
+		// full-path delete is deliberately disabled for an empty manifest. Local
+		// is authoritative and the user asked to sync, so wipe the hosted copy.
+		if ( empty( $manifest ) ) {
+			$deleted = $connect->kb_delete_all();
+
+			if ( is_wp_error( $deleted ) ) {
+				return $deleted;
+			}
+
 			$this->connect_clear_blocked_state( $was_blocked );
 			return true;
 		}
