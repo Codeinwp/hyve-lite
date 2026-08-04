@@ -230,6 +230,8 @@ class Qdrant_API {
 
 			$response = $this->client->collections( self::COLLECTION_NAME )->points()->upsert( $points, [ 'wait' => 'true' ] );
 
+			delete_option( self::ERROR_OPTION_KEY );
+
 			return 'completed' === $response['result']['status'];
 		} catch ( \Exception $e ) {
 			return $this->handle_exception( $e );
@@ -260,6 +262,8 @@ class Qdrant_API {
 
 			$response = $this->client->collections( self::COLLECTION_NAME )->points()->upsert( $points_struct, [ 'wait' => 'true' ] );
 
+			delete_option( self::ERROR_OPTION_KEY );
+
 			return 'completed' === $response['result']['status'];
 		} catch ( \Exception $e ) {
 			return $this->handle_exception( $e );
@@ -280,6 +284,8 @@ class Qdrant_API {
 					new MatchString( 'post_id', (string) $id )
 				)
 			);
+
+			delete_option( self::ERROR_OPTION_KEY );
 
 			return 'acknowledged' === $response['result']['status'];
 		} catch ( \Exception $e ) {
@@ -307,6 +313,9 @@ class Qdrant_API {
 			->setWithPayload( true );
 			$response = $this->client->collections( self::COLLECTION_NAME )->points()->search( $search );
 
+			// Any completed search means the service recovered.
+			delete_option( self::ERROR_OPTION_KEY );
+
 			if ( empty( $response['result'] ) ) {
 				return [];
 			}
@@ -321,8 +330,6 @@ class Qdrant_API {
 				},
 				$results
 			);
-
-			delete_option( self::ERROR_OPTION_KEY );
 
 			return $payload;
 		} catch ( \Exception $e ) {
