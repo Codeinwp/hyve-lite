@@ -212,7 +212,7 @@ export const QdrantPanel = () => {
 						<div className="hyve-next-card__intro">
 							<p>
 								{ __(
-									"Use Qdrant to increase the Knowledge Base limit of Hyve. By integrating Qdrant, you can manage larger datasets and improve query performance for your website. To integrate Qdrant with your application, you'll need an API key and endpoint.",
+									"Connect Qdrant to lift Hyve's Knowledge Base limit, handle larger datasets, and speed up search queries. You'll need your Qdrant API key and endpoint.",
 									'hyve-lite'
 								) }
 							</p>
@@ -456,7 +456,7 @@ export const ApiAccessPanel = () => {
 				<div className="hyve-next-card__body">
 					<p>
 						{ __(
-							'Enable external services to search your Knowledge Base using advanced semantic search powered by Retrieval-Augmented Generation (RAG) and OpenAI embeddings.',
+							'Let external services search your Knowledge Base with semantic search powered by Retrieval-Augmented Generation (RAG) and OpenAI embeddings.',
 							'hyve-lite'
 						) }{ ' ' }
 						{ __(
@@ -492,7 +492,7 @@ export const ApiAccessPanel = () => {
 						</strong>
 						<p>
 							{ __(
-								'Upgrade to Pro to unlock advanced access management: generate and manage secure API tokens, and control who can access your Knowledge Base via external integrations. Empower your team and automate workflows with confidence and security.',
+								'Upgrade to Pro to unlock advanced access management: generate and manage secure API tokens, and control who can access your Knowledge Base via external integrations.',
 								'hyve-lite'
 							) }
 						</p>
@@ -501,7 +501,7 @@ export const ApiAccessPanel = () => {
 							href={ setUtm( window.hyve?.pro, 'api-search' ) }
 							target="_blank"
 						>
-							{ __( 'Unlock with Pro', 'hyve-lite' ) }
+							{ __( 'Upgrade to Pro', 'hyve-lite' ) }
 						</Button>
 					</div>
 				) }

@@ -20,13 +20,10 @@ const ServiceErrors = () => {
 		return null;
 	}
 
-	const instructionMessage =
-		__( 'Please test the chat after solving the problem.', 'hyve-lite' ) +
-		' ' +
-		__(
-			'The error will disappear after a successful interaction with the chat.',
-			'hyve-lite'
-		);
+	const instructionMessage = __(
+		'After fixing the issue, send a test message in the chat. The error will clear once a message succeeds.',
+		'hyve-lite'
+	);
 
 	return serviceErrors.map( ( { provider, date, message, code } ) => (
 		<div key={ provider } className="hyve-next-notice is-bad">

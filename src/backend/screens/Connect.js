@@ -1,7 +1,7 @@
 /**
  * WordPress dependencies.
  */
-import { __, sprintf } from '@wordpress/i18n';
+import { __, _x, sprintf } from '@wordpress/i18n';
 
 import apiFetch from '@wordpress/api-fetch';
 
@@ -346,7 +346,7 @@ export const ConnectPanel = () => {
 									) }
 								</strong>{ ' ' }
 								{ __(
-									'You are on free plan limits until you renew it. Your assistant keeps answering in the meantime.',
+									'You are on free plan limits until you renew your license. Your assistant keeps answering in the meantime.',
 									'hyve-lite'
 								) }
 							</div>
@@ -424,7 +424,11 @@ export const ConnectPanel = () => {
 									label={ __( 'Chat messages', 'hyve-lite' ) }
 									used={ chatQuota.used }
 									limit={ chatQuota.limit }
-									unit={ __( 'this month', 'hyve-lite' ) }
+									unit={ _x(
+										'this month',
+										'chat quota period',
+										'hyve-lite'
+									) }
 									sub={
 										chatQuota.full
 											? __(
@@ -609,7 +613,7 @@ export const ConnectPanel = () => {
 								) }
 							</strong>{ ' ' }
 							{ __(
-								"Hyve Connect and a self-hosted key can't run at the same time. Enabling it stops using your key, and your indexed content will be synced to Hyve Connect.",
+								"Hyve Connect and a self-hosted key can't run at the same time. Enabling it stops Hyve from using your key, and your indexed content will be synced to Hyve Connect.",
 								'hyve-lite'
 							) }
 						</div>

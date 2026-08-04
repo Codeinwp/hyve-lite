@@ -189,7 +189,9 @@ test.describe( 'Knowledge Base', () => {
 			page.getByText( 'Halloween Limited Time Deal Information' )
 		).toBeVisible();
 		await expect(
-			page.getByRole( 'link', { name: 'Unlock with Pro' } )
+			page
+				.locator( '.hyve-next-act__upsell' )
+				.getByRole( 'link', { name: 'Upgrade to Pro' } )
 		).toBeVisible();
 
 		// The back link returns to the sources grid.
@@ -218,7 +220,9 @@ test.describe( 'Knowledge Base', () => {
 			page.getByText( 'How do I reset my password?' )
 		).toBeVisible();
 		await expect(
-			page.getByRole( 'link', { name: 'Unlock with Pro' } )
+			page
+				.locator( '.hyve-next-act__upsell' )
+				.getByRole( 'link', { name: 'Upgrade to Pro' } )
 		).toBeVisible();
 	} );
 

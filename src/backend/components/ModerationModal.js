@@ -63,7 +63,7 @@ const ModerationModal = ( { post, type = '', onClose, onSuccess } ) => {
 		>
 			<p>
 				{ __(
-					'The content of the post listed here could not be added or updated due to non-compliance with content policies. Review these to understand the limitations and possibly modify content to align with required standards.',
+					'The content of the post listed here could not be added or updated due to non-compliance with content policies. Review the flagged categories and edit the content if needed.',
 					'hyve-lite'
 				) }
 			</p>
@@ -106,7 +106,7 @@ const ModerationModal = ( { post, type = '', onClose, onSuccess } ) => {
 
 			<p>
 				{ __(
-					"Occasionally, OpenAI's Moderation system may incorrectly flag content as a violation; these are false positives. Such errors can occur because automated systems sometimes lack the necessary context to interpret nuances accurately. If your content is flagged but you believe it adheres to the guidelines, please manually review it. Should you determine it does not violate the content policies, you can click the button below to override the moderation decision.",
+					"OpenAI's moderation can occasionally flag content by mistake. If you've reviewed your content and believe it complies with the policies, click the button below to override the decision.",
 					'hyve-lite'
 				) }
 			</p>

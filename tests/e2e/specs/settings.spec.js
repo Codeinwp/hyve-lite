@@ -132,7 +132,7 @@ test.describe( 'Settings', () => {
 			card.getByText( 'Start conversations before visitors do' )
 		).toBeVisible();
 		await expect(
-			card.getByRole( 'link', { name: 'Unlock with Pro' } )
+			card.getByRole( 'link', { name: 'Upgrade to Pro' } )
 		).toBeVisible();
 
 		// The trigger select is locked on Disabled, so the invite message
@@ -293,7 +293,9 @@ test.describe( 'Settings', () => {
 			page.getByText( 'Search your Knowledge Base from anywhere' )
 		).toBeVisible();
 		await expect(
-			page.getByRole( 'link', { name: 'Unlock with Pro' } )
+			page
+				.locator( '.hyve-next-act__upsell' )
+				.getByRole( 'link', { name: 'Upgrade to Pro' } )
 		).toBeVisible();
 	} );
 } );

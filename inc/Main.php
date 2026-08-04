@@ -1208,7 +1208,7 @@ class Main {
 			'logo'             => 'https://ps.w.org/hyve-lite/assets/icon-256x256.png',
 			'has_upgrade_menu' => 'valid' !== apply_filters( 'product_hyve_license_status', false ),
 			'upgrade_link'     => tsdk_utmify( 'https://themeisle.com/plugins/hyve/', 'about-us' ),
-			'upgrade_text'     => __( 'Get Pro Version', 'hyve-lite' ),
+			'upgrade_text'     => __( 'Upgrade to Pro', 'hyve-lite' ),
 			'review_link'      => 'https://wordpress.org/support/plugin/hyve-lite/reviews/',
 		];
 	}

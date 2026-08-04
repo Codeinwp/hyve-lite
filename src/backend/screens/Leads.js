@@ -72,7 +72,7 @@ const LeadsPreview = () => (
 			<FieldRow
 				label={ __( 'Before the chat starts', 'hyve-lite' ) }
 				description={ __(
-					'Ask visitors to fill the form before their first message.',
+					'Ask visitors to fill in the form before their first message.',
 					'hyve-lite'
 				) }
 			>

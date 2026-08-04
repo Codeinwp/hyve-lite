@@ -315,7 +315,7 @@ const ConversationsPanel = () => {
 						href={ setUtm( window.hyve?.pro, 'messages-feature' ) }
 						target="_blank"
 					>
-						{ __( 'Unlock with Pro', 'hyve-lite' ) }
+						{ __( 'Upgrade to Pro', 'hyve-lite' ) }
 					</Button>
 				</div>
 			) }
@@ -327,16 +327,19 @@ const DEMO_LEADS = [
 	{
 		name: 'Jane Cooper',
 		email: 'jane@example.com',
+		/* translators: sample date shown in the Pro upsell preview. */
 		date: __( 'Apr 12', 'hyve-lite' ),
 	},
 	{
 		name: 'Devon Lane',
 		email: 'devon@example.com',
+		/* translators: sample date shown in the Pro upsell preview. */
 		date: __( 'Apr 9', 'hyve-lite' ),
 	},
 	{
 		name: 'Courtney Henry',
 		email: 'courtney@example.com',
+		/* translators: sample date shown in the Pro upsell preview. */
 		date: __( 'Apr 2', 'hyve-lite' ),
 	},
 ];
