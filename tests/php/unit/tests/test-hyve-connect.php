@@ -403,10 +403,23 @@ class HyveConnectTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * A 429 HTTP response maps to quota_exceeded.
+	 * A 429 without a quota snapshot is transient rate limiting (the platform's
+	 * per-IP guard), not a plan block, so it maps to a retryable rate_limited.
 	 */
-	public function test_http_429_maps_to_quota_exceeded() {
-		$this->intercept( wp_json_encode( [ 'message' => 'Too many requests' ] ), 429 );
+	public function test_http_429_without_quota_maps_to_rate_limited() {
+		$this->intercept( wp_json_encode( [ 'error' => 'Too many requests from your IP address.' ] ), 429 );
+
+		$result = Hyve_Connect::instance()->kb_reconcile( [], null );
+
+		$this->assertWPError( $result );
+		$this->assertSame( 'hyve_connect_rate_limited', $result->get_error_code() );
+	}
+
+	/**
+	 * A 429 carrying a quota snapshot is a real plan-quota block.
+	 */
+	public function test_http_429_with_quota_maps_to_quota_exceeded() {
+		$this->intercept( wp_json_encode( [ 'error' => 'Limit reached', 'quota' => [ 'kind' => 'messages' ] ] ), 429 );
 
 		$result = Hyve_Connect::instance()->kb_reconcile( [], null );
 
@@ -431,10 +444,14 @@ class HyveConnectTest extends WP_UnitTestCase {
 	 */
 	public function test_user_message_maps_codes() {
 		$quota   = new WP_Error( 'hyve_connect_quota_exceeded', 'x', [ 'code' => 'quota_exceeded' ] );
+		$rate    = new WP_Error( 'hyve_connect_rate_limited', 'x', [ 'code' => 'rate_limited' ] );
 		$kb      = new WP_Error( 'hyve_connect_kb_unavailable', 'x', [ 'code' => 'kb_unavailable' ] );
 		$unknown = new WP_Error( 'hyve_connect_whatever', 'x', [ 'code' => 'something_else' ] );
 
 		$this->assertStringContainsString( 'limit', strtolower( Hyve_Connect::user_message( $quota ) ) );
+		// Rate limiting is transient: prompt to retry, never to upgrade.
+		$this->assertStringContainsString( 'try again', strtolower( Hyve_Connect::user_message( $rate ) ) );
+		$this->assertStringNotContainsString( 'upgrade', strtolower( Hyve_Connect::user_message( $rate ) ) );
 		$this->assertStringContainsString( 'knowledge base', strtolower( Hyve_Connect::user_message( $kb ) ) );
 		// An unmapped code falls back to the generic unavailable message.
 		$this->assertStringContainsString( 'temporarily unavailable', strtolower( Hyve_Connect::user_message( $unknown ) ) );

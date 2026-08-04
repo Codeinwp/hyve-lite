@@ -528,6 +528,7 @@ class Hyve_Connect {
 
 		$messages = [
 			'quota_exceeded' => __( 'You have reached your Hyve Connect limit for now. Upgrade your plan for more.', 'hyve-lite' ),
+			'rate_limited'   => __( 'Too many requests right now. Please wait a moment and try again.', 'hyve-lite' ),
 			'kb_unavailable' => __( 'The knowledge base is being prepared. Please try again shortly.', 'hyve-lite' ),
 			'provider_error' => __( 'The hosted AI is temporarily unavailable. Please try again.', 'hyve-lite' ),
 		];
@@ -767,14 +768,32 @@ class Hyve_Connect {
 	 */
 	private function map_http_error( $code, $body ) {
 		$decoded = json_decode( (string) $body, true );
-		$message = is_array( $decoded ) && isset( $decoded['message'] ) ? (string) $decoded['message'] : sprintf( 'HTTP %d', $code );
+		$quota   = is_array( $decoded ) && isset( $decoded['quota'] ) && is_array( $decoded['quota'] ) ? $decoded['quota'] : null;
+
+		// The rate limiter reports its reason under `error`; the workflow layer
+		// uses `message`. Fall back through both before the generic HTTP label.
+		if ( is_array( $decoded ) && isset( $decoded['message'] ) ) {
+			$message = (string) $decoded['message'];
+		} elseif ( is_array( $decoded ) && isset( $decoded['error'] ) ) {
+			$message = (string) $decoded['error'];
+		} else {
+			$message = sprintf( 'HTTP %d', $code );
+		}
 
 		$slugs = [
 			401 => 'auth_failed',
 			422 => 'invalid_request',
-			429 => 'quota_exceeded',
 		];
-		$slug  = isset( $slugs[ $code ] ) ? $slugs[ $code ] : 'http_error';
+
+		if ( 429 === $code ) {
+			// The platform returns 429 for two unrelated things: a real plan-quota
+			// block, which carries a quota snapshot, and transient rate limiting,
+			// which does not. Only the former is terminal; the latter must back off
+			// and retry rather than nag the user to upgrade.
+			$slug = null !== $quota ? 'quota_exceeded' : 'rate_limited';
+		} else {
+			$slug = isset( $slugs[ $code ] ) ? $slugs[ $code ] : 'http_error';
+		}
 
 		$error = new \WP_Error(
 			'hyve_connect_' . $slug,
@@ -782,7 +801,7 @@ class Hyve_Connect {
 			[
 				'code'   => $slug,
 				'status' => $code,
-				'quota'  => is_array( $decoded ) && isset( $decoded['quota'] ) ? $decoded['quota'] : null,
+				'quota'  => $quota,
 			]
 		);
 
