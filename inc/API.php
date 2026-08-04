@@ -1340,6 +1340,17 @@ class API extends BaseAPI {
 	}
 
 	/**
+	 * Whether the error is the service being unreachable.
+	 *
+	 * @param \WP_Error $error The error to classify.
+	 *
+	 * @return bool
+	 */
+	private function connect_is_unreachable( $error ) {
+		return 'hyve_connect_unreachable' === $error->get_error_code();
+	}
+
+	/**
 	 * Disconnect Hyve Connect, on one of two user-chosen paths.
 	 *
 	 * `import`: pull the hosted content back into local rows (no re-embed, the
@@ -1350,17 +1361,6 @@ class API extends BaseAPI {
 	 *
 	 * @return \WP_REST_Response
 	 */
-	/**
-	 * Whether the error is the service being unreachable.
-	 *
-	 * @param \WP_Error $error The error to classify.
-	 *
-	 * @return bool
-	 */
-	private function connect_is_unreachable( $error ) {
-		return is_wp_error( $error ) && 'hyve_connect_unreachable' === $error->get_error_code();
-	}
-
 	public function connect_disconnect( $request ) {
 		$mode     = 'clear' === $request->get_param( 'mode' ) ? 'clear' : 'import';
 		$settings = Main::get_settings();
@@ -1431,7 +1431,12 @@ class API extends BaseAPI {
 		delete_option( DB_Table::CONNECT_SYNC_OPTION );
 		Hyve_Connect::flush_stats();
 
-		return rest_ensure_response( '' !== $warning ? [ 'success' => true, 'warning' => $warning ] : true );
+		return rest_ensure_response(
+			'' !== $warning ? [
+				'success' => true,
+				'warning' => $warning,
+			] : true 
+		);
 	}
 
 	/**

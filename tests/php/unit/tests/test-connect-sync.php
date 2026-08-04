@@ -1504,13 +1504,36 @@ class ConnectSyncTest extends WP_UnitTestCase {
 
 				if ( 'delete' === $action && ! empty( $payload['all'] ) ) {
 					$deleted_all = true;
-					$body        = $this->sse( [ [ 'job_complete', [ 'deleted' => [], 'all' => true ] ] ] );
+					$body        = $this->sse(
+						[
+							[
+								'job_complete',
+								[
+									'deleted' => [],
+									'all'     => true,
+								],
+							],
+						] 
+					);
 				} else {
 					// Root reconcile: the cloud still holds content local does not.
-					$body = $this->sse( [ [ 'job_complete', [ 'in_sync' => false, 'aggregate' => 'CLOUD' ] ] ] );
+					$body = $this->sse(
+						[
+							[
+								'job_complete',
+								[
+									'in_sync'   => false,
+									'aggregate' => 'CLOUD',
+								],
+							],
+						] 
+					);
 				}
 
-				return [ 'response' => [ 'code' => 200 ], 'body' => $body ];
+				return [
+					'response' => [ 'code' => 200 ],
+					'body'     => $body,
+				];
 			},
 			10,
 			3

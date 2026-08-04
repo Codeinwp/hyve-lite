@@ -419,7 +419,15 @@ class HyveConnectTest extends WP_UnitTestCase {
 	 * A 429 carrying a quota snapshot is a real plan-quota block.
 	 */
 	public function test_http_429_with_quota_maps_to_quota_exceeded() {
-		$this->intercept( wp_json_encode( [ 'error' => 'Limit reached', 'quota' => [ 'kind' => 'messages' ] ] ), 429 );
+		$this->intercept(
+			wp_json_encode(
+				[
+					'error' => 'Limit reached',
+					'quota' => [ 'kind' => 'messages' ],
+				] 
+			),
+			429 
+		);
 
 		$result = Hyve_Connect::instance()->kb_reconcile( [], null );
 
