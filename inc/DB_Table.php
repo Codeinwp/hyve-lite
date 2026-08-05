@@ -609,10 +609,6 @@ class DB_Table {
 			? get_post_field( 'post_content', $post_id )
 			: apply_filters( 'the_content', get_post_field( 'post_content', $post_id ) );
 
-		$content = Hyve_Connect::is_active()
-			? get_post_field( 'post_content', $post_id )
-			: apply_filters( 'the_content', get_post_field( 'post_content', $post_id ) );
-
 		$result = $this->ingest_document(
 			[
 				'title'   => get_the_title( $post_id ),
@@ -671,6 +667,12 @@ class DB_Table {
 	 * @throws \Exception If Qdrant API fails.
 	 */
 	public function ingest_document( $doc, $args = [] ) {
+		// No extractable text (media-only content, empty page): refuse up front
+		// so nothing is queued or marked as added in either mode.
+		if ( '' === trim( wp_strip_all_tags( (string) ( $doc['content'] ?? '' ) ) ) ) {
+			return new \WP_Error( 'empty_content', __( 'There is no text content to index.', 'hyve-lite' ) );
+		}
+
 		// Connect mode ships the whole document to the platform, which chunks,
 		// moderates, embeds, and stores it. No local chunking/embedding/rows.
 		if ( Hyve_Connect::is_active() ) {
@@ -2158,10 +2160,17 @@ class DB_Table {
 		foreach ( $posts as $post_id ) {
 			/**
 			 * The post id.
-			 * 
+			 *
 			 * @var int $post_id
 			 */
-			$this->add_post( $post_id, 'update' );
+			$result = $this->add_post( $post_id, 'update' );
+
+			// Terminal until the post is edited again, so surface the error and
+			// stop re-queueing; an edit clears the error and re-flags the post.
+			if ( is_wp_error( $result ) && 'empty_content' === $result->get_error_code() ) {
+				$this->record_processing_error( (int) $post_id, $result, false );
+				delete_post_meta( (int) $post_id, '_hyve_needs_update' );
+			}
 		}
 
 		wp_schedule_single_event( time() + 60, 'hyve_update_posts' );
