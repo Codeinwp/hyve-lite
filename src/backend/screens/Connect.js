@@ -15,6 +15,7 @@ import { useCallback, useEffect, useState } from '@wordpress/element';
  * Internal dependencies.
  */
 import { setUtm, percentOf, quotaOf } from '../utils';
+import { navigate } from '../router';
 import Card from '../components/Card';
 import Chip from '../components/Chip';
 import FieldRow from '../components/FieldRow';
@@ -95,6 +96,9 @@ export const ConnectPanel = () => {
 	const isQdrantActive = useSelect( ( select ) =>
 		select( 'hyve' ).isQdrantActive()
 	);
+	const totalChunks = useSelect( ( select ) =>
+		select( 'hyve' ).getTotalChunks()
+	);
 
 	const { setSetting, setAiMode, setConnect, setConnectSync } =
 		useDispatch( 'hyve' );
@@ -159,6 +163,12 @@ export const ConnectPanel = () => {
 				type: 'snackbar',
 				isDismissible: true,
 			} );
+
+			// Empty Knowledge Base: continue to the next checklist step once
+			// the connected state has had a moment to show.
+			if ( 0 === Number( totalChunks ?? 0 ) ) {
+				setTimeout( () => navigate( 'kb' ), 2000 );
+			}
 		} catch ( error ) {
 			createNotice( 'error', error?.message ?? String( error ), {
 				type: 'snackbar',

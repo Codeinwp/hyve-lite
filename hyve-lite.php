@@ -67,6 +67,32 @@ add_filter(
 	}
 );
 
+register_activation_hook(
+	__FILE__,
+	function () {
+		set_transient( 'hyve_lite_activation_redirect', 1, 30 );
+	}
+);
+
+add_action(
+	'admin_init',
+	function () {
+		if ( ! get_transient( 'hyve_lite_activation_redirect' ) ) {
+			return;
+		}
+
+		delete_transient( 'hyve_lite_activation_redirect' );
+
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Only detecting a bulk activation to skip the redirect; no state change.
+		if ( isset( $_GET['activate-multi'] ) || is_network_admin() || ! current_user_can( 'manage_options' ) ) {
+			return;
+		}
+
+		wp_safe_redirect( admin_url( 'admin.php?page=hyve' ) );
+		exit;
+	}
+);
+
 add_action(
 	'plugins_loaded',
 	function () {
