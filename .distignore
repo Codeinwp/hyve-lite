@@ -8,6 +8,7 @@ phpcs.xml
 .eslintrc
 .gitattributes
 .releaserc.yml
+simple-preset.mjs
 .DS_Store
 .editorconfig
 .browserslistrc
