@@ -1148,6 +1148,14 @@ p.hyve-next-notice__text {
 	white-space: nowrap;
 }
 
+/* Error messages must stay fully readable, so wrap instead of ellipsizing. */
+.hyve-next-table__sub--wrap {
+	overflow: visible;
+	overflow-wrap: break-word;
+	text-overflow: clip;
+	white-space: normal;
+}
+
 .hyve-next-table__num {
 	font-variant-numeric: tabular-nums;
 }

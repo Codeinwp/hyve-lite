@@ -324,7 +324,7 @@ const IndexedContent = () => {
 									{ row.title }
 								</span>
 								{ row.error && (
-									<span className="hyve-next-table__sub">
+									<span className="hyve-next-table__sub hyve-next-table__sub--wrap">
 										{ sprintf(
 											// translators: %s: the reason indexing failed, including whether it will be retried.
 											__(
