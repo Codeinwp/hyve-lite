@@ -25,6 +25,12 @@ jobs:
         run: composer install --no-dev --prefer-dist --no-progress --no-suggest
       - name: Install npm deps
         run: npm ci
+      - name: Bump the plugin version
+        run: |
+          CURRENT_VERSION=$(node -p -e "require('./package.json').version")
+          COMMIT_HASH=$(git rev-parse --short HEAD)
+          DEV_VERSION="${CURRENT_VERSION}-dev.${COMMIT_HASH}"
+          grunt version::${DEV_VERSION}
       - name: Build files
         run: npm run build
       - name: Create zip

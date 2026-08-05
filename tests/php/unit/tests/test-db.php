@@ -88,4 +88,49 @@ class DB_TableTest extends WP_UnitTestCase {
 		$posts = $this->db_table->get_posts_over_limit();
 		$this->assertCount( 100, $posts );
 	}
+
+	/**
+	 * Test get_post_id.
+	 */
+	public function test_get_post_id() {
+		$insert_id = $this->db_table->insert(
+			[
+				'post_content' => 'Source content.',
+				'post_id'      => 777,
+			]
+		);
+
+		$this->assertEquals( '777', (string) $this->db_table->get_post_id( $insert_id ) );
+	}
+
+	/**
+	 * Content with no extractable text is refused before anything is stored,
+	 * moderated, or embedded.
+	 */
+	public function test_ingest_document_rejects_empty_content() {
+		$result = $this->db_table->ingest_document(
+			[
+				'title'   => 'Media only',
+				'content' => '<img src="test.jpg" /> ',
+			]
+		);
+
+		$this->assertWPError( $result );
+		$this->assertSame( 'empty_content', $result->get_error_code() );
+	}
+
+	/**
+	 * A post edited down to empty content leaves the update queue with a
+	 * terminal processing error instead of being retried forever.
+	 */
+	public function test_update_posts_marks_empty_content_terminal() {
+		$post_id = self::factory()->post->create( [ 'post_content' => '' ] );
+		update_post_meta( $post_id, '_hyve_added', 1 );
+		update_post_meta( $post_id, '_hyve_needs_update', 1 );
+
+		$this->db_table->update_posts();
+
+		$this->assertNotSame( '', get_post_meta( $post_id, '_hyve_processing_error', true ) );
+		$this->assertSame( '', get_post_meta( $post_id, '_hyve_needs_update', true ) );
+	}
 }

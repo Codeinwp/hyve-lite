@@ -14,6 +14,8 @@ class Threads {
 
 	public const CHART_DATA_TRANSIENT = 'hyve_charts_data';
 
+	public const MESSAGES_COUNT_TRANSIENT = 'hyve_messages_count';
+
 	/**
 	 * Constructor.
 	 */
@@ -87,7 +89,8 @@ class Threads {
 			[
 				'thread_id' => $thread_id,
 				'sender'    => 'bot',
-				'message'   => $response,
+				'message'   => wp_kses_post( $response ),
+				'display'   => isset( $message['display'] ) && is_array( $message['display'] ) ? $message['display'] : null,
 			]
 		);
 	}
@@ -127,11 +130,33 @@ class Threads {
 	
 
 	/**
+	 * Build a stored transcript entry, carrying an optional `display` (skill
+	 * cards or choices) alongside the message so history matches what was shown.
+	 *
+	 * @param array<string, mixed> $data The message data.
+	 *
+	 * @return array<string, mixed>
+	 */
+	private static function build_entry( $data ) {
+		$entry = [
+			'time'    => time(),
+			'sender'  => $data['sender'],
+			'message' => wp_kses_post( $data['message'] ),
+		];
+
+		if ( ! empty( $data['display'] ) && is_array( $data['display'] ) ) {
+			$entry['display'] = $data['display'];
+		}
+
+		return $entry;
+	}
+
+	/**
 	 * Create a new thread.
-	 * 
+	 *
 	 * @param string               $title The title of the thread.
 	 * @param array<string, mixed> $data The data of the thread.
-	 * 
+	 *
 	 * @return int
 	 */
 	public static function create_thread( $title, $data ) {
@@ -144,19 +169,28 @@ class Threads {
 			]
 		);
 
-		$thread_data = [
-			[
-				'time'    => time(),
-				'sender'  => $data['sender'],
-				'message' => wp_kses_post( $data['message'] ),
-			],
-		];
+		$thread_data = [ self::build_entry( $data ) ];
 
 		update_post_meta( $post_id, '_hyve_thread_data', $thread_data );
 		update_post_meta( $post_id, '_hyve_thread_count', 1 );
 		update_post_meta( $post_id, '_hyve_thread_id', $data['thread_id'] );
 
+		self::flush_stats_cache();
+
 		return $post_id;
+	}
+
+	/**
+	 * Invalidate the cached dashboard stats after a thread or message changes.
+	 *
+	 * Both the per-day chart and the total messages count are cached; both must
+	 * be cleared together so the Overview totals and the chart stay in sync.
+	 *
+	 * @return void
+	 */
+	private static function flush_stats_cache() {
+		delete_transient( self::CHART_DATA_TRANSIENT );
+		delete_transient( self::MESSAGES_COUNT_TRANSIENT );
 	}
 
 	/**
@@ -176,11 +210,7 @@ class Threads {
 
 		$thread_data = get_post_meta( $post_id, '_hyve_thread_data', true );
 
-		$thread_data[] = [
-			'time'    => time(),
-			'sender'  => $data['sender'],
-			'message' => wp_kses_post( $data['message'] ),
-		];
+		$thread_data[] = self::build_entry( $data );
 
 		update_post_meta( $post_id, '_hyve_thread_data', $thread_data );
 		update_post_meta( $post_id, '_hyve_thread_count', count( $thread_data ) );
@@ -189,11 +219,11 @@ class Threads {
 			[
 				'ID'                => $post_id,
 				'post_modified'     => current_time( 'mysql' ),
-				'post_modified_gmt' => current_time( 'mysql', 1 ),
+				'post_modified_gmt' => current_time( 'mysql', true ),
 			]
 		);
 
-		delete_transient( self::CHART_DATA_TRANSIENT );
+		self::flush_stats_cache();
 		return $post_id;
 	}
 
@@ -213,7 +243,7 @@ class Threads {
 	 * @return int
 	 */
 	public static function get_messages_count() {
-		$messages = get_transient( 'hyve_messages_count' );
+		$messages = get_transient( self::MESSAGES_COUNT_TRANSIENT );
 
 		if ( ! $messages ) {
 			global $wpdb;
@@ -224,7 +254,7 @@ class Threads {
 				$messages = 0;
 			}
 
-			set_transient( 'hyve_messages_count', $messages, HOUR_IN_SECONDS );
+			set_transient( self::MESSAGES_COUNT_TRANSIENT, $messages, HOUR_IN_SECONDS );
 		}
 
 		return $messages;
@@ -321,10 +351,7 @@ class Threads {
 		$messages = [];
 		$sessions = [];
 		for ( $i = $days - 1; $i >= 0; $i-- ) {
-			$timestamp = strtotime( "-{$i} days", $current_timestamp );
-			if ( false === $timestamp ) {
-				continue;
-			}
+			$timestamp  = strtotime( "-{$i} days", $current_timestamp );
 			$date_key   = gmdate( 'Y-m-d', $timestamp );
 			$labels[]   = $date_key;
 			$messages[] = isset( $messages_per_day[ $date_key ] ) ? $messages_per_day[ $date_key ] : 0;

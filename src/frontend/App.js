@@ -7,9 +7,12 @@ import apiFetch from '@wordpress/api-fetch';
 
 import { addQueryArgs } from '@wordpress/url';
 
-const clickAudio = new Audio( window.hyveClient.audio.click );
 const pingAudio = new Audio( window.hyveClient.audio.ping );
 const { strings } = window.hyveClient;
+
+// Default assistant avatar, reused by the header and the live preview refresh.
+const ROBOT_AVATAR_SVG =
+	'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 2a2 2 0 0 1 2 2v1h3a3 3 0 0 1 3 3v6a3 3 0 0 1-3 3h-3l-4 3v-3H7a3 3 0 0 1-3-3V8a3 3 0 0 1 3-3h3V4a2 2 0 0 1 2-2Z"/><circle cx="9.5" cy="11.5" r="1" fill="currentColor" stroke="none"/><circle cx="14.5" cy="11.5" r="1" fill="currentColor" stroke="none"/></svg>';
 
 class App {
 	constructor() {
@@ -20,20 +23,40 @@ class App {
 		this.runID = null;
 		this.recordID = null;
 		this.isMenuOpen = false;
+		this.isInline = false;
+		this.teaserTimeout = null;
+		this.teaserExitListener = null;
+		this.teaserScrollListener = null;
+		this.gateLocked = false;
+		this.gatePending = false;
+		this.preChatGateShown = false;
 
 		if ( Boolean( window.hyveClient?.canShow ) ) {
 			this.initialize();
 		}
 	}
 
-	async initialize() {
+	initialize() {
 		this.restoreStorage();
-		await this.renderUI();
+		this.renderUI();
 		this.setupListeners();
 		this.restoreMessages();
+		this.setupProactive();
+
+		// The inline block is always visible, so there's no open action to
+		// trigger the greeting — show it on load instead.
+		if ( this.isInline ) {
+			this.maybeShowWelcome();
+		}
 	}
 
 	restoreStorage() {
+		// In the admin live preview we keep the test conversation ephemeral so it
+		// never mixes with the visitor's real saved chat on the same origin.
+		if ( this.isPreview() ) {
+			return;
+		}
+
 		const storageData = window.localStorage.getItem( 'hyve-chat' );
 
 		if ( null === storageData ) {
@@ -64,7 +87,8 @@ class App {
 				message.message,
 				message.sender,
 				message.id,
-				false
+				false,
+				message.display ?? null
 			);
 		} );
 	}
@@ -94,6 +118,10 @@ class App {
 	}
 
 	updateStorage() {
+		if ( this.isPreview() ) {
+			return;
+		}
+
 		const messages = this.messages
 			.filter( ( message ) => null === message.id )
 			.slice( -20 );
@@ -109,8 +137,12 @@ class App {
 		);
 	}
 
-	add( message, sender, id = null ) {
+	add( message, sender, id = null, sound = true, display = null ) {
 		const time = new Date();
+
+		if ( 'user' === sender && this.gateLocked ) {
+			return;
+		}
 
 		if ( 'user' === sender ) {
 			message = this.sanitize( message );
@@ -118,14 +150,18 @@ class App {
 
 		message = this.addTargetBlank( message );
 
-		this.messages.push( { time, message, sender, id } );
-		this.addMessage( time, message, sender, id );
+		this.messages.push( { time, message, sender, id, display } );
+		this.addMessage( time, message, sender, id, sound, display );
 
 		this.updateStorage();
 
 		if ( 'user' !== sender ) {
 			return;
 		}
+
+		// Sending a message is itself agreement, so retire the privacy notice
+		// (and remember it) once the visitor's first message goes out.
+		this.dismissPrivacyNotice();
 
 		this.sendRequest( message );
 
@@ -206,16 +242,23 @@ class App {
 
 	async getResponse( message ) {
 		try {
+			const query = {
+				thread_id: this.threadID,
+				run_id: this.runID,
+				// In preview there is no thread record, so send 0 to satisfy the
+				// required param; the server skips recording for test chats.
+				record_id: this.recordID ?? 0,
+				message,
+			};
+
+			if ( this.isPreview() ) {
+				query.is_test = 1;
+			}
+
 			const response = await apiFetch( {
 				path: this.addCacheProtection(
-					addQueryArgs( `${ window.hyveClient.api }/chat`, {
-						thread_id: this.threadID,
-						run_id: this.runID,
-						record_id: this.recordID,
-						message,
-					} )
+					addQueryArgs( `${ window.hyveClient.api }/chat`, query )
 				),
-				headers: this.getDefaultHeaders(),
 			} );
 
 			if ( response.error ) {
@@ -238,27 +281,447 @@ class App {
 			this.removeMessage( this.runID );
 
 			if ( 'completed' === response.status ) {
-				this.add( response.message, 'bot' );
+				// Rich display (product results / choices), mirroring the stream
+				// flow, rendered under the reply and stored with it for history.
+				this.add(
+					response.message,
+					'bot',
+					null,
+					true,
+					response.display
+				);
 				this.setLoading( false );
+
+				// Contextual follow-ups on the poll path (Pro), mirroring the
+				// streaming flow. Present only on a successful, grounded answer.
+				this.renderSuggestions( response.follow_ups );
+				this.afterBotReply( response );
 			}
 
 			if ( 'failed' === response.status ) {
 				this.add( strings.tryAgain, 'bot' );
 				this.setLoading( false );
 			}
-		} catch ( error ) {
+		} catch {
 			this.add( strings.tryAgain, 'bot' );
 			this.setLoading( false );
 		}
 	}
 
 	async sendRequest( message ) {
+		this.setLoading( true );
+		this.addPreloaderMessage( 'hyve-preloader' );
+
+		// Try real streaming first; fall back to the poll flow when the host
+		// buffers the response or streaming isn't available.
+		if ( this.canStream() ) {
+			const handled = await this.streamRequest( message );
+
+			if ( handled ) {
+				return;
+			}
+		}
+
+		await this.backgroundRequest( message );
+	}
+
+	/**
+	 * Whether progressive streaming should be attempted.
+	 *
+	 * @return {boolean} True when streaming can be attempted.
+	 */
+	canStream() {
+		return (
+			Boolean( window.hyveClient?.ajaxUrl ) &&
+			Boolean( window.hyveClient?.streamNonce ) &&
+			'function' === typeof window.fetch &&
+			'undefined' !== typeof window.AbortController &&
+			'undefined' !== typeof window.TextDecoder &&
+			! this.streamRecentlyUnsupported()
+		);
+	}
+
+	/**
+	 * Whether streaming was marked unsupported within the last 24h.
+	 *
+	 * The flag is time-bounded so a one-off slow start or transient blip can't
+	 * permanently disable streaming for the visitor — it is re-probed after a day.
+	 *
+	 * @return {boolean} True if streaming should be skipped for now.
+	 */
+	streamRecentlyUnsupported() {
 		try {
-			this.setLoading( true );
+			const value = window.localStorage.getItem(
+				'hyve-stream-unsupported'
+			);
 
-			const preloaderId = 'hyve-preloader';
-			this.addPreloaderMessage( preloaderId );
+			if ( ! value ) {
+				return false;
+			}
 
+			const ts = parseInt( value, 10 );
+			const DAY = 24 * 60 * 60 * 1000;
+
+			if ( isNaN( ts ) || Date.now() - ts > DAY ) {
+				window.localStorage.removeItem( 'hyve-stream-unsupported' );
+				return false;
+			}
+
+			return true;
+		} catch {
+			return false;
+		}
+	}
+
+	/**
+	 * Remember (with a timestamp) that streaming is unavailable on this host so
+	 * later messages skip straight to the poll flow, re-probing after 24h.
+	 */
+	markStreamUnsupported() {
+		try {
+			window.localStorage.setItem(
+				'hyve-stream-unsupported',
+				String( Date.now() )
+			);
+		} catch {}
+	}
+
+	/**
+	 * Parse a single SSE event block into its event name and JSON payload.
+	 *
+	 * @param {string} raw The raw event block (lines between blank lines).
+	 * @return {{event:string,data:any}} Parsed event.
+	 */
+	parseSSE( raw ) {
+		let event = '';
+		const dataLines = [];
+
+		raw.split( '\n' ).forEach( ( line ) => {
+			if ( line.startsWith( 'event:' ) ) {
+				event = line.slice( 6 ).trim();
+			} else if ( line.startsWith( 'data:' ) ) {
+				dataLines.push( line.slice( 5 ).replace( /^ /, '' ) );
+			}
+		} );
+
+		let data = null;
+
+		if ( dataLines.length ) {
+			try {
+				data = JSON.parse( dataLines.join( '\n' ) );
+			} catch {
+				data = null;
+			}
+		}
+
+		return { event, data };
+	}
+
+	/**
+	 * Attempt a streamed reply.
+	 *
+	 * @param {string} message The user's message.
+	 * @return {Promise<boolean>} True if the reply was handled (shown or a real
+	 *                            error surfaced); false to fall back to polling.
+	 */
+	async streamRequest( message ) {
+		let token;
+
+		try {
+			const setup = await apiFetch( {
+				path: this.addCacheProtection(
+					`${ window.hyveClient.api }/chat`
+				),
+				method: 'POST',
+				data: {
+					message,
+					mode: 'stream',
+					...( null !== this.threadID
+						? { thread_id: this.threadID }
+						: {} ),
+					...( null !== this.recordID
+						? { record_id: this.recordID }
+						: {} ),
+					...( this.isPreview() ? { is_test: true } : {} ),
+					...this.getPageContext(),
+				},
+			} );
+
+			if ( setup.error ) {
+				// A real content/server error (e.g. flagged) — not a transport
+				// problem, so surface it instead of falling back.
+				this.removeMessage( 'hyve-preloader' );
+				// The server sends the throttle message already translated.
+				this.add(
+					'rate_limited' === setup.code
+						? setup.error
+						: strings.tryAgain,
+					'bot'
+				);
+				this.setLoading( false );
+				return true;
+			}
+
+			if ( ! setup.stream_token ) {
+				return false;
+			}
+
+			token = setup.stream_token;
+
+			if ( setup.thread_id && setup.thread_id !== this.threadID ) {
+				this.setThreadID( setup.thread_id );
+			}
+
+			if (
+				undefined !== setup.record_id &&
+				setup.record_id !== this.recordID
+			) {
+				this.setRecordID( setup.record_id );
+			}
+		} catch {
+			return false;
+		}
+
+		const url = addQueryArgs( window.hyveClient.ajaxUrl, {
+			action: 'hyve_stream',
+			token,
+			nonce: window.hyveClient.streamNonce,
+		} );
+
+		const controller = new AbortController();
+		const bubbleId = 'hyve-stream';
+
+		let firstEvent = false;
+		let timedOut = false;
+		let started = false;
+		let streamedText = '';
+		let typingTimer = null;
+		const typingId = 'hyve-stream-typing';
+
+		// Fall back if no real SSE event (delta/done/error) arrives in time. The
+		// ': connected' comment is deliberately NOT counted as content, so a proxy
+		// that forwards the comment but buffers the body is still detected. 8s is
+		// lenient enough for a slow first token; a false trip self-heals after 24h.
+		const watchdog = setTimeout( () => {
+			if ( ! firstEvent ) {
+				timedOut = true;
+				controller.abort();
+			}
+		}, 8000 );
+
+		const renderInto = ( html ) => {
+			const node = document.getElementById(
+				`hyve-message-${ bubbleId }`
+			);
+
+			if ( ! node ) {
+				return;
+			}
+
+			const inner = node.querySelector( 'div' );
+
+			if ( inner ) {
+				inner.innerHTML = html;
+			}
+
+			const box = document.getElementById( 'hyve-message-box' );
+
+			if ( box ) {
+				box.scrollTop = box.scrollHeight;
+			}
+		};
+
+		const ensureBubble = () => {
+			if ( started ) {
+				return;
+			}
+
+			this.removeMessage( 'hyve-preloader' );
+			this.addMessage( new Date(), '', 'bot', bubbleId, false );
+			started = true;
+		};
+
+		// The reply streams its text first, then the model may keep generating
+		// structured data (e.g. a product list) with no visible deltas. Show the
+		// typing indicator again during that lull so the wait never looks frozen.
+		const hideTyping = () => {
+			clearTimeout( typingTimer );
+			this.removeMessage( typingId );
+		};
+
+		const scheduleTyping = () => {
+			clearTimeout( typingTimer );
+			typingTimer = setTimeout( () => {
+				if ( started ) {
+					this.addPreloaderMessage( typingId );
+				}
+			}, 500 );
+		};
+
+		try {
+			const response = await fetch( url, {
+				headers: { Accept: 'text/event-stream' },
+				credentials: 'same-origin',
+				signal: controller.signal,
+			} );
+
+			if ( ! response.ok || ! response.body ) {
+				clearTimeout( watchdog );
+				return false;
+			}
+
+			const reader = response.body.getReader();
+			const decoder = new TextDecoder();
+
+			let buffer = '';
+			let finished = false;
+			let reading = true;
+
+			while ( reading ) {
+				const { value, done } = await reader.read();
+
+				if ( done ) {
+					break;
+				}
+
+				buffer += decoder.decode( value, { stream: true } );
+
+				let sep = buffer.indexOf( '\n\n' );
+
+				while ( -1 !== sep ) {
+					const rawEvent = buffer.slice( 0, sep );
+					buffer = buffer.slice( sep + 2 );
+					sep = buffer.indexOf( '\n\n' );
+
+					const { event, data } = this.parseSSE( rawEvent );
+
+					if ( ! event ) {
+						continue;
+					}
+
+					// First real content event: the pipe is flushing, cancel the
+					// fallback watchdog.
+					if ( ! firstEvent ) {
+						firstEvent = true;
+						clearTimeout( watchdog );
+					}
+
+					if ( 'delta' === event ) {
+						hideTyping();
+						ensureBubble();
+						streamedText += data?.text || '';
+						renderInto( streamedText );
+						// Text paused? bring the indicator back until more arrives
+						// or the reply finishes.
+						scheduleTyping();
+					} else if ( 'done' === event ) {
+						hideTyping();
+						this.finalizeStream( bubbleId, data );
+						finished = true;
+						reading = false;
+						break;
+					} else if ( 'error' === event ) {
+						// Generation failed and the server recorded nothing.
+						// Discard any partial and fall back to the poll flow for a
+						// complete, recorded-once answer.
+						clearTimeout( watchdog );
+						hideTyping();
+						this.removeMessage( bubbleId );
+						this.removeMessage( 'hyve-preloader' );
+						this.addPreloaderMessage( 'hyve-preloader' );
+						return false;
+					}
+				}
+			}
+
+			clearTimeout( watchdog );
+			hideTyping();
+
+			if ( finished ) {
+				return true;
+			}
+
+			// Stream ended without a terminal event.
+			if ( started ) {
+				this.finalizeStream( bubbleId, {
+					success: true,
+					message: streamedText,
+				} );
+				return true;
+			}
+
+			return false;
+		} catch {
+			clearTimeout( watchdog );
+			hideTyping();
+
+			if ( started ) {
+				this.finalizeStream( bubbleId, {
+					success: true,
+					message: streamedText,
+				} );
+				return true;
+			}
+
+			if ( timedOut ) {
+				this.markStreamUnsupported();
+			}
+
+			return false;
+		}
+	}
+
+	/**
+	 * Replace the streaming placeholder with the final, authoritative reply.
+	 *
+	 * @param {string} bubbleId The temporary streaming bubble id.
+	 * @param {any}    data     The `done` payload ({ success, message }).
+	 */
+	finalizeStream( bubbleId, data ) {
+		this.removeMessage( 'hyve-preloader' );
+		this.removeMessage( 'hyve-stream-typing' );
+		this.removeMessage( bubbleId );
+
+		// The streamed turn is recorded server-side only once the reply lands,
+		// so adopt the returned ids to keep follow-ups on the same thread. In
+		// Connect mode the platform mints the thread id during the stream, so
+		// the terminal event is the first place the widget can learn it.
+		if ( data?.thread_id && data.thread_id !== this.threadID ) {
+			this.setThreadID( data.thread_id );
+		}
+
+		if (
+			undefined !== data?.record_id &&
+			null !== data?.record_id &&
+			data.record_id !== this.recordID
+		) {
+			this.setRecordID( data.record_id );
+		}
+
+		if ( data?.thread_id && data.thread_id !== this.threadID ) {
+			this.setThreadID( data.thread_id );
+		}
+
+		const message = data?.message ?? strings.tryAgain;
+		// A rich, clickable display (product results or disambiguation choices)
+		// rides on the terminal event; it renders under the reply and is stored
+		// with it so history shows the same thing.
+		this.add( message, 'bot', null, true, data?.display );
+		this.setLoading( false );
+		// Contextual follow-ups ride on the terminal event (Pro). They are only
+		// present on a successful, grounded answer.
+		this.renderSuggestions( data?.follow_ups );
+		this.afterBotReply( data );
+	}
+
+	/**
+	 * Background reply flow: create a run and poll for the answer. This is the
+	 * original, proven path, used as the fallback when streaming is unavailable.
+	 *
+	 * @param {string} message The user's message.
+	 */
+	async backgroundRequest( message ) {
+		try {
 			const response = await apiFetch( {
 				path: this.addCacheProtection(
 					`${ window.hyveClient.api }/chat`
@@ -272,14 +735,24 @@ class App {
 					...( null !== this.recordID
 						? { record_id: this.recordID }
 						: {} ),
+					...( this.isPreview() ? { is_test: true } : {} ),
+					...this.getPageContext(),
 				},
-				headers: this.getDefaultHeaders(),
 			} );
 
-			this.removeMessage( preloaderId );
+			this.removeMessage( 'hyve-preloader' );
 
 			if ( response.error ) {
-				this.add( strings.tryAgain, 'bot' );
+				let text = strings.tryAgain;
+
+				if ( 'content_flagged' === response.code ) {
+					text = strings.flagged;
+				} else if ( 'rate_limited' === response.code ) {
+					// The server sends the throttle message already translated.
+					text = response.error;
+				}
+
+				this.add( text, 'bot' );
 				this.setLoading( false );
 				return;
 			}
@@ -294,10 +767,12 @@ class App {
 
 			this.setRunID( response.query_run );
 
-			this.add( strings.typing, 'bot', response.query_run );
+			// Keep the animated typing indicator (not a plain "Typing…" text)
+			// visible while we poll for the answer.
+			this.addPreloaderMessage( response.query_run );
 
 			await this.getResponse( message );
-		} catch ( error ) {
+		} catch {
 			this.removeMessage( 'hyve-preloader' );
 			this.add( strings.tryAgain, 'bot' );
 			this.setLoading( false );
@@ -305,12 +780,140 @@ class App {
 	}
 
 	addAudioPlayback( audioElement ) {
-		audioElement.play();
+		if ( ! this.isSoundEnabled() ) {
+			return;
+		}
+
+		// Autoplay policies reject play() before the visitor interacts with
+		// the page (e.g. a proactive teaser on page load); stay silent then.
+		audioElement.play()?.catch( () => {} );
 	}
 
-	addMessage( time, message, sender, id, sound = true ) {
+	/**
+	 * Whether the visitor has muted the chat sound in this browser.
+	 *
+	 * @return {boolean} True if muted.
+	 */
+	isMuted() {
+		return 'true' === window.localStorage.getItem( 'hyve-sound-muted' );
+	}
+
+	/**
+	 * Whether sound is enabled globally (by the site admin).
+	 *
+	 * `wp_localize_script` casts booleans to strings ('1' for true, '' for
+	 * false), so we treat an empty string or explicit false as disabled and a
+	 * missing value as enabled.
+	 *
+	 * @return {boolean} True if sound is allowed site-wide.
+	 */
+	isGlobalSoundEnabled() {
+		const value = window.hyveClient?.soundEnabled;
+		return false !== value && '' !== value;
+	}
+
+	/**
+	 * Whether sound should play — enabled globally and not muted by the visitor.
+	 *
+	 * @return {boolean} True if sound should play.
+	 */
+	isSoundEnabled() {
+		if ( ! this.isGlobalSoundEnabled() ) {
+			return false;
+		}
+
+		return ! this.isMuted();
+	}
+
+	/**
+	 * Whether message timestamps should be shown.
+	 *
+	 * `wp_localize_script` casts booleans to strings ('1' / ''), so an empty
+	 * string or explicit false hides the timestamp; a missing value shows it.
+	 *
+	 * @return {boolean} True if timestamps should render.
+	 */
+	isTimestampVisible() {
+		const value = window.hyveClient?.showTimestamp;
+		return false !== value && '' !== value;
+	}
+
+	/**
+	 * Whether the widget is running inside the admin Appearance live preview.
+	 *
+	 * @return {boolean} True in preview mode.
+	 */
+	isPreview() {
+		return Boolean( window.hyveClient?.isPreview );
+	}
+
+	/**
+	 * Chat payload fields identifying the page the widget is rendered on, so
+	 * the backend can ground "this page" questions. The URL covers loop pages
+	 * (home, archives) too; the backend validates it is same-origin and
+	 * resolves it to a post when one exists. Empty in preview mode.
+	 *
+	 * @return {Object} `{ page_url }`, or an empty object.
+	 */
+	getPageContext() {
+		if ( this.isPreview() || ! window.location?.href ) {
+			return {};
+		}
+
+		return { page_url: window.location.href };
+	}
+
+	/**
+	 * Markup (icon + label) for the sound toggle menu item, reflecting state.
+	 *
+	 * @return {string} The inner HTML for the toggle button.
+	 */
+	soundMenuInner() {
+		const icon = this.isMuted()
+			? '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="16"><path stroke-linecap="round" stroke-linejoin="round" d="M17.25 9.75 19.5 12m0 0 2.25 2.25M19.5 12l2.25-2.25M19.5 12l-2.25 2.25M6.75 8.25l4.72-4.72a.75.75 0 0 1 1.28.53v15.88a.75.75 0 0 1-1.28.53l-4.72-4.72H4.51c-.88 0-1.704-.507-1.938-1.354A9.009 9.009 0 0 1 2.25 12c0-.83.112-1.633.322-2.396C2.806 8.756 3.63 8.25 4.51 8.25H6.75Z" /></svg>'
+			: '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="16"><path stroke-linecap="round" stroke-linejoin="round" d="M19.114 5.636a9 9 0 0 1 0 12.728M16.463 8.288a5.25 5.25 0 0 1 0 7.424M6.75 8.25l4.72-4.72a.75.75 0 0 1 1.28.53v15.88a.75.75 0 0 1-1.28.53l-4.72-4.72H4.51c-.88 0-1.704-.507-1.938-1.354A9.009 9.009 0 0 1 2.25 12c0-.83.112-1.633.322-2.396C2.806 8.756 3.63 8.25 4.51 8.25H6.75Z" /></svg>';
+
+		const label = this.isMuted() ? strings.unmuteSound : strings.muteSound;
+
+		return `${ icon } ${ label }`;
+	}
+
+	/**
+	 * Toggle the per-visitor sound preference and refresh the menu item.
+	 *
+	 * @return {void}
+	 */
+	toggleSound() {
+		window.localStorage.setItem(
+			'hyve-sound-muted',
+			this.isMuted() ? 'false' : 'true'
+		);
+
+		const soundButton = document.getElementById( 'hyve-toggle-sound' );
+		if ( soundButton ) {
+			soundButton.innerHTML = this.soundMenuInner();
+		}
+	}
+
+	addMessage( time, message, sender, id, sound = true, display = null ) {
 		const chatMessageBox = document.getElementById( 'hyve-message-box' );
 		if ( ! chatMessageBox ) {
+			return;
+		}
+
+		// Event entries render as a centered divider; unknown keys are skipped.
+		if ( 'event' === sender ) {
+			if ( 'contact_form' !== message ) {
+				return;
+			}
+
+			const eventDiv = this.createElement( 'div', {
+				className: 'hyve-event-message',
+			} );
+			eventDiv.textContent = strings.leadEvent ?? '';
+
+			chatMessageBox.appendChild( eventDiv );
+			chatMessageBox.scrollTop = chatMessageBox.scrollHeight;
 			return;
 		}
 
@@ -318,7 +921,7 @@ class App {
 
 		let messageHTML = `<div>${ message }</div>`;
 
-		if ( null === id ) {
+		if ( null === id && this.isTimestampVisible() ) {
 			messageHTML += `<time datetime="${ time }">${ date }</time>`;
 		}
 
@@ -353,6 +956,17 @@ class App {
 		}
 
 		chatMessageBox.appendChild( messageDiv );
+
+		// A skill display (cards / choices) rides with a bot reply and is
+		// rendered right under it, so it also replays with conversation history.
+		if ( 'bot' === sender && display ) {
+			const displayNode = this.buildDisplay( display );
+
+			if ( displayNode ) {
+				chatMessageBox.appendChild( displayNode );
+			}
+		}
+
 		chatMessageBox.scrollTop = chatMessageBox.scrollHeight;
 
 		if ( ! sound ) {
@@ -379,9 +993,17 @@ class App {
 		}
 
 		if ( isOpen ) {
+			// The visitor found the chat; the teaser's job is done.
+			this.removeTeaser();
+
 			openButton.style.display = 'none';
 			closeButton.style.display = 'block';
-			chatWindow.style.display = 'block';
+			chatWindow.style.display = 'flex';
+
+			// Trigger the entrance animation on the next frame.
+			window.requestAnimationFrame( () => {
+				chatWindow.classList.add( 'is-open' );
+			} );
 
 			const chatMessageBox =
 				document.getElementById( 'hyve-message-box' );
@@ -392,10 +1014,19 @@ class App {
 			openButton.style.display = 'block';
 			closeButton.style.display = 'none';
 			chatWindow.style.display = 'none';
+			chatWindow.classList.remove( 'is-open' );
 		}
 
-		this.addAudioPlayback( clickAudio );
+		this.maybeShowWelcome();
+	}
 
+	/**
+	 * Show the welcome message and suggested questions once, when the chat is
+	 * first shown with no prior conversation.
+	 *
+	 * @return {void}
+	 */
+	maybeShowWelcome() {
 		if (
 			window.hyveClient.welcome &&
 			'' !== window.hyveClient.welcome &&
@@ -408,36 +1039,70 @@ class App {
 			setTimeout( () => {
 				this.add( welcomeMessage, 'bot' );
 				this.addSuggestions();
+				this.maybeShowPreChatGate();
 			}, 1000 );
-		}
-	}
 
-	addSuggestions() {
-		const questions = window.hyveClient?.predefinedQuestions;
-
-		if ( ! Array.isArray( questions ) ) {
 			return;
 		}
 
-		const filteredQuestions = questions.filter(
-			( question ) => '' !== question.trim()
-		);
+		this.maybeShowPreChatGate();
+	}
+
+	addSuggestions() {
+		this.renderSuggestions( window.hyveClient?.predefinedQuestions );
+	}
+
+	/**
+	 * Render a row of clickable suggestion chips under the latest message.
+	 *
+	 * Shared by the pre-conversation predefined questions and the per-turn
+	 * follow-up questions. Clicking a chip sends it as the next message; any
+	 * previous chip row is cleared first so only the latest set is shown.
+	 *
+	 * @param {Array<string>} questions The suggestions to render.
+	 * @return {void}
+	 */
+	renderSuggestions( questions ) {
+		// Chips wait while the pre-chat form is up.
+		if (
+			this.gateLocked ||
+			this.gatePending ||
+			! Array.isArray( questions )
+		) {
+			return;
+		}
+
+		const filteredQuestions = questions
+			.filter( ( question ) => 'string' === typeof question )
+			.map( ( question ) => question.trim() )
+			.filter( ( question ) => '' !== question );
 
 		if ( 0 === filteredQuestions.length ) {
 			return;
 		}
 
+		// Clear any prior chip row so only the latest set is on screen.
+		this.removeSuggestions();
+
 		const chatMessageBox = document.getElementById( 'hyve-message-box' );
-
-		const suggestions = [ `<span>${ strings.suggestions }</span>` ];
-
-		filteredQuestions.forEach( ( question ) => {
-			suggestions.push( `<button>${ question }</button>` );
-		} );
 
 		const messageDiv = this.createElement( 'div', {
 			className: 'hyve-suggestions',
-			innerHTML: suggestions.join( '' ),
+		} );
+
+		const label = this.createElement( 'span' );
+		label.textContent = strings.suggestions;
+		messageDiv.appendChild( label );
+
+		// Build buttons with textContent (not innerHTML) so model-generated
+		// follow-ups cannot inject markup into the widget.
+		filteredQuestions.forEach( ( question ) => {
+			const button = this.createElement( 'button' );
+			button.textContent = question;
+			button.addEventListener( 'click', () => {
+				this.add( question, 'user' );
+			} );
+			messageDiv.appendChild( button );
 		} );
 
 		if ( window.hyveClient.colors?.user_background ) {
@@ -451,15 +1116,13 @@ class App {
 			messageDiv.classList.add( 'is-light' );
 		}
 
-		const suggestionButtons = messageDiv.querySelectorAll( 'button' );
-
-		suggestionButtons.forEach( ( button ) => {
-			button.addEventListener( 'click', () => {
-				this.add( button.textContent, 'user' );
-			} );
-		} );
-
 		chatMessageBox?.appendChild( messageDiv );
+
+		// The reply already scrolled to its own bottom before the chips were
+		// appended, so bring the freshly added chips into view too.
+		if ( chatMessageBox ) {
+			chatMessageBox.scrollTop = chatMessageBox.scrollHeight;
+		}
 
 		this.hasSuggestions = true;
 	}
@@ -471,6 +1134,804 @@ class App {
 			suggestions.remove();
 			this.hasSuggestions = false;
 		}
+	}
+
+	/**
+	 * Build a rich display node (product results, a single order, "which one
+	 * did you mean?" choices) to render under a bot reply.
+	 *
+	 * The payload is `{ type, items }`: `type` is a layout hint ('list' of
+	 * compact cards or a single spotlight 'item'); each item can carry
+	 * `actions` buttons (a URL opens it, a message is sent as the next turn).
+	 * An item with no actions falls back to being clickable itself: its URL,
+	 * or its label sent as the next message.
+	 *
+	 * All text is set with textContent and URLs are validated, so a
+	 * skill-provided payload cannot inject markup into the widget.
+	 *
+	 * @param {Object} display The display payload ({ type, items }).
+	 * @return {HTMLElement|null} The display element, or null when there is nothing to show.
+	 */
+	buildDisplay( display ) {
+		const isSafeUrl = ( url ) =>
+			'string' === typeof url && /^https?:\/\//i.test( url );
+
+		const valid = (
+			Array.isArray( display?.items ) ? display.items : []
+		).filter(
+			( item ) =>
+				item &&
+				'string' === typeof item.label &&
+				'' !== item.label.trim()
+		);
+
+		if ( 0 === valid.length ) {
+			return null;
+		}
+
+		const type = 'item' === display.type ? 'item' : 'list';
+		const displayDiv = this.createElement( 'div', {
+			className: `hyve-display hyve-display--${ type }`,
+		} );
+
+		valid.forEach( ( item ) => {
+			const actions = (
+				Array.isArray( item.actions ) ? item.actions : []
+			).filter(
+				( action ) =>
+					action &&
+					'string' === typeof action.label &&
+					'' !== action.label.trim() &&
+					( isSafeUrl( action.url ) ||
+						'string' === typeof action.message )
+			);
+
+			// With actions the card is a plain container and the buttons carry
+			// the behavior; without them the whole card is the affordance.
+			const isLink = 0 === actions.length && isSafeUrl( item.url );
+			let tag = isLink ? 'a' : 'button';
+
+			if ( actions.length ) {
+				tag = 'div';
+			}
+
+			const card = this.createElement( tag, {
+				className: 'hyve-display__item',
+			} );
+
+			if ( isLink ) {
+				card.setAttribute( 'href', item.url );
+				card.setAttribute( 'target', '_blank' );
+				card.setAttribute( 'rel', 'noopener noreferrer' );
+			} else if ( 'button' === tag ) {
+				card.addEventListener( 'click', () => {
+					this.add( item.label, 'user' );
+				} );
+			}
+
+			if ( isSafeUrl( item.image ) ) {
+				const img = this.createElement( 'img', {
+					className: 'hyve-display__image',
+				} );
+				img.setAttribute( 'src', item.image );
+				img.setAttribute( 'alt', '' );
+				card.appendChild( img );
+			}
+
+			const body = this.createElement( 'span', {
+				className: 'hyve-display__body',
+			} );
+
+			const title = this.createElement( 'span', {
+				className: 'hyve-display__title',
+			} );
+			title.textContent = item.label;
+			body.appendChild( title );
+
+			if (
+				'string' === typeof item.description &&
+				'' !== item.description
+			) {
+				const desc = this.createElement( 'span', {
+					className: 'hyve-display__desc',
+				} );
+				desc.textContent = item.description;
+				body.appendChild( desc );
+			}
+
+			if ( 'string' === typeof item.meta && '' !== item.meta ) {
+				const meta = this.createElement( 'span', {
+					className: 'hyve-display__meta',
+				} );
+				meta.textContent = item.meta;
+				body.appendChild( meta );
+			}
+
+			if ( actions.length ) {
+				const row = this.createElement( 'span', {
+					className: 'hyve-display__actions',
+				} );
+
+				actions.forEach( ( action ) => {
+					const isActionLink = isSafeUrl( action.url );
+					const button = this.createElement(
+						isActionLink ? 'a' : 'button',
+						{ className: 'hyve-display__action' }
+					);
+
+					button.textContent = action.label;
+
+					if ( isActionLink ) {
+						button.setAttribute( 'href', action.url );
+						button.setAttribute( 'target', '_blank' );
+						button.setAttribute( 'rel', 'noopener noreferrer' );
+					} else {
+						button.addEventListener( 'click', () => {
+							this.add( action.message, 'user' );
+						} );
+					}
+
+					row.appendChild( button );
+				} );
+
+				body.appendChild( row );
+			}
+
+			card.appendChild( body );
+			displayDiv.appendChild( card );
+		} );
+
+		return displayDiv;
+	}
+
+	/**
+	 * The lead-form config injected by Pro, or null when unavailable.
+	 *
+	 * @return {Object|null} The config ({ fields, triggers }).
+	 */
+	leadConfig() {
+		return window.hyveClient?.leadForm ?? null;
+	}
+
+	/**
+	 * Resolve a piece of lead-form copy, preferring the admin's custom text
+	 * and falling back to the localized default.
+	 *
+	 * @param {string} key      The messages key (heading|offer|thanks).
+	 * @param {string} fallback The default string.
+	 * @return {string} The copy to show.
+	 */
+	leadMessage( key, fallback ) {
+		const custom = this.leadConfig()?.messages?.[ key ];
+
+		return custom ? custom : fallback;
+	}
+
+	/**
+	 * Client handlers keyed by action type; unknown types are ignored.
+	 *
+	 * @return {Object} Handlers keyed by action type.
+	 */
+	getActionHandlers() {
+		return {
+			contact_form: () => this.offerLeadForm( { explicit: true } ),
+		};
+	}
+
+	/**
+	 * Dispatch server-declared actions to their client handlers.
+	 *
+	 * @param {Array<{type: string}>} actions Actions from the reply payload.
+	 * @return {void}
+	 */
+	handleActions( actions ) {
+		if ( ! Array.isArray( actions ) ) {
+			return;
+		}
+
+		const handlers = this.getActionHandlers();
+
+		actions.forEach( ( action ) => {
+			const handler = handlers[ action?.type ];
+
+			if ( handler ) {
+				handler( action );
+			}
+		} );
+	}
+
+	/**
+	 * Run server-declared actions, then the client-side unanswered trigger.
+	 *
+	 * @param {any} data The reply payload ({ success, actions, ... }).
+	 * @return {void}
+	 */
+	afterBotReply( data ) {
+		// A lead captured before the conversation existed (pre-chat gate, or a
+		// submission that could not be linked) links up as soon as a recorded
+		// turn provides the ids.
+		this.maybeLinkLead();
+
+		const config = this.leadConfig();
+
+		if ( ! config ) {
+			return;
+		}
+
+		this.handleActions( data?.actions );
+
+		if ( false === data?.success && config.triggers?.unanswered ) {
+			this.offerLeadForm();
+		}
+	}
+
+	/**
+	 * The stored lead-form state ({ status, token, timestamp }), kept for 24h.
+	 *
+	 * @return {Object|null} The stored state.
+	 */
+	leadFormState() {
+		if ( this.isPreview() ) {
+			return this.previewLeadStatus
+				? { status: this.previewLeadStatus }
+				: null;
+		}
+
+		try {
+			const raw = window.localStorage.getItem( 'hyve-lead-form' );
+
+			if ( ! raw ) {
+				return null;
+			}
+
+			const state = JSON.parse( raw );
+			const DAY = 24 * 60 * 60 * 1000;
+			const ts = new Date( state.timestamp ).getTime();
+
+			if ( isNaN( ts ) || Date.now() - ts > DAY ) {
+				window.localStorage.removeItem( 'hyve-lead-form' );
+				return null;
+			}
+
+			return state;
+		} catch {
+			return null;
+		}
+	}
+
+	/**
+	 * The visitor's lead-form decision ('submitted' | 'dismissed' | null).
+	 *
+	 * @return {string|null} The stored status.
+	 */
+	leadFormStatus() {
+		return this.leadFormState()?.status ?? null;
+	}
+
+	/**
+	 * The pending link token of a lead stored without a conversation.
+	 *
+	 * @return {string|null} The stored token.
+	 */
+	leadToken() {
+		return this.leadFormState()?.token ?? null;
+	}
+
+	/**
+	 * Persist the visitor's lead-form decision.
+	 *
+	 * @param {string}      status 'submitted' or 'dismissed'.
+	 * @param {string|null} token  Link token for a lead stored without a
+	 *                             conversation.
+	 * @return {void}
+	 */
+	setLeadFormStatus( status, token = null ) {
+		if ( this.isPreview() ) {
+			this.previewLeadStatus = status;
+			return;
+		}
+
+		try {
+			window.localStorage.setItem(
+				'hyve-lead-form',
+				JSON.stringify( {
+					status,
+					...( token ? { token } : {} ),
+					timestamp: new Date(),
+				} )
+			);
+		} catch {}
+	}
+
+	/**
+	 * Drop the pending link token, keeping the decision itself.
+	 *
+	 * @return {void}
+	 */
+	clearLeadToken() {
+		if ( this.isPreview() ) {
+			return;
+		}
+
+		const state = this.leadFormState();
+
+		if ( ! state?.token ) {
+			return;
+		}
+
+		delete state.token;
+
+		try {
+			window.localStorage.setItem(
+				'hyve-lead-form',
+				JSON.stringify( state )
+			);
+		} catch {}
+	}
+
+	/**
+	 * Link a pending lead to the conversation once one exists.
+	 *
+	 * Fire-and-forget: a transient failure retries after the next reply; a
+	 * dead token (expired or already consumed) is dropped for good.
+	 *
+	 * @return {Promise<void>} Resolves when handled.
+	 */
+	async maybeLinkLead() {
+		const token = this.leadToken();
+
+		if ( ! token || ! this.recordID || ! this.threadID ) {
+			return;
+		}
+
+		try {
+			await apiFetch( {
+				path: `${ window.hyveClient.api }/leads/link`,
+				method: 'POST',
+				data: {
+					lead_token: token,
+					record_id: this.recordID,
+					thread_id: this.threadID,
+				},
+			} );
+
+			this.clearLeadToken();
+		} catch ( err ) {
+			if ( 410 === err?.data?.status ) {
+				this.clearLeadToken();
+			}
+		}
+	}
+
+	clearLeadFormStatus() {
+		this.previewLeadStatus = null;
+
+		try {
+			window.localStorage.removeItem( 'hyve-lead-form' );
+		} catch {}
+	}
+
+	isLeadFormVisible() {
+		return Boolean( document.querySelector( '.hyve-lead-form' ) );
+	}
+
+	removeLeadOffer() {
+		document.querySelector( '.hyve-lead-offer' )?.remove();
+	}
+
+	/**
+	 * Offer the contact form with accept/decline; a decline is remembered.
+	 *
+	 * @param {Object}  [options]          Options.
+	 * @param {boolean} [options.explicit] Whether the visitor explicitly asked
+	 *                                     for a human (vs a passive trigger).
+	 * @return {void}
+	 */
+	offerLeadForm( { explicit = false } = {} ) {
+		const config = this.leadConfig();
+
+		if ( ! config || this.gateLocked || this.isLeadFormVisible() ) {
+			return;
+		}
+
+		const status = this.leadFormStatus();
+
+		// Details are already collected: never ask again, but an explicit ask
+		// for a human gets an acknowledgment instead of silence.
+		if ( 'submitted' === status ) {
+			if ( explicit ) {
+				this.add(
+					this.leadMessage( 'already', strings.leadAlready ),
+					'bot'
+				);
+			}
+
+			return;
+		}
+
+		// A pre-chat skip ('gate_skipped') is weak intent, so mid-chat triggers
+		// may still offer the form; a real decline stops passive offers, but an
+		// explicit ask for a human overrides even that.
+		if ( 'dismissed' === status && ! explicit ) {
+			return;
+		}
+
+		const chatMessageBox = document.getElementById( 'hyve-message-box' );
+
+		if ( ! chatMessageBox ) {
+			return;
+		}
+
+		this.removeLeadOffer();
+
+		const offer = this.createElement( 'div', {
+			className: 'hyve-lead-offer',
+		} );
+
+		const label = this.createElement( 'span' );
+		label.textContent = this.leadMessage( 'offer', strings.leadOffer );
+		offer.appendChild( label );
+
+		const accept = this.createElement( 'button', {
+			className: 'hyve-lead-offer__yes',
+		} );
+		accept.textContent = strings.leadOfferButton;
+		accept.addEventListener( 'click', () => {
+			this.removeLeadOffer();
+			this.renderLeadForm( { dismissible: true } );
+		} );
+		offer.appendChild( accept );
+
+		const decline = this.createElement( 'button', {
+			className: 'hyve-lead-offer__no',
+		} );
+		decline.textContent = strings.leadNoThanks;
+		decline.addEventListener( 'click', () => {
+			this.removeLeadOffer();
+			this.setLeadFormStatus( 'dismissed' );
+		} );
+		offer.appendChild( decline );
+
+		if ( window.hyveClient.colors?.user_background ) {
+			offer.classList.add( 'is-dark' );
+		}
+
+		if (
+			! window.hyveClient.colors?.user_background &&
+			undefined !== window.hyveClient.colors?.user_background
+		) {
+			offer.classList.add( 'is-light' );
+		}
+
+		chatMessageBox.appendChild( offer );
+		chatMessageBox.scrollTop = chatMessageBox.scrollHeight;
+	}
+
+	/**
+	 * Show the pre-chat form once, before the first message; when required,
+	 * the input stays locked until it is submitted.
+	 *
+	 * @return {void}
+	 */
+	maybeShowPreChatGate() {
+		const config = this.leadConfig();
+
+		if (
+			! config?.triggers?.preChat ||
+			this.preChatGateShown ||
+			this.leadFormStatus() ||
+			this.hasUserMessages() ||
+			this.isLeadFormVisible()
+		) {
+			return;
+		}
+
+		this.preChatGateShown = true;
+		this.gatePending = true;
+
+		// Suggestions wait until the visitor submits or skips the form.
+		this.removeSuggestions();
+
+		const required = Boolean( config.triggers.preChatRequired );
+
+		if ( required ) {
+			this.setGateLock( true );
+		}
+
+		this.renderLeadForm( { dismissible: ! required, gate: true } );
+	}
+
+	/**
+	 * Lock or unlock the chat input while the required pre-chat form is up.
+	 *
+	 * @param {boolean} locked Whether the input should be locked.
+	 * @return {void}
+	 */
+	setGateLock( locked ) {
+		this.gateLocked = locked;
+
+		const chatInputText = document.querySelector( '#hyve-text-input' );
+		const chatSendButton = document.querySelector(
+			'.hyve-send-button button'
+		);
+
+		if ( chatInputText ) {
+			chatInputText.disabled = locked;
+		}
+
+		if ( chatSendButton ) {
+			chatSendButton.disabled = locked;
+		}
+
+		if ( locked ) {
+			this.removeSuggestions();
+		}
+	}
+
+	/**
+	 * Render the contact form as a bot-authored block inside the chat.
+	 *
+	 * @param {Object}  options             Options.
+	 * @param {boolean} options.dismissible Whether a decline button shows.
+	 * @param {boolean} [options.gate]      Whether this is the pre-chat gate.
+	 * @return {void}
+	 */
+	renderLeadForm( options = {} ) {
+		const config = this.leadConfig();
+
+		if ( ! config || this.isLeadFormVisible() ) {
+			return;
+		}
+
+		const chatMessageBox = document.getElementById( 'hyve-message-box' );
+
+		if ( ! chatMessageBox ) {
+			return;
+		}
+
+		const form = this.createElement( 'form', {
+			className: 'hyve-bot-message hyve-lead-form',
+		} );
+
+		if ( window.hyveClient.colors?.assistant_background ) {
+			form.classList.add( 'is-dark' );
+		}
+
+		const intro = this.createElement( 'p', {
+			className: 'hyve-lead-form__intro',
+		} );
+		intro.textContent = this.leadMessage( 'heading', strings.leadIntro );
+		form.appendChild( intro );
+
+		const inputs = {};
+
+		( config.fields ?? [] ).forEach( ( field ) => {
+			if ( ! field?.id ) {
+				return;
+			}
+
+			const row = this.createElement( 'div', {
+				className: 'hyve-lead-form__row',
+			} );
+
+			const labelText =
+				( field.label || '' ) + ( field.required ? ' *' : '' );
+
+			if ( 'checkbox' === field.type ) {
+				const label = this.createElement( 'label', {
+					className: 'hyve-lead-form__check',
+				} );
+				const input = this.createElement( 'input', {
+					type: 'checkbox',
+				} );
+
+				label.appendChild( input );
+				label.appendChild( document.createTextNode( ' ' + labelText ) );
+				row.appendChild( label );
+				inputs[ field.id ] = input;
+			} else {
+				const label = this.createElement( 'label' );
+				label.textContent = labelText;
+				row.appendChild( label );
+
+				let input;
+
+				if ( 'textarea' === field.type ) {
+					input = this.createElement( 'textarea', { rows: 3 } );
+				} else {
+					const types = { email: 'email', phone: 'tel' };
+					input = this.createElement( 'input', {
+						type: types[ field.type ] ?? 'text',
+					} );
+				}
+
+				row.appendChild( input );
+				inputs[ field.id ] = input;
+			}
+
+			form.appendChild( row );
+		} );
+
+		// Prefill the first long-text field with the visitor's last question.
+		if ( ! options.gate ) {
+			const lastUser = [ ...this.messages ]
+				.reverse()
+				.find( ( { sender } ) => 'user' === sender );
+			const textareaField = ( config.fields ?? [] ).find(
+				( { type } ) => 'textarea' === type
+			);
+
+			if ( lastUser && textareaField && inputs[ textareaField.id ] ) {
+				const tempDiv = document.createElement( 'div' );
+				tempDiv.innerHTML = lastUser.message;
+				inputs[ textareaField.id ].value = tempDiv.textContent ?? '';
+			}
+		}
+
+		const error = this.createElement( 'p', {
+			className: 'hyve-lead-form__error',
+		} );
+		error.hidden = true;
+		form.appendChild( error );
+
+		const buttons = this.createElement( 'div', {
+			className: 'hyve-lead-form__buttons',
+		} );
+
+		const submit = this.createElement( 'button', {
+			type: 'submit',
+			className: 'hyve-lead-form__submit',
+		} );
+		submit.textContent = strings.leadSubmit;
+
+		if (
+			! window.hyveClient.colors?.user_background &&
+			undefined !== window.hyveClient.colors?.user_background
+		) {
+			submit.classList.add( 'is-light' );
+		}
+
+		buttons.appendChild( submit );
+
+		if ( options.dismissible ) {
+			const skip = this.createElement( 'button', {
+				type: 'button',
+				className: 'hyve-lead-form__skip',
+			} );
+			skip.textContent = strings.leadSkip;
+			skip.addEventListener( 'click', () => {
+				form.remove();
+				this.setLeadFormStatus(
+					options.gate ? 'gate_skipped' : 'dismissed'
+				);
+
+				if ( options.gate ) {
+					this.gatePending = false;
+
+					if ( ! this.hasUserMessages() ) {
+						this.addSuggestions();
+					}
+				}
+			} );
+			buttons.appendChild( skip );
+		}
+
+		form.appendChild( buttons );
+
+		form.addEventListener( 'submit', ( event ) => {
+			event.preventDefault();
+			this.submitLeadForm( {
+				form,
+				inputs,
+				error,
+				submit,
+				gate: Boolean( options.gate ),
+			} );
+		} );
+
+		chatMessageBox.appendChild( form );
+		chatMessageBox.scrollTop = chatMessageBox.scrollHeight;
+	}
+
+	/**
+	 * Validate and send the contact form.
+	 *
+	 * @param {Object}  args        Arguments.
+	 * @param {Element} args.form   The form element.
+	 * @param {Object}  args.inputs Field inputs keyed by field id.
+	 * @param {Element} args.error  The inline error element.
+	 * @param {Element} args.submit The submit button.
+	 * @param {boolean} args.gate   Whether this was the pre-chat gate.
+	 * @return {Promise<void>} Resolves when handled.
+	 */
+	async submitLeadForm( { form, inputs, error, submit, gate } ) {
+		const config = this.leadConfig();
+		const fields = {};
+		let missing = false;
+
+		( config?.fields ?? [] ).forEach( ( field ) => {
+			const input = inputs[ field.id ];
+
+			if ( ! input ) {
+				return;
+			}
+
+			const value =
+				'checkbox' === field.type ? input.checked : input.value.trim();
+
+			if (
+				field.required &&
+				( 'checkbox' === field.type ? ! value : '' === value )
+			) {
+				missing = true;
+			}
+
+			fields[ field.id ] = value;
+		} );
+
+		if ( missing ) {
+			error.textContent = strings.leadRequired;
+			error.hidden = false;
+			return;
+		}
+
+		error.hidden = true;
+		submit.disabled = true;
+
+		try {
+			let leadToken = null;
+
+			// The admin preview never stores real leads.
+			if ( ! this.isPreview() ) {
+				const response = await apiFetch( {
+					path: `${ window.hyveClient.api }/leads`,
+					method: 'POST',
+					data: {
+						fields,
+						record_id: this.recordID ?? 0,
+						thread_id: this.threadID ?? '',
+						page_url: window.location.href,
+					},
+				} );
+
+				// A lead stored without a conversation (pre-chat gate) comes
+				// back with a link token; it is redeemed once a turn is
+				// recorded and ids exist.
+				leadToken = response?.lead_token ?? null;
+			}
+
+			form.remove();
+			this.setLeadFormStatus( 'submitted', leadToken );
+			this.addEventEntry( 'contact_form' );
+			this.add( this.leadMessage( 'thanks', strings.leadThanks ), 'bot' );
+
+			if ( gate ) {
+				this.setGateLock( false );
+				this.gatePending = false;
+
+				if ( ! this.hasUserMessages() ) {
+					this.addSuggestions();
+				}
+			}
+		} catch ( err ) {
+			submit.disabled = false;
+			error.textContent = err?.message || strings.tryAgain;
+			error.hidden = false;
+		}
+	}
+
+	/**
+	 * Record an event entry in the transcript.
+	 *
+	 * @param {string} key The event key, e.g. 'contact_form'.
+	 * @return {void}
+	 */
+	addEventEntry( key ) {
+		const time = new Date();
+
+		this.messages.push( { time, message: key, sender: 'event', id: null } );
+		this.addMessage( time, key, 'event', null, false );
+		this.updateStorage();
 	}
 
 	clearConversation() {
@@ -485,9 +1946,13 @@ class App {
 		this.recordID = null;
 		this.hasSuggestions = false;
 		this.isInitialToggle = true;
+		this.preChatGateShown = false;
+		this.gatePending = false;
+		this.setGateLock( false );
 
 		// Clear local storage
 		window.localStorage.removeItem( 'hyve-chat' );
+		this.clearLeadFormStatus();
 
 		// Close menu
 		this.toggleMenu( false );
@@ -498,7 +1963,10 @@ class App {
 			setTimeout( () => {
 				this.add( window.hyveClient.welcome, 'bot' );
 				this.addSuggestions();
+				this.maybeShowPreChatGate();
 			}, 500 );
+		} else {
+			this.maybeShowPreChatGate();
 		}
 	}
 
@@ -548,6 +2016,13 @@ class App {
 		if ( clearButton ) {
 			clearButton.addEventListener( 'click', () => {
 				this.clearConversation();
+			} );
+		}
+
+		const soundButton = document.getElementById( 'hyve-toggle-sound' );
+		if ( soundButton ) {
+			soundButton.addEventListener( 'click', () => {
+				this.toggleSound();
 			} );
 		}
 
@@ -602,35 +2077,430 @@ class App {
 		} );
 	}
 
-	getDefaultHeaders() {
-		return {
-			'Cache-Control': 'no-cache',
-		};
+	/**
+	 * Whether the visitor has dismissed the privacy notice in this browser.
+	 *
+	 * Dismissal is never persisted in the admin preview, so admins always see
+	 * the notice while configuring the widget.
+	 *
+	 * @return {boolean} True if the notice was dismissed.
+	 */
+	isPrivacyNoticeDismissed() {
+		if ( this.isPreview() ) {
+			return false;
+		}
+
+		try {
+			return (
+				'true' ===
+				window.localStorage.getItem( 'hyve-privacy-dismissed' )
+			);
+		} catch {
+			return false;
+		}
 	}
 
-	async renderUI() {
-		const chatOpenButton = this.createElement( 'button', {
-			className: 'collapsible open',
+	/**
+	 * Remember that the visitor dismissed the privacy notice and remove it.
+	 *
+	 * @return {void}
+	 */
+	dismissPrivacyNotice() {
+		const notice = document.querySelector( '.hyve-privacy-notice' );
+
+		if ( notice ) {
+			notice.remove();
+		}
+
+		// The "Powered by Hyve" credit is kept hidden while the notice shows
+		// (free version only); reveal it now that the notice is gone.
+		const credits = document.querySelector( '.hyve-credits' );
+
+		if ( credits ) {
+			credits.hidden = false;
+		}
+
+		if ( this.isPreview() ) {
+			return;
+		}
+
+		try {
+			window.localStorage.setItem( 'hyve-privacy-dismissed', 'true' );
+		} catch {}
+	}
+
+	/**
+	 * Arm the proactive teaser: a configurable invite shown next to the closed
+	 * launcher when the selected trigger fires (Pro supplies the config through
+	 * `hyveClient.proactive`). UI only — no thread or API call happens until
+	 * the visitor actually sends a message.
+	 *
+	 * @return {void}
+	 */
+	setupProactive() {
+		const config = window.hyveClient?.proactive;
+
+		if ( ! config?.message || this.isInline || this.isPreview() ) {
+			return;
+		}
+
+		// The teaser anchors to the floating launcher.
+		if ( ! document.getElementById( 'hyve-open' ) ) {
+			return;
+		}
+
+		// A returning visitor with a conversation doesn't need an invite.
+		if ( this.threadID || this.hasUserMessages() ) {
+			return;
+		}
+
+		if ( this.isTeaserSuppressed() ) {
+			return;
+		}
+
+		this.armTeaserTrigger( config );
+	}
+
+	/**
+	 * Whether the teaser should stay hidden: dismissed in this browser, or
+	 * already shown once this session.
+	 *
+	 * @return {boolean} True when suppressed.
+	 */
+	isTeaserSuppressed() {
+		try {
+			return (
+				'true' ===
+					window.localStorage.getItem( 'hyve-teaser-dismissed' ) ||
+				'true' === window.sessionStorage.getItem( 'hyve-teaser-shown' )
+			);
+		} catch {
+			return true;
+		}
+	}
+
+	/**
+	 * Arm the configured trigger. Exactly one is active at a time.
+	 *
+	 * @param {Object} config               The proactive config.
+	 * @param {string} config.trigger       One of 'time', 'exit', 'scroll'.
+	 * @param {string} config.message       The teaser message.
+	 * @param {number} [config.delay]       Seconds on page (time trigger).
+	 * @param {number} [config.scrollDepth] Percent scrolled (scroll trigger).
+	 *
+	 * @return {void}
+	 */
+	armTeaserTrigger( config ) {
+		const show = () => this.showTeaser( config.message );
+
+		switch ( config.trigger ) {
+			case 'exit':
+				// Desktop only: fires when the pointer leaves toward the top
+				// of the viewport. Touch devices never emit it, so the teaser
+				// simply doesn't show there.
+				this.teaserExitListener = ( event ) => {
+					if ( ! event.relatedTarget && 0 >= event.clientY ) {
+						show();
+					}
+				};
+				document.addEventListener(
+					'mouseout',
+					this.teaserExitListener
+				);
+				break;
+			case 'scroll':
+				this.teaserScrollListener = () => {
+					const doc = document.documentElement;
+					const max = doc.scrollHeight - window.innerHeight;
+					const percent =
+						0 < max ? ( window.scrollY / max ) * 100 : 100;
+
+					if ( percent >= ( config.scrollDepth ?? 50 ) ) {
+						show();
+					}
+				};
+				window.addEventListener( 'scroll', this.teaserScrollListener, {
+					passive: true,
+				} );
+				break;
+			default:
+				this.teaserTimeout = window.setTimeout(
+					show,
+					1000 * ( config.delay ?? 0 )
+				);
+		}
+	}
+
+	/**
+	 * Cancel any armed teaser trigger.
+	 *
+	 * @return {void}
+	 */
+	disarmTeaserTrigger() {
+		if ( this.teaserTimeout ) {
+			window.clearTimeout( this.teaserTimeout );
+			this.teaserTimeout = null;
+		}
+
+		if ( this.teaserExitListener ) {
+			document.removeEventListener( 'mouseout', this.teaserExitListener );
+			this.teaserExitListener = null;
+		}
+
+		if ( this.teaserScrollListener ) {
+			window.removeEventListener( 'scroll', this.teaserScrollListener );
+			this.teaserScrollListener = null;
+		}
+	}
+
+	/**
+	 * Show the teaser bubble next to the closed launcher. Clicking the message
+	 * opens the chat (the normal welcome flow proceeds); the X dismisses it
+	 * for good. Focus is never moved — the bubble announces itself politely
+	 * via role="status".
+	 *
+	 * @param {string} message The teaser message.
+	 *
+	 * @return {void}
+	 */
+	showTeaser( message ) {
+		this.disarmTeaserTrigger();
+
+		// The moment may have passed: the chat could have been opened, or a
+		// conversation started, while the trigger was armed.
+		const openButton = document.getElementById( 'hyve-open' );
+
+		if (
+			! openButton ||
+			'none' === openButton.style.display ||
+			this.hasUserMessages() ||
+			document.getElementById( 'hyve-teaser' )
+		) {
+			return;
+		}
+
+		try {
+			window.sessionStorage.setItem( 'hyve-teaser-shown', 'true' );
+		} catch {}
+
+		this.renderTeaser( message );
+	}
+
+	/**
+	 * Show the teaser with a given message in the admin preview widget,
+	 * bypassing triggers and suppression state. Used by the settings screen.
+	 *
+	 * @param {string} message The teaser message to preview.
+	 *
+	 * @return {void}
+	 */
+	previewTeaser( message ) {
+		if ( ! message || this.isInline ) {
+			return;
+		}
+
+		const openButton = document.getElementById( 'hyve-open' );
+
+		if ( ! openButton ) {
+			return;
+		}
+
+		// The teaser anchors to the closed launcher, so close the window first.
+		if ( 'none' === openButton.style.display ) {
+			this.toggleChatWindow( false );
+		}
+
+		this.removeTeaser();
+		this.renderTeaser( message );
+	}
+
+	/**
+	 * Build and attach the teaser bubble next to the launcher.
+	 *
+	 * @param {string} message The teaser message.
+	 *
+	 * @return {void}
+	 */
+	renderTeaser( message ) {
+		const messageButton = this.createElement( 'button', {
+			className: 'hyve-teaser__message',
+			textContent: message,
 		} );
 
+		messageButton.addEventListener( 'click', () => {
+			this.removeTeaser();
+			this.toggleChatWindow( true );
+		} );
+
+		const dismissButton = this.createElement( 'button', {
+			className: 'hyve-teaser__dismiss',
+			ariaLabel: strings.dismissNotice ?? 'Dismiss',
+			innerHTML:
+				'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false"><path d="M12 13.06l3.712 3.713 1.061-1.06L13.061 12l3.712-3.712-1.06-1.06L12 10.938 8.288 7.227l-1.061 1.06L10.939 12l-3.712 3.712 1.06 1.061L12 13.061z"></path></svg>',
+		} );
+
+		dismissButton.addEventListener( 'click', () => {
+			// Never persist dismissal from the admin preview, or previewing
+			// would suppress the real teaser for the admin as a visitor.
+			if ( ! this.isPreview() ) {
+				try {
+					window.localStorage.setItem(
+						'hyve-teaser-dismissed',
+						'true'
+					);
+				} catch {}
+			}
+
+			this.removeTeaser();
+		} );
+
+		const teaser = this.createElement(
+			'div',
+			{ className: 'hyve-teaser', id: 'hyve-teaser' },
+			messageButton,
+			dismissButton
+		);
+
+		teaser.setAttribute( 'role', 'status' );
+
+		if ( 'left' === window.hyveClient?.chatPosition ) {
+			teaser.classList.add( 'is-left' );
+		}
+
+		// Match the bot-message contrast so the text stays readable on a dark
+		// assistant background.
+		if ( window.hyveClient?.colors?.assistant_background ) {
+			teaser.classList.add( 'is-dark' );
+		}
+
+		document.body.appendChild( teaser );
+
+		this.addAudioPlayback( pingAudio );
+	}
+
+	/**
+	 * Remove the teaser bubble and cancel any armed trigger.
+	 *
+	 * @return {void}
+	 */
+	removeTeaser() {
+		this.disarmTeaserTrigger();
+		document.getElementById( 'hyve-teaser' )?.remove();
+	}
+
+	/**
+	 * Build the dismissible privacy notice shown above the input box.
+	 *
+	 * The notice text carries a single `%s` placeholder marking where the
+	 * (optional) privacy-policy link goes; both halves are inserted as text
+	 * nodes so admin-supplied copy can never inject markup.
+	 *
+	 * @return {HTMLElement|null} The notice element, or null when it shouldn't show.
+	 */
+	renderPrivacyNotice() {
+		const notice = window.hyveClient?.privacyNotice;
+
+		// Skip entirely without a resolvable policy URL — a notice that points
+		// nowhere is worse than no notice. The admin dashboard warns when the
+		// toggle is on but no Privacy Policy page has been set.
+		if (
+			! notice?.enabled ||
+			! notice?.url ||
+			! strings.privacyNotice ||
+			this.isPrivacyNoticeDismissed()
+		) {
+			return null;
+		}
+
+		const icon = this.createElement( 'span', {
+			className: 'hyve-privacy-notice__icon',
+			innerHTML:
+				'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 3l7 3v5c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6l7-3z"/></svg>',
+		} );
+
+		const text = this.createElement( 'span', {
+			className: 'hyve-privacy-notice__text',
+		} );
+
+		const link = this.createElement( 'a', {
+			className: 'hyve-privacy-notice__link',
+			href: notice.url,
+			target: '_blank',
+			rel: 'noopener noreferrer',
+			textContent: strings.privacyPolicy || '',
+		} );
+
+		const [ before, after = '' ] = strings.privacyNotice.split( '%s' );
+
+		text.appendChild( document.createTextNode( before ) );
+		text.appendChild( link );
+		text.appendChild( document.createTextNode( after ) );
+
+		const dismiss = this.createElement( 'button', {
+			className: 'hyve-privacy-notice__dismiss',
+			ariaLabel: strings.dismissNotice ?? 'Dismiss',
+			innerHTML:
+				'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false"><path d="M12 13.06l3.712 3.713 1.061-1.06L13.061 12l3.712-3.712-1.06-1.06L12 10.938 8.288 7.227l-1.061 1.06L10.939 12l-3.712 3.712 1.06 1.061L12 13.061z"></path></svg>',
+		} );
+
+		dismiss.addEventListener( 'click', () => this.dismissPrivacyNotice() );
+
+		const container = this.createElement(
+			'div',
+			{ className: 'hyve-privacy-notice' },
+			icon,
+			text,
+			dismiss
+		);
+
+		if ( window.hyveClient.colors?.chat_background ) {
+			container.classList.add( 'is-dark' );
+		}
+
+		return container;
+	}
+	renderUI() {
+		// Whether the widget is anchored to the left side of the screen.
+		const isLeft = 'left' === window.hyveClient?.chatPosition;
+
+		const chatOpenButton = this.createElement( 'button', {
+			className: 'collapsible open',
+			ariaLabel: strings.openChat,
+			ariaExpanded: 'true',
+		} );
+
+		const chatIcon = window.hyveClient?.chatIcon;
 		let useDefaultIcon = true;
-		if ( 'svg' === window.hyveClient?.chatIcon?.type ) {
-			/**
-			 * NOTE: Download the SVG to that we can use the styling via CSS.
-			 */
-			const iconURL =
-				window.hyveClient?.icons?.[
-					window.hyveClient?.chatIcon?.value
-				];
-			if ( iconURL ) {
-				const svg = await this.fetchSVG( iconURL );
-				chatOpenButton.innerHTML = svg;
+
+		if ( 'media' === chatIcon?.type && chatIcon?.url ) {
+			chatOpenButton.appendChild(
+				this.createElement( 'img', {
+					className: 'hyve-icon-img',
+					src: chatIcon.url,
+					alt: '',
+				} )
+			);
+			useDefaultIcon = false;
+		} else if ( 'svg' === chatIcon?.type ) {
+			// SVG markup is inlined server-side so it renders instantly (no fetch).
+			const iconMarkup = window.hyveClient?.icons?.[ chatIcon?.value ];
+			if ( iconMarkup ) {
+				chatOpenButton.innerHTML = iconMarkup;
 				useDefaultIcon = false;
 			}
 		}
 
 		if ( useDefaultIcon ) {
-			chatOpenButton.appendChild( document.createTextNode( '💬' ) );
+			// Default icon: the bundled chat-bubble SVG (matches the option
+			// shown as the default in the admin). Emoji is a last-resort fallback.
+			const defaultIcon =
+				window.hyveClient?.icons?.[ 'chat-bubble-left-ellipsis' ];
+
+			if ( defaultIcon ) {
+				chatOpenButton.innerHTML = defaultIcon;
+			} else {
+				chatOpenButton.appendChild( document.createTextNode( '💬' ) );
+			}
 		}
 
 		const chatOpen = this.createElement(
@@ -639,10 +2509,28 @@ class App {
 			chatOpenButton
 		);
 
+		if ( isLeft ) {
+			chatOpen.classList.add( 'is-left' );
+		}
+
+		// Adapt the open icon color to the icon background, like the close icon.
+		if ( window.hyveClient.colors?.icon_background ) {
+			chatOpen.classList.add( 'is-dark' );
+		}
+
+		if (
+			! window.hyveClient.colors?.icon_background &&
+			undefined !== window.hyveClient.colors?.icon_background
+		) {
+			chatOpen.classList.add( 'is-light' );
+		}
+
 		const chatCloseButton = this.createElement( 'button', {
 			className: 'collapsible close',
 			innerHTML:
 				'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="48" height="48" aria-hidden="true" focusable="false"><path d="M12 13.06l3.712 3.713 1.061-1.06L13.061 12l3.712-3.712-1.06-1.06L12 10.938 8.288 7.227l-1.061 1.06L10.939 12l-3.712 3.712 1.06 1.061L12 13.061z"></path></svg>',
+			ariaLabel: strings.closeChat,
+			ariaExpanded: 'true',
 		} );
 
 		const chatClose = this.createElement(
@@ -650,6 +2538,10 @@ class App {
 			{ className: 'hyve-bar-close', id: 'hyve-close' },
 			chatCloseButton
 		);
+
+		if ( isLeft ) {
+			chatClose.classList.add( 'is-left' );
+		}
 
 		if ( window.hyveClient.colors?.icon_background ) {
 			chatClose.classList.add( 'is-dark' );
@@ -667,14 +2559,56 @@ class App {
 			id: 'hyve-window',
 		} );
 
+		if ( isLeft ) {
+			chatWindow.classList.add( 'is-left' );
+		}
+
 		if ( window.hyveClient.colors?.chat_background ) {
 			chatWindow.classList.add( 'is-dark' );
 		}
 
-		// Create header with menu
+		// Create header with assistant info and menu
 		const chatHeader = this.createElement( 'div', {
 			className: 'hyve-header',
 		} );
+
+		const headerAvatar = this.createElement( 'div', {
+			className: 'hyve-avatar',
+		} );
+
+		if ( 'media' === chatIcon?.type && chatIcon?.url ) {
+			headerAvatar.appendChild(
+				this.createElement( 'img', {
+					className: 'hyve-avatar-img',
+					src: chatIcon.url,
+					alt: '',
+				} )
+			);
+		} else {
+			headerAvatar.innerHTML = ROBOT_AVATAR_SVG;
+		}
+
+		const headerTitle = window.hyveClient.chatName?.trim()
+			? window.hyveClient.chatName.trim()
+			: strings.title ?? '';
+
+		const headerText = this.createElement( 'div', {
+			className: 'hyve-header-text',
+			innerHTML: `<span class="hyve-title">${ this.sanitize(
+				headerTitle
+			) }</span><span class="hyve-status"><span class="hyve-status-dot"></span>${
+				strings.status ?? ''
+			}</span>`,
+		} );
+
+		const headerInfo = this.createElement(
+			'div',
+			{ className: 'hyve-header-info' },
+			headerAvatar,
+			headerText
+		);
+
+		chatHeader.appendChild( headerInfo );
 
 		const menuButtonElement = this.createElement( 'button', {
 			className: 'hyve-menu-button',
@@ -683,9 +2617,16 @@ class App {
 				'<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="hyve-menu-icon"><path stroke-linecap="round" stroke-linejoin="round" d="M6.75 12a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0ZM12.75 12a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0ZM18.75 12a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0Z" /></svg>',
 		} );
 
+		const clearItem = `<button id="hyve-clear-conversation" class="hyve-menu-item"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="16"><path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" /></svg> ${ strings.clearConversation }</button>`;
+
+		// Per-visitor sound toggle — only offered when sound is globally enabled.
+		const soundItem = this.isGlobalSoundEnabled()
+			? `<button id="hyve-toggle-sound" class="hyve-menu-item">${ this.soundMenuInner() }</button>`
+			: '';
+
 		const menuDropdown = this.createElement( 'div', {
 			className: 'hyve-menu-dropdown',
-			innerHTML: `<button id="hyve-clear-conversation" class="hyve-menu-item"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="16"><path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" /></svg> ${ strings.clearConversation }</button>`,
+			innerHTML: soundItem + clearItem,
 		} );
 
 		const menuContainer = this.createElement(
@@ -726,19 +2667,60 @@ class App {
 				className: 'hyve-send-message',
 				innerHTML:
 					'<svg viewBox="0 0 32 32" version="1.1" xmlns="http://www.w3.org/2000/svg"><path d="M31.083 16.589c0.105-0.167 0.167-0.371 0.167-0.589s-0.062-0.421-0.17-0.593l0.003 0.005c-0.030-0.051-0.059-0.094-0.091-0.135l0.002 0.003c-0.1-0.137-0.223-0.251-0.366-0.336l-0.006-0.003c-0.025-0.015-0.037-0.045-0.064-0.058l-28-14c-0.163-0.083-0.355-0.132-0.558-0.132-0.691 0-1.25 0.56-1.25 1.25 0 0.178 0.037 0.347 0.104 0.5l-0.003-0.008 5.789 13.508-5.789 13.508c-0.064 0.145-0.101 0.314-0.101 0.492 0 0.69 0.56 1.25 1.25 1.25 0 0 0 0 0.001 0h-0c0.001 0 0.002 0 0.003 0 0.203 0 0.394-0.049 0.563-0.136l-0.007 0.003 28-13.999c0.027-0.013 0.038-0.043 0.064-0.058 0.148-0.088 0.272-0.202 0.369-0.336l0.002-0.004c0.030-0.038 0.060-0.082 0.086-0.127l0.003-0.006zM4.493 4.645l20.212 10.105h-15.88zM8.825 17.25h15.88l-20.212 10.105z"></path></svg>',
+				ariaLabel: strings.sendMessage,
 			} )
 		);
 
+		// Adapt the send icon color to the icon background, like the launcher.
+		if ( window.hyveClient.colors?.icon_background ) {
+			chatSendButton.classList.add( 'is-dark' );
+		}
+
+		if (
+			! window.hyveClient.colors?.icon_background &&
+			undefined !== window.hyveClient.colors?.icon_background
+		) {
+			chatSendButton.classList.add( 'is-light' );
+		}
+
 		chatWindow.appendChild( chatHeader );
+
+		// In the dashboard test preview, make it obvious this chat is for trying
+		// the assistant and isn't a live/recorded conversation.
+		if ( this.isPreview() && strings.previewNotice ) {
+			const previewNotice = this.createElement( 'div', {
+				className: 'hyve-preview-notice',
+				innerHTML: `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="15" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 0 1 1.063.852l-.708 2.836a.75.75 0 0 0 1.063.853l.041-.021M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9-3.75h.008v.008H12V8.25Z" /></svg><span>${ this.sanitize(
+					strings.previewNotice
+				) }</span>`,
+			} );
+
+			chatWindow.appendChild( previewNotice );
+		}
+
 		chatWindow.appendChild( chatMessageBox );
+
+		const privacyNotice = this.renderPrivacyNotice();
+
+		if ( privacyNotice ) {
+			chatWindow.appendChild( privacyNotice );
+		}
+
 		chatWrite.appendChild( chatInputText );
 		chatInputBox.appendChild( chatWrite );
 		chatInputBox.appendChild( chatSendButton );
 		chatWindow.appendChild( chatInputBox );
 
+		// An explicit inline placement (block or shortcode) always wins over the
+		// floating auto-display, so the chat renders where it was added regardless
+		// of the global visibility rules.
+		const inlineChat = document.querySelector( '#hyve-inline-chat' );
 		const chatExists = document.querySelectorAll( '#hyve-chat' );
 
-		if (
+		if ( inlineChat ) {
+			inlineChat.appendChild( chatWindow );
+			this.isInline = true;
+		} else if (
 			true === Boolean( window?.hyveClient?.isEnabled ) ||
 			0 < chatExists.length
 		) {
@@ -749,27 +2731,6 @@ class App {
 			document.body.appendChild( chatWindow );
 			document.body.appendChild( chatOpen );
 			document.body.appendChild( chatClose );
-
-			return;
-		}
-
-		const inlineChat = document.querySelector( '#hyve-inline-chat' );
-
-		if ( inlineChat ) {
-			inlineChat.appendChild( chatWindow );
-		}
-	}
-
-	async fetchSVG( url ) {
-		let svgBody = '';
-		try {
-			const response = await fetch( url );
-			if ( 200 === response.status ) {
-				svgBody = await response.text();
-			}
-		} catch ( e ) {
-		} finally {
-			return svgBody;
 		}
 	}
 
@@ -798,8 +2759,231 @@ class App {
 				</span>
 			`,
 		} );
+
+		// Match the bot message contrast so the dots stay visible on a dark
+		// assistant background.
+		if ( window.hyveClient.colors?.assistant_background ) {
+			preloaderDiv.classList.add( 'is-dark' );
+		}
+
 		chatMessageBox.appendChild( preloaderDiv );
 		chatMessageBox.scrollTop = chatMessageBox.scrollHeight;
+	}
+
+	/**
+	 * Live-update the widget's appearance from the admin Appearance panel,
+	 * without tearing down the current conversation. Only used in preview mode.
+	 *
+	 * @param {Object}  config                 Appearance values.
+	 * @param {string}  [config.chatName]      Header title.
+	 * @param {Object}  [config.colors]        Hex color values keyed by slug.
+	 * @param {Object}  [config.colorsDark]    is-dark booleans keyed by slug.
+	 * @param {Object}  [config.chatIcon]      Icon descriptor: { type, value, url }.
+	 * @param {string}  [config.chatPosition]  Screen side: 'left' or 'right'.
+	 * @param {boolean} [config.showTimestamp] Whether message timestamps show.
+	 *
+	 * @return {void}
+	 */
+	applyPreviewAppearance( config = {} ) {
+		const {
+			chatName,
+			colors,
+			colorsDark,
+			chatIcon,
+			chatPosition,
+			showTimestamp,
+		} = config;
+
+		// Hex values drive the CSS custom properties the stylesheet reads.
+		if ( colors ) {
+			Object.entries( colors ).forEach( ( [ key, value ] ) => {
+				if ( value ) {
+					document.body.style.setProperty( `--${ key }`, value );
+				}
+			} );
+		}
+
+		// Booleans drive the is-dark/is-light contrast classes.
+		if ( colorsDark ) {
+			window.hyveClient.colors = { ...colorsDark };
+			this.refreshColorClasses();
+		}
+
+		if ( undefined !== chatName ) {
+			window.hyveClient.chatName = chatName;
+			const title = document.querySelector( '#hyve-window .hyve-title' );
+			if ( title ) {
+				title.textContent = chatName.trim()
+					? chatName.trim()
+					: strings.title ?? '';
+			}
+		}
+
+		if ( chatIcon ) {
+			window.hyveClient.chatIcon = chatIcon;
+			this.refreshIcons();
+		}
+
+		if ( undefined !== chatPosition ) {
+			window.hyveClient.chatPosition = chatPosition;
+			const isLeft = 'left' === chatPosition;
+			[ 'hyve-window', 'hyve-open', 'hyve-close' ].forEach( ( id ) => {
+				document
+					.getElementById( id )
+					?.classList.toggle( 'is-left', isLeft );
+			} );
+		}
+
+		if ( undefined !== showTimestamp ) {
+			window.hyveClient.showTimestamp = showTimestamp;
+			// Toggle any already-rendered timestamps; new messages read the flag.
+			document
+				.querySelectorAll( '#hyve-window time' )
+				.forEach( ( element ) => {
+					element.style.display = showTimestamp ? '' : 'none';
+				} );
+		}
+	}
+
+	/**
+	 * Live-update the lead form configuration from the admin Leads panel,
+	 * without a page reload. Only used in preview mode.
+	 *
+	 * The lead flow restarts from scratch: any rendered form or offer is
+	 * removed, the remembered decision is reset, and the pre-chat gate is
+	 * re-evaluated against the new config.
+	 *
+	 * @param {Object|null} leadForm The leadForm config ({ fields, triggers,
+	 *                               messages }), or null when disabled.
+	 * @return {void}
+	 */
+	applyPreviewLeadForm( leadForm ) {
+		if ( ! this.isPreview() ) {
+			return;
+		}
+
+		window.hyveClient.leadForm = leadForm ?? undefined;
+
+		this.previewLeadStatus = null;
+		this.preChatGateShown = false;
+		this.gatePending = false;
+		this.setGateLock( false );
+
+		document.querySelector( '.hyve-lead-form' )?.remove();
+		this.removeLeadOffer();
+
+		this.maybeShowPreChatGate();
+	}
+
+	/**
+	 * Re-apply the is-dark/is-light contrast classes to the rendered widget
+	 * from the cached color booleans. Mirrors the logic in renderUI/addMessage.
+	 *
+	 * @return {void}
+	 */
+	refreshColorClasses() {
+		const colors = window.hyveClient.colors || {};
+
+		const setClasses = ( element, isDark, useLight ) => {
+			if ( ! element ) {
+				return;
+			}
+			element.classList.toggle( 'is-dark', Boolean( isDark ) );
+			if ( useLight ) {
+				element.classList.toggle( 'is-light', ! isDark );
+			}
+		};
+
+		setClasses(
+			document.getElementById( 'hyve-window' ),
+			colors.chat_background,
+			false
+		);
+
+		document
+			.querySelectorAll( '.hyve-bot-message' )
+			.forEach( ( element ) =>
+				setClasses( element, colors.assistant_background, false )
+			);
+
+		document
+			.querySelectorAll( '.hyve-user-message, .hyve-suggestions' )
+			.forEach( ( element ) =>
+				setClasses( element, colors.user_background, true )
+			);
+
+		setClasses(
+			document.getElementById( 'hyve-open' ),
+			colors.icon_background,
+			true
+		);
+		setClasses(
+			document.getElementById( 'hyve-close' ),
+			colors.icon_background,
+			true
+		);
+		setClasses(
+			document.getElementById( 'hyve-send-button' ),
+			colors.icon_background,
+			true
+		);
+	}
+
+	/**
+	 * Rebuild the launcher icon and header avatar from the current chat icon.
+	 * Mirrors the icon precedence used in renderUI.
+	 *
+	 * @return {void}
+	 */
+	refreshIcons() {
+		const chatIcon = window.hyveClient?.chatIcon || {};
+		const isMedia = 'media' === chatIcon.type && chatIcon.url;
+
+		const renderInto = ( element, mediaClass, fallback ) => {
+			if ( ! element ) {
+				return;
+			}
+
+			if ( isMedia ) {
+				element.innerHTML = '';
+				element.appendChild(
+					this.createElement( 'img', {
+						className: mediaClass,
+						src: chatIcon.url,
+						alt: '',
+					} )
+				);
+				return;
+			}
+
+			element.innerHTML = fallback();
+		};
+
+		// Launcher button: custom image, selected built-in SVG, or the default.
+		renderInto(
+			document.querySelector( '#hyve-open .collapsible.open' ),
+			'hyve-icon-img',
+			() => {
+				if (
+					'svg' === chatIcon.type &&
+					window.hyveClient?.icons?.[ chatIcon.value ]
+				) {
+					return window.hyveClient.icons[ chatIcon.value ];
+				}
+
+				return (
+					window.hyveClient?.icons?.[ 'chat-bubble-left-ellipsis' ] ||
+					'💬'
+				);
+			}
+		);
+
+		// Header avatar: custom image or the default robot.
+		renderInto(
+			document.querySelector( '#hyve-window .hyve-avatar' ),
+			'hyve-avatar-img',
+			() => ROBOT_AVATAR_SVG
+		);
 	}
 }
 

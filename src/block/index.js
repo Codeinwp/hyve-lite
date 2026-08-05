@@ -15,15 +15,25 @@ import { Placeholder, Button, Notice } from '@wordpress/components';
 import metadata from './block.json';
 
 registerBlockType( metadata.name, {
-	edit: () => {
+	edit: ( { attributes } ) => {
 		// eslint-disable-next-line react-hooks/rules-of-hooks
 		const blockProps = useBlockProps();
 
 		const isKnowledgeBaseEmpty =
 			0 === Number( window.hyveChatBlock.stats.totalChunks ?? '0' );
-		const isBlockIgnored = Boolean(
-			window.hyveChatBlock?.globalChatEnabled
+		const isGlobalChat = Boolean( window.hyveChatBlock?.globalChatEnabled );
+		const isFloatingVariant = 'floating' === attributes?.variant;
+		let placeholderText = __(
+			'Hyve Chatbot will appear here. No further action needed.',
+			'hyve-lite'
 		);
+
+		if ( isFloatingVariant ) {
+			placeholderText = __(
+				'Hyve Chatbot bubble will appear on this page. No further action needed.',
+				'hyve-lite'
+			);
+		}
 
 		return (
 			<div { ...blockProps }>
@@ -36,7 +46,7 @@ registerBlockType( metadata.name, {
 									'hyve-lite'
 								) }{ ' ' }
 								{ __(
-									'The Chat won’t be able to respond to questions until sources are added.',
+									"The Chat won't be able to respond to questions until sources are added.",
 									'hyve-lite'
 								) }
 								<Button
@@ -51,46 +61,32 @@ registerBlockType( metadata.name, {
 										);
 									} }
 								>
-									{ __(
-										'Click here to add content.',
-										'hyve-lite'
-									) }
+									{ __( 'Add content', 'hyve-lite' ) }
 								</Button>
 							</p>
 						</Notice>
 					) }
-					{ isBlockIgnored ? (
-						<div
-							style={ {
-								display: 'flex',
-								flexDirection: 'column',
-								alignItems: 'flex-start',
-								gap: '1rem',
-							} }
-						>
-							{ __(
-								'The Hyve Chat is enabled on all pages, and it won’t appear here to avoid conflicts.',
-								'hyve-lite'
-							) }
-							<Button
-								variant="secondary"
-								onClick={ ( event ) => {
-									event.preventDefault();
-									window.open(
-										window.hyveChatBlock.dashboardURL,
-										'_blank'
-									);
-								} }
-							>
-								{ __( 'Go to Dashboard', 'hyve-lite' ) }
-							</Button>
-						</div>
-					) : (
-						__(
-							'Hyve Chatbot will appear here. No further action needed.',
-							'hyve-lite'
-						)
+					{ isGlobalChat && ! isFloatingVariant && (
+						<Notice isDismissible={ false } status="info">
+							<p>
+								{ __(
+									'Hyve Chat is set to appear on all pages. This inline block will be shown here in place of the floating bubble.',
+									'hyve-lite'
+								) }
+							</p>
+						</Notice>
 					) }
+					{ isGlobalChat && isFloatingVariant && (
+						<Notice isDismissible={ false } status="info">
+							<p>
+								{ __(
+									'Hyve Chat already appears on all pages, so this floating block is not needed here.',
+									'hyve-lite'
+								) }
+							</p>
+						</Notice>
+					) }
+					{ placeholderText }
 				</Placeholder>
 			</div>
 		);

@@ -17,6 +17,7 @@ use Qdrant\Models\VectorStruct;
 use Qdrant\Models\Filter\Filter;
 use Qdrant\Models\Filter\Condition\MatchString;
 use Qdrant\Models\Request\CreateCollection;
+use Qdrant\Models\Request\CreateIndex;
 use Qdrant\Models\Request\SearchRequest;
 use Qdrant\Models\Request\VectorParams;
 
@@ -109,9 +110,17 @@ class Qdrant_API {
 			}
 		}
 
+		// Ensure the payload index required to filter/delete by post_id exists,
+		// including on collections created before this index was introduced.
+		$payload_index = $this->ensure_payload_index();
+
+		if ( is_wp_error( $payload_index ) ) {
+			return $payload_index;
+		}
+
 		update_option( 'hyve_qdrant_status', 'active' );
 
-		$existing_chunks = DB_Table::instance()->get_count();
+		$existing_chunks = DB_Table::instance()->get_count_by_storage( 'WordPress' );
 
 		if ( $existing_chunks > 0 ) {
 			update_option(
@@ -152,19 +161,7 @@ class Qdrant_API {
 
 			return false;
 		} catch ( \Exception $e ) {
-			if ( 403 === $e->getCode() ) {
-				update_option( 'hyve_qdrant_status', 'inactive' );
-				update_option(
-					self::ERROR_OPTION_KEY,
-					[
-						'code'     => $e->getCode(),
-						'date'     => wp_date( 'c' ),
-						'provider' => 'Qdrant',
-					] 
-				);
-			}
-
-			return new \WP_Error( 'collection_error', $e->getMessage() );
+			return $this->handle_exception( $e );
 		}
 	}
 
@@ -182,19 +179,32 @@ class Qdrant_API {
 
 			return $response['result'];
 		} catch ( \Exception $e ) {
-			if ( 403 === $e->getCode() ) {
-				update_option( 'hyve_qdrant_status', 'inactive' );
-				update_option(
-					self::ERROR_OPTION_KEY,
-					[
-						'code'     => $e->getCode(),
-						'date'     => wp_date( 'c' ),
-						'provider' => 'Qdrant',
-					] 
-				);
-			}
+			return $this->handle_exception( $e );
+		}
+	}
 
-			return new \WP_Error( 'collection_error', $e->getMessage() );
+	/**
+	 * Ensure the payload index needed to filter and delete by post_id exists.
+	 *
+	 * Qdrant requires a keyword index on a payload field before it can be used in
+	 * a filter. Without it, deleting or updating points by post_id fails with a
+	 * 400 Bad Request and the vectors are left orphaned. Creating an index that
+	 * already exists is a no-op, so this is safe to run on every init.
+	 *
+	 * @since 1.4.2
+	 *
+	 * @return bool|\WP_Error
+	 */
+	public function ensure_payload_index() {
+		try {
+			$this->client->collections( self::COLLECTION_NAME )->index()->create(
+				new CreateIndex( 'post_id', 'keyword' )
+			);
+			delete_option( self::ERROR_OPTION_KEY );
+
+			return true;
+		} catch ( \Exception $e ) {
+			return $this->handle_exception( $e );
 		}
 	}
 
@@ -220,13 +230,11 @@ class Qdrant_API {
 
 			$response = $this->client->collections( self::COLLECTION_NAME )->points()->upsert( $points, [ 'wait' => 'true' ] );
 
+			delete_option( self::ERROR_OPTION_KEY );
+
 			return 'completed' === $response['result']['status'];
 		} catch ( \Exception $e ) {
-			if ( 403 === $e->getCode() ) {
-				update_option( 'hyve_qdrant_status', 'inactive' );
-			}
-
-			return new \WP_Error( 'collection_error', $e->getMessage() );
+			return $this->handle_exception( $e );
 		}
 	}
 
@@ -254,13 +262,11 @@ class Qdrant_API {
 
 			$response = $this->client->collections( self::COLLECTION_NAME )->points()->upsert( $points_struct, [ 'wait' => 'true' ] );
 
+			delete_option( self::ERROR_OPTION_KEY );
+
 			return 'completed' === $response['result']['status'];
 		} catch ( \Exception $e ) {
-			if ( 403 === $e->getCode() ) {
-				update_option( 'hyve_qdrant_status', 'inactive' );
-			}
-
-			return new \WP_Error( 'collection_error', $e->getMessage() );
+			return $this->handle_exception( $e );
 		}
 	}
 
@@ -279,13 +285,11 @@ class Qdrant_API {
 				)
 			);
 
+			delete_option( self::ERROR_OPTION_KEY );
+
 			return 'acknowledged' === $response['result']['status'];
 		} catch ( \Exception $e ) {
-			if ( 403 === $e->getCode() ) {
-				update_option( 'hyve_qdrant_status', 'inactive' );
-			}
-
-			return new \WP_Error( 'collection_error', $e->getMessage() );
+			return $this->handle_exception( $e );
 		}
 	}
 
@@ -309,6 +313,9 @@ class Qdrant_API {
 			->setWithPayload( true );
 			$response = $this->client->collections( self::COLLECTION_NAME )->points()->search( $search );
 
+			// Any completed search means the service recovered.
+			delete_option( self::ERROR_OPTION_KEY );
+
 			if ( empty( $response['result'] ) ) {
 				return [];
 			}
@@ -324,23 +331,9 @@ class Qdrant_API {
 				$results
 			);
 
-			delete_option( self::ERROR_OPTION_KEY );
-
 			return $payload;
 		} catch ( \Exception $e ) {
-			if ( 403 === $e->getCode() ) {
-				update_option( 'hyve_qdrant_status', 'inactive' );
-				update_option(
-					self::ERROR_OPTION_KEY,
-					[
-						'code'     => $e->getCode(),
-						'date'     => wp_date( 'c' ),
-						'provider' => 'Qdrant',
-					] 
-				);
-			}
-
-			return new \WP_Error( 'collection_error', $e->getMessage() );
+			return $this->handle_exception( $e );
 		}
 	}
 
@@ -375,6 +368,13 @@ class Qdrant_API {
 		$posts    = $db_table->get_by_storage( 'WordPress' );
 
 		if ( empty( $posts ) ) {
+			$migration_status = get_option( 'hyve_qdrant_migration', [] );
+
+			if ( ! empty( $migration_status ) ) {
+				$migration_status['in_progress'] = false;
+				update_option( 'hyve_qdrant_migration', $migration_status );
+			}
+
 			return;
 		}
 
@@ -430,10 +430,65 @@ class Qdrant_API {
 	}
 
 	/**
+	 * Persist a Qdrant service error and reconcile the connection status.
+	 *
+	 * Surfaces the failure in the dashboard notice and, for errors that mean
+	 * the integration is no longer usable (revoked key, or a missing collection
+	 * or cluster), marks the connection inactive so the UI stops reporting a
+	 * connection that no longer works.
+	 *
+	 * @since 1.4.2
+	 *
+	 * @param \Exception $e The caught exception.
+	 *
+	 * @return \WP_Error
+	 */
+	private function handle_exception( $e ) {
+		$code = $e->getCode();
+
+		update_option(
+			self::ERROR_OPTION_KEY,
+			[
+				'code'     => $code,
+				'message'  => $e->getMessage(),
+				'date'     => wp_date( 'c' ),
+				'provider' => 'Qdrant',
+			]
+		);
+
+		if ( in_array( $code, [ 401, 403, 404 ], true ) ) {
+			update_option( 'hyve_qdrant_status', 'inactive' );
+		}
+
+		return new \WP_Error( 'collection_error', $e->getMessage() );
+	}
+
+	/**
+	 * Get an actionable message for a Qdrant error code.
+	 *
+	 * @since 1.4.2
+	 *
+	 * @param int|string $code The error code.
+	 *
+	 * @return string|null The message, or null when the code is unmapped.
+	 */
+	public static function get_error_message_for_code( $code ) {
+		$credentials = __( 'Hyve could not authenticate with Qdrant. Please check your API key and endpoint URL in the Integrations settings.', 'hyve-lite' );
+
+		$messages = [
+			401 => $credentials,
+			403 => $credentials,
+			404 => __( 'Your Qdrant collection or cluster could not be reached. It may have been deleted or paused. Please check your Qdrant instance and reconnect.', 'hyve-lite' ),
+		];
+
+		return isset( $messages[ $code ] ) ? $messages[ $code ] : null;
+	}
+
+	/**
 	 * Qdrant Status.
-	 * 
+	 *
 	 * @since 1.3.0
-	 * 
+	 *
 	 * @return bool
 	 */
 	public static function is_active() {
