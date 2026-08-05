@@ -1,3 +1,37 @@
+#### [Version 2.0.0](https://github.com/Codeinwp/hyve-lite/compare/v1.3.3...v2.0.0) (2026-08-05)
+
+New features
+- Added hosted Hyve Agent support for chat and embeddings without a separate OpenAI API key.
+- Added document uploads for the knowledge base, including PDF, Word, and CSV files. [PRO]
+- Added custom system prompt controls for chat persona, tone, and scope. [PRO]
+- Added proactive chat messages based on configurable triggers. [PRO]
+- Added contextual follow-up questions after successful answers. [PRO]
+- Added in-chat lead capture and contact forms with webhook support. [PRO]
+- Added role-based access for viewing and exporting chat conversations.
+- Added support for private and password-protected posts in the knowledge base.
+- Added page-aware context when knowledge base content is missing. [PRO]
+- Added numbered source links below chat answers.
+- Added visibility rules for controlling where the chat appears.
+- Added privacy controls, policy guidance, and an optional chat privacy notice.
+
+Enhancement
+- Refreshed chat design and appearance controls, including styling, position, timestamps, live preview, sound, and clearer suggestions.
+- Redesigned the dashboard with usage stats, setup checklist, knowledge base filters, and easier navigation.
+- Updated available OpenAI models and removed outdated GPT-3.5 options.
+- Improved API key status and chatbot error reporting.
+- Improved WooCommerce answers with product links, prices, stock, and attributes through the new Skills feature. [PRO]
+- Added streaming chat responses with fallback support.
+- Encrypted sensitive settings such as OpenAI API keys.
+
+Bug fixes
+- Improved chat button accessibility for screen readers.
+- Fixed the Chat Bubble block placeholder text in the editor.
+- Fixed encoded characters showing in knowledge base page titles.
+- Fixed inline chat loading without the welcome message or suggestions.
+- Fixed Q&A entries not matching when the question was only in the title.
+- Fixed follow-up questions by making retrieval conversation-aware.
+- Hardened conversation CSV exports against spreadsheet formula injection.
+
 ##### [Version 1.3.3](https://github.com/Codeinwp/hyve-lite/compare/v1.3.2...v1.3.3) (2026-05-07)
 
 - Update dependenceis
