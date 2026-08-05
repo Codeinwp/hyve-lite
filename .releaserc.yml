@@ -3,12 +3,12 @@ branches:
   - main
 plugins:
   - - "@semantic-release/commit-analyzer"
-    - preset: simple-preset
+    - config: ./simple-preset.mjs
       releaseRules: conventional-changelog-simple-preset/release-rules
   - - "@semantic-release/changelog"
     - changelogFile: CHANGELOG.md
   - - "@semantic-release/release-notes-generator"
-    - preset: simple-preset
+    - config: ./simple-preset.mjs
   - - "@semantic-release/exec"
     - prepareCmd: "replace-in-file \"== Changelog ==\" \"== Changelog ==\n\n${nextRelease.notes}\" readme.txt"
   - - "@semantic-release/exec"
