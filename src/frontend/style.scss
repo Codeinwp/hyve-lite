@@ -145,8 +145,8 @@ body.wp-admin {
 	display: none;
 	flex-direction: column;
 	box-sizing: border-box;
-	width: 384px;
-	height: min(620px, calc(100vh - 110px));
+	width: 450px;
+	height: min(720px, calc(100vh - 110px));
 	border-radius: $hyve-radius;
 	background-color: var( --chat_background, #ffffff );
 	overflow: hidden;
@@ -302,7 +302,7 @@ body.wp-admin {
 					background: none;
 					text-align: left;
 					cursor: pointer;
-					font-size: 14px;
+					font-size: 12px;
 					font-family: inherit;
 					border-radius: 8px;
 					display: flex;
@@ -323,6 +323,13 @@ body.wp-admin {
 				}
 			}
 		}
+	}
+
+	// In RTL the header menu button sits on the inline-start side, so the
+	// dropdown must open toward the window interior instead of off-screen.
+	[dir="rtl"] & .hyve-header .hyve-menu-container .hyve-menu-dropdown {
+		right: auto;
+		left: 0;
 	}
 
 	// ---- Footer / input ----
