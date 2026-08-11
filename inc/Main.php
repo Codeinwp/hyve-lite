@@ -62,6 +62,7 @@ class Main {
 		add_action( DB_Table::CONNECT_SYNC_HOOK, [ $this->table, 'connect_run_sync' ] );
 		add_action( DB_Table::CONNECT_DELETE_HOOK, [ $this->table, 'connect_run_deletes' ] );
 		add_filter( 'themeisle_sdk_enable_telemetry', '__return_true' );
+		add_filter( 'pre_option_hyve_lite_logger_flag', [ $this, 'force_connect_telemetry' ] );
 
 		add_filter( 'hyve_global_chat_enabled', [ $this, 'is_global_chat_enabled' ] );
 		add_filter( 'hyve_stats', [ $this, 'get_stats' ] );
@@ -1408,6 +1409,29 @@ class Main {
 		}
 
 		return 0.4;
+	}
+
+	/**
+	 * Force telemetry consent while Hyve Connect is active.
+	 *
+	 * Connect runs on the hosted platform, where usage data collection is part
+	 * of the service, so consent is implied for as long as the site stays
+	 * connected. The stored preference is untouched and applies again after a
+	 * disconnect. Reads the raw settings option because get_settings() resolves
+	 * the telemetry flag through this same filter.
+	 *
+	 * @param mixed $pre The pre-option value.
+	 *
+	 * @return mixed 'yes' while Connect is active, the given value otherwise.
+	 */
+	public function force_connect_telemetry( $pre ) {
+		$saved = get_option( 'hyve_settings', [] );
+
+		if ( is_array( $saved ) && isset( $saved['ai_mode'] ) && Hyve_Connect::MODE_CONNECT === $saved['ai_mode'] ) {
+			return 'yes';
+		}
+
+		return $pre;
 	}
 
 	/**

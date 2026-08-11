@@ -32,6 +32,7 @@ class HyveConnectTest extends WP_UnitTestCase {
 		remove_all_filters( 'hyve_connect_base_url' );
 		remove_all_actions( 'before_delete_post' );
 		delete_option( 'hyve_settings' );
+		delete_option( 'hyve_lite_logger_flag' );
 		delete_option( Hyve_Connect::SITE_TOKEN_OPTION );
 		delete_transient( 'hyve_connect_stats' );
 		parent::tearDown();
@@ -99,6 +100,24 @@ class HyveConnectTest extends WP_UnitTestCase {
 
 		$this->assertSame( Hyve_Connect::MODE_CONNECT, Hyve_Connect::get_mode() );
 		$this->assertTrue( Hyve_Connect::is_active() );
+	}
+
+	/**
+	 * Connect implies telemetry consent: the logger flag reads as opted in
+	 * while connected, without touching the stored preference, which applies
+	 * again after leaving Connect.
+	 */
+	public function test_connect_forces_telemetry_consent() {
+		update_option( 'hyve_lite_logger_flag', 'no' );
+		update_option( 'hyve_settings', [ 'ai_mode' => Hyve_Connect::MODE_CONNECT ] );
+
+		$this->assertSame( 'yes', get_option( 'hyve_lite_logger_flag' ) );
+		$this->assertTrue( \ThemeIsle\HyveLite\Main::get_settings()['telemetry_enabled'] );
+
+		update_option( 'hyve_settings', [ 'ai_mode' => Hyve_Connect::MODE_SELF ] );
+
+		$this->assertSame( 'no', get_option( 'hyve_lite_logger_flag' ) );
+		$this->assertFalse( \ThemeIsle\HyveLite\Main::get_settings()['telemetry_enabled'] );
 	}
 
 	/**
