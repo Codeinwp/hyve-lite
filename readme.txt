@@ -1,6 +1,6 @@
-=== Hyve Lite – AI Chatbot Trained on Your WordPress Content ===
+=== Hyve Lite – AI Chatbot Trained on WordPress Posts, Pages, Products & More with ChatGPT ===
 Contributors: themeisle, hardeepasrani
-Tags: ai chatbot, conversational ai, chatgpt, customer support, connector
+Tags: ai chatbot, chatbot, chatgpt, customer support, ai assistant
 Requires at least: 6.2
 Tested up to: 7.0
 Requires PHP: 7.4
@@ -8,17 +8,19 @@ Stable tag: 2.0.0
 License: GPLv3
 License URI: https://www.gnu.org/licenses/gpl-3.0.en.html
 
-Turn your WordPress content into an AI knowledge base that answers visitor questions. Start free with monthly AI credits, or use your own OpenAI key.
+AI chatbot that engages visitors 24/7 and automates customer support from your content. Use free monthly AI credits or scale with your OpenAI key.
 
 == Description ==
 
 Every site gets the same handful of questions over and over. What does this cost, how does it work, is there a version for me? The answer is usually already written down somewhere on your site, and nobody can find it.
  
-Hyve is an AI assistant and WordPress chatbot trained on your own content. Using retrieval-augmented generation (RAG), it searches the posts, pages, products, and other content you choose, then generates answers based only on what it finds.
+Hyve is a conversational AI assistant and WordPress chatbot trained on your own content. Using retrieval-augmented generation (RAG), it searches the posts, pages, products, and other content you choose, then generates answers based only on what it finds.
  
 It suits any site with content worth searching. A blog with hundreds of posts, a documentation site people keep emailing about, a service business answering the same pricing questions, or a WooCommerce store.
 
-Whether you're helping customers find products, answering support questions, or making documentation easier to search, Hyve turns your WordPress content into an AI knowledge base that visitors can chat with naturally.
+Whether you're helping customers find products, answering customer support questions, or making documentation easier to search, Hyve turns your WordPress content into an AI knowledge base that visitors can chat with naturally.
+
+[Hyve Pro](https://themeisle.com/plugins/hyve/?utm_source=plugin-readme&utm_medium=hyvelite&utm_campaign=quicklinks) | [Free vs Pro](https://themeisle.com/plugins/hyve/?utm_source=plugin-readme&utm_medium=hyvelite&utm_campaign=freevspro#free-vs-pro) | [Documentation](https://docs.themeisle.com/hyve/) | [Support Forum](https://wordpress.org/support/plugin/hyve-lite/)
 
 ### Set up in three steps
  
@@ -28,9 +30,9 @@ Whether you're helping customers find products, answering support questions, or 
 
 ### Two ways to power the AI
  
-**Hyve Connect:** We host the AI, and the free plan includes free monthly credits, so there is no OpenAI account to create and no API key to manage. Install it, pick your content, and the chatbot answers the same day.
+**Hyve Connect:** We host the AI, and the free plan includes free monthly credits, so there is no API key to manage. It is the easiest way to run an AI chatbot without an API key. Install it, pick your content, and the chatbot answers the same day.
  
-**Your own OpenAI key:** Bring an account you already have, and you pick the model, from GPT-4o mini upward, so you can trade cost against answer quality as your traffic grows. You pay OpenAI directly for what you use, with no per-message fee to us.
+**Your own OpenAI key:** Bring an OpenAI account you already have and choose from the same GPT models behind ChatGPT, starting with GPT-4o mini. As your traffic grows, you can trade cost against answer quality while paying OpenAI directly for what you use, with no per-message fee to us.
 
 You can switch between the two whenever you like, and your knowledge base comes with you.
 
@@ -46,8 +48,9 @@ Hyve uses retrieval-augmented generation (RAG), meaning every question starts by
 
 Build an AI knowledge base from the content you already publish, without copying or rewriting anything.
 
-* Add posts, pages, WooCommerce products, and any custom post type, so the chatbot handles product questions as readily as blog or documentation questions
+* Add posts, pages, WooCommerce products, and any custom post type, so the AI chatbot handles product questions as readily as blog or documentation questions
 * Edit a page and Hyve re-indexes it on save, so nobody gets an answer from an old version
+* Every answer links back to the page it came from, so visitors can click through and read more
 * Scale your AI knowledge base to thousands of documents by connecting an external vector database like [Qdrant](https://qdrant.tech/).
  
 **Put the chat where you want it**
@@ -56,7 +59,7 @@ Add the assistant wherever visitors need help, from every page on your site to a
  
 * A floating chat bubble in either bottom corner, or an inline chat sitting in the page itself
 * Drop it in with the Hyve Chat Gutenberg blocks, or the `[hyve]` and `[hyve floating="true"]` shortcodes for any theme, page builder, or widget area
-* Show it site-wide, only on the pages you pick, or everywhere except the ones you exclude with visibility filters
+* Run the website chatbot site-wide, only on the pages you pick, or everywhere except the ones you exclude with visibility filters
  
 **Control the conversation**
 
@@ -69,7 +72,7 @@ Shape how your AI assistant talks to visitors while keeping conversations safe a
 
 ### More with Hyve Pro
  
-[Hyve Pro](https://themeisle.com/plugins/hyve/?utm_source=plugin-readme&utm_medium=hyvelite&utm_campaign=profeatures) adds the parts that turn a chatbot into a support and sales tool.
+[Hyve Pro](https://themeisle.com/plugins/hyve/?utm_source=plugin-readme&utm_medium=hyvelite&utm_campaign=profeatures) adds the parts that turn a chatbot into a customer support and sales tool.
  
 **More knowledge sources**
 
@@ -78,7 +81,6 @@ Expand your AI knowledge base beyond WordPress by importing files and external w
 * Import PDF, Word, Markdown, text and CSV files, which turns manuals, policies and price lists into answers without republishing them
 * Crawl any website URL, or add a whole site through its sitemap, for documentation that lives outside WordPress
 * Type in custom data for answers you would rather not publish publicly
-* Every answer includes a source link to the original page
  
 **Turn conversations into leads**
 
@@ -106,7 +108,7 @@ Connect Hyve with your existing workflows so conversations, leads, and knowledge
  
 **Start the conversation first**
 
-Reach out before visitors leave by starting conversations at the moments they're most likely to need help
+Reach out before visitors leave by starting conversations at the moments they're most likely to need help.
  
 * Proactive messages open the chat on time spent, scroll depth, or exit intent, catching someone before they leave
 * Suggested follow-up questions appear after each reply, keeping the conversation moving
@@ -123,9 +125,11 @@ Understand what people ask most, discover content gaps, and continuously improve
 
 Customize the assistant so it feels like part of your brand instead of a generic chatbot.
 
-* Give your assistant a custom name and personality
+* Give your AI assistant a custom name and personality
 * Shape every response with custom instructions
 * Match your brand with custom colors, icons, and widget styling
+
+**[Compare Free vs Pro and see everything Hyve Pro includes →](https://themeisle.com/plugins/hyve/?utm_source=plugin-readme&utm_medium=hyvelite&utm_campaign=prosection#free-vs-pro)**
  
 ### AI processing and third-party services
  
@@ -153,13 +157,13 @@ Hyve is backed by the Themeisle team, a trusted WordPress company behind Neve, O
 
 To download and install the Hyve plugin, make sure you follow the steps below:
 
-- Navigate to the WordPress  Dashboard > Plugins.
+- Navigate to the WordPress Dashboard > Plugins.
 - Click the Add New button and type in the Search Bar "Hyve Lite".
 - When the plugin appears, click on the Install button and then on Activate.
 
 #### Manual Installation
 
-- Log into your website admin page, then go to Appearance > Plugins. You will see all the plugins currently installed in your dashboard listed there.
+- Log into your website admin page, then go to Plugins. You will see all the plugins currently installed in your dashboard listed there.
 - To install a new WordPress plugin, simply click on the Add New tab.
 - Click the Upload Plugin button in the WordPress Dashboard.
 - Click the Choose File button, select the ZIP archive of the Hyve Lite plugin from your local computer and press the Install Now button.
@@ -175,7 +179,7 @@ No. Hyve Connect includes hosted AI with free monthly credits, so you can instal
  
 = Is Hyve Lite free? =
  
-Yes. The free version trains on your WordPress content, runs the chat widget, and includes hosted AI credits every month. For lead capture, document imports, webhooks, and Skills, [upgrade to Hyve Pro](https://themeisle.com/plugins/hyve/?utm_source=plugin-readme&utm_medium=hyvelite&utm_campaign=faq).
+Yes. Hyve Lite is a free AI chatbot: it trains on your WordPress content, runs the chat widget, and includes hosted AI credits every month. For lead capture, document imports, webhooks, and Skills, [upgrade to Hyve Pro](https://themeisle.com/plugins/hyve/?utm_source=plugin-readme&utm_medium=hyvelite&utm_campaign=faq).
  
 = How is this different from using ChatGPT on my site? =
  
@@ -183,7 +187,7 @@ ChatGPT answers from what it learned during training. Hyve answers from your con
  
 = Can I train the chatbot on my WooCommerce products? =
  
-Yes. Products are a WordPress post type, so you can add them to the knowledge base in the free version. Hyve Pro adds Skills, which let the assistant search your live catalog and check a signed-in customer's order status during the chat.
+Yes. Products are a WordPress post type, so you can add them to the knowledge base in the free version. Hyve Pro adds Skills, which turn it into a WooCommerce chatbot that searches your live catalog and checks a signed-in customer's order status during the chat.
  
 = Can I see what visitors are asking? =
  
