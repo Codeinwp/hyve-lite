@@ -70,6 +70,20 @@ class Test_Settings_Save extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Submitting one Qdrant credential while the other is missing reports a
+	 * validation error instead of reaching client initialization (see #236),
+	 * and the incomplete credentials are not stored.
+	 */
+	public function test_incomplete_qdrant_credentials_report_error() {
+		$response = (array) API::instance()->update_settings(
+			$this->request( [ 'qdrant_endpoint' => 'https://example.qdrant.io' ] )
+		)->get_data();
+
+		$this->assertArrayHasKey( 'error', $response );
+		$this->assertEmpty( Main::get_settings()['qdrant_endpoint'] );
+	}
+
+	/**
 	 * A save where every changed key validates reports a plain success.
 	 */
 	public function test_clean_save_reports_success() {

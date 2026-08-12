@@ -79,6 +79,25 @@ class QdrantTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * With incomplete credentials the constructor never builds a client, so
+	 * every entry point must return a WP_Error instead of passing null to the
+	 * Qdrant library (uncaught TypeError, see #236).
+	 */
+	public function test_unconfigured_client_returns_wp_error() {
+		$qdrant = new Qdrant_API();
+
+		$this->assertWPError( $qdrant->init() );
+		$this->assertWPError( $qdrant->collection_exists() );
+		$this->assertWPError( $qdrant->create_collection() );
+		$this->assertWPError( $qdrant->ensure_payload_index() );
+		$this->assertWPError( $qdrant->add_point( [ 0.1 ], [] ) );
+		$this->assertWPError( $qdrant->add_points( [] ) );
+		$this->assertWPError( $qdrant->delete_point( 1 ) );
+		$this->assertWPError( $qdrant->search( [ 0.1 ], 0.4 ) );
+		$this->assertWPError( $qdrant->disconnect() );
+	}
+
+	/**
 	 * Known codes map to actionable messages; unknown codes return null.
 	 */
 	public function test_error_message_for_code() {

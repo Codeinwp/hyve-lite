@@ -40,9 +40,9 @@ class Qdrant_API {
 	public const ERROR_OPTION_KEY = 'hyve_qdrant_api_error';
 
 	/**
-	 * Qdrant Client.
-	 * 
-	 * @var Qdrant
+	 * Qdrant Client. Unset when the stored credentials are incomplete.
+	 *
+	 * @var Qdrant|null
 	 */
 	public $client;
 
@@ -139,14 +139,37 @@ class Qdrant_API {
 	}
 
 	/**
+	 * Get the configured client, or a WP_Error when it is not available.
+	 *
+	 * The constructor leaves the client unset when either credential is
+	 * missing, so every method that talks to Qdrant must fail gracefully
+	 * instead of passing null to the Qdrant library.
+	 *
+	 * @return Qdrant|\WP_Error
+	 */
+	private function ensure_client() {
+		if ( $this->client instanceof Qdrant ) {
+			return $this->client;
+		}
+
+		return new \WP_Error( 'qdrant_not_configured', __( 'Qdrant is not connected. Please check your API key and endpoint URL in the Integrations settings.', 'hyve-lite' ) );
+	}
+
+	/**
 	 * Check if collection exists.
-	 * 
+	 *
 	 * @return bool|\WP_Error
-	 */ 
+	 */
 	public function collection_exists() {
+		$client = $this->ensure_client();
+
+		if ( is_wp_error( $client ) ) {
+			return $client;
+		}
+
 		try {
-			
-			$response = ( new Collections( $this->client ) )->list();
+
+			$response = ( new Collections( $client ) )->list();
 			delete_option( self::ERROR_OPTION_KEY );
 			
 			if ( empty( $response['result'] ) || empty( $response['result']['collections'] ) || ! is_array( $response['result']['collections'] ) ) {
@@ -171,10 +194,16 @@ class Qdrant_API {
 	 * @return bool|\WP_Error
 	 */
 	public function create_collection() {
+		$client = $this->ensure_client();
+
+		if ( is_wp_error( $client ) ) {
+			return $client;
+		}
+
 		try {
 			$collection = new CreateCollection();
 			$collection->addVector( new VectorParams( 1536, VectorParams::DISTANCE_COSINE ), 'embeddings' );
-			$response = $this->client->collections( self::COLLECTION_NAME )->create( $collection );
+			$response = $client->collections( self::COLLECTION_NAME )->create( $collection );
 			delete_option( self::ERROR_OPTION_KEY );
 
 			return $response['result'];
@@ -196,8 +225,14 @@ class Qdrant_API {
 	 * @return bool|\WP_Error
 	 */
 	public function ensure_payload_index() {
+		$client = $this->ensure_client();
+
+		if ( is_wp_error( $client ) ) {
+			return $client;
+		}
+
 		try {
-			$this->client->collections( self::COLLECTION_NAME )->index()->create(
+			$client->collections( self::COLLECTION_NAME )->index()->create(
 				new CreateIndex( 'post_id', 'keyword' )
 			);
 			delete_option( self::ERROR_OPTION_KEY );
@@ -217,6 +252,12 @@ class Qdrant_API {
 	 * @return bool|\WP_Error
 	 */
 	public function add_point( $embeddings, $data ) {
+		$client = $this->ensure_client();
+
+		if ( is_wp_error( $client ) ) {
+			return $client;
+		}
+
 		try {
 			$points = new PointsStruct();
 
@@ -228,7 +269,7 @@ class Qdrant_API {
 				)
 			);
 
-			$response = $this->client->collections( self::COLLECTION_NAME )->points()->upsert( $points, [ 'wait' => 'true' ] );
+			$response = $client->collections( self::COLLECTION_NAME )->points()->upsert( $points, [ 'wait' => 'true' ] );
 
 			delete_option( self::ERROR_OPTION_KEY );
 
@@ -247,6 +288,12 @@ class Qdrant_API {
 	 * @return bool|\WP_Error
 	 */
 	public function add_points( $points ) {
+		$client = $this->ensure_client();
+
+		if ( is_wp_error( $client ) ) {
+			return $client;
+		}
+
 		try {
 			$points_struct = new PointsStruct();
 
@@ -260,7 +307,7 @@ class Qdrant_API {
 				);
 			}
 
-			$response = $this->client->collections( self::COLLECTION_NAME )->points()->upsert( $points_struct, [ 'wait' => 'true' ] );
+			$response = $client->collections( self::COLLECTION_NAME )->points()->upsert( $points_struct, [ 'wait' => 'true' ] );
 
 			delete_option( self::ERROR_OPTION_KEY );
 
@@ -278,8 +325,14 @@ class Qdrant_API {
 	 * @return bool|\WP_Error
 	 */
 	public function delete_point( $id ) {
+		$client = $this->ensure_client();
+
+		if ( is_wp_error( $client ) ) {
+			return $client;
+		}
+
 		try {
-			$response = $this->client->collections( self::COLLECTION_NAME )->points()->deleteByFilter(
+			$response = $client->collections( self::COLLECTION_NAME )->points()->deleteByFilter(
 				( new Filter() )->addMust(
 					new MatchString( 'post_id', (string) $id )
 				)
@@ -302,6 +355,12 @@ class Qdrant_API {
 	 * @return array<array<string, mixed>>|\WP_Error
 	 */
 	public function search( $embeddings, $score_threshold ) {
+		$client = $this->ensure_client();
+
+		if ( is_wp_error( $client ) ) {
+			return $client;
+		}
+
 		try {
 			$search   = (
 				new SearchRequest(
@@ -311,7 +370,7 @@ class Qdrant_API {
 			->setLimit( 10 )
 			->setScoreThreshold( $score_threshold )
 			->setWithPayload( true );
-			$response = $this->client->collections( self::COLLECTION_NAME )->points()->search( $search );
+			$response = $client->collections( self::COLLECTION_NAME )->points()->search( $search );
 
 			// Any completed search means the service recovered.
 			delete_option( self::ERROR_OPTION_KEY );
@@ -345,8 +404,14 @@ class Qdrant_API {
 	 * @return bool|\WP_Error
 	 */
 	public function disconnect() {
+		$client = $this->ensure_client();
+
+		if ( is_wp_error( $client ) ) {
+			return $client;
+		}
+
 		try {
-			$response = $this->client->collections( self::COLLECTION_NAME )->points()->deleteByFilter(
+			$response = $client->collections( self::COLLECTION_NAME )->points()->deleteByFilter(
 				( new Filter() )->addMust(
 					new MatchString( 'website_url', get_site_url() )
 				)
