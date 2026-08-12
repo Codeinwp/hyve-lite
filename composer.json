@@ -1,7 +1,7 @@
 {
     "name": "codeinwp/hyve-lite",
     "description": "An AI support bot.",
-	"version": "2.0.0",
+	"version": "2.0.1",
     "type": "wordpress-plugin",
     "license": "GPL-V3",
     "autoload": {

@@ -1,3 +1,8 @@
+##### [Version 2.0.1](https://github.com/Codeinwp/hyve-lite/compare/v2.0.0...v2.0.1) (2026-08-12)
+
+- Expanded default window size and fixed the menu label not visible in RTL mode
+- Fixed uncaught TypeError with Qdrant connection
+
 #### [Version 2.0.0](https://github.com/Codeinwp/hyve-lite/compare/v1.3.3...v2.0.0) (2026-08-05)
 
 New features
