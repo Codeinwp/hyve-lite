@@ -599,8 +599,12 @@ class API extends BaseAPI {
 			}
 		}
 
-		if ( Hyve_Connect::MODE_SELF === $mode && ( ( isset( $updated['qdrant_api_key'] ) && ! empty( $updated['qdrant_api_key'] ) ) || ( isset( $updated['qdrant_endpoint'] ) && ! empty( $updated['qdrant_endpoint'] ) ) ) ) {
-			$qdrant = new Qdrant_API( $data['qdrant_api_key'], $data['qdrant_endpoint'] );
+		if ( Hyve_Connect::MODE_SELF === $mode && ( ! empty( $updated['qdrant_api_key'] ) || ! empty( $updated['qdrant_endpoint'] ) ) ) {
+			if ( empty( $settings['qdrant_api_key'] ) || empty( $settings['qdrant_endpoint'] ) ) {
+				return $this->settings_response( [ 'error' => __( 'Both the Qdrant API key and the endpoint are required to connect.', 'hyve-lite' ) ] );
+			}
+
+			$qdrant = new Qdrant_API( $settings['qdrant_api_key'], $settings['qdrant_endpoint'] );
 			$init   = $qdrant->init();
 
 			if ( is_wp_error( $init ) ) {
@@ -617,14 +621,6 @@ class API extends BaseAPI {
 		}
 
 		Encryption::maybe_reset_key_check();
-
-		// Switching into Connect: push any existing self-hosted content up to the
-		// platform so the site does not start with an empty hosted KB. Runs on a
-		// cron batch; fresh/empty sites are a no-op.
-		if ( Hyve_Connect::MODE_CONNECT === $mode && Hyve_Connect::MODE_CONNECT !== $prev_mode ) {
-			Hyve_Connect::flush_stats();
-			$this->table->connect_start_sync();
-		}
 
 		// Switching into Connect: push any existing self-hosted content up to the
 		// platform so the site does not start with an empty hosted KB. Runs on a

@@ -5,7 +5,7 @@ import { __ } from '@wordpress/i18n';
 
 import { ToggleControl } from '@wordpress/components';
 
-import { useDispatch } from '@wordpress/data';
+import { useDispatch, useSelect } from '@wordpress/data';
 
 import { useEffect, useState } from '@wordpress/element';
 
@@ -20,6 +20,10 @@ const SettingsGeneral = () => {
 	const { settings, isSaving, save } = useSaveSettings();
 
 	const { setSetting } = useDispatch( 'hyve' );
+
+	const isConnectActive = useSelect( ( select ) =>
+		select( 'hyve' ).isConnectActive()
+	);
 
 	// Toggles auto-save; the effect runs after the store update so save() posts
 	// the fresh value.
@@ -66,27 +70,29 @@ const SettingsGeneral = () => {
 				/>
 			</FieldRow>
 
-			<FieldRow
-				label={ __( 'Telemetry', 'hyve-lite' ) }
-				description={ __(
-					'Enable telemetry to help us improve the plugin by sending anonymous usage data. Data is private and not shared with third-party entities.',
-					'hyve-lite'
-				) }
-			>
-				<ToggleControl
-					__nextHasNoMarginBottom
-					label={
-						telemetry
-							? __( 'Enabled', 'hyve-lite' )
-							: __( 'Disabled', 'hyve-lite' )
-					}
-					checked={ telemetry }
-					disabled={ isSaving }
-					onChange={ ( value ) =>
-						toggle( 'telemetry_enabled', value )
-					}
-				/>
-			</FieldRow>
+			{ ! isConnectActive && (
+				<FieldRow
+					label={ __( 'Telemetry', 'hyve-lite' ) }
+					description={ __(
+						'Enable telemetry to help us improve the plugin by sending anonymous usage data. Data is private and not shared with third-party entities.',
+						'hyve-lite'
+					) }
+				>
+					<ToggleControl
+						__nextHasNoMarginBottom
+						label={
+							telemetry
+								? __( 'Enabled', 'hyve-lite' )
+								: __( 'Disabled', 'hyve-lite' )
+						}
+						checked={ telemetry }
+						disabled={ isSaving }
+						onChange={ ( value ) =>
+							toggle( 'telemetry_enabled', value )
+						}
+					/>
+				</FieldRow>
+			) }
 		</Card>
 	);
 };

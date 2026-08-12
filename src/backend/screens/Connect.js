@@ -663,6 +663,12 @@ export const ConnectPanel = () => {
 						) }
 					</li>
 				</ul>
+				<p className="hyve-next-card__hint">
+					{ __(
+						"Hyve Connect is a hosted service: the content you index and your visitors' chat messages are processed and stored on our platform so your assistant can answer, along with basic service data such as your site address and usage volumes.",
+						'hyve-lite'
+					) }
+				</p>
 			</div>
 
 			<div className="hyve-next-card__foot">
