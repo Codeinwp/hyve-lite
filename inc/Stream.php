@@ -175,6 +175,7 @@ class Stream {
 		$is_test         = ! empty( $job['is_test'] );
 		$source_post_ids = isset( $job['source_post_ids'] ) ? $job['source_post_ids'] : [];
 		$page            = isset( $job['page'] ) && is_array( $job['page'] ) ? $job['page'] : null;
+		$debug           = isset( $job['debug'] ) && is_array( $job['debug'] ) ? $job['debug'] : [];
 
 		Main::add_labels_to_default_settings();
 		$settings        = Main::get_settings();
@@ -183,7 +184,7 @@ class Stream {
 		$this->open_stream();
 
 		if ( Hyve_Connect::is_active() ) {
-			$this->stream_connect( $message, $thread_id, $record_id, $is_test, $settings, $default_message, $page );
+			$this->stream_connect( $message, $thread_id, $record_id, $is_test, $settings, $default_message, $page, $debug );
 			exit;
 		}
 
@@ -214,9 +215,13 @@ class Stream {
 			}
 		};
 
-		$result     = null;
-		$cancelled  = false;
-		$used_tools = false;
+		$result      = null;
+		$cancelled   = false;
+		$used_tools  = false;
+		$tool_rounds = 0;
+		$usage_in    = 0;
+		$usage_out   = 0;
+		$has_usage   = false;
 
 		for ( $i = 0; ; $i++ ) {
 			$raw         = '';
@@ -226,8 +231,22 @@ class Stream {
 			$result = OpenAI::instance()->stream_response( $items, $thread_id, $on_delta );
 
 			if ( is_wp_error( $result ) ) {
+				// The user message is only recorded when a reply lands, so a
+				// failed stream must record the turn itself: the message plus
+				// an error event, never a bot bubble.
+				API::instance()->record_chat_failure( $thread_id, $record_id, $message, $is_test, (string) $result->get_error_code(), $result->get_error_message() );
 				$this->send_event( 'error', [ 'message' => $result->get_error_message() ] );
 				exit;
+			}
+
+			// Sum usage across tool round-trips so the recorded trace reflects
+			// the whole turn, not only the closing response.
+			$run_usage = API::normalize_usage( isset( $result['usage'] ) ? $result['usage'] : null );
+
+			if ( null !== $run_usage ) {
+				$has_usage  = true;
+				$usage_in  += $run_usage['input'];
+				$usage_out += $run_usage['output'];
 			}
 
 			$tool_calls = $result['tool_calls'];
@@ -263,7 +282,8 @@ class Stream {
 			$this->send_event( 'status', [ 'state' => 'tool' ] );
 
 			$used_tools = true;
-			$items      = $outputs;
+			++$tool_rounds;
+			$items = $outputs;
 		}
 
 		if ( $cancelled ) {
@@ -357,6 +377,29 @@ class Stream {
 			$final = $data['message'];
 		}
 
+		$extra = [
+			'mode'       => 'self_hosted',
+			'transport'  => 'stream',
+			'tools_used' => $used_tools,
+		];
+
+		if ( 0 < $tool_rounds ) {
+			$extra['tool_iterations'] = $tool_rounds;
+		}
+
+		if ( $cancelled ) {
+			$extra['tools_aborted'] = true;
+		}
+
+		if ( $has_usage ) {
+			$extra['usage'] = [
+				'input'  => $usage_in,
+				'output' => $usage_out,
+			];
+		}
+
+		$payload['debug'] = API::finalize_chat_debug( $debug, $extra, $payload );
+
 		if ( ! $is_test ) {
 			do_action( 'hyve_chat_response', $result['id'], $thread_id, $message, $record_id, $payload, $final );
 		}
@@ -381,10 +424,11 @@ class Stream {
 	 * @param array<string, mixed>      $settings        Plugin settings.
 	 * @param string                    $default_message Fallback shown when the model cannot answer.
 	 * @param array<string, mixed>|null $page            Current page payload (see Page_Context::payload()).
+	 * @param array<string, mixed>      $debug           Debug trace collected when the turn was prepared.
 	 *
 	 * @return void
 	 */
-	private function stream_connect( $message, $thread_id, $record_id, $is_test, $settings, $default_message, $page = null ) {
+	private function stream_connect( $message, $thread_id, $record_id, $is_test, $settings, $default_message, $page = null, $debug = [] ) {
 		$sources = [];
 
 		$on_event = function ( $event, $data ) use ( &$sources ) {
@@ -412,6 +456,8 @@ class Stream {
 		$result = Hyve_Connect::instance()->stream_chat( $payload, $on_event );
 
 		if ( is_wp_error( $result ) ) {
+			API::instance()->record_chat_failure( $thread_id, $record_id, $message, $is_test, (string) $result->get_error_code(), $result->get_error_message() );
+
 			$error_code = $result->get_error_code();
 
 			// An empty/purged KB is visitor-facing parity with self-hosted: show
@@ -487,6 +533,15 @@ class Stream {
 		if ( isset( $data['message'] ) && is_string( $data['message'] ) ) {
 			$final = $data['message'];
 		}
+
+		$payload['debug'] = API::finalize_chat_debug(
+			array_merge( $debug, API::instance()->connect_debug( $result ) ),
+			[
+				'mode'      => 'connect',
+				'transport' => 'stream',
+			],
+			$payload
+		);
 
 		if ( ! $is_test ) {
 			do_action( 'hyve_chat_response', $thread, $thread, $message, $record_id, $payload, $final );

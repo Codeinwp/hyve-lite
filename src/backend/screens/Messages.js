@@ -5,11 +5,13 @@ import { __, _n, sprintf } from '@wordpress/i18n';
 
 import apiFetch from '@wordpress/api-fetch';
 
-import { Button, Modal, Spinner } from '@wordpress/components';
+import { Button, Modal, Spinner, Tooltip } from '@wordpress/components';
 
 import { useDispatch } from '@wordpress/data';
 
-import { useEffect, useRef, useState } from '@wordpress/element';
+import { Fragment, useEffect, useRef, useState } from '@wordpress/element';
+
+import { decodeEntities } from '@wordpress/html-entities';
 
 import { lock } from '@wordpress/icons';
 
@@ -431,6 +433,456 @@ const LeadsPanel = ( { item } ) => {
 
 const EVENT_LABELS = {
 	contact_form: __( 'Visitor submitted the contact form', 'hyve-lite' ),
+	moderation_flagged: __(
+		'Message was flagged by moderation — no reply was sent',
+		'hyve-lite'
+	),
+	rate_limited: __(
+		'Visitor hit the rate limit — the message was not answered',
+		'hyve-lite'
+	),
+	chat_error: __( 'The reply failed with an error', 'hyve-lite' ),
+};
+
+const MODE_LABELS = {
+	self_hosted: __( 'Self-hosted', 'hyve-lite' ),
+	connect: __( 'Hyve Connect', 'hyve-lite' ),
+};
+
+const clampPercent = ( value ) => Math.max( 0, Math.min( 100, value * 100 ) );
+
+const formatDuration = ( ms ) =>
+	1000 > ms ? `${ ms }ms` : `${ ( ms / 1000 ).toFixed( 1 ) }s`;
+
+// A ledger label with a hoverable "?" explaining what the field means.
+const DebugKey = ( { label, help } ) => (
+	<span className="hyve-next-debug__key">
+		{ label }
+		<Tooltip text={ help }>
+			<span
+				className="hyve-next-debug__help"
+				tabIndex={ 0 }
+				aria-label={ help }
+			>
+				?
+			</span>
+		</Tooltip>
+	</span>
+);
+
+// Trace for a bot reply (what retrieval matched and why): folded into the
+// timestamp line ("12:31 pm · Not answered · 9 sources · Show trace") so
+// transcripts stay clean, expanding into a label/value ledger where each
+// source carries a score bar with a tick at the similarity threshold.
+const MessageDebug = ( { debug, time } ) => {
+	const [ isOpen, setOpen ] = useState( false );
+
+	const sources = (
+		Array.isArray( debug.context ) ? [ ...debug.context ] : []
+	).sort( ( a, b ) => ( b.score ?? 0 ) - ( a.score ?? 0 ) );
+	const skills = Array.isArray( debug.skills ) ? debug.skills : [];
+	const skillCalls = Array.isArray( debug.skill_calls )
+		? debug.skill_calls
+		: [];
+	const followUps = Array.isArray( debug.follow_ups ) ? debug.follow_ups : [];
+	const threshold =
+		'number' === typeof debug.threshold ? debug.threshold : null;
+	const usage = debug.usage;
+	const includedCount = sources.filter(
+		( source ) => false !== source.included
+	).length;
+	const hasDropped = includedCount < sources.length;
+	const topIndex = sources.findIndex(
+		( source ) => false !== source.included
+	);
+
+	return (
+		<div className="hyve-next-debug">
+			<div className="hyve-next-debug__line">
+				<time>{ timeOfDay( time ) }</time>
+				{ false === debug.answered && (
+					<>
+						<span aria-hidden="true">·</span>
+						<span className="hyve-next-debug__warn">
+							{ __( 'Not answered', 'hyve-lite' ) }
+						</span>
+					</>
+				) }
+				<span aria-hidden="true">·</span>
+				<span>
+					{ sprintf(
+						/* translators: %d: number of knowledge base sources behind the answer. */
+						_n(
+							'%d source',
+							'%d sources',
+							includedCount,
+							'hyve-lite'
+						),
+						includedCount
+					) }
+				</span>
+				<span aria-hidden="true">·</span>
+				<button
+					type="button"
+					className="hyve-next-debug__toggle"
+					aria-expanded={ isOpen }
+					onClick={ () => setOpen( ! isOpen ) }
+				>
+					{ isOpen
+						? __( 'Hide trace', 'hyve-lite' )
+						: __( 'Show trace', 'hyve-lite' ) }
+				</button>
+			</div>
+
+			{ isOpen && (
+				<div className="hyve-next-debug__panel">
+					{ MODE_LABELS[ debug.mode ] && (
+						<div className="hyve-next-debug__row">
+							<DebugKey
+								label={ __( 'Answered by', 'hyve-lite' ) }
+								help={ __(
+									'Where the reply was generated: on this site (self-hosted) or on the Hyve Connect platform, and whether it was streamed or polled.',
+									'hyve-lite'
+								) }
+							/>
+							<span className="hyve-next-debug__val">
+								{ MODE_LABELS[ debug.mode ] }
+								{ debug.transport && ` · ${ debug.transport }` }
+							</span>
+						</div>
+					) }
+
+					{ Boolean( debug.model ) && (
+						<div className="hyve-next-debug__row">
+							<DebugKey
+								label={ __( 'Model', 'hyve-lite' ) }
+								help={ __(
+									'The AI model that generated this reply.',
+									'hyve-lite'
+								) }
+							/>
+							<span className="hyve-next-debug__val">
+								{ debug.model }
+							</span>
+						</div>
+					) }
+
+					{ 'number' === typeof debug.duration_ms && (
+						<div className="hyve-next-debug__row">
+							<DebugKey
+								label={ __( 'Latency', 'hyve-lite' ) }
+								help={ __(
+									'Time from the visitor sending the message to the reply being recorded.',
+									'hyve-lite'
+								) }
+							/>
+							<span className="hyve-next-debug__val">
+								{ formatDuration( debug.duration_ms ) }
+							</span>
+						</div>
+					) }
+
+					{ usage &&
+						( 'number' === typeof usage.input ||
+							'number' === typeof usage.output ) && (
+							<div className="hyve-next-debug__row">
+								<DebugKey
+									label={ __( 'Tokens', 'hyve-lite' ) }
+									help={ __(
+										'OpenAI tokens spent on this reply: prompt (in) and completion (out). Tool round trips are included.',
+										'hyve-lite'
+									) }
+								/>
+								<span className="hyve-next-debug__val">
+									{ sprintf(
+										/* translators: 1: prompt token count, 2: completion token count. */
+										__( '%1$s in · %2$s out', 'hyve-lite' ),
+										Number(
+											usage.input ?? 0
+										).toLocaleString(),
+										Number(
+											usage.output ?? 0
+										).toLocaleString()
+									) }
+								</span>
+							</div>
+						) }
+
+					{ null !== threshold && (
+						<div className="hyve-next-debug__row">
+							<DebugKey
+								label={ __( 'Threshold', 'hyve-lite' ) }
+								help={ __(
+									'The minimum similarity score a knowledge base chunk needed to be used as context for this reply. Configurable in Settings → AI.',
+									'hyve-lite'
+								) }
+							/>
+							<span className="hyve-next-debug__val">
+								{ threshold }
+							</span>
+						</div>
+					) }
+
+					{ ( Boolean( debug.tools_used ) || 0 < skills.length ) && (
+						<div className="hyve-next-debug__row">
+							<DebugKey
+								label={ __( 'Skills', 'hyve-lite' ) }
+								help={ __(
+									'Skills the assistant ran while composing this reply, such as live lookups. A skill-driven answer is grounded in the skill result rather than the knowledge base.',
+									'hyve-lite'
+								) }
+							/>
+							<span className="hyve-next-debug__val">
+								{ 0 < skills.length
+									? skills.join( ', ' )
+									: __( 'Yes', 'hyve-lite' ) }
+								{ Boolean( debug.tool_iterations ) &&
+									` · ${ sprintf(
+										/* translators: %d: number of tool round trips in this reply. */
+										_n(
+											'%d round trip',
+											'%d round trips',
+											debug.tool_iterations,
+											'hyve-lite'
+										),
+										debug.tool_iterations
+									) }` }
+								{ debug.tools_aborted &&
+									` · ${ __( 'aborted', 'hyve-lite' ) }` }
+								{ 0 < skillCalls.length && (
+									<span className="hyve-next-debug__calls">
+										{ skillCalls.map( ( call, i ) => (
+											<span
+												key={ i }
+												className="hyve-next-debug__call"
+											>
+												<code>
+													{ call.name }
+													{ call.args
+														? `(${ call.args })`
+														: '()' }
+												</code>
+												{ Boolean( call.output ) && (
+													<span className="hyve-next-debug__call-output">
+														{ call.output }
+													</span>
+												) }
+											</span>
+										) ) }
+									</span>
+								) }
+							</span>
+						</div>
+					) }
+
+					{ isSafeUrl( debug.page ) && (
+						<div className="hyve-next-debug__row">
+							<DebugKey
+								label={ __( 'Page', 'hyve-lite' ) }
+								help={ __(
+									'The page the visitor was on when they sent this message.',
+									'hyve-lite'
+								) }
+							/>
+							<span className="hyve-next-debug__val">
+								<a
+									href={ debug.page }
+									target="_blank"
+									rel="noreferrer"
+								>
+									{ debug.page.replace(
+										/^https?:\/\/[^/]+/,
+										''
+									) || debug.page }
+								</a>
+								{ debug.page_context &&
+									` · ${ __(
+										'content included as context',
+										'hyve-lite'
+									) }` }
+							</span>
+						</div>
+					) }
+
+					{ debug.page_context && ! isSafeUrl( debug.page ) && (
+						<div className="hyve-next-debug__row">
+							<DebugKey
+								label={ __( 'Page context', 'hyve-lite' ) }
+								help={ __(
+									'The content of the page the visitor was on was included as extra context for this reply.',
+									'hyve-lite'
+								) }
+							/>
+							<span className="hyve-next-debug__val">
+								{ __( 'Included', 'hyve-lite' ) }
+							</span>
+						</div>
+					) }
+
+					{ 0 < followUps.length && (
+						<div className="hyve-next-debug__row">
+							<DebugKey
+								label={ __( 'Follow-ups', 'hyve-lite' ) }
+								help={ __(
+									'Follow-up questions suggested to the visitor alongside this reply.',
+									'hyve-lite'
+								) }
+							/>
+							<span className="hyve-next-debug__val">
+								{ followUps.map( ( followUp, i ) => (
+									<span
+										key={ i }
+										className="hyve-next-debug__followup"
+									>
+										{ followUp }
+									</span>
+								) ) }
+							</span>
+						</div>
+					) }
+
+					<div className="hyve-next-debug__row">
+						<DebugKey
+							label={ __( 'Sources', 'hyve-lite' ) }
+							help={ __(
+								'Knowledge base content sent to the model as context, with how closely each piece matched the question (0–1). Hover a title for its size in tokens. The best-scoring sources may also be shown to the visitor as source links.',
+								'hyve-lite'
+							) }
+						/>
+						{ 0 < sources.length ? (
+							<span className="hyve-next-debug__val hyve-next-debug__sources">
+								{ sources.map( ( source, i ) => {
+									const score =
+										'number' === typeof source.score
+											? source.score
+											: null;
+									const dropped = false === source.included;
+									const droppedClass = dropped
+										? ' is-dropped'
+										: '';
+
+									return (
+										<Fragment key={ i }>
+											<span
+												className={ `hyve-next-debug__source-title${ droppedClass }` }
+												title={
+													source.tokens
+														? sprintf(
+																/* translators: %d: token count of the source chunk. */
+																__(
+																	'%d tokens',
+																	'hyve-lite'
+																),
+																source.tokens
+														  )
+														: undefined
+												}
+											>
+												{ decodeEntities(
+													source.title
+												) || `#${ source.post_id }` }
+											</span>
+											<span
+												className={ `hyve-next-debug__bar${
+													null === score &&
+													null === threshold
+														? ' is-empty'
+														: ''
+												}` }
+											>
+												{ null !== threshold && (
+													<span
+														className="hyve-next-debug__tick"
+														style={ {
+															left: `${ clampPercent(
+																threshold
+															) }%`,
+														} }
+													></span>
+												) }
+												{ null !== score && (
+													<span
+														className={ `hyve-next-debug__fill${
+															topIndex === i
+																? ' is-top'
+																: ''
+														}${ droppedClass }` }
+														style={ {
+															width: `${ clampPercent(
+																score
+															) }%`,
+														} }
+													></span>
+												) }
+											</span>
+											<span
+												className={ `hyve-next-debug__score${ droppedClass }` }
+											>
+												{ null !== score
+													? score.toFixed( 2 )
+													: '—' }
+											</span>
+										</Fragment>
+									);
+								} ) }
+								{ null !== threshold && (
+									<span className="hyve-next-debug__note">
+										{ sprintf(
+											/* translators: %s: the similarity threshold value. */
+											__(
+												'| marks the similarity threshold (%s)',
+												'hyve-lite'
+											),
+											threshold
+										) }
+										{ hasDropped &&
+											` ${ __(
+												'Dimmed sources matched but were left out: the context budget was full.',
+												'hyve-lite'
+											) }` }
+									</span>
+								) }
+							</span>
+						) : (
+							<span className="hyve-next-debug__val">
+								{ __( 'None matched', 'hyve-lite' ) }
+							</span>
+						) }
+					</div>
+
+					{ Boolean( debug.raw_reply ) && (
+						<div className="hyve-next-debug__row">
+							<DebugKey
+								label={ __( 'Model reply', 'hyve-lite' ) }
+								help={ __(
+									'What the model actually returned for this turn. The visitor saw the fallback message instead.',
+									'hyve-lite'
+								) }
+							/>
+							<pre className="hyve-next-debug__query">
+								{ debug.raw_reply }
+							</pre>
+						</div>
+					) }
+
+					{ Boolean( debug.query ) && (
+						<div className="hyve-next-debug__row">
+							<DebugKey
+								label={ __( 'Query', 'hyve-lite' ) }
+								help={ __(
+									'The exact text used to search the knowledge base: the question blended with recent turns of the conversation, so follow-ups keep their topic.',
+									'hyve-lite'
+								) }
+							/>
+							<pre className="hyve-next-debug__query">
+								{ debug.query }
+							</pre>
+						</div>
+					) }
+				</div>
+			) }
+		</div>
+	);
 };
 
 const ThreadView = ( { item } ) => {
@@ -618,9 +1070,17 @@ const ThreadView = ( { item } ) => {
 												) }
 											</div>
 										) }
-										<time>
-											{ timeOfDay( message.time ) }
-										</time>
+										{ message.debug &&
+										'object' === typeof message.debug ? (
+											<MessageDebug
+												debug={ message.debug }
+												time={ message.time }
+											/>
+										) : (
+											<time>
+												{ timeOfDay( message.time ) }
+											</time>
+										) }
 									</div>
 								);
 							}
@@ -652,25 +1112,9 @@ const ThreadView = ( { item } ) => {
 									>
 										<span>
 											{ EVENT_LABELS[ message.message ] }
-										</span>
-										<time>
-											{ timeOfDay( message.time ) }
-										</time>
-									</div>
-								);
-							}
-
-							if (
-								'event' === message.sender &&
-								EVENT_LABELS[ message.message ]
-							) {
-								return (
-									<div
-										key={ index }
-										className="hyve-next-thread__event"
-									>
-										<span>
-											{ EVENT_LABELS[ message.message ] }
+											{ message.debug?.detail
+												? ` · ${ message.debug.detail }`
+												: '' }
 										</span>
 										<time>
 											{ timeOfDay( message.time ) }

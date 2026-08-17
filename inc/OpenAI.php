@@ -302,6 +302,17 @@ PROMPT;
 	}
 
 	/**
+	 * Get the effective chat model used for completions.
+	 *
+	 * @since 2.1.0
+	 *
+	 * @return string
+	 */
+	public function get_chat_model() {
+		return $this->chat_model;
+	}
+
+	/**
 	 * Set whether request errors should be persisted as a service error notice.
 	 *
 	 * @param bool $persist Whether to persist errors.
@@ -823,7 +834,7 @@ PROMPT;
 	 * @param string                      $conversation Conversation id.
 	 * @param callable                    $on_delta     Receives each text delta (string).
 	 *
-	 * @return array{id:string,text:string,tool_calls:array<int,array{call_id:string,name:string,arguments:string}>}|\WP_Error
+	 * @return array{id:string,text:string,tool_calls:array<int,array{call_id:string,name:string,arguments:string}>,usage:object|null}|\WP_Error
 	 */
 	public function stream_response( $items, $conversation, $on_delta ) {
 		if ( ! $this->api_key ) {
@@ -848,8 +859,9 @@ PROMPT;
 		$sse_buffer  = '';
 		$stream_err  = null;
 		$tool_calls  = [];
+		$usage       = null;
 
-		$write = function ( $ch, $chunk ) use ( &$sse_buffer, &$assembled, &$response_id, &$stream_err, &$tool_calls, $on_delta ) {
+		$write = function ( $ch, $chunk ) use ( &$sse_buffer, &$assembled, &$response_id, &$stream_err, &$tool_calls, &$usage, $on_delta ) {
 			$sse_buffer .= $chunk;
 
 			while ( false !== ( $pos = strpos( $sse_buffer, "\n\n" ) ) ) {
@@ -884,6 +896,12 @@ PROMPT;
 
 				if ( isset( $event->response->id ) ) {
 					$response_id = $event->response->id;
+				}
+
+				// The terminal response.completed event carries the run's token
+				// usage; kept for the per-message debug trace.
+				if ( isset( $event->response->usage ) ) {
+					$usage = $event->response->usage;
 				}
 
 				if ( 'response.output_text.delta' === $event->type && isset( $event->delta ) && is_string( $event->delta ) ) {
@@ -959,6 +977,7 @@ PROMPT;
 			'id'         => $response_id,
 			'text'       => $assembled,
 			'tool_calls' => $tool_calls,
+			'usage'      => $usage,
 		];
 	}
 
