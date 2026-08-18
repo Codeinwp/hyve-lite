@@ -481,7 +481,7 @@ class Main {
 				'chat_model'                 => 'gpt-5.4-nano',
 				'welcome_message'            => '',
 				'default_message'            => '',
-				'similarity_score_threshold' => 0.4,
+				'similarity_score_threshold' => 0.25,
 				'post_row_addon_enabled'     => true,
 				'sound_enabled'              => true,
 				'show_timestamp'             => true,
