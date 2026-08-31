@@ -2,7 +2,7 @@
 Contributors: themeisle, hardeepasrani
 Tags: ai chatbot, chatbot, chatgpt, customer support, ai assistant
 Requires at least: 6.2
-Tested up to: 7.0
+Tested up to: 7.1
 Requires PHP: 7.4
 Stable tag: 2.0.1
 License: GPLv3

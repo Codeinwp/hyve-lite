@@ -2026,6 +2026,36 @@ class App {
 			} );
 		}
 
+		// The jump-back-down chip: appears once the visitor scrolls up through
+		// the conversation, hides again near the bottom. New replies force a
+		// scroll to the bottom, which also hides it through the same listener.
+		const messageBox = document.getElementById( 'hyve-message-box' );
+		const scrollDownButton = document.getElementById( 'hyve-scroll-down' );
+
+		if ( messageBox && scrollDownButton ) {
+			messageBox.addEventListener(
+				'scroll',
+				() => {
+					const fromBottom =
+						messageBox.scrollHeight -
+						messageBox.scrollTop -
+						messageBox.clientHeight;
+
+					scrollDownButton.classList.toggle(
+						'is-visible',
+						120 < fromBottom
+					);
+				},
+				{ passive: true }
+			);
+
+			scrollDownButton.addEventListener( 'click', () => {
+				// The box scrolls smoothly via CSS; the resulting scroll
+				// events hide the chip as the bottom approaches.
+				messageBox.scrollTop = messageBox.scrollHeight;
+			} );
+		}
+
 		// Close menu when clicking outside
 		document.addEventListener( 'click', ( event ) => {
 			const menu = document.querySelector( '.hyve-menu-dropdown' );
@@ -2222,6 +2252,13 @@ class App {
 				window.addEventListener( 'scroll', this.teaserScrollListener, {
 					passive: true,
 				} );
+
+				// The visitor may already be past the configured depth when the
+				// trigger arms — an anchor link, the browser restoring the
+				// scroll position on back/reload, or a page shorter than the
+				// viewport — and then no scroll event ever fires. Evaluate once
+				// now so the teaser still appears.
+				this.teaserScrollListener();
 				break;
 			default:
 				this.teaserTimeout = window.setTimeout(
@@ -2699,6 +2736,19 @@ class App {
 		}
 
 		chatWindow.appendChild( chatMessageBox );
+
+		// A quick way back to the latest messages for visitors who scrolled up
+		// through the conversation. Hidden until the message box is actually
+		// scrolled away from the bottom (see setupListeners).
+		const scrollDownButton = this.createElement( 'button', {
+			className: 'hyve-scroll-down',
+			id: 'hyve-scroll-down',
+			innerHTML:
+				'<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" width="16" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" /></svg>',
+			ariaLabel: strings.scrollToLatest,
+		} );
+
+		chatWindow.appendChild( scrollDownButton );
 
 		const privacyNotice = this.renderPrivacyNotice();
 

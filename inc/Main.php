@@ -806,6 +806,7 @@ class Main {
 					'openChat'          => __( 'Open chat', 'hyve-lite' ),
 					'closeChat'         => __( 'Close chat', 'hyve-lite' ),
 					'sendMessage'       => __( 'Send message', 'hyve-lite' ),
+					'scrollToLatest'    => __( 'Scroll to the latest messages', 'hyve-lite' ),
 					'previewNotice'     => __( 'Preview mode — test your assistant here. These messages aren\'t saved.', 'hyve-lite' ),
 					/**
 					 * Filters the chat privacy notice text. Use a single %s where the

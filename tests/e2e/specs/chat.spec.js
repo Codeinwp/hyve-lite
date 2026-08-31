@@ -102,6 +102,71 @@ test.describe( 'Chat', () => {
 		).toBeVisible();
 	} );
 
+	test( 'scrolling up reveals a jump-back-down chip that returns to the latest message', async ( {
+		page,
+		admin,
+		editor,
+	} ) => {
+		await admin.createNewPost( { title: 'Dummy Post' } );
+
+		await editor.insertBlock( {
+			name: 'hyve/chat',
+			attributes: {
+				variant: 'floating',
+			},
+		} );
+
+		const postId = await editor.publishPost();
+
+		await page.goto( `?p=${ postId }` );
+		await initializeChatApp( page );
+
+		await page
+			.locator( '#hyve-open' )
+			.getByRole( 'button' )
+			.click( { force: true } );
+		await expect( page.locator( '#hyve-window' ) ).toBeVisible();
+
+		// A conversation long enough to scroll, without burning API calls.
+		// Seed scrolls jump instantly so the CSS smooth-scroll animation
+		// cannot race the assertions; the click below still exercises it.
+		await page.evaluate( () => {
+			const box = document.getElementById( 'hyve-message-box' );
+
+			for ( let i = 0; i < 30; i++ ) {
+				const bubble = document.createElement( 'div' );
+				bubble.className = 'hyve-bot-message';
+				bubble.innerHTML = `<div>Filler message ${ i }</div>`;
+				box.appendChild( bubble );
+			}
+
+			box.scrollTo( { top: box.scrollHeight, behavior: 'instant' } );
+		} );
+
+		// At the bottom: no chip.
+		await expect( page.locator( '#hyve-scroll-down' ) ).toBeHidden();
+
+		// Scroll up through the history: the chip appears.
+		await page.evaluate( () => {
+			const box = document.getElementById( 'hyve-message-box' );
+			box.scrollTo( { top: 0, behavior: 'instant' } );
+		} );
+		await expect( page.locator( '#hyve-scroll-down' ) ).toBeVisible();
+
+		// Clicking it returns to the bottom and the chip hides again.
+		await page.locator( '#hyve-scroll-down' ).click();
+		await expect( page.locator( '#hyve-scroll-down' ) ).toBeHidden();
+		await expect
+			.poll( () =>
+				page.evaluate( () => {
+					const box = document.getElementById( 'hyve-message-box' );
+
+					return box.scrollHeight - box.scrollTop - box.clientHeight;
+				} )
+			)
+			.toBeLessThan( 5 );
+	} );
+
 	test( 'chat inline interaction', async ( { page, admin, editor } ) => {
 		await admin.createNewPost( { title: 'Dummy Post' } );
 

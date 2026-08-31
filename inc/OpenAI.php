@@ -97,6 +97,7 @@ a) If current context addresses the question: Formulate a response using current
 b) If current context is empty but previous context is relevant: Use previous context to answer.
 c) If the input is a greeting: Respond appropriately.
 d) If neither current nor previous context addresses the question: Respond with an empty response and success: false.
+e) If the input is a general-purpose task rather than a question about the site or its content (fixing or writing code, translating text, solving exercises, generating unrelated content), and the context does not cover it: Respond with an empty response and success: false, even though you could do it from general knowledge.
 
 3. Response Formulation
 - Use information from the current context primarily. If current context is insufficient, refer to previous context for follow-up questions.
@@ -154,6 +155,15 @@ Response:
 "success": true
 }
 
+5. Unrelated Task
+Context: [Empty]
+Question: .style{color:blue} fix this CSS, please
+Response:
+{
+"response": "",
+"success": false
+}
+
 Error Handling:
 For invalid inputs or unrecognized question formats, respond with:
 {
@@ -173,6 +183,7 @@ Remember:
 - Prioritize using the current context for answers.
 - For follow-up questions with empty current context, refer to previous context if relevant.
 - If information isn't available in current or previous context, indicate this with an empty response and success: false.
+- You are this website's assistant, not a general-purpose AI: never perform tasks or produce content that the context does not support.
 - Always strive to provide the most accurate and relevant information based on available context.
 PROMPT;
 
@@ -299,6 +310,17 @@ PROMPT;
 		}
 
 		return $model;
+	}
+
+	/**
+	 * Get the effective chat model used for completions.
+	 *
+	 * @since 2.1.0
+	 *
+	 * @return string
+	 */
+	public function get_chat_model() {
+		return $this->chat_model;
 	}
 
 	/**
@@ -823,7 +845,7 @@ PROMPT;
 	 * @param string                      $conversation Conversation id.
 	 * @param callable                    $on_delta     Receives each text delta (string).
 	 *
-	 * @return array{id:string,text:string,tool_calls:array<int,array{call_id:string,name:string,arguments:string}>}|\WP_Error
+	 * @return array{id:string,text:string,tool_calls:array<int,array{call_id:string,name:string,arguments:string}>,usage:object|null}|\WP_Error
 	 */
 	public function stream_response( $items, $conversation, $on_delta ) {
 		if ( ! $this->api_key ) {
@@ -848,8 +870,9 @@ PROMPT;
 		$sse_buffer  = '';
 		$stream_err  = null;
 		$tool_calls  = [];
+		$usage       = null;
 
-		$write = function ( $ch, $chunk ) use ( &$sse_buffer, &$assembled, &$response_id, &$stream_err, &$tool_calls, $on_delta ) {
+		$write = function ( $ch, $chunk ) use ( &$sse_buffer, &$assembled, &$response_id, &$stream_err, &$tool_calls, &$usage, $on_delta ) {
 			$sse_buffer .= $chunk;
 
 			while ( false !== ( $pos = strpos( $sse_buffer, "\n\n" ) ) ) {
@@ -884,6 +907,12 @@ PROMPT;
 
 				if ( isset( $event->response->id ) ) {
 					$response_id = $event->response->id;
+				}
+
+				// The terminal response.completed event carries the run's token
+				// usage; kept for the per-message debug trace.
+				if ( isset( $event->response->usage ) ) {
+					$usage = $event->response->usage;
 				}
 
 				if ( 'response.output_text.delta' === $event->type && isset( $event->delta ) && is_string( $event->delta ) ) {
@@ -959,6 +988,7 @@ PROMPT;
 			'id'         => $response_id,
 			'text'       => $assembled,
 			'tool_calls' => $tool_calls,
+			'usage'      => $usage,
 		];
 	}
 
