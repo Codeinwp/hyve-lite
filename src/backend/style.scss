@@ -1342,6 +1342,226 @@ p.hyve-next-notice__text {
 	}
 }
 
+/* Per-reply trace, folded into the timestamp line ("12:31 pm · Not answered ·
+   9 sources · Show trace") so transcripts stay clean. The expanded ledger uses
+   the same label/value grid as the lead detail rows, with a score bar per
+   source and a tick marking the similarity threshold. */
+.hyve-next-debug {
+	font-size: 12px;
+	max-width: 560px;
+}
+
+.hyve-next-debug__line {
+	align-items: center;
+	color: var(--hyve-muted);
+	display: flex;
+	flex-wrap: wrap;
+	font-size: 10.5px;
+	gap: 5px;
+	margin-top: 3px;
+	padding: 0 2px;
+
+	time {
+		margin: 0;
+		padding: 0;
+	}
+}
+
+.hyve-next-debug__warn {
+	color: var(--hyve-warn);
+	font-weight: 600;
+}
+
+.hyve-next-debug__toggle {
+	background: none;
+	border: 0;
+	color: var(--hyve-wp-blue);
+	cursor: pointer;
+	font: inherit;
+	padding: 0;
+
+	&:hover,
+	&:focus-visible {
+		text-decoration: underline;
+	}
+}
+
+.hyve-next-debug__panel {
+	background: var(--hyve-surface-2);
+	border: 1px solid var(--hyve-border);
+	border-radius: var(--hyve-radius);
+	margin-top: 6px;
+	padding: 4px 14px;
+}
+
+.hyve-next-debug__row {
+	border-top: 1px solid var(--hyve-border);
+	display: grid;
+	gap: 16px;
+	grid-template-columns: 120px minmax(0, 1fr);
+	padding: 8px 0;
+
+	&:first-child {
+		border-top: 0;
+	}
+}
+
+.hyve-next-debug__key {
+	color: var(--hyve-muted);
+	font-size: 11px;
+	font-weight: 600;
+	letter-spacing: 0.03em;
+	padding-top: 1px;
+	text-transform: uppercase;
+}
+
+.hyve-next-debug__val {
+	overflow-wrap: anywhere;
+}
+
+.hyve-next-debug__help {
+	align-items: center;
+	border: 1px solid var(--hyve-border);
+	border-radius: 50%;
+	color: var(--hyve-muted);
+	cursor: help;
+	display: inline-flex;
+	font-size: 9px;
+	font-weight: 700;
+	height: 13px;
+	justify-content: center;
+	letter-spacing: 0;
+	margin-left: 5px;
+	vertical-align: text-bottom;
+	width: 13px;
+}
+
+.hyve-next-debug__sources {
+	align-items: center;
+	column-gap: 10px;
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) 120px 40px;
+	row-gap: 5px;
+}
+
+.hyve-next-debug__source-title {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+/* Sources that matched the query but were dropped for the context budget. */
+.hyve-next-debug__source-title.is-dropped,
+.hyve-next-debug__score.is-dropped {
+	opacity: 0.55;
+}
+
+.hyve-next-debug__fill.is-dropped {
+	background: var(--hyve-faint, #c3c4c7);
+}
+
+/* One executed skill call: name(args) plus a truncated output. */
+.hyve-next-debug__calls {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	margin-top: 6px;
+}
+
+.hyve-next-debug__call {
+	display: flex;
+	flex-direction: column;
+	gap: 1px;
+
+	code {
+		background: var(--hyve-surface);
+		border: 1px solid var(--hyve-border);
+		border-radius: var(--hyve-radius);
+		font-size: 11px;
+		padding: 1px 5px;
+		width: fit-content;
+	}
+}
+
+.hyve-next-debug__call-output {
+	color: var(--hyve-muted);
+	font-family: ui-monospace, Menlo, Consolas, monospace;
+	font-size: 10.5px;
+	overflow-wrap: anywhere;
+}
+
+.hyve-next-debug__followup {
+	display: block;
+
+	&::before {
+		color: var(--hyve-muted);
+		content: "– ";
+	}
+}
+
+.hyve-next-debug__bar {
+	background: var(--hyve-border);
+	border-radius: 2px;
+	height: 5px;
+	position: relative;
+
+	// Hyve Connect reports sources without scores: keep the grid cell but
+	// draw nothing, so a missing score doesn't read as a zero score.
+	&.is-empty {
+		background: transparent;
+	}
+}
+
+.hyve-next-debug__fill {
+	background: #7da7cd;
+	border-radius: 2px;
+	height: 100%;
+	left: 0;
+	position: absolute;
+	top: 0;
+
+	&.is-top {
+		background: var(--hyve-wp-blue);
+	}
+}
+
+.hyve-next-debug__tick {
+	background: #d63638;
+	bottom: -2px;
+	position: absolute;
+	top: -2px;
+	width: 1px;
+}
+
+.hyve-next-debug__score {
+	color: var(--hyve-muted);
+	font-variant-numeric: tabular-nums;
+	text-align: right;
+}
+
+.hyve-next-debug__note {
+	color: var(--hyve-muted);
+	font-size: 11px;
+	grid-column: 1 / -1;
+}
+
+/* Outranks the dark transcript code-block styling on .hyve-next-bubble pre. */
+.hyve-next-debug pre.hyve-next-debug__query {
+	background: var(--hyve-surface);
+	border: 1px solid var(--hyve-border);
+	border-radius: var(--hyve-radius);
+	color: var(--hyve-muted);
+	font-family: ui-monospace, Menlo, Consolas, monospace;
+	font-size: 11px;
+	line-height: 1.6;
+	margin: 0;
+	max-height: 96px;
+	overflow: auto;
+	padding: 8px 10px;
+	white-space: pre-wrap;
+	word-break: break-word;
+}
+
 /* Static free-tier preview of a Pro surface: visible but inert. */
 .hyve-next-demo {
 	opacity: 0.6;
