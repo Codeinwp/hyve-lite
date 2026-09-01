@@ -481,7 +481,7 @@ class Main {
 				'chat_model'                 => 'gpt-5.4-nano',
 				'welcome_message'            => '',
 				'default_message'            => '',
-				'similarity_score_threshold' => 0.4,
+				'similarity_score_threshold' => 0.25,
 				'post_row_addon_enabled'     => true,
 				'sound_enabled'              => true,
 				'show_timestamp'             => true,
@@ -806,6 +806,7 @@ class Main {
 					'openChat'          => __( 'Open chat', 'hyve-lite' ),
 					'closeChat'         => __( 'Close chat', 'hyve-lite' ),
 					'sendMessage'       => __( 'Send message', 'hyve-lite' ),
+					'scrollToLatest'    => __( 'Scroll to the latest messages', 'hyve-lite' ),
 					'previewNotice'     => __( 'Preview mode — test your assistant here. These messages aren\'t saved.', 'hyve-lite' ),
 					/**
 					 * Filters the chat privacy notice text. Use a single %s where the

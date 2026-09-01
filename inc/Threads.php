@@ -84,6 +84,15 @@ class Threads {
 			return;
 		}
 
+		// The debug trace explains the reply after the fact: whether the model
+		// answered, what the retrieval matched and which tools ran. Without it a
+		// refusal is indistinguishable from a genuine knowledge gap.
+		$debug = isset( $message['debug'] ) && is_array( $message['debug'] ) ? $message['debug'] : [];
+
+		if ( isset( $message['success'] ) ) {
+			$debug['answered'] = (bool) $message['success'];
+		}
+
 		self::add_message(
 			intval( $record_id ),
 			[
@@ -91,6 +100,7 @@ class Threads {
 				'sender'    => 'bot',
 				'message'   => wp_kses_post( $response ),
 				'display'   => isset( $message['display'] ) && is_array( $message['display'] ) ? $message['display'] : null,
+				'debug'     => ! empty( $debug ) ? $debug : null,
 			]
 		);
 	}
@@ -131,7 +141,9 @@ class Threads {
 
 	/**
 	 * Build a stored transcript entry, carrying an optional `display` (skill
-	 * cards or choices) alongside the message so history matches what was shown.
+	 * cards or choices) alongside the message so history matches what was shown,
+	 * and an optional `debug` trace (answered flag, retrieval sources and
+	 * scores, tools) so the reply can be explained after the fact.
 	 *
 	 * @param array<string, mixed> $data The message data.
 	 *
@@ -146,6 +158,10 @@ class Threads {
 
 		if ( ! empty( $data['display'] ) && is_array( $data['display'] ) ) {
 			$entry['display'] = $data['display'];
+		}
+
+		if ( ! empty( $data['debug'] ) && is_array( $data['debug'] ) ) {
+			$entry['debug'] = $data['debug'];
 		}
 
 		return $entry;
@@ -205,7 +221,14 @@ class Threads {
 		$thread_id = get_post_meta( $post_id, '_hyve_thread_id', true );
 
 		if ( $thread_id !== $data['thread_id'] ) {
-			return self::create_thread( $data['message'], $data );
+			// A failed first turn records the thread before any conversation
+			// is minted, leaving an empty placeholder id. Adopt the real id
+			// on the next successful turn instead of forking a new thread.
+			if ( '' === (string) $thread_id && '' !== (string) $data['thread_id'] ) {
+				update_post_meta( $post_id, '_hyve_thread_id', $data['thread_id'] );
+			} else {
+				return self::create_thread( $data['message'], $data );
+			}
 		}
 
 		$thread_data = get_post_meta( $post_id, '_hyve_thread_data', true );

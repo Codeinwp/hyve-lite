@@ -36,6 +36,30 @@ class API extends BaseAPI {
 	private $source_post_ids = [];
 
 	/**
+	 * Retrieval trace of the last knowledge base search: one row per chunk that
+	 * made it into the model context (source post ID, title, score, tokens).
+	 *
+	 * Recorded with the bot message in the conversation history so an answer —
+	 * or a refusal — can be debugged after the fact.
+	 *
+	 * @since 2.1.0
+	 *
+	 * @var array<int, array<string, mixed>>
+	 */
+	private $retrieval_trace = [];
+
+	/**
+	 * Debug information collected while preparing the current chat turn (the
+	 * retrieval query, threshold and matched chunks), attached to the recorded
+	 * bot message so the history shows what led to the reply.
+	 *
+	 * @since 2.1.0
+	 *
+	 * @var array<string, mixed>
+	 */
+	private $chat_debug = [];
+
+	/**
 	 * Ensures only one instance of the class is loaded.
 	 *
 	 * @return API An instance of the class.
@@ -1662,9 +1686,12 @@ class API extends BaseAPI {
 
 		$openai = OpenAI::instance();
 
+		$is_test = (bool) $request->get_param( 'is_test' );
+
 		$response = $openai->get_response( $run_id );
 
 		if ( is_wp_error( $response ) ) {
+			$this->record_error_event( (string) $thread_id, $record_id, (string) $response->get_error_code(), $this->get_error_message( $response ), $is_test );
 			return rest_ensure_response( [ 'error' => $this->get_error_message( $response ) ] );
 		}
 
@@ -1696,6 +1723,7 @@ class API extends BaseAPI {
 			$next = $openai->create_response_sync( $outputs, $thread_id );
 
 			if ( is_wp_error( $next ) ) {
+				$this->record_error_event( (string) $thread_id, $record_id, (string) $next->get_error_code(), $this->get_error_message( $next ), $is_test );
 				return rest_ensure_response( [ 'error' => $this->get_error_message( $next ) ] );
 			}
 
@@ -1711,6 +1739,9 @@ class API extends BaseAPI {
 
 		$status = $response->status;
 
+		// Kept before $response is reused for the reply text below.
+		$run_usage = isset( $response->usage ) ? $response->usage : null;
+
 		$message = array_filter(
 			$response->output,
 			function ( $message ) {
@@ -1724,6 +1755,7 @@ class API extends BaseAPI {
 		);
 
 		if ( empty( $message ) ) {
+			$this->record_error_event( (string) $thread_id, $record_id, 'no_reply', __( 'No messages found.', 'hyve-lite' ), $is_test );
 			return rest_ensure_response( [ 'error' => __( 'No messages found.', 'hyve-lite' ) ] );
 		}
 
@@ -1735,6 +1767,7 @@ class API extends BaseAPI {
 		$interpreted = OpenAI::interpret_chat_payload( $text, $settings['default_message'] );
 
 		if ( ! $interpreted['decoded'] ) {
+			$this->record_error_event( (string) $thread_id, $record_id, 'invalid_reply', __( 'No messages found.', 'hyve-lite' ), $is_test );
 			return rest_ensure_response( [ 'error' => __( 'No messages found.', 'hyve-lite' ) ] );
 		}
 
@@ -1778,6 +1811,32 @@ class API extends BaseAPI {
 			$response = $data['message'];
 		}
 
+		$extra = [
+			'mode'       => 'self_hosted',
+			'transport'  => 'poll',
+			'tools_used' => 0 < $iterations,
+		];
+
+		if ( 0 < $iterations ) {
+			$extra['tool_iterations'] = $iterations;
+		}
+
+		if ( $cancelled ) {
+			$extra['tools_aborted'] = true;
+		}
+
+		$usage = self::normalize_usage( $run_usage );
+
+		if ( null !== $usage ) {
+			$extra['usage'] = $usage;
+		}
+
+		$payload['debug'] = self::finalize_chat_debug(
+			$this->pull_debug_trace( $source_run_id ),
+			$extra,
+			$payload
+		);
+
 		// Skip recording for admin live-preview test chats (see send_chat).
 		if ( ! $request->get_param( 'is_test' ) ) {
 			do_action( 'hyve_chat_response', $run_id, $thread_id, $query, $record_id, $payload, $response );
@@ -1806,15 +1865,36 @@ class API extends BaseAPI {
 		}
 
 		$source_scores = [];
+		$cutoff        = null;
 
 		foreach ( $knowledge_points as $point ) {
 			if ( empty( $point['post_title'] ) || empty( $point['post_content'] ) || empty( $point['token_count'] ) ) {
 				continue;
 			}
 
+			// Qdrant returns points best-first, so the first scored point is
+			// the top match; weaker stragglers below its relative cutoff stay
+			// out of the context (see relative_score_cutoff()).
+			if ( isset( $point['score'] ) ) {
+				if ( null === $cutoff ) {
+					$cutoff = self::relative_score_cutoff( (float) $point['score'] );
+				} elseif ( (float) $point['score'] < $cutoff ) {
+					break;
+				}
+			}
+
 			$tokens_count = intval( $point['token_count'] );
 
 			if ( $tokens_threshold <= ( $current_token_count + $tokens_count ) ) {
+				// Matched the query but did not fit the context budget — traced
+				// so the Messages screen can show what the model never saw.
+				$this->retrieval_trace[] = [
+					'post_id'  => isset( $point['post_id'] ) ? intval( $point['post_id'] ) : 0,
+					'title'    => (string) $point['post_title'],
+					'score'    => isset( $point['score'] ) ? round( floatval( $point['score'] ), 4 ) : null,
+					'tokens'   => $tokens_count,
+					'included' => false,
+				];
 				continue;
 			}
 
@@ -1828,6 +1908,13 @@ class API extends BaseAPI {
 
 			$articles_embedded_data .= "\n ===START POST=== " . $point['post_title'] . ' - ' . $point['post_content'] . ' ===END POST===';
 			$current_token_count    += intval( $point['token_count'] );
+
+			$this->retrieval_trace[] = [
+				'post_id' => isset( $point['post_id'] ) ? intval( $point['post_id'] ) : 0,
+				'title'   => (string) $point['post_title'],
+				'score'   => isset( $point['score'] ) ? round( floatval( $point['score'] ), 4 ) : null,
+				'tokens'  => $tokens_count,
+			];
 		}
 
 		$this->source_post_ids = $this->rank_sources( $source_scores );
@@ -1857,6 +1944,7 @@ class API extends BaseAPI {
 		$items_per_page      = 50;
 		$saved_embeddings    = $this->table->get_embeddings( $offset, $items_per_page );
 		$matched_articles    = [];
+		$dropped_articles    = [];
 
 		do {
 			foreach ( $saved_embeddings as $data ) {
@@ -1893,18 +1981,7 @@ class API extends BaseAPI {
 
 			if ( $current_token_count > $tokens_threshold ) {
 				// Sort by score and drop the ones that do not fit in the context.
-				usort(
-					$matched_articles,
-					function ( $a, $b ) {
-						if ( $a['score'] < $b['score'] ) {
-							return 1;
-						} elseif ( $a['score'] > $b['score'] ) {
-							return -1;
-						} else {
-							return 0;
-						}
-					}
-				);
+				usort( $matched_articles, [ __CLASS__, 'compare_by_score' ] );
 
 				while ( $current_token_count > $tokens_threshold ) {
 					$article = array_pop( $matched_articles );
@@ -1912,6 +1989,7 @@ class API extends BaseAPI {
 						break;
 					}
 					$current_token_count -= $article['token_count'];
+					$dropped_articles[]   = $article;
 				}
 			}
 
@@ -1922,6 +2000,24 @@ class API extends BaseAPI {
 		if ( empty( $matched_articles ) ) {
 			return $articles_embedded_data;
 		}
+
+		// The strongest matches go first in the context blob even when
+		// everything fit the budget; otherwise the order is whatever the
+		// database returned, and models weight early context more.
+		usort( $matched_articles, [ __CLASS__, 'compare_by_score' ] );
+
+		// Weak stragglers that merely cleared the noise floor stay out of the
+		// context; only chunks competitive with the best match get in.
+		$cutoff = self::relative_score_cutoff( $matched_articles[0]['score'] );
+
+		$matched_articles = array_values(
+			array_filter(
+				$matched_articles,
+				function ( $article ) use ( $cutoff ) {
+					return $article['score'] >= $cutoff;
+				}
+			)
+		);
 
 		$source_scores = [];
 
@@ -1938,11 +2034,87 @@ class API extends BaseAPI {
 			}
 
 			$articles_embedded_data .= "\n ===START POST=== " . $article_data['post_title'] . ' - ' . $article_data['post_content'] . ' ===END POST===';
+
+			$this->retrieval_trace[] = [
+				'post_id' => intval( $post_id ),
+				'title'   => (string) $article_data['post_title'],
+				'score'   => round( floatval( $article['score'] ), 4 ),
+				'tokens'  => intval( $article['token_count'] ),
+			];
+		}
+
+		// Chunks that matched the query but were dropped for the context budget:
+		// traced (capped, they are already the weakest matches) so the Messages
+		// screen can show what the model never saw.
+		foreach ( array_slice( $dropped_articles, 0, 10 ) as $article ) {
+			$article_data = $this->table->get_post_data( $article['id'] );
+			if ( empty( $article_data ) ) {
+				continue;
+			}
+
+			$this->retrieval_trace[] = [
+				'post_id'  => intval( $this->table->get_post_id( $article['id'] ) ),
+				'title'    => (string) $article_data['post_title'],
+				'score'    => round( floatval( $article['score'] ), 4 ),
+				'tokens'   => intval( $article['token_count'] ),
+				'included' => false,
+			];
 		}
 
 		$this->source_post_ids = $this->rank_sources( $source_scores );
 
 		return $articles_embedded_data;
+	}
+
+	/**
+	 * Compare two matched articles by score, highest first.
+	 *
+	 * @since 1.5.1
+	 *
+	 * @param array<string, mixed> $a First article, with a `score` key.
+	 * @param array<string, mixed> $b Second article, with a `score` key.
+	 *
+	 * @return int
+	 */
+	private static function compare_by_score( $a, $b ) {
+		return $b['score'] <=> $a['score'];
+	}
+
+	/**
+	 * The minimum score a chunk must reach to share the context with the best
+	 * match for this query.
+	 *
+	 * An absolute score cannot tell an answerable question from an
+	 * unanswerable one — a specific question about one table row scores lower
+	 * against its (correct) page than an off-topic question scores against a
+	 * tangential one. So within the absolute noise floor, chunks are kept
+	 * relative to the best match for this query, and the model judges from
+	 * the retrieved text itself whether the question can be answered.
+	 *
+	 * @since 1.5.1
+	 *
+	 * @param float $top_score The best similarity score for this query.
+	 *
+	 * @return float
+	 */
+	private static function relative_score_cutoff( $top_score ) {
+		/**
+		 * Filters how close to the best match a chunk must score, as a ratio
+		 * of the top score (0–1), to be included in the chat context. A higher
+		 * value keeps only near-equal matches; 0 keeps everything above the
+		 * similarity score threshold.
+		 *
+		 * @since 1.5.1
+		 *
+		 * @param float $ratio The minimum score ratio relative to the best match. Default 0.6.
+		 */
+		$ratio = (float) apply_filters( 'hyve_context_score_ratio', 0.6 );
+
+		if ( $ratio <= 0 ) {
+			return 0.0;
+		}
+
+		return $top_score * min( 1.0, $ratio );
 	}
 
 	/**
@@ -2001,8 +2173,21 @@ class API extends BaseAPI {
 	 *
 	 * @return string The articles blob data that match the given message vector.
 	 */
-	public function search_knowledge_base( $message_vector, $similarity_score_threshold = 0.4, $tokens_threshold = 2000 ) {
+	public function search_knowledge_base( $message_vector, $similarity_score_threshold = 0.25, $tokens_threshold = 2000 ) {
 		$this->source_post_ids = [];
+		$this->retrieval_trace = [];
+
+		/**
+		 * Filters the token budget for the knowledge base context sent with a
+		 * chat message. Matched chunks are added best-first until the budget
+		 * is full; a larger budget lets more of the knowledge base reach the
+		 * model at a higher API cost per message.
+		 *
+		 * @since 1.5.1
+		 *
+		 * @param int $tokens_threshold Maximum context tokens. Default 2000.
+		 */
+		$tokens_threshold = (int) apply_filters( 'hyve_chat_context_token_limit', $tokens_threshold );
 
 		if ( Qdrant_API::is_active() ) {
 			return $this->search_knowledge_base_qdrant( $message_vector, $similarity_score_threshold, $tokens_threshold );
@@ -2016,12 +2201,17 @@ class API extends BaseAPI {
 	 *
 	 * Retrieval embeds this text and searches the knowledge base with it. For the
 	 * first message it is just the question. For follow-ups it also blends in the
-	 * most recent turns of the conversation, so a topic-less question such as
-	 * "How difficult is it?" still carries the subject ("pickleball") into the
+	 * visitor's most recent turns, so a topic-less question such as "How
+	 * difficult is it?" still carries the subject ("pickleball") into the
 	 * search and matches the relevant content, instead of embedding a query with
 	 * no topic that finds nothing. The model already receives the conversation
 	 * history through the OpenAI conversation; this closes the same gap for
 	 * retrieval.
+	 *
+	 * Only the visitor's turns are blended. Bot replies either echo knowledge
+	 * base text (inflating every follow-up's similarity scores) or are fallback
+	 * apologies ("Sorry, I'm not able to help with that") that drag the query
+	 * off-topic, so they carry no retrieval signal of their own.
 	 *
 	 * @param string     $message   The current user message.
 	 * @param int|string $record_id The thread post ID, when the conversation exists.
@@ -2041,14 +2231,15 @@ class API extends BaseAPI {
 		}
 
 		/**
-		 * Filters how many recent messages are blended into the retrieval query.
+		 * Filters how many recent visitor messages are blended into the
+		 * retrieval query.
 		 *
 		 * Set to 0 to disable conversation-aware retrieval and search with the
 		 * current message only.
 		 *
 		 * @since 1.5.0
 		 *
-		 * @param int    $count     Number of most recent messages to include. Default 6.
+		 * @param int    $count     Number of most recent visitor messages to include. Default 6.
 		 * @param string $thread_id The OpenAI conversation ID, when one exists.
 		 */
 		$count = (int) apply_filters( 'hyve_retrieval_history_count', 6, $thread_id );
@@ -2067,7 +2258,14 @@ class API extends BaseAPI {
 		$parts = [];
 
 		if ( $count > 0 && ! empty( $history ) ) {
-			$recent = array_slice( $history, - $count );
+			$user_turns = array_filter(
+				$history,
+				function ( $entry ) {
+					return isset( $entry['sender'] ) && 'user' === $entry['sender'];
+				}
+			);
+
+			$recent = array_slice( $user_turns, - $count );
 
 			foreach ( $recent as $entry ) {
 				if ( empty( $entry['message'] ) ) {
@@ -2355,6 +2553,10 @@ class API extends BaseAPI {
 		// OpenAI key otherwise). Throttle logged-out visitors per IP so a loop
 		// cannot drain the allowance; admins (the preview) are exempt.
 		if ( ! current_user_can( 'manage_options' ) && $this->chat_rate_limited() ) {
+			if ( ! $request->get_param( 'is_test' ) ) {
+				$this->record_rate_limited_event( $request->get_param( 'record_id' ) );
+			}
+
 			return rest_ensure_response(
 				[
 					'error' => __( 'You are sending messages too quickly. Please wait a moment and try again.', 'hyve-lite' ),
@@ -2366,6 +2568,18 @@ class API extends BaseAPI {
 		$prepared = $this->prepare_chat( $request );
 
 		if ( is_wp_error( $prepared ) ) {
+			$error_data = $prepared->get_error_data();
+
+			$this->record_chat_failure(
+				(string) $request->get_param( 'thread_id' ),
+				$request->get_param( 'record_id' ),
+				(string) $request->get_param( 'message' ),
+				(bool) $request->get_param( 'is_test' ),
+				(string) $prepared->get_error_code(),
+				$this->get_error_message( $prepared ),
+				is_array( $error_data ) && ! empty( $error_data['categories'] ) && is_array( $error_data['categories'] ) ? $error_data['categories'] : []
+			);
+
 			return rest_ensure_response(
 				[
 					'error' => $this->get_error_message( $prepared ),
@@ -2394,6 +2608,7 @@ class API extends BaseAPI {
 					'is_test'         => $is_test,
 					'source_post_ids' => $this->source_post_ids,
 					'page'            => isset( $prepared['page'] ) ? $prepared['page'] : null,
+					'debug'           => $this->chat_debug,
 				],
 				5 * MINUTE_IN_SECONDS
 			);
@@ -2419,6 +2634,15 @@ class API extends BaseAPI {
 		$query_run = $this->create_background_run( $prepared['context'], $prepared['message'], $thread_id );
 
 		if ( is_wp_error( $query_run ) ) {
+			$this->record_chat_failure(
+				(string) $thread_id,
+				$request_record,
+				$prepared['message'],
+				$is_test,
+				(string) $query_run->get_error_code(),
+				$this->get_error_message( $query_run )
+			);
+
 			return rest_ensure_response( [ 'error' => $this->get_error_message( $query_run ) ] );
 		}
 
@@ -2464,12 +2688,30 @@ class API extends BaseAPI {
 		$result = Hyve_Connect::instance()->chat( $payload );
 
 		if ( is_wp_error( $result ) ) {
+			$this->record_chat_failure(
+				(string) $prepared['thread_id'],
+				$record_id,
+				$prepared['message'],
+				$is_test,
+				(string) $result->get_error_code(),
+				$result->get_error_message()
+			);
+
 			return rest_ensure_response(
 				[
 					'error' => Hyve_Connect::visitor_message(),
 					'code'  => $result->get_error_code(),
 				]
 			);
+		}
+
+		// Close the latency clock here: the platform call is synchronous, and
+		// the poll hop that serves the buffered reply is not answering time.
+		$debug = $this->chat_debug;
+
+		if ( isset( $debug['started'] ) ) {
+			$debug['duration_ms'] = (int) round( ( microtime( true ) - (float) $debug['started'] ) * 1000 );
+			unset( $debug['started'] );
 		}
 
 		$thread_id = isset( $result['thread_id'] ) ? $result['thread_id'] : $prepared['thread_id'];
@@ -2488,6 +2730,7 @@ class API extends BaseAPI {
 				'thread_id' => $thread_id,
 				'record_id' => $record_id,
 				'is_test'   => $is_test,
+				'debug'     => $debug,
 				/**
 				 * Filters extra per-turn state carried from the request that ran
 				 * the Connect chat to the request that serves it to the widget
@@ -2593,6 +2836,17 @@ class API extends BaseAPI {
 			$final = $data['message'];
 		}
 
+		$job_debug = isset( $job['debug'] ) && is_array( $job['debug'] ) ? $job['debug'] : [];
+
+		$payload['debug'] = self::finalize_chat_debug(
+			array_merge( $job_debug, $this->connect_debug( $result ) ),
+			[
+				'mode'      => 'connect',
+				'transport' => 'poll',
+			],
+			$payload
+		);
+
 		if ( empty( $job['is_test'] ) ) {
 			do_action( 'hyve_chat_response', (string) $run_id, $job['thread_id'], $job['message'], $job['record_id'], $payload, $final );
 		}
@@ -2622,12 +2876,28 @@ class API extends BaseAPI {
 
 		$page = Page_Context::instance()->for_request( $request );
 
+		// The page the visitor chatted from, kept for the debug trace. Sent on
+		// every widget request; page context above only consumes it when the
+		// Page Awareness feature is enabled.
+		$page_url = $request->get_param( 'page_url' );
+		$page_url = is_string( $page_url ) && '' !== $page_url ? esc_url_raw( $page_url ) : '';
+
 		// Connect mode: moderation, embedding, retrieval, and thread minting all
 		// happen server-side inside hyve-chat, so there is no local prep. The
 		// platform mints the thread id on turn 1 and echoes it back.
 		if ( Hyve_Connect::is_active() ) {
 			$this->source_post_ids = [];
-			$thread_id             = $request->get_param( 'thread_id' );
+			$this->chat_debug      = [ 'started' => microtime( true ) ];
+
+			if ( '' !== $page_url ) {
+				$this->chat_debug['page'] = $page_url;
+			}
+
+			if ( $page ) {
+				$this->chat_debug['page_context'] = true;
+			}
+
+			$thread_id = $request->get_param( 'thread_id' );
 
 			return [
 				'thread_id' => $thread_id ? $thread_id : '',
@@ -2639,8 +2909,18 @@ class API extends BaseAPI {
 
 		$moderation = OpenAI::instance()->moderate_chunks( $message );
 
+		// An API failure is not a moderation verdict: surface it as a service
+		// error instead of telling the visitor their message was flagged.
+		if ( is_wp_error( $moderation ) ) {
+			return new \WP_Error( 'moderation_unavailable', __( 'Your message could not be processed. Please try again.', 'hyve-lite' ) );
+		}
+
 		if ( true !== $moderation ) {
-			return new \WP_Error( 'content_flagged', __( 'This message was flagged by OpenAI moderation and was not answered.', 'hyve-lite' ) );
+			return new \WP_Error(
+				'content_flagged',
+				__( 'This message was flagged by OpenAI moderation and was not answered.', 'hyve-lite' ),
+				[ 'categories' => $moderation ]
+			);
 		}
 
 		$openai          = OpenAI::instance();
@@ -2676,14 +2956,17 @@ class API extends BaseAPI {
 		 *
 		 * The similarity score threshold determines the minimum cosine similarity
 		 * required for an article to be considered relevant to the user's query.
-		 * A higher value means stricter matching, while a lower value allows for
-		 * broader results.
+		 * This is a noise floor: within it, only chunks scoring close to the best
+		 * match are kept (see `hyve_context_score_ratio`), and the model judges
+		 * from the retrieved text whether the question can be answered. A higher
+		 * value means stricter matching, while a lower value allows for broader
+		 * results.
 		 *
 		 * @since 1.4.0
 		 *
-		 * @param float $similarity_score_threshold The similarity score threshold. Default 0.4.
+		 * @param float $similarity_score_threshold The similarity score threshold. Default 0.25.
 		 */
-		$similarity_score_threshold = apply_filters( 'hyve_similarity_score_threshold', 0.4 );
+		$similarity_score_threshold = apply_filters( 'hyve_similarity_score_threshold', 0.25 );
 
 		$article_context = $this->search_knowledge_base( $message_vector, $similarity_score_threshold );
 
@@ -2702,6 +2985,26 @@ class API extends BaseAPI {
 					}
 				)
 			);
+		}
+
+		// Everything retrieval decided for this turn, kept for the conversation
+		// history so a reply (or a refusal) can be traced back to what the
+		// search actually matched. The query is capped so a long history blend
+		// cannot bloat the stored thread meta.
+		$this->chat_debug = [
+			'query'     => mb_substr( $retrieval_query, 0, 2000 ),
+			'threshold' => (float) $similarity_score_threshold,
+			'context'   => $this->retrieval_trace,
+			'model'     => $openai->get_chat_model(),
+			'started'   => microtime( true ),
+		];
+
+		if ( '' !== $page_url ) {
+			$this->chat_debug['page'] = $page_url;
+		}
+
+		if ( $page ) {
+			$this->chat_debug['page_context'] = true;
 		}
 
 		$hash = hash( 'md5', strtolower( $message ) );
@@ -2751,6 +3054,302 @@ class API extends BaseAPI {
 		if ( ! empty( $this->source_post_ids ) && is_string( $query_run ) ) {
 			set_transient( 'hyve_source_' . $query_run, $this->source_post_ids, HOUR_IN_SECONDS );
 		}
+
+		// The reply lands in a later request (the poll), so the retrieval trace
+		// must survive the hop to be recorded with the bot message.
+		if ( ! empty( $this->chat_debug ) && is_string( $query_run ) ) {
+			set_transient( 'hyve_debug_' . $query_run, $this->chat_debug, HOUR_IN_SECONDS );
+		}
+
 		return $query_run;
+	}
+
+	/**
+	 * Read (and consume) the retrieval debug trace stashed for a background run.
+	 *
+	 * @since 2.1.0
+	 *
+	 * @param string $run_id The run ID the trace was stored under.
+	 *
+	 * @return array<string, mixed>
+	 */
+	private function pull_debug_trace( $run_id ) {
+		$transient_key = 'hyve_debug_' . $run_id;
+		$debug         = get_transient( $transient_key );
+		delete_transient( $transient_key );
+
+		return is_array( $debug ) ? $debug : [];
+	}
+
+	/**
+	 * Finalize the debug information recorded with a bot message in the
+	 * conversation history.
+	 *
+	 * Merges the retrieval trace collected when the turn was prepared with the
+	 * facts only known at reply time (mode, transport, whether tools ran), and
+	 * lets extensions add their own (the pro plugin adds the skills that ran).
+	 *
+	 * @since 2.1.0
+	 *
+	 * @param array<string, mixed> $debug   Debug info collected during retrieval.
+	 * @param array<string, mixed> $extra   Turn facts known at reply time.
+	 * @param array<string, mixed> $payload The interpreted model payload.
+	 *
+	 * @return array<string, mixed>
+	 */
+	public static function finalize_chat_debug( $debug, $extra, $payload ) {
+		$debug = array_merge( $debug, $extra );
+
+		// Wall-clock time from the visitor's send to the recorded reply.
+		if ( isset( $debug['started'] ) ) {
+			$debug['duration_ms'] = (int) round( ( microtime( true ) - (float) $debug['started'] ) * 1000 );
+			unset( $debug['started'] );
+		}
+
+		// Follow-up suggestions the visitor was offered alongside the reply.
+		if ( ! empty( $payload['follow_ups'] ) && is_array( $payload['follow_ups'] ) ) {
+			$follow_ups = [];
+
+			foreach ( $payload['follow_ups'] as $follow_up ) {
+				if ( is_string( $follow_up ) && '' !== trim( $follow_up ) ) {
+					$follow_ups[] = mb_substr( $follow_up, 0, 200 );
+				}
+			}
+
+			if ( ! empty( $follow_ups ) ) {
+				$debug['follow_ups'] = $follow_ups;
+			}
+		}
+
+		// The model's raw reply when the visitor saw something else instead
+		// (the fallback message): without it, "what did the model actually
+		// say?" is unanswerable after the fact.
+		if (
+			isset( $payload['response'] ) &&
+			is_string( $payload['response'] ) &&
+			'' !== trim( $payload['response'] ) &&
+			empty( $payload['success'] )
+		) {
+			$debug['raw_reply'] = mb_substr( $payload['response'], 0, 500 );
+		}
+
+		/**
+		 * Filters the debug information recorded with a bot message in the
+		 * conversation history (Messages screen). The pro plugin uses this to
+		 * add the skills executed during the turn.
+		 *
+		 * @since 2.1.0
+		 *
+		 * @param array<string, mixed> $debug   Debug info for the turn.
+		 * @param array<string, mixed> $payload The interpreted model payload.
+		 */
+		return apply_filters( 'hyve_chat_debug', $debug, $payload );
+	}
+
+	/**
+	 * Record a failed chat turn in the conversation history.
+	 *
+	 * The visitor's message is recorded normally, then the failure is added as
+	 * an `event` entry — a divider line in the Messages screen, never a bot
+	 * bubble — so the owner can see that the visitor asked and got an error,
+	 * without the failure masquerading as a reply.
+	 *
+	 * @since 2.1.0
+	 *
+	 * @param string               $thread_id  Conversation id ('' when none was minted yet).
+	 * @param int|string|null      $record_id  Existing thread post ID, when the conversation exists.
+	 * @param string               $message    The visitor's message.
+	 * @param bool                 $is_test    Admin live-preview chat (never recorded).
+	 * @param string               $code       The error code (content_flagged, openai_error, ...).
+	 * @param string               $detail     Human-readable detail, truncated for storage.
+	 * @param array<string, mixed> $categories Flagged moderation categories, when applicable.
+	 *
+	 * @return void
+	 */
+	public function record_chat_failure( $thread_id, $record_id, $message, $is_test, $code, $detail = '', $categories = [] ) {
+		if ( $is_test || '' === trim( (string) $message ) ) {
+			return;
+		}
+
+		$record_id = apply_filters( 'hyve_chat_request', (string) $thread_id, $record_id ? $record_id : null, (string) $message );
+
+		if ( ! $record_id ) {
+			return;
+		}
+
+		$event = 'content_flagged' === $code ? 'moderation_flagged' : 'chat_error';
+		$debug = [ 'code' => (string) $code ];
+
+		if ( 'moderation_flagged' === $event && ! empty( $categories ) ) {
+			$debug['categories'] = array_keys( $categories );
+			$debug['detail']     = implode( ', ', array_keys( $categories ) );
+		} elseif ( '' !== $detail ) {
+			$debug['detail'] = mb_substr( $detail, 0, 200 );
+		}
+
+		Threads::add_message(
+			intval( $record_id ),
+			[
+				'thread_id' => (string) $thread_id,
+				'sender'    => 'event',
+				'message'   => $event,
+				'debug'     => $debug,
+			]
+		);
+	}
+
+	/**
+	 * Record an error event on an already-recorded turn (the visitor message
+	 * landed earlier in the flow; only the failure marker is added).
+	 *
+	 * @since 2.1.0
+	 *
+	 * @param string          $thread_id Conversation id.
+	 * @param int|string|null $record_id Thread post ID.
+	 * @param string          $code      The error code.
+	 * @param string          $detail    Human-readable detail.
+	 * @param bool            $is_test   Admin live-preview chat (never recorded).
+	 *
+	 * @return void
+	 */
+	public function record_error_event( $thread_id, $record_id, $code, $detail = '', $is_test = false ) {
+		if ( $is_test || ! $record_id || 'hyve_threads' !== get_post_type( (int) $record_id ) ) {
+			return;
+		}
+
+		$debug = [ 'code' => (string) $code ];
+
+		if ( '' !== $detail ) {
+			$debug['detail'] = mb_substr( $detail, 0, 200 );
+		}
+
+		Threads::add_message(
+			(int) $record_id,
+			[
+				'thread_id' => (string) $thread_id,
+				'sender'    => 'event',
+				'message'   => 'chat_error',
+				'debug'     => $debug,
+			]
+		);
+	}
+
+	/**
+	 * Record a rate-limited attempt as an event on an existing thread.
+	 *
+	 * Deliberately narrow: nothing is written for visitors without an existing
+	 * conversation, and consecutive rate-limit events collapse into one, so
+	 * abusive traffic cannot grow the database through blocked requests.
+	 *
+	 * @since 2.1.0
+	 *
+	 * @param int|string|null $record_id Thread post ID from the request.
+	 *
+	 * @return bool Whether an event was recorded.
+	 */
+	public function record_rate_limited_event( $record_id ) {
+		$record_id = intval( $record_id );
+
+		if ( ! $record_id || 'hyve_threads' !== get_post_type( $record_id ) ) {
+			return false;
+		}
+
+		$entries = get_post_meta( $record_id, '_hyve_thread_data', true );
+		$last    = is_array( $entries ) && ! empty( $entries ) ? end( $entries ) : null;
+
+		if ( is_array( $last ) && 'event' === ( $last['sender'] ?? '' ) && 'rate_limited' === ( $last['message'] ?? '' ) ) {
+			return false;
+		}
+
+		Threads::add_message(
+			$record_id,
+			[
+				'thread_id' => (string) get_post_meta( $record_id, '_hyve_thread_id', true ),
+				'sender'    => 'event',
+				'message'   => 'rate_limited',
+			]
+		);
+
+		return true;
+	}
+
+	/**
+	 * Normalize a token-usage object/array into the stored debug shape.
+	 *
+	 * Accepts the OpenAI Responses API usage object (input_tokens /
+	 * output_tokens) or an equivalent array, and returns a compact
+	 * ['input' => int, 'output' => int] pair, or null when unreadable.
+	 *
+	 * @since 2.1.0
+	 *
+	 * @param object|array<string, mixed>|null $usage Raw usage data.
+	 *
+	 * @return array{input: int, output: int}|null
+	 */
+	public static function normalize_usage( $usage ) {
+		$usage = is_object( $usage ) ? (array) $usage : $usage;
+
+		if ( ! is_array( $usage ) ) {
+			return null;
+		}
+
+		$input  = $usage['input_tokens'] ?? $usage['input'] ?? $usage['prompt_tokens'] ?? null;
+		$output = $usage['output_tokens'] ?? $usage['output'] ?? $usage['completion_tokens'] ?? null;
+
+		if ( ! is_numeric( $input ) && ! is_numeric( $output ) ) {
+			return null;
+		}
+
+		return [
+			'input'  => (int) $input,
+			'output' => (int) $output,
+		];
+	}
+
+	/**
+	 * Build the debug trace for a Hyve Connect turn from the platform result.
+	 *
+	 * Retrieval runs remotely in Connect mode, so the recorded trace is limited
+	 * to what the platform reports back: the sources behind the answer.
+	 *
+	 * @since 2.1.0
+	 *
+	 * @param array<string, mixed> $result The platform job result.
+	 *
+	 * @return array<string, mixed>
+	 */
+	public function connect_debug( $result ) {
+		$debug = [];
+
+		$usage = isset( $result['usage'] ) ? self::normalize_usage( $result['usage'] ) : null;
+
+		if ( null !== $usage ) {
+			$debug['usage'] = $usage;
+		}
+
+		if ( empty( $result['sources'] ) || ! is_array( $result['sources'] ) ) {
+			return $debug;
+		}
+
+		$context = [];
+
+		foreach ( $result['sources'] as $source ) {
+			if ( ! is_array( $source ) ) {
+				continue;
+			}
+
+			$context[] = [
+				'post_id' => isset( $source['id'] ) ? intval( $source['id'] ) : 0,
+				'title'   => isset( $source['title'] ) ? (string) $source['title'] : '',
+				'score'   => isset( $source['score'] ) ? round( floatval( $source['score'] ), 4 ) : null,
+				'tokens'  => isset( $source['tokens'] ) ? intval( $source['tokens'] ) : null,
+			];
+		}
+
+		if ( ! empty( $context ) ) {
+			$debug['context'] = $context;
+		}
+
+		return $debug;
 	}
 }

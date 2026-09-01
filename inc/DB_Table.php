@@ -957,8 +957,11 @@ class DB_Table {
 			'type'    => $this->connect_source_type( $post_id ),
 			'title'   => (string) $doc['title'],
 			'url'     => $url ? $url : null,
-			// The plugin extracts text; the platform chunks it.
-			'content' => wp_strip_all_tags( (string) $doc['content'] ),
+			// The plugin extracts text; the platform chunks it. Structured
+			// extraction keeps tables as "label | value" lines and headings on
+			// their own line, so hosted retrieval sees the same clean text as
+			// self-hosted (see Tokenizer::html_to_text()).
+			'content' => Tokenizer::html_to_text( (string) $doc['content'] ),
 		];
 	}
 
