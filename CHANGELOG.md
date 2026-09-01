@@ -1,3 +1,9 @@
+##### [Version 2.0.2](https://github.com/Codeinwp/hyve-lite/compare/v2.0.1...v2.0.2) (2026-09-01)
+
+- Improved chat behavior for proactive messages and unrelated requests.
+- Added message details that show how chat replies were created.
+- Fixed chatbot answers from knowledge base pages and tables.
+
 ##### [Version 2.0.1](https://github.com/Codeinwp/hyve-lite/compare/v2.0.0...v2.0.1) (2026-08-12)
 
 - Expanded default window size and fixed the menu label not visible in RTL mode
