@@ -431,14 +431,6 @@ class Page_Context {
 			return '';
 		}
 
-		$trimmed = trim( $chunks[0] );
-
-		// create_chunks re-appends the sentence separator, so text that already
-		// ended in a period comes back with two.
-		if ( '..' === substr( $trimmed, -2 ) && '...' !== substr( $trimmed, -3 ) ) {
-			$trimmed = substr( $trimmed, 0, -1 );
-		}
-
-		return $trimmed;
+		return trim( $chunks[0] );
 	}
 }

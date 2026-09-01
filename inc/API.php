@@ -1865,10 +1865,22 @@ class API extends BaseAPI {
 		}
 
 		$source_scores = [];
+		$cutoff        = null;
 
 		foreach ( $knowledge_points as $point ) {
 			if ( empty( $point['post_title'] ) || empty( $point['post_content'] ) || empty( $point['token_count'] ) ) {
 				continue;
+			}
+
+			// Qdrant returns points best-first, so the first scored point is
+			// the top match; weaker stragglers below its relative cutoff stay
+			// out of the context (see relative_score_cutoff()).
+			if ( isset( $point['score'] ) ) {
+				if ( null === $cutoff ) {
+					$cutoff = self::relative_score_cutoff( (float) $point['score'] );
+				} elseif ( (float) $point['score'] < $cutoff ) {
+					break;
+				}
 			}
 
 			$tokens_count = intval( $point['token_count'] );
@@ -1969,18 +1981,7 @@ class API extends BaseAPI {
 
 			if ( $current_token_count > $tokens_threshold ) {
 				// Sort by score and drop the ones that do not fit in the context.
-				usort(
-					$matched_articles,
-					function ( $a, $b ) {
-						if ( $a['score'] < $b['score'] ) {
-							return 1;
-						} elseif ( $a['score'] > $b['score'] ) {
-							return -1;
-						} else {
-							return 0;
-						}
-					}
-				);
+				usort( $matched_articles, [ __CLASS__, 'compare_by_score' ] );
 
 				while ( $current_token_count > $tokens_threshold ) {
 					$article = array_pop( $matched_articles );
@@ -1999,6 +2000,24 @@ class API extends BaseAPI {
 		if ( empty( $matched_articles ) ) {
 			return $articles_embedded_data;
 		}
+
+		// The strongest matches go first in the context blob even when
+		// everything fit the budget; otherwise the order is whatever the
+		// database returned, and models weight early context more.
+		usort( $matched_articles, [ __CLASS__, 'compare_by_score' ] );
+
+		// Weak stragglers that merely cleared the noise floor stay out of the
+		// context; only chunks competitive with the best match get in.
+		$cutoff = self::relative_score_cutoff( $matched_articles[0]['score'] );
+
+		$matched_articles = array_values(
+			array_filter(
+				$matched_articles,
+				function ( $article ) use ( $cutoff ) {
+					return $article['score'] >= $cutoff;
+				}
+			)
+		);
 
 		$source_scores = [];
 
@@ -2045,6 +2064,57 @@ class API extends BaseAPI {
 		$this->source_post_ids = $this->rank_sources( $source_scores );
 
 		return $articles_embedded_data;
+	}
+
+	/**
+	 * Compare two matched articles by score, highest first.
+	 *
+	 * @since 1.5.1
+	 *
+	 * @param array<string, mixed> $a First article, with a `score` key.
+	 * @param array<string, mixed> $b Second article, with a `score` key.
+	 *
+	 * @return int
+	 */
+	private static function compare_by_score( $a, $b ) {
+		return $b['score'] <=> $a['score'];
+	}
+
+	/**
+	 * The minimum score a chunk must reach to share the context with the best
+	 * match for this query.
+	 *
+	 * An absolute score cannot tell an answerable question from an
+	 * unanswerable one — a specific question about one table row scores lower
+	 * against its (correct) page than an off-topic question scores against a
+	 * tangential one. So within the absolute noise floor, chunks are kept
+	 * relative to the best match for this query, and the model judges from
+	 * the retrieved text itself whether the question can be answered.
+	 *
+	 * @since 1.5.1
+	 *
+	 * @param float $top_score The best similarity score for this query.
+	 *
+	 * @return float
+	 */
+	private static function relative_score_cutoff( $top_score ) {
+		/**
+		 * Filters how close to the best match a chunk must score, as a ratio
+		 * of the top score (0–1), to be included in the chat context. A higher
+		 * value keeps only near-equal matches; 0 keeps everything above the
+		 * similarity score threshold.
+		 *
+		 * @since 1.5.1
+		 *
+		 * @param float $ratio The minimum score ratio relative to the best match. Default 0.6.
+		 */
+		$ratio = (float) apply_filters( 'hyve_context_score_ratio', 0.6 );
+
+		if ( $ratio <= 0 ) {
+			return 0.0;
+		}
+
+		return $top_score * min( 1.0, $ratio );
 	}
 
 	/**
@@ -2103,9 +2173,21 @@ class API extends BaseAPI {
 	 *
 	 * @return string The articles blob data that match the given message vector.
 	 */
-	public function search_knowledge_base( $message_vector, $similarity_score_threshold = 0.4, $tokens_threshold = 2000 ) {
+	public function search_knowledge_base( $message_vector, $similarity_score_threshold = 0.25, $tokens_threshold = 2000 ) {
 		$this->source_post_ids = [];
 		$this->retrieval_trace = [];
+
+		/**
+		 * Filters the token budget for the knowledge base context sent with a
+		 * chat message. Matched chunks are added best-first until the budget
+		 * is full; a larger budget lets more of the knowledge base reach the
+		 * model at a higher API cost per message.
+		 *
+		 * @since 1.5.1
+		 *
+		 * @param int $tokens_threshold Maximum context tokens. Default 2000.
+		 */
+		$tokens_threshold = (int) apply_filters( 'hyve_chat_context_token_limit', $tokens_threshold );
 
 		if ( Qdrant_API::is_active() ) {
 			return $this->search_knowledge_base_qdrant( $message_vector, $similarity_score_threshold, $tokens_threshold );
@@ -2119,12 +2201,17 @@ class API extends BaseAPI {
 	 *
 	 * Retrieval embeds this text and searches the knowledge base with it. For the
 	 * first message it is just the question. For follow-ups it also blends in the
-	 * most recent turns of the conversation, so a topic-less question such as
-	 * "How difficult is it?" still carries the subject ("pickleball") into the
+	 * visitor's most recent turns, so a topic-less question such as "How
+	 * difficult is it?" still carries the subject ("pickleball") into the
 	 * search and matches the relevant content, instead of embedding a query with
 	 * no topic that finds nothing. The model already receives the conversation
 	 * history through the OpenAI conversation; this closes the same gap for
 	 * retrieval.
+	 *
+	 * Only the visitor's turns are blended. Bot replies either echo knowledge
+	 * base text (inflating every follow-up's similarity scores) or are fallback
+	 * apologies ("Sorry, I'm not able to help with that") that drag the query
+	 * off-topic, so they carry no retrieval signal of their own.
 	 *
 	 * @param string     $message   The current user message.
 	 * @param int|string $record_id The thread post ID, when the conversation exists.
@@ -2144,14 +2231,15 @@ class API extends BaseAPI {
 		}
 
 		/**
-		 * Filters how many recent messages are blended into the retrieval query.
+		 * Filters how many recent visitor messages are blended into the
+		 * retrieval query.
 		 *
 		 * Set to 0 to disable conversation-aware retrieval and search with the
 		 * current message only.
 		 *
 		 * @since 1.5.0
 		 *
-		 * @param int    $count     Number of most recent messages to include. Default 6.
+		 * @param int    $count     Number of most recent visitor messages to include. Default 6.
 		 * @param string $thread_id The OpenAI conversation ID, when one exists.
 		 */
 		$count = (int) apply_filters( 'hyve_retrieval_history_count', 6, $thread_id );
@@ -2170,7 +2258,14 @@ class API extends BaseAPI {
 		$parts = [];
 
 		if ( $count > 0 && ! empty( $history ) ) {
-			$recent = array_slice( $history, - $count );
+			$user_turns = array_filter(
+				$history,
+				function ( $entry ) {
+					return isset( $entry['sender'] ) && 'user' === $entry['sender'];
+				}
+			);
+
+			$recent = array_slice( $user_turns, - $count );
 
 			foreach ( $recent as $entry ) {
 				if ( empty( $entry['message'] ) ) {
@@ -2861,14 +2956,17 @@ class API extends BaseAPI {
 		 *
 		 * The similarity score threshold determines the minimum cosine similarity
 		 * required for an article to be considered relevant to the user's query.
-		 * A higher value means stricter matching, while a lower value allows for
-		 * broader results.
+		 * This is a noise floor: within it, only chunks scoring close to the best
+		 * match are kept (see `hyve_context_score_ratio`), and the model judges
+		 * from the retrieved text whether the question can be answered. A higher
+		 * value means stricter matching, while a lower value allows for broader
+		 * results.
 		 *
 		 * @since 1.4.0
 		 *
-		 * @param float $similarity_score_threshold The similarity score threshold. Default 0.4.
+		 * @param float $similarity_score_threshold The similarity score threshold. Default 0.25.
 		 */
-		$similarity_score_threshold = apply_filters( 'hyve_similarity_score_threshold', 0.4 );
+		$similarity_score_threshold = apply_filters( 'hyve_similarity_score_threshold', 0.25 );
 
 		$article_context = $this->search_knowledge_base( $message_vector, $similarity_score_threshold );
 
