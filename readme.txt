@@ -1,6 +1,6 @@
 === Hyve Lite – AI Chatbot Trained on WordPress Posts, Pages, Products & More with ChatGPT ===
 Contributors: themeisle, hardeepasrani
-Tags: ai chatbot, chatbot, chatgpt, customer support, ai assistant
+Tags: ai chatbot, chatbot, chatgpt, knowledge base, ai assistant
 Requires at least: 6.2
 Tested up to: 7.1
 Requires PHP: 7.4
@@ -16,9 +16,11 @@ Every site gets the same handful of questions over and over. What does this cost
  
 Hyve is a conversational AI assistant and WordPress chatbot trained on your own content. Using retrieval-augmented generation (RAG), it searches the posts, pages, products, and other content you choose, then generates answers based only on what it finds.
  
-It suits any site with content worth searching. A blog with hundreds of posts, a documentation site people keep emailing about, a service business answering the same pricing questions, or a WooCommerce store.
+It suits any site with content worth searching. A blog with hundreds of posts, a documentation site people keep emailing about, a service business answering the same presales and pricing questions, or an ecommerce store running WooCommerce.
 
-Whether you're helping customers find products, answering customer support questions, or making documentation easier to search, Hyve turns your WordPress content into an AI knowledge base that visitors can chat with naturally.
+Whether you're helping customers find products, answering customer support and customer service questions, or making documentation easier to search, Hyve turns your WordPress content into an AI knowledge base that visitors can chat with naturally.
+
+Run it as an FAQ chatbot on your pricing page, a support bot for your help desk, or an AI search assistant for your documentation.
 
 [Hyve Pro](https://themeisle.com/plugins/hyve/?utm_source=plugin-readme&utm_medium=hyvelite&utm_campaign=quicklinks) | [Free vs Pro](https://themeisle.com/plugins/hyve/?utm_source=plugin-readme&utm_medium=hyvelite&utm_campaign=freevspro#free-vs-pro) | [Documentation](https://docs.themeisle.com/hyve/) | [Support Forum](https://wordpress.org/support/plugin/hyve-lite/)
 
@@ -30,7 +32,7 @@ Whether you're helping customers find products, answering customer support quest
 
 ### Two ways to power the AI
  
-**Hyve Connect:** We host the AI, and the free plan includes free monthly credits, so there is no API key to manage. It is the easiest way to run an AI chatbot without an API key. Install it, pick your content, and the chatbot answers the same day.
+**Hyve Connect:** We host the AI, and the free plan includes free monthly credits, so there is no API key to manage. It is the easiest way to run a free AI chatbot without an API key. Install it, pick your content, and the chatbot answers the same day.
  
 **Your own OpenAI key:** Bring an OpenAI account you already have and choose from the same GPT models behind ChatGPT, starting with GPT-4o mini. As your traffic grows, you can trade cost against answer quality while paying OpenAI directly for what you use, with no per-message fee to us.
 
@@ -50,8 +52,9 @@ Build an AI knowledge base from the content you already publish, without copying
 
 * Add posts, pages, WooCommerce products, and any custom post type, so the AI chatbot handles product questions as readily as blog or documentation questions
 * Edit a page and Hyve re-indexes it on save, so nobody gets an answer from an old version
-* Every answer links back to the page it came from, so visitors can click through and read more
-* Scale your AI knowledge base to thousands of documents by connecting an external vector database like [Qdrant](https://qdrant.tech/).
+* Every answer cites its sources, with numbered links back to the pages it came from, so visitors can click through and read more
+* Hyve turns your content into embeddings for semantic search, and scales to thousands of documents when you connect an external vector database like [Qdrant](https://qdrant.tech/)
+* Include private and password-protected posts in the knowledge base, with role-based permissions controlling who can view conversations
  
 **Put the chat where you want it**
 
@@ -69,6 +72,7 @@ Shape how your AI assistant talks to visitors while keeping conversations safe a
 * Content moderation screens visitor messages before they reach the AI
 * Chat sound and message timestamps, both optional
 * Read your three most recent conversations from the dashboard and see what people are actually asking
+* Privacy controls and an optional chat privacy notice help you meet GDPR and privacy-policy requirements
 
 ### More with Hyve Pro
  
@@ -76,7 +80,7 @@ Shape how your AI assistant talks to visitors while keeping conversations safe a
  
 **More knowledge sources**
 
-Expand your AI knowledge base beyond WordPress by importing files and external websites.
+Expand your AI knowledge base beyond WordPress by importing files and external websites, so visitors can chat with your documents and PDFs.
  
 * Import PDF, Word, Markdown, text and CSV files, which turns manuals, policies and price lists into answers without republishing them
 * Crawl any website URL, or add a whole site through its sitemap, for documentation that lives outside WordPress
@@ -84,7 +88,7 @@ Expand your AI knowledge base beyond WordPress by importing files and external w
  
 **Turn conversations into leads**
 
-Never lose a potential customer. Capture leads inside the chat and keep the full conversation alongside every enquiry.
+Never lose a potential customer. Turn the chat into a lead generation channel, capturing leads with the full conversation alongside every enquiry.
  
 * A contact form inside the chat, with the fields you choose, so the chatbot doubles as a lead capture form
 * Show it before the chat starts, when the bot cannot answer, or when a visitor asks to speak to a person
@@ -92,9 +96,9 @@ Never lose a potential customer. Capture leads inside the chat and keep the full
  
 **Skills for live website answers**
 
-Go beyond your knowledge base by letting Hyve retrieve live information from your website while keeping every action read-only.
+Go beyond your knowledge base by letting Hyve act as a read-only AI agent that retrieves live information from your website.
 
-* Search your WooCommerce catalog and return live prices and stock, so nobody is pointed at a product that sold out
+* Act as a WooCommerce assistant that searches your catalog and returns live prices and stock, so nobody is pointed at a product that sold out
 * Check a signed-in customer's order status, with identity taken from their account rather than an order number
 * Run a site search when the knowledge base does not cover a question, then point the visitor to the right article
 * You decide which skills are switched on, and every one of them is read-only
