@@ -109,6 +109,7 @@ class Main {
 
 		add_filter( 'themeisle_sdk_blackfriday_data', [ $this, 'add_black_friday_data' ] );
 		add_filter( 'hyve_lite_about_us_metadata', [ $this, 'about_us_metadata' ] );
+		add_filter( 'hyve_lite_ai_connect_metadata', [ $this, 'ai_connect_metadata' ] );
 		add_action( 'admin_init', [ $this, 'admin_init' ] );
 		add_action( 'admin_init', [ $this, 'add_privacy_policy_content' ] );
 		add_action( 'admin_notices', [ $this, 'encryption_key_notice' ] );
@@ -1215,6 +1216,37 @@ class Main {
 			'upgrade_link'     => tsdk_utmify( 'https://themeisle.com/plugins/hyve/', 'about-us' ),
 			'upgrade_text'     => __( 'Upgrade to Pro', 'hyve-lite' ),
 			'review_link'      => 'https://wordpress.org/support/plugin/hyve-lite/reviews/',
+		];
+	}
+
+	/**
+	 * Set the AI Connect metadata.
+	 *
+	 * @return array{name: string, notice_cases: array<string>, prompts: array<string>, abilities: array<string>} The AI Connect metadata.
+	 */
+	public function ai_connect_metadata() {
+		return [
+			'name'         => 'Hyve',
+			'notice_cases' => [
+				__( 'add posts to the knowledge base', 'hyve-lite' ),
+				__( 'test what the chatbot retrieves', 'hyve-lite' ),
+				__( 'update the chatbot messages', 'hyve-lite' ),
+			],
+			'prompts'      => [
+				__( 'List what is in my Hyve knowledge base and test which sources it retrieves for the question "What are your opening hours?".', 'hyve-lite' ),
+				__( 'Add my About and FAQ pages to the chatbot knowledge base and change the welcome message to "Hi! Ask me anything about our services."', 'hyve-lite' ),
+				__( 'Find every knowledge source that was edited since it was indexed, reprocess each one and tell me when they are all up to date.', 'hyve-lite' ),
+			],
+			'abilities'    => [
+				'hyve/list-knowledge-sources',
+				'hyve/upsert-knowledge-source',
+				'hyve/remove-source',
+				'hyve/test-retrieval',
+				'hyve/get-chat-policy',
+				'hyve/update-chat-policy',
+				'hyve/list-leads',
+				'hyve/list-unanswered-questions',
+			],
 		];
 	}
 
