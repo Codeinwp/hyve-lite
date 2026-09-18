@@ -91,7 +91,11 @@ class Abilities {
 				'show_in_rest' => true,
 			];
 
-			unset( $definition['annotations'] );
+			if ( isset( $definition['task'] ) ) {
+				$definition['meta']['task'] = $definition['task'];
+			}
+
+			unset( $definition['annotations'], $definition['task'] );
 
 			wp_register_ability( $name, $definition );
 		}
@@ -119,10 +123,19 @@ class Abilities {
 			],
 		];
 
+		$progress_schema = [
+			'type'       => 'object',
+			'properties' => [
+				'current' => [ 'type' => 'integer' ],
+				'total'   => [ 'type' => 'integer' ],
+				'message' => [ 'type' => 'string' ],
+			],
+		];
+
 		return [
 			'hyve/list-knowledge-sources'    => [
 				'label'               => __( 'List knowledge sources', 'hyve-lite' ),
-				'description'         => __( 'List the content in the Hyve knowledge base with its type, indexing state, chunk count and processing error. Filter by post_id or state.', 'hyve-lite' ),
+				'description'         => __( 'List the content in the Hyve knowledge base with its type, indexing state, chunk count and processing error. Filter by post_id or state. Pass the job_id returned by hyve/upsert-knowledge-source to get the state and progress of that import.', 'hyve-lite' ),
 				'input_schema'        => [
 					'type'       => 'object',
 					'default'    => [],
@@ -145,11 +158,27 @@ class Abilities {
 							'minimum'     => 1,
 							'description' => 'Page number, 20 sources per page. Default 1.',
 						],
+						'job_id'  => [
+							'type'        => 'string',
+							'description' => 'job_id returned by hyve/upsert-knowledge-source. Returns the state and progress of that import; the other filters are ignored.',
+						],
 					],
 				],
 				'output_schema'       => [
 					'type'       => 'object',
 					'properties' => [
+						'job_id'       => [ 'type' => 'string' ],
+						'state'        => [
+							'type'        => 'string',
+							'enum'        => [ 'working', 'completed', 'failed', 'cancelled' ],
+							'description' => 'Only with job_id.',
+						],
+						'progress'     => $progress_schema,
+						'skipped'      => [
+							'type'        => 'array',
+							'items'       => [ 'type' => 'string' ],
+							'description' => 'Sitemap pages that could not be imported. Only with a sitemap job_id.',
+						],
 						'sources'      => [
 							'type'  => 'array',
 							'items' => $source_schema,
@@ -171,7 +200,7 @@ class Abilities {
 			],
 			'hyve/upsert-knowledge-source'   => [
 				'label'               => __( 'Add or update a knowledge source', 'hyve-lite' ),
-				'description'         => __( 'Add a post, URL, document, sitemap or manual text to the Hyve knowledge base, or reprocess an existing source with reindex. Posts work in every edition; the other types need Hyve Pro.', 'hyve-lite' ),
+				'description'         => __( 'Add a post, URL, document, sitemap or manual text to the Hyve knowledge base, or reprocess an existing source with reindex. Posts work in every edition; the other types need Hyve Pro. A sitemap is imported in the background: pass the returned job_id to hyve/list-knowledge-sources to follow it.', 'hyve-lite' ),
 				'input_schema'        => [
 					'type'       => 'object',
 					'properties' => [
@@ -222,6 +251,10 @@ class Abilities {
 						'source'  => $source_schema,
 						'status'  => [ 'type' => 'string' ],
 						'warning' => [ 'type' => 'string' ],
+						'job_id'  => [
+							'type'        => 'string',
+							'description' => 'Reference to pass to hyve/list-knowledge-sources for the import state.',
+						],
 					],
 				],
 				'execute_callback'    => [ $this, 'upsert_knowledge_source' ],
@@ -230,6 +263,10 @@ class Abilities {
 					'readonly'    => false,
 					'destructive' => false,
 					'idempotent'  => true,
+				],
+				'task'                => [
+					'mode'           => 'poll',
+					'status_ability' => 'hyve/list-knowledge-sources',
 				],
 			],
 			'hyve/remove-source'             => [
@@ -263,7 +300,7 @@ class Abilities {
 			],
 			'hyve/test-retrieval'            => [
 				'label'               => __( 'Test knowledge base retrieval', 'hyve-lite' ),
-				'description'         => __( 'Run a question against the Hyve knowledge base and return the sources and chunks it retrieves. Uses the embedding service, which may incur cost.', 'hyve-lite' ),
+				'description'         => __( 'Run a question against the Hyve knowledge base and return the sources and chunks it retrieves. Changes nothing on the site, but calls the OpenAI moderation and embeddings API, which may incur cost.', 'hyve-lite' ),
 				'input_schema'        => [
 					'type'       => 'object',
 					'properties' => [
@@ -320,9 +357,9 @@ class Abilities {
 				'execute_callback'    => [ $this, 'test_retrieval' ],
 				'permission_callback' => [ $this, 'can_manage' ],
 				'annotations'         => [
-					'readonly'    => false,
-					'destructive' => true,
-					'idempotent'  => false,
+					'readonly'    => true,
+					'destructive' => false,
+					'idempotent'  => true,
 				],
 			],
 			'hyve/get-chat-policy'           => [
@@ -499,7 +536,12 @@ class Abilities {
 	 * @return array<string, mixed>|\WP_Error
 	 */
 	public function list_knowledge_sources( $input = [] ) {
-		$input   = is_array( $input ) ? $input : [];
+		$input = is_array( $input ) ? $input : [];
+
+		if ( isset( $input['job_id'] ) && '' !== $input['job_id'] ) {
+			return $this->get_job_status( (string) $input['job_id'] );
+		}
+
 		$post_id = isset( $input['post_id'] ) ? absint( $input['post_id'] ) : 0;
 		$page    = isset( $input['page'] ) ? max( 1, absint( $input['page'] ) ) : 1;
 		$state   = isset( $input['state'] ) ? sanitize_key( (string) $input['state'] ) : '';
@@ -652,7 +694,10 @@ class Abilities {
 		}
 
 		if ( 'sitemap' === $type ) {
-			return [ 'status' => 'queued' ];
+			return [
+				'status' => 'queued',
+				'job_id' => 'sitemap:' . md5( $ref ),
+			];
 		}
 
 		if ( 0 === $source_id && ! empty( $created ) ) {
@@ -662,6 +707,10 @@ class Abilities {
 		$response = [
 			'status' => 'saved',
 		];
+
+		if ( $source_id > 0 ) {
+			$response['job_id'] = 'source:' . $source_id;
+		}
 
 		if ( $source_id > 0 && '' !== $this->get_source_state( $source_id ) ) {
 			$listed = $this->list_knowledge_sources( [ 'post_id' => $source_id ] );
@@ -678,6 +727,93 @@ class Abilities {
 		}
 
 		return $response;
+	}
+
+	/**
+	 * The state of an import started by the upsert ability.
+	 *
+	 * The job ID is a stateless reference: `source:<post ID>` for a source that
+	 * was saved in the request, `sitemap:<hash>` for a sitemap queue.
+	 *
+	 * @param string $job_id Job ID.
+	 *
+	 * @return array<string, mixed>|\WP_Error
+	 */
+	private function get_job_status( $job_id ) {
+		if ( ! preg_match( '/^(source|sitemap):([a-f0-9]+)$/', $job_id, $matches ) ) {
+			return new \WP_Error( 'hyve_invalid_job_id', __( 'Unknown job_id. Use the job_id returned by hyve/upsert-knowledge-source.', 'hyve-lite' ) );
+		}
+
+		if ( 'sitemap' === $matches[1] ) {
+			/**
+			 * Filters the state of a sitemap import, which Hyve Pro owns.
+			 *
+			 * @param array<string, mixed>|\WP_Error|null $status Null while no edition handled the job.
+			 * @param string                              $hash   Sitemap hash.
+			 */
+			$status = apply_filters( 'hyve_abilities_sitemap_status', null, $matches[2] );
+
+			if ( null === $status ) {
+				return $this->pro_required();
+			}
+
+			if ( is_wp_error( $status ) ) {
+				return $status;
+			}
+
+			return array_merge( [ 'job_id' => $job_id ], (array) $status );
+		}
+
+		$source_id = absint( $matches[2] );
+		$listed    = $this->list_knowledge_sources( [ 'post_id' => $source_id ] );
+		$listed    = is_wp_error( $listed ) ? [] : $listed;
+		$source    = ! empty( $listed['sources'] ) ? $listed['sources'][0] : [];
+		$state     = 'completed';
+		$message   = __( 'The source is in the knowledge base.', 'hyve-lite' );
+
+		if ( empty( $source ) ) {
+			$state   = 'failed';
+			$message = __( 'This content is not in the knowledge base.', 'hyve-lite' );
+		} elseif ( 'moderation' === $source['state'] ) {
+			$state   = 'failed';
+			$message = __( 'The content failed the moderation check.', 'hyve-lite' );
+		} elseif ( 'pending' === $source['state'] || $this->has_scheduled_chunks( $source_id ) ) {
+			$state   = 'working';
+			$message = ! empty( $source['error'] ) ? $source['error'] : __( 'The source is waiting to be processed.', 'hyve-lite' );
+		} elseif ( ! empty( $source['error'] ) ) {
+			$state   = 'failed';
+			$message = $source['error'];
+		}
+
+		return array_merge(
+			$listed,
+			[
+				'job_id'   => $job_id,
+				'state'    => $state,
+				'progress' => [
+					'current' => 'completed' === $state ? 1 : 0,
+					'total'   => 1,
+					'message' => $message,
+				],
+			]
+		);
+	}
+
+	/**
+	 * Whether a source still has chunks waiting for the background retry.
+	 *
+	 * @param int $post_id Post ID.
+	 *
+	 * @return bool
+	 */
+	private function has_scheduled_chunks( $post_id ) {
+		foreach ( DB_Table::instance()->get_by_status( 'scheduled' ) as $row ) {
+			if ( (int) $row->post_id === $post_id ) {
+				return true;
+			}
+		}
+
+		return false;
 	}
 
 	/**
