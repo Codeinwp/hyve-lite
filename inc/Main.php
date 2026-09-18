@@ -54,6 +54,7 @@ class Main {
 		new Block();
 		new Threads();
 		new Stream();
+		new Abilities();
 
 		add_action( 'admin_menu', [ $this, 'register_menu_page' ] );
 		add_filter( 'user_has_cap', [ $this, 'grant_message_capabilities' ] );

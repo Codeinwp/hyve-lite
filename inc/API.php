@@ -2197,6 +2197,18 @@ class API extends BaseAPI {
 	}
 
 	/**
+	 * Get what the last knowledge base search retrieved.
+	 *
+	 * @return array{sources: array<int, int|string>, chunks: array<int, array<string, mixed>>}
+	 */
+	public function get_last_retrieval() {
+		return [
+			'sources' => $this->source_post_ids,
+			'chunks'  => $this->retrieval_trace,
+		];
+	}
+
+	/**
 	 * Build the text used for knowledge base retrieval.
 	 *
 	 * Retrieval embeds this text and searches the knowledge base with it. For the
