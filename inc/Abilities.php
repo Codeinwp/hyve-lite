@@ -39,6 +39,13 @@ class Abilities {
 	const MAX_LINKS = 500;
 
 	/**
+	 * Hyve Pro page, the same upgrade link the dashboard uses.
+	 *
+	 * @var string
+	 */
+	const UPGRADE_URL = 'https://themeisle.com/plugins/hyve/';
+
+	/**
 	 * Settings the chat policy abilities never read or write: credentials,
 	 * the connection mode and admin-only preferences.
 	 *
@@ -373,8 +380,12 @@ class Abilities {
 				'output_schema'       => [
 					'type'       => 'object',
 					'properties' => [
-						'settings'   => [ 'type' => 'object' ],
-						'pro_active' => [ 'type' => 'boolean' ],
+						'settings'    => [ 'type' => 'object' ],
+						'pro_active'  => [ 'type' => 'boolean' ],
+						'upgrade_url' => [
+							'type'        => 'string',
+							'description' => __( 'Where to get Hyve Pro. Only present while Hyve Pro is not active.', 'hyve-lite' ),
+						],
 					],
 				],
 				'execute_callback'    => [ $this, 'get_chat_policy' ],
@@ -680,7 +691,7 @@ class Abilities {
 				);
 
 				if ( null === $result ) {
-					$result = $this->pro_required();
+					$result = $this->pro_required( 'knowledge-sources' );
 				}
 			}
 		} catch ( \Exception $e ) {
@@ -754,7 +765,7 @@ class Abilities {
 			$status = apply_filters( 'hyve_abilities_sitemap_status', null, $matches[2] );
 
 			if ( null === $status ) {
-				return $this->pro_required();
+				return $this->pro_required( 'sitemap-import' );
 			}
 
 			if ( is_wp_error( $status ) ) {
@@ -981,10 +992,16 @@ class Abilities {
 		$settings = array_diff_key( Main::get_settings(), array_flip( self::EXCLUDED_SETTINGS ) );
 		$policy   = array_intersect_key( $settings, $this->get_policy_schema() );
 
-		return [
+		$result = [
 			'settings'   => $policy,
 			'pro_active' => $this->is_pro_active(),
 		];
+
+		if ( ! $result['pro_active'] ) {
+			$result['upgrade_url'] = $this->upgrade_url( 'chat-settings' );
+		}
+
+		return $result;
 	}
 
 	/**
@@ -1023,8 +1040,8 @@ class Abilities {
 			}
 
 			if ( isset( $pro_schema[ $key ] ) && ! in_array( $key, $pro_keys, true ) ) {
-				return new \WP_Error(
-					'hyve_pro_required',
+				return $this->pro_required(
+					'chat-settings',
 					// translators: %s: setting key.
 					sprintf( __( 'The %s setting needs Hyve Pro with an active license.', 'hyve-lite' ), $key )
 				);
@@ -1086,7 +1103,7 @@ class Abilities {
 			]
 		);
 
-		return null === $result ? $this->pro_required() : $result;
+		return null === $result ? $this->pro_required( 'leads' ) : $result;
 	}
 
 	/**
@@ -1114,7 +1131,7 @@ class Abilities {
 			]
 		);
 
-		return null === $result ? $this->pro_required() : $result;
+		return null === $result ? $this->pro_required( 'unanswered-questions' ) : $result;
 	}
 
 	/**
@@ -1372,12 +1389,37 @@ class Abilities {
 	}
 
 	/**
+	 * The Hyve Pro upgrade link, tagged for the agent that relays it.
+	 *
+	 * @param string $area Gated feature, used as the campaign.
+	 *
+	 * @return string
+	 */
+	private function upgrade_url( $area ) {
+		return tsdk_translate_link( tsdk_utmify( self::UPGRADE_URL, $area, 'mcp' ) );
+	}
+
+	/**
 	 * The error for a feature that belongs to Hyve Pro.
+	 *
+	 * @param string $area    Gated feature, used as the upgrade link campaign.
+	 * @param string $message Optional message that replaces the generic one.
 	 *
 	 * @return \WP_Error
 	 */
-	private function pro_required() {
-		return new \WP_Error( 'hyve_pro_required', __( 'This feature needs Hyve Pro with an active license.', 'hyve-lite' ) );
+	private function pro_required( $area, $message = '' ) {
+		$url = $this->upgrade_url( $area );
+
+		if ( '' === $message ) {
+			$message = __( 'This feature needs Hyve Pro with an active license.', 'hyve-lite' );
+		}
+
+		return new \WP_Error(
+			'hyve_pro_required',
+			// translators: 1: why the request was refused, 2: upgrade link.
+			sprintf( __( '%1$s Upgrade: %2$s', 'hyve-lite' ), $message, $url ),
+			[ 'upgrade_url' => $url ]
+		);
 	}
 
 	/**
