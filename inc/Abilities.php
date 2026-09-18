@@ -200,7 +200,7 @@ class Abilities {
 			],
 			'hyve/upsert-knowledge-source'   => [
 				'label'               => __( 'Add or update a knowledge source', 'hyve-lite' ),
-				'description'         => __( 'Add a post, URL, document, sitemap or manual text to the Hyve knowledge base, or reprocess an existing source with reindex. Posts work in every edition; the other types need Hyve Pro. A sitemap is imported in the background: pass the returned job_id to hyve/list-knowledge-sources to follow it.', 'hyve-lite' ),
+				'description'         => __( 'Add a post, URL, document, sitemap or manual text to the Hyve knowledge base, or reprocess an existing source with reindex. Posts work in every edition; the other types need Hyve Pro. Returns a job_id; content may be processed in the background (always for a sitemap): call hyve/list-knowledge-sources with that job_id until state is no longer working.', 'hyve-lite' ),
 				'input_schema'        => [
 					'type'       => 'object',
 					'properties' => [
