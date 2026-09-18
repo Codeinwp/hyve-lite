@@ -1229,11 +1229,11 @@ class Main {
 			'name'         => 'Hyve',
 			'notice_cases' => [
 				__( 'add posts to the knowledge base', 'hyve-lite' ),
-				__( 'test what the chatbot retrieves', 'hyve-lite' ),
+				__( 'check what the chatbot knows', 'hyve-lite' ),
 				__( 'update the chatbot messages', 'hyve-lite' ),
 			],
 			'prompts'      => [
-				__( 'List what is in my Hyve knowledge base and test which sources it retrieves for the question "What are your opening hours?".', 'hyve-lite' ),
+				__( 'Show me what is in my Hyve knowledge base and flag any source that failed to process or was rejected by moderation.', 'hyve-lite' ),
 				__( 'Add my About and FAQ pages to the chatbot knowledge base and change the welcome message to "Hi! Ask me anything about our services."', 'hyve-lite' ),
 				__( 'Find every knowledge source that was edited since it was indexed, reprocess each one and tell me when they are all up to date.', 'hyve-lite' ),
 			],
