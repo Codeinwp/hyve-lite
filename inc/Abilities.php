@@ -916,8 +916,16 @@ class Abilities {
 			return new \WP_Error( 'hyve_retrieval_unavailable', __( 'Retrieval cannot be tested while Hyve Connect is active.', 'hyve-lite' ) );
 		}
 
-		if ( ! Main::is_api_key_connected( Main::get_settings() ) ) {
-			return new \WP_Error( 'hyve_api_key_missing', __( 'Connect a valid OpenAI API key first.', 'hyve-lite' ) );
+		$settings = Main::get_settings();
+
+		if ( ! Main::is_api_key_connected( $settings ) ) {
+			// A key that is set but rejected keeps the readable message the
+			// dashboard shows for its last error; no key at all gets the
+			// message the chat returns.
+			$last_error = empty( $settings['api_key'] ) ? [] : (array) get_option( OpenAI::ERROR_OPTION_KEY, [] );
+			$message    = empty( $last_error['code'] ) ? null : OpenAI::get_error_message_for_code( (string) $last_error['code'] );
+
+			return new \WP_Error( 'hyve_api_key_missing', $message ?? __( 'No OpenAI API key is set. Add your API key in the Hyve settings.', 'hyve-lite' ) );
 		}
 
 		$openai     = OpenAI::instance();
