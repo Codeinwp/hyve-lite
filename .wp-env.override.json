@@ -7,7 +7,6 @@
 		"FS_METHOD": "direct",
 		"E2E_TESTING": true
 	},
-	"phpVersion": "7.4",
 	"lifecycleScripts": {
 		"afterStart": "bash bin/e2e-tests.sh"
 	}
