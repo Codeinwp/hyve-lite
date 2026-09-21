@@ -1234,7 +1234,7 @@ class Main {
 			],
 			'prompts'        => [
 				__( 'Add my Pricing, FAQ and Shipping pages to my Hyve chatbot knowledge base.', 'hyve-lite' ),
-				__( 'Ask my knowledge base "What is your refund policy?" and tell me if the chatbot would find a good answer.', 'hyve-lite' ),
+				__( 'Refresh the knowledge base for every page that changed since it was indexed.', 'hyve-lite' ),
 				__( 'Change the chatbot welcome message to "Hi! Ask me anything about our services."', 'hyve-lite' ),
 			],
 			'ability_prefix' => 'hyve',
