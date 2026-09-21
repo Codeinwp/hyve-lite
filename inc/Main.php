@@ -1222,31 +1222,22 @@ class Main {
 	/**
 	 * Set the AI Connect metadata.
 	 *
-	 * @return array{name: string, notice_cases: array<string>, prompts: array<string>, abilities: array<string>} The AI Connect metadata.
+	 * @return array{name: string, notice_cases: array<string>, prompts: array<string>, ability_prefix: string} The AI Connect metadata.
 	 */
 	public function ai_connect_metadata() {
 		return [
-			'name'         => 'Hyve',
-			'notice_cases' => [
+			'name'           => 'Hyve',
+			'notice_cases'   => [
 				__( 'add pages to the knowledge base', 'hyve-lite' ),
 				__( 'test what the chatbot knows', 'hyve-lite' ),
 				__( 'update the chatbot messages', 'hyve-lite' ),
 			],
-			'prompts'      => [
+			'prompts'        => [
 				__( 'Add my Pricing, FAQ and Shipping pages to my Hyve chatbot knowledge base.', 'hyve-lite' ),
 				__( 'Ask my knowledge base "What is your refund policy?" and tell me if the chatbot would find a good answer.', 'hyve-lite' ),
 				__( 'Change the chatbot welcome message to "Hi! Ask me anything about our services."', 'hyve-lite' ),
 			],
-			'abilities'    => [
-				'hyve/list-knowledge-sources',
-				'hyve/upsert-knowledge-source',
-				'hyve/remove-source',
-				'hyve/test-retrieval',
-				'hyve/get-chat-policy',
-				'hyve/update-chat-policy',
-				'hyve/list-leads',
-				'hyve/list-unanswered-questions',
-			],
+			'ability_prefix' => 'hyve',
 		];
 	}
 
