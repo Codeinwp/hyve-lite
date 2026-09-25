@@ -303,11 +303,12 @@ class API extends BaseAPI {
 							'type'     => 'string',
 						],
 						'record_id' => [
-							'required' => true,
-							'type'     => [
+							'required'          => true,
+							'type'              => [
 								'string',
 								'integer',
 							],
+							'sanitize_callback' => [ $this, 'sanitize_chat_record' ],
 						],
 						'message'   => [
 							'required' => false,
@@ -336,11 +337,12 @@ class API extends BaseAPI {
 							'type'     => 'string',
 						],
 						'record_id' => [
-							'required' => false,
-							'type'     => [
+							'required'          => false,
+							'type'              => [
 								'string',
 								'integer',
 							],
+							'sanitize_callback' => [ $this, 'sanitize_chat_record' ],
 						],
 						'is_test'   => [
 							'required' => false,
@@ -376,6 +378,28 @@ class API extends BaseAPI {
 
 			register_rest_route( $namespace, '/' . $route, $args );
 		}
+	}
+
+	/**
+	 * Sanitize the chat routes' `record_id` down to a thread the caller owns.
+	 *
+	 * The chat routes are public, so a foreign record ID is dropped here, before
+	 * any handler can read or append to another visitor's conversation.
+	 *
+	 * @param mixed                                  $value   The raw record ID.
+	 * @param \WP_REST_Request<array<string, mixed>> $request Request object.
+	 * @param string                                 $param   Parameter name.
+	 *
+	 * @return int|\WP_Error The owned thread post ID, 0 when not owned.
+	 */
+	public function sanitize_chat_record( $value, $request, $param ) {
+		$value = rest_parse_request_arg( $value, $request, $param );
+
+		if ( is_wp_error( $value ) ) {
+			return $value;
+		}
+
+		return Threads::resolve_record( $value, $request->get_param( 'thread_id' ) );
 	}
 
 	/**
