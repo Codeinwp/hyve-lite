@@ -148,13 +148,13 @@ class Threads {
 	 * @param mixed $record_id The thread post ID from the request.
 	 * @param mixed $thread_id The conversation id from the request.
 	 *
-	 * @return int The thread post ID, or 0 when it does not belong to the caller.
+	 * @return int<0, max> The thread post ID, or 0 when it does not belong to the caller.
 	 */
 	public static function resolve_record( $record_id, $thread_id ) {
 		$record_id = is_scalar( $record_id ) ? absint( $record_id ) : 0;
 		$thread_id = is_scalar( $thread_id ) ? (string) $thread_id : '';
 
-		if ( ! $record_id || '' === $thread_id || 'hyve_threads' !== get_post_type( $record_id ) ) {
+		if ( $record_id < 1 || '' === $thread_id || 'hyve_threads' !== get_post_type( $record_id ) ) {
 			return 0;
 		}
 

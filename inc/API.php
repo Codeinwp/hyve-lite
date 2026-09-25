@@ -390,7 +390,7 @@ class API extends BaseAPI {
 	 * @param \WP_REST_Request<array<string, mixed>> $request Request object.
 	 * @param string                                 $param   Parameter name.
 	 *
-	 * @return int|\WP_Error The owned thread post ID, 0 when not owned.
+	 * @return int<0, max>|\WP_Error The owned thread post ID, 0 when not owned.
 	 */
 	public function sanitize_chat_record( $value, $request, $param ) {
 		$value = rest_parse_request_arg( $value, $request, $param );

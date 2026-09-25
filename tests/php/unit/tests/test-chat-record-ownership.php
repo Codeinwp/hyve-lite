@@ -24,7 +24,7 @@ class Test_Chat_Record_Ownership extends WP_UnitTestCase {
 	private $seen_record = 'unset';
 
 	/**
-	 * Run as an anonymous visitor with outbound HTTP blocked.
+	 * Run as an anonymous, rate-limited visitor with outbound HTTP blocked.
 	 */
 	public function set_up() {
 		parent::set_up();
@@ -38,20 +38,15 @@ class Test_Chat_Record_Ownership extends WP_UnitTestCase {
 			}
 		);
 
+		// Short-circuit send_chat() before any OpenAI call.
+		add_filter(
+			'hyve_chat_rate_limits',
+			function () {
+				return [ MINUTE_IN_SECONDS => 0 ];
+			}
+		);
+
 		add_filter( 'rest_request_before_callbacks', [ $this, 'capture_record' ], 10, 3 );
-	}
-
-	/**
-	 * Restore the visitor and the filters.
-	 */
-	public function tear_down() {
-		remove_all_filters( 'pre_http_request' );
-		remove_all_filters( 'hyve_chat_rate_limits' );
-		remove_filter( 'rest_request_before_callbacks', [ $this, 'capture_record' ], 10 );
-
-		wp_set_current_user( 1 );
-
-		parent::tear_down();
 	}
 
 	/**
@@ -149,13 +144,6 @@ class Test_Chat_Record_Ownership extends WP_UnitTestCase {
 	public function test_chat_routes_drop_foreign_record() {
 		$record_id = $this->create_thread( 'conv_victim' );
 
-		add_filter(
-			'hyve_chat_rate_limits',
-			function () {
-				return [ MINUTE_IN_SECONDS => 0 ];
-			}
-		);
-
 		$this->chat(
 			'POST',
 			[
@@ -203,13 +191,6 @@ class Test_Chat_Record_Ownership extends WP_UnitTestCase {
 	 */
 	public function test_rate_limited_event_only_on_own_thread() {
 		$record_id = $this->create_thread( 'conv_victim' );
-
-		add_filter(
-			'hyve_chat_rate_limits',
-			function () {
-				return [ MINUTE_IN_SECONDS => 0 ];
-			}
-		);
 
 		$response = $this->chat(
 			'POST',
