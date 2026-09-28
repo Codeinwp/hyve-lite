@@ -137,7 +137,36 @@ class Threads {
 
 		return $record_id;
 	}
-	
+
+	/**
+	 * Resolve a client-supplied thread record the caller actually owns.
+	 *
+	 * Record IDs are sequential post IDs, so they prove nothing on their own.
+	 * The conversation id is known only to the visitor who holds it, so the
+	 * record is accepted only when it matches the one stored on the thread.
+	 *
+	 * @param mixed $record_id The thread post ID from the request.
+	 * @param mixed $thread_id The conversation id from the request.
+	 *
+	 * @return int<0, max> The thread post ID, or 0 when it does not belong to the caller.
+	 */
+	public static function resolve_record( $record_id, $thread_id ) {
+		$record_id = is_scalar( $record_id ) ? absint( $record_id ) : 0;
+		$thread_id = is_scalar( $thread_id ) ? (string) $thread_id : '';
+
+		if ( $record_id < 1 || '' === $thread_id || 'hyve_threads' !== get_post_type( $record_id ) ) {
+			return 0;
+		}
+
+		$stored = (string) get_post_meta( $record_id, '_hyve_thread_id', true );
+
+		// Placeholder threads carry no id, so there is nothing to prove ownership with.
+		if ( '' === $stored || ! hash_equals( $stored, $thread_id ) ) {
+			return 0;
+		}
+
+		return $record_id;
+	}
 
 	/**
 	 * Build a stored transcript entry, carrying an optional `display` (skill
