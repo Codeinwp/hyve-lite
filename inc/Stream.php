@@ -544,6 +544,8 @@ class Stream {
 		);
 
 		if ( ! $is_test ) {
+			API::cache_question_vector( $message, isset( $result['question_embedding'] ) ? $result['question_embedding'] : null );
+
 			do_action( 'hyve_chat_response', $thread, $thread, $message, $record_id, $payload, $final );
 		}
 
