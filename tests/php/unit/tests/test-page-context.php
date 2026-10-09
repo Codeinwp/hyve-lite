@@ -5,7 +5,9 @@
  * @package Codeinwp/HyveLite
  */
 
+use ThemeIsle\HyveLite\API;
 use ThemeIsle\HyveLite\DB_Table;
+use ThemeIsle\HyveLite\Hyve_Connect;
 use ThemeIsle\HyveLite\Page_Context;
 
 /**
@@ -345,5 +347,66 @@ class Test_Page_Context extends WP_UnitTestCase {
 		$this->assertArrayNotHasKey( 'title', $payload );
 		$this->assertSame( $this->home_root_url(), $payload['url'] );
 		$this->assertSame( 'Plans start at $9.', $payload['content'] );
+	}
+
+	/**
+	 * The page title never reaches the embedded retrieval query. It pulled the
+	 * embedding toward the page the visitor is already on, which is the one page
+	 * they do not need retrieved: on Home, "what is your address?" matched
+	 * Home's own chunks and the address document lost.
+	 */
+	public function test_page_title_is_not_embedded_in_the_retrieval_query() {
+		update_option(
+			'hyve_settings',
+			[
+				'ai_mode' => Hyve_Connect::MODE_SELF,
+				'api_key' => 'sk-test',
+			]
+		);
+
+		// OpenAI::instance() reads the key once and caches the instance for the
+		// process, so an earlier test can leave a keyless one behind.
+		$instance = new \ReflectionProperty( \ThemeIsle\HyveLite\OpenAI::class, 'instance' );
+		$instance->setAccessible( true );
+		$instance->setValue( null, null );
+
+		$embedded = [];
+
+		add_filter(
+			'pre_http_request',
+			function ( $pre, $args, $url ) use ( &$embedded ) {
+				if ( false !== strpos( $url, '/moderations' ) ) {
+					return [
+						'response' => [ 'code' => 200 ],
+						'body'     => wp_json_encode( [ 'results' => [ [ 'flagged' => false ] ] ] ),
+					];
+				}
+
+				if ( false !== strpos( $url, '/embeddings' ) ) {
+					$body       = json_decode( $args['body'], true );
+					$embedded[] = $body['input'];
+
+					return [
+						'response' => [ 'code' => 200 ],
+						'body'     => wp_json_encode( [ 'data' => [ [ 'embedding' => [ 0.1, 0.2, 0.3 ] ] ] ] ),
+					];
+				}
+
+				return $pre;
+			},
+			10,
+			3
+		);
+
+		// A supplied thread id keeps the turn off create_conversation(), so the
+		// only outbound calls are the two faked above.
+		$request = new WP_REST_Request( 'POST', '/hyve/v1/chat' );
+		$request->set_param( 'message', 'what is your address?' );
+		$request->set_param( 'page_url', get_permalink( $this->post_id ) );
+		$request->set_param( 'thread_id', 'conv_local' );
+
+		API::instance()->send_chat( $request );
+
+		$this->assertSame( [ 'what is your address?' ], $embedded );
 	}
 }
