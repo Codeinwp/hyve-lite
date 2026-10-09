@@ -605,9 +605,7 @@ class DB_Table {
 		// delete below leaves a flag that can be aged out instead of sticking.
 		update_post_meta( $post_id, '_hyve_post_processing', time() );
 
-		$content = Hyve_Connect::is_active()
-			? get_post_field( 'post_content', $post_id )
-			: apply_filters( 'the_content', get_post_field( 'post_content', $post_id ) );
+		$content = apply_filters( 'the_content', get_post_field( 'post_content', $post_id ) );
 
 		$result = $this->ingest_document(
 			[
@@ -667,9 +665,10 @@ class DB_Table {
 	 * @throws \Exception If Qdrant API fails.
 	 */
 	public function ingest_document( $doc, $args = [] ) {
-		// No extractable text (media-only content, empty page): refuse up front
-		// so nothing is queued or marked as added in either mode.
-		if ( '' === trim( wp_strip_all_tags( (string) ( $doc['content'] ?? '' ) ) ) ) {
+		// No extractable text (media-only content, empty page, a body that is
+		// only a shortcode): refuse up front so nothing is queued or marked as
+		// added in either mode.
+		if ( '' === Tokenizer::html_to_text( (string) ( $doc['content'] ?? '' ) ) ) {
 			return new \WP_Error( 'empty_content', __( 'There is no text content to index.', 'hyve-lite' ) );
 		}
 

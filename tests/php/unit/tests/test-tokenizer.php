@@ -136,4 +136,48 @@ class Test_Tokenizer extends WP_UnitTestCase {
 		$this->assertCount( 1, $chunks );
 		$this->assertSame( "First sentence.\nSecond one!\nThird?", $chunks[0] );
 	}
+
+	/**
+	 * On one hosted practice 304 of 358 chunks were mostly `[vc_row]`
+	 * attributes rather than text. The wrapped text survives; the markers go.
+	 */
+	public function test_html_to_text_strips_leftover_shortcodes() {
+		$builder = '[vc_row css="%7B%22default%22%3A%7B%22margin-top%22%3A%2230px%22%7D%7D"][vc_column width="1/2"]' .
+			'[us_iconbox icon="fa-clock" title="Hours"]Open Monday to Friday, 8am to 6pm.[/us_iconbox][/vc_column][/vc_row]';
+
+		$text = Tokenizer::html_to_text( $builder );
+
+		$this->assertSame( 'Open Monday to Friday, 8am to 6pm.', $text );
+		$this->assertStringNotContainsString( '%22', $text );
+	}
+
+	/**
+	 * `the_content` texturizes attribute quotes into curly ones before the
+	 * content reaches here, so the stripper has to match those too.
+	 */
+	public function test_html_to_text_strips_shortcodes_with_curly_quotes() {
+		$text = Tokenizer::html_to_text( '[vc_row css=”%7B%22a%22%3A1%7D”]Rates from $9.[/vc_row]' );
+
+		$this->assertSame( 'Rates from $9.', $text );
+	}
+
+	/**
+	 * A document that is only a shortcode renders to nothing, which is what
+	 * lets ingest refuse it instead of storing an 18-character chunk that
+	 * outranks real pages.
+	 */
+	public function test_html_to_text_empties_a_shortcode_only_document() {
+		$this->assertSame( '', Tokenizer::html_to_text( '[woocommerce_checkout]' ) );
+		$this->assertSame( '', Tokenizer::html_to_text( '[ihc-logout-link]' ) );
+	}
+
+	/**
+	 * Square brackets in prose are not shortcodes: citations, numeric ranges
+	 * and bracketed asides have to survive.
+	 */
+	public function test_html_to_text_keeps_bracketed_prose() {
+		$prose = 'See footnote [1] and reference [23]. The study [Note: revised in 2024] priced it at [100] to [200].';
+
+		$this->assertSame( $prose, Tokenizer::html_to_text( $prose ) );
+	}
 }

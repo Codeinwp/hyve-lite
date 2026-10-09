@@ -23,6 +23,10 @@ class Tokenizer {
 	 * This keeps that structure as text: cells become "label | value" pairs,
 	 * block elements become line breaks, and entities are decoded.
 	 *
+	 * Shortcode markers are dropped and the text they wrap kept: `the_content`
+	 * only expands shortcodes whose plugin is active, so an inactive builder or
+	 * content copied from another site leaves tags behind.
+	 *
 	 * @since 1.5.1
 	 *
 	 * @param string $content HTML (or plain text) content.
@@ -35,6 +39,10 @@ class Tokenizer {
 		if ( '' === trim( $content ) ) {
 			return '';
 		}
+
+		// The name must be followed by whitespace or the bracket, so bracketed
+		// prose ("[1]", "[Note: revised]") is left alone.
+		$content = (string) preg_replace( '/\[\/?[a-zA-Z][a-zA-Z0-9_-]*(?:\s[^\]]*?)?\/?\]/', '', $content );
 
 		$content = (string) preg_replace(
 			[
