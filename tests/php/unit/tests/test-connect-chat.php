@@ -260,10 +260,6 @@ class ConnectChatTest extends WP_UnitTestCase {
 		// Retrieval reads the knowledge base table on this path.
 		\ThemeIsle\HyveLite\DB_Table::instance()->create_table();
 
-		// Drop any HTTP stub an earlier test left behind, so the fakes below
-		// are the ones that answer.
-		remove_all_filters( 'pre_http_request' );
-
 		update_option(
 			'hyve_settings',
 			[
