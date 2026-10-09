@@ -253,11 +253,15 @@ class ConnectChatTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * The self-hosted path caches its locally embedded vector through the same
-	 * helper, so both modes stay readable under one key.
+	 * Both modes cache the same question under one key, so the unanswered-question
+	 * recorder reads one place whichever mode answered. Self-hosted already wrote
+	 * this key; Connect joining it there is what makes the key shared.
 	 */
-	public function test_self_hosted_chat_caches_the_question_vector() {
-		// Retrieval reads the knowledge base table on this path.
+	public function test_both_modes_cache_under_the_same_key() {
+		$message = 'Mennyibe kerül a szállítás?';
+		$key     = 'hyve_message_' . hash( 'md5', strtolower( $message ) );
+
+		// Retrieval reads the knowledge base table on the self-hosted path.
 		\ThemeIsle\HyveLite\DB_Table::instance()->create_table();
 
 		update_option(
@@ -300,13 +304,31 @@ class ConnectChatTest extends WP_UnitTestCase {
 		// A supplied thread id keeps the turn off create_conversation(), so the
 		// only outbound calls are the two faked above.
 		$send = new WP_REST_Request( 'POST', '/hyve/v1/chat' );
-		$send->set_param( 'message', 'Mennyibe kerül a szállítás?' );
+		$send->set_param( 'message', $message );
 		$send->set_param( 'thread_id', 'conv_local' );
 
 		API::instance()->send_chat( $send );
 
-		$hash = hash( 'md5', strtolower( 'Mennyibe kerül a szállítás?' ) );
+		$this->assertSame( [ 0.7, 0.8, 0.9 ], get_transient( $key ) );
 
-		$this->assertSame( [ 0.7, 0.8, 0.9 ], get_transient( 'hyve_message_' . $hash ) );
+		// The same question over Connect lands on that same key, with the vector
+		// the platform embedded rather than a local one.
+		delete_transient( $key );
+		remove_all_filters( 'pre_http_request' );
+
+		update_option( 'hyve_settings', [ 'ai_mode' => Hyve_Connect::MODE_CONNECT ] );
+
+		$this->intercept_job_complete(
+			[
+				'thread_id'          => 'th-6',
+				'answered'           => false,
+				'reply'              => '',
+				'question_embedding' => [ 0.1, 0.2, 0.3 ],
+			]
+		);
+
+		$this->run_connect_turn( $message );
+
+		$this->assertSame( [ 0.1, 0.2, 0.3 ], get_transient( $key ) );
 	}
 }
