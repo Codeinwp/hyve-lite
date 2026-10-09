@@ -2959,14 +2959,12 @@ class API extends BaseAPI {
 			);
 		}
 
-		$openai          = OpenAI::instance();
-		$record_id       = $request->get_param( 'record_id' );
-		$record_id       = $record_id ? $record_id : null;
+		$openai    = OpenAI::instance();
+		$record_id = $request->get_param( 'record_id' );
+		$record_id = $record_id ? $record_id : null;
+		// The current page stays out of the query: context_block() attaches it to
+		// the context on its own budget.
 		$retrieval_query = $this->build_retrieval_query( $message, $record_id, $request->get_param( 'thread_id' ) );
-
-		if ( $page && '' !== $page['title'] ) {
-			$retrieval_query .= "\n" . $page['title'];
-		}
 
 		$message_vector = $openai->create_embeddings( $retrieval_query );
 
