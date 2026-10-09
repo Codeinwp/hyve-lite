@@ -2884,10 +2884,38 @@ class API extends BaseAPI {
 		);
 
 		if ( empty( $job['is_test'] ) ) {
+			self::cache_question_vector( $job['message'], isset( $result['question_embedding'] ) ? $result['question_embedding'] : null );
+
 			do_action( 'hyve_chat_response', (string) $run_id, $job['thread_id'], $job['message'], $job['record_id'], $payload, $final );
 		}
 
 		return rest_ensure_response( $data );
+	}
+
+	/**
+	 * Cache the embedded query for the turn being answered.
+	 *
+	 * Read back on `hyve_chat_response` by unanswered-question analytics, which
+	 * group questions by cosine distance. Self-hosted embeds locally; Connect
+	 * embeds server-side and returns the vector with an unanswered turn, so
+	 * both transports store it here under the same key.
+	 *
+	 * The TTL must outlast the slowest reply (streaming can run up to the 120s
+	 * cURL cap) so the vector is still there when the action fires.
+	 *
+	 * @param string $message Visitor message, as sent.
+	 * @param mixed  $vector  Embedding for the turn; ignored unless a non-empty array.
+	 *
+	 * @return void
+	 */
+	public static function cache_question_vector( $message, $vector ) {
+		if ( ! is_array( $vector ) || empty( $vector ) ) {
+			return;
+		}
+
+		$hash = hash( 'md5', strtolower( (string) $message ) );
+
+		set_transient( 'hyve_message_' . $hash, $vector, 5 * MINUTE_IN_SECONDS );
 	}
 
 	/**
@@ -3043,11 +3071,7 @@ class API extends BaseAPI {
 			$this->chat_debug['page_context'] = true;
 		}
 
-		$hash = hash( 'md5', strtolower( $message ) );
-		// TTL must outlast the slowest reply (streaming can run up to the 120s
-		// cURL cap) so the embedding is still available when hyve_chat_response
-		// fires and unanswered-question analytics can read it.
-		set_transient( 'hyve_message_' . $hash, $message_vector, 5 * MINUTE_IN_SECONDS );
+		self::cache_question_vector( $message, $message_vector );
 
 		return [
 			'thread_id' => $thread_id,
