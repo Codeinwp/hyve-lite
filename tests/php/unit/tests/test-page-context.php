@@ -398,9 +398,7 @@ class Test_Page_Context extends WP_UnitTestCase {
 					];
 				}
 
-				// Nothing else may leave the test. Returning $pre here would let
-				// an unfaked call reach the network, which passes with it and
-				// behaves differently without it.
+				// Fail any unfaked request instead of letting it reach the network.
 				return new \WP_Error( 'unexpected_request', 'Unfaked outbound request: ' . $url );
 			},
 			10,
