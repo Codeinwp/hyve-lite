@@ -665,18 +665,32 @@ class DB_Table {
 	 * @throws \Exception If Qdrant API fails.
 	 */
 	public function ingest_document( $doc, $args = [] ) {
+		$result = $this->run_ingest( $doc, $args );
+
+		// The row reports the latest attempt. Moderation has its own meta.
+		if ( is_wp_error( $result ) && 'content_failed_moderation' !== $result->get_error_code() ) {
+			$this->record_processing_error( (int) ( $args['post_id'] ?? 0 ), $result, false );
+		}
+
+		return $result;
+	}
+
+	/**
+	 * Run the ingest pipeline. Failures return without recording; the caller
+	 * records them.
+	 *
+	 * @param array<string, mixed> $doc  The document, with `title` and `content` keys.
+	 * @param array<string, mixed> $args Ingestion options (see ingest_document()).
+	 *
+	 * @return true|\WP_Error
+	 * @throws \Exception If Qdrant API fails.
+	 */
+	private function run_ingest( $doc, $args ) {
 		// No extractable text (media-only content, empty page, a body that is
 		// only a shortcode): refuse up front so nothing is queued or marked as
 		// added in either mode.
 		if ( '' === Tokenizer::html_to_text( (string) ( $doc['content'] ?? '' ) ) ) {
-			$error = new \WP_Error( 'empty_content', __( 'There is no text content to index.', 'hyve-lite' ) );
-
-			// Recorded, not just returned: the caller shows a snackbar that is
-			// gone on reload, and the listing would offer Add again with no
-			// sign of why it did nothing. An edit clears this.
-			$this->record_processing_error( (int) ( $args['post_id'] ?? 0 ), $error, false );
-
-			return $error;
+			return new \WP_Error( 'empty_content', __( 'There is no text content to index.', 'hyve-lite' ) );
 		}
 
 		// Connect mode ships the whole document to the platform, which chunks,

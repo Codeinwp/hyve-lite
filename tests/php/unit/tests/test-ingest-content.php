@@ -369,22 +369,27 @@ class IngestContentTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * A retry that fails again leaves the row explaining itself: the platform
-	 * failure returns before the source is marked added and records no reason
-	 * of its own.
+	 * A retry that fails for a new reason has to report that one.
 	 */
-	public function test_a_failed_retry_keeps_the_reason_it_still_has(): void {
+	public function test_a_failed_retry_reports_its_own_reason(): void {
 		update_option( 'hyve_settings', [ 'ai_mode' => Hyve_Connect::MODE_CONNECT ] );
 
 		$post_id = $this->factory()->post->create(
 			[
 				'post_type'    => 'page',
 				'post_status'  => 'publish',
-				'post_content' => 'The clinic is open Monday to Friday.',
+				'post_content' => '[hyve_test_hours]',
 			]
 		);
 
-		update_post_meta( $post_id, '_hyve_processing_error', 'Hyve Connect could not index this content. Fix the reported issue and re-add this content.' );
+		DB_Table::instance()->add_post( $post_id, 'add' );
+
+		$refusal = (string) get_post_meta( $post_id, '_hyve_processing_error', true );
+		$this->assertStringContainsString( 'no text content to index', $refusal );
+
+		// The shortcode now renders, so the page has text. The platform is what
+		// fails this time.
+		$this->register_hours_shortcode();
 
 		add_filter(
 			'pre_http_request',
@@ -397,10 +402,12 @@ class IngestContentTest extends WP_UnitTestCase {
 			2
 		);
 
-		$result = DB_Table::instance()->add_post( $post_id, 'add' );
+		$result  = DB_Table::instance()->add_post( $post_id, 'add' );
+		$current = (string) get_post_meta( $post_id, '_hyve_processing_error', true );
 
 		$this->assertWPError( $result );
 		$this->assertEmpty( get_post_meta( $post_id, '_hyve_added', true ) );
-		$this->assertNotEmpty( get_post_meta( $post_id, '_hyve_processing_error', true ) );
+		$this->assertNotEmpty( $current );
+		$this->assertStringNotContainsString( 'no text content to index', $current );
 	}
 }
