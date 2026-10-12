@@ -350,10 +350,8 @@ class Test_Page_Context extends WP_UnitTestCase {
 	}
 
 	/**
-	 * The page title never reaches the embedded retrieval query. It pulled the
-	 * embedding toward the page the visitor is already on, which is the one page
-	 * they do not need retrieved: on Home, "what is your address?" matched
-	 * Home's own chunks and the address document lost.
+	 * The page title stays out of the embedded retrieval query: it biases
+	 * retrieval toward the current page, which context_block() already attaches.
 	 */
 	public function test_page_title_is_not_embedded_in_the_retrieval_query() {
 		update_option(
@@ -392,14 +390,24 @@ class Test_Page_Context extends WP_UnitTestCase {
 					];
 				}
 
-				return $pre;
+				// The turn ends by queueing a background run.
+				if ( false !== strpos( $url, '/responses' ) ) {
+					return [
+						'response' => [ 'code' => 200 ],
+						'body'     => wp_json_encode( [ 'id' => 'resp_test' ] ),
+					];
+				}
+
+				// Nothing else may leave the test. Returning $pre here would let
+				// an unfaked call reach the network, which passes with it and
+				// behaves differently without it.
+				return new \WP_Error( 'unexpected_request', 'Unfaked outbound request: ' . $url );
 			},
 			10,
 			3
 		);
 
-		// A supplied thread id keeps the turn off create_conversation(), so the
-		// only outbound calls are the two faked above.
+		// A supplied thread id keeps the turn off create_conversation().
 		$request = new WP_REST_Request( 'POST', '/hyve/v1/chat' );
 		$request->set_param( 'message', 'what is your address?' );
 		$request->set_param( 'page_url', get_permalink( $this->post_id ) );
