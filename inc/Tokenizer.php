@@ -40,11 +40,12 @@ class Tokenizer {
 			return '';
 		}
 
-		// Anything after the name has to look like a `name="value"` attribute,
-		// which is what keeps bracketed prose ("[1]", "[see below]", "[Open 9am
-		// to 6pm]") out of the match. Once a tag does carry an attribute, the
-		// text up to the next `]` goes with it. The run is possessive only so
-		// that an unclosed `[tag attr=` cannot fail on backtracking.
+		// A name has to start with a letter, and anything after it has to look
+		// like a `name="value"` attribute. Between them those keep bracketed
+		// prose ("[1]", "[see below]", "[Open 9am to 6pm]") out of the match.
+		// Once a tag does carry an attribute, the text up to the next `]` goes
+		// with it. The run is possessive only so that an unclosed `[tag attr=`
+		// cannot fail on backtracking.
 		$stripped = preg_replace( '/\[\/?[a-zA-Z][a-zA-Z0-9_-]*(?:\s+[a-zA-Z0-9_-]+\s*=[^\]]*+)?\s*\/?\]/', '', $content );
 
 		// Keep the text if the engine gave up: an empty document is refused on
