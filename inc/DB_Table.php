@@ -952,8 +952,7 @@ class DB_Table {
 	 *
 	 * Every path that sends a post to Connect reads it from here, so the content
 	 * the platform stores and the content its hash is computed from are the same
-	 * string. They diverged once, and reconcile then re-pushed every edited post
-	 * forever.
+	 * string.
 	 *
 	 * @param int $post_id The post id.
 	 *

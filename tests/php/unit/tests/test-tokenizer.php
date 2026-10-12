@@ -172,25 +172,19 @@ class Test_Tokenizer extends WP_UnitTestCase {
 	}
 
 	/**
-	 * Square brackets in prose are not shortcodes: citations, numeric ranges
-	 * and bracketed asides have to survive.
-	 */
-	public function test_html_to_text_keeps_bracketed_prose() {
-		$prose = 'See footnote [1] and reference [23]. The study [Note: revised in 2024] priced it at [100] to [200].';
-
-		$this->assertSame( $prose, Tokenizer::html_to_text( $prose ) );
-	}
-
-	/**
-	 * A bracketed aside of several words is still prose. Opening hours are the
-	 * case that matters: they are exactly the text a visitor asks for.
+	 * Square brackets in prose are not shortcodes: citations, numeric ranges and
+	 * bracketed asides have to survive the markup being stripped around them.
+	 * Opening hours are the case that matters, being exactly what visitors ask
+	 * for.
 	 *
 	 * @dataProvider provide_bracketed_prose
 	 *
 	 * @param string $prose The text to keep.
 	 */
-	public function test_html_to_text_keeps_multi_word_bracketed_prose( $prose ) {
-		$this->assertSame( $prose, Tokenizer::html_to_text( $prose ) );
+	public function test_html_to_text_keeps_bracketed_prose( $prose ) {
+		$wrapped = '[vc_column_text css="%7B%22a%22%3A1%7D"]' . $prose . '[/vc_column_text]';
+
+		$this->assertSame( $prose, Tokenizer::html_to_text( $wrapped ) );
 	}
 
 	/**
@@ -200,18 +194,21 @@ class Test_Tokenizer extends WP_UnitTestCase {
 	 */
 	public function provide_bracketed_prose() {
 		return [
+			'footnotes'       => [ 'See footnote [1] and reference [23]. The study [Note: revised in 2024] priced it at [100] to [200].' ],
 			'opening hours'   => [ 'Hours: [Open 9am to 6pm] daily.' ],
 			'clinic hours'    => [ 'Clinic [Mon-Fri 9-5] only.' ],
 			'citation needed' => [ 'The rate rose [citation needed] last year.' ],
 			'cross reference' => [ 'Prices vary [see below] by region.' ],
 			'dated aside'     => [ 'The fee is $40 [as of 2024] per visit.' ],
 			'markdown link'   => [ 'Read [the docs](https://example.test/guide) first.' ],
+			'unclosed tag'    => [ 'Opening hours [see the notes below and ask at the desk.' ],
 		];
 	}
 
 	/**
 	 * An unclosed `[tag ` used to run to whatever bracket came next, taking the
-	 * page with it. The attribute run is possessive now, so it stops at the tag.
+	 * page with it. It carries no `name="value"` attribute, so it is no longer
+	 * read as a tag at all and the text between survives.
 	 */
 	public function test_html_to_text_does_not_swallow_the_page_after_an_unclosed_tag() {
 		$text = 'Opening hours [see the notes below ' . str_repeat( 'We are open on weekdays. ', 400 ) . '[gallery ids="1,2"] The end.';

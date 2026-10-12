@@ -206,6 +206,10 @@ class IngestContentTest extends WP_UnitTestCase {
 		$table->connect_run_sync();
 
 		$this->assertCount( 2, $captured );
+
+		// Asserted outright, not just against each other: before this change
+		// both paths sent raw `[hyve_test_hours]`, so they agreed on markup.
+		$this->assertSame( 'Open Monday to Friday, 8am to 6pm.', $captured[1]['content'] );
 		$this->assertSame( $captured[0]['content'], $captured[1]['content'] );
 
 		// The manifest hash reconcile compares against the platform's.
