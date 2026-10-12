@@ -33,6 +33,31 @@ class IngestContentTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Shortcodes are global and the framework does not roll them back.
+	 */
+	protected function tearDown(): void {
+		remove_shortcode( 'hyve_test_hours' );
+
+		parent::tearDown();
+	}
+
+	/**
+	 * Register a shortcode that renders text, as an active plugin would.
+	 *
+	 * @param string $output What the shortcode renders.
+	 *
+	 * @return void
+	 */
+	private function register_hours_shortcode( $output = 'Open Monday to Friday, 8am to 6pm.' ) {
+		add_shortcode(
+			'hyve_test_hours',
+			function () use ( $output ) {
+				return $output;
+			}
+		);
+	}
+
+	/**
 	 * Capture every document sent to the platform, answering each call with a
 	 * stored result so ingest completes.
 	 *
@@ -121,6 +146,104 @@ class IngestContentTest extends WP_UnitTestCase {
 		$stored = $wpdb->get_var( $wpdb->prepare( "SELECT post_content FROM {$wpdb->prefix}hyve WHERE post_id = %d ORDER BY id DESC LIMIT 1", $post_id ) ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 
 		$this->assertSame( 'Open Monday to Friday, 8am to 6pm.', $stored );
+	}
+
+	/**
+	 * The text an active shortcode renders only exists after `the_content` runs,
+	 * so this is what tells rendering apart from stripping the markers.
+	 */
+	public function test_connect_sends_what_an_active_shortcode_renders() {
+		update_option( 'hyve_settings', [ 'ai_mode' => Hyve_Connect::MODE_CONNECT ] );
+
+		$this->register_hours_shortcode();
+
+		$post_id = $this->factory()->post->create(
+			[
+				'post_title'   => 'Clinic Opening Hours',
+				'post_status'  => 'publish',
+				'post_content' => '[hyve_test_hours]',
+			]
+		);
+
+		$captured = [];
+		$this->capture_upserts( $captured );
+
+		DB_Table::instance()->add_post( $post_id, 'add' );
+
+		$this->assertSame( 'Open Monday to Friday, 8am to 6pm.', $captured[0]['content'] );
+	}
+
+	/**
+	 * Bulk Add, the Connect sync and the reconcile manifest each used to build
+	 * the post's content their own way. The manifest hashed raw content while
+	 * the platform held the hash of rendered content, so every edited post
+	 * looked stale forever and was pushed again on each reconcile.
+	 */
+	public function test_every_connect_path_sends_the_same_content() {
+		update_option( 'hyve_settings', [ 'ai_mode' => Hyve_Connect::MODE_CONNECT ] );
+
+		$this->register_hours_shortcode();
+
+		$post_id = $this->factory()->post->create(
+			[
+				'post_title'   => 'Clinic Opening Hours',
+				'post_status'  => 'publish',
+				'post_content' => '[hyve_test_hours]',
+			]
+		);
+
+		$table = DB_Table::instance();
+
+		$captured = [];
+		$this->capture_upserts( $captured );
+
+		// The single add, which is what the platform stores and hashes.
+		$table->add_post( $post_id, 'add' );
+
+		// Drop the synced hash so the post is pending again, then run the sync
+		// path behind Bulk Add, enabling Connect, and the requeue.
+		delete_post_meta( $post_id, '_hyve_connect_synced_hash' );
+		$table->connect_run_sync();
+
+		$this->assertCount( 2, $captured );
+		$this->assertSame( $captured[0]['content'], $captured[1]['content'] );
+
+		// The manifest hash reconcile compares against the platform's.
+		$this->assertSame( hash( 'sha256', $captured[0]['content'] ), $table->connect_source_hash( $post_id ) );
+	}
+
+	/**
+	 * The knowledge base answers anonymous visitors, so content is rendered as
+	 * one. A shortcode that checks the current user must not hand the hosted
+	 * index what only a signed-in administrator can see.
+	 */
+	public function test_content_is_rendered_as_a_logged_out_visitor() {
+		update_option( 'hyve_settings', [ 'ai_mode' => Hyve_Connect::MODE_CONNECT ] );
+
+		add_shortcode(
+			'hyve_test_hours',
+			function () {
+				return is_user_logged_in() ? 'Private: staff rota for March.' : 'Open Monday to Friday, 8am to 6pm.';
+			}
+		);
+
+		wp_set_current_user( $this->factory()->user->create( [ 'role' => 'administrator' ] ) );
+
+		$post_id = $this->factory()->post->create(
+			[
+				'post_title'   => 'Clinic Opening Hours',
+				'post_status'  => 'publish',
+				'post_content' => '[hyve_test_hours]',
+			]
+		);
+
+		$captured = [];
+		$this->capture_upserts( $captured );
+
+		DB_Table::instance()->add_post( $post_id, 'add' );
+
+		$this->assertSame( 'Open Monday to Friday, 8am to 6pm.', $captured[0]['content'] );
+		$this->assertTrue( is_user_logged_in(), 'The acting user must be restored.' );
 	}
 
 	/**

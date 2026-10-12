@@ -40,9 +40,15 @@ class Tokenizer {
 			return '';
 		}
 
-		// The name must be followed by whitespace or the bracket, so bracketed
-		// prose ("[1]", "[Note: revised]") is left alone.
-		$content = (string) preg_replace( '/\[\/?[a-zA-Z][a-zA-Z0-9_-]*(?:\s[^\]]*?)?\/?\]/', '', $content );
+		// Anything after the name has to look like a `name="value"` attribute, so
+		// bracketed prose ("[1]", "[see below]", "[Open 9am to 6pm]") is left
+		// alone. The attribute run is possessive: a `[tag ` whose `]` is far away,
+		// or missing, would otherwise swallow the rest of the page.
+		$stripped = preg_replace( '/\[\/?[a-zA-Z][a-zA-Z0-9_-]*(?:\s+[a-zA-Z0-9_-]+\s*=[^\]]*+)?\s*\/?\]/', '', $content );
+
+		// Keep the text if the engine gave up: an empty document is refused on
+		// ingest, so a failed strip would drop the page entirely.
+		$content = null === $stripped ? $content : $stripped;
 
 		$content = (string) preg_replace(
 			[

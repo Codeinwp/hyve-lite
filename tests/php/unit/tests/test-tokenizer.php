@@ -180,4 +180,47 @@ class Test_Tokenizer extends WP_UnitTestCase {
 
 		$this->assertSame( $prose, Tokenizer::html_to_text( $prose ) );
 	}
+
+	/**
+	 * A bracketed aside of several words is still prose. Opening hours are the
+	 * case that matters: they are exactly the text a visitor asks for.
+	 *
+	 * @dataProvider provide_bracketed_prose
+	 *
+	 * @param string $prose The text to keep.
+	 */
+	public function test_html_to_text_keeps_multi_word_bracketed_prose( $prose ) {
+		$this->assertSame( $prose, Tokenizer::html_to_text( $prose ) );
+	}
+
+	/**
+	 * Bracketed asides that carry no `name="value"` attribute.
+	 *
+	 * @return array<string, array<int, string>>
+	 */
+	public function provide_bracketed_prose() {
+		return [
+			'opening hours'   => [ 'Hours: [Open 9am to 6pm] daily.' ],
+			'clinic hours'    => [ 'Clinic [Mon-Fri 9-5] only.' ],
+			'citation needed' => [ 'The rate rose [citation needed] last year.' ],
+			'cross reference' => [ 'Prices vary [see below] by region.' ],
+			'dated aside'     => [ 'The fee is $40 [as of 2024] per visit.' ],
+			'markdown link'   => [ 'Read [the docs](https://example.test/guide) first.' ],
+		];
+	}
+
+	/**
+	 * An unclosed `[tag ` used to run to whatever bracket came next, taking the
+	 * page with it. The attribute run is possessive now, so it stops at the tag.
+	 */
+	public function test_html_to_text_does_not_swallow_the_page_after_an_unclosed_tag() {
+		$text = 'Opening hours [see the notes below ' . str_repeat( 'We are open on weekdays. ', 400 ) . '[gallery ids="1,2"] The end.';
+
+		$result = Tokenizer::html_to_text( $text );
+
+		$this->assertStringContainsString( 'Opening hours [see the notes below', $result );
+		$this->assertStringContainsString( 'We are open on weekdays.', $result );
+		$this->assertStringContainsString( 'The end.', $result );
+		$this->assertStringNotContainsString( '[gallery', $result );
+	}
 }

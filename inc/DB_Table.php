@@ -605,7 +605,7 @@ class DB_Table {
 		// delete below leaves a flag that can be aged out instead of sticking.
 		update_post_meta( $post_id, '_hyve_post_processing', time() );
 
-		$content = apply_filters( 'the_content', get_post_field( 'post_content', $post_id ) );
+		$content = $this->post_source_content( $post_id );
 
 		$result = $this->ingest_document(
 			[
@@ -941,6 +941,37 @@ class DB_Table {
 	}
 
 	/**
+	 * The text a post contributes to the knowledge base.
+	 *
+	 * Rendered rather than raw: `the_content` expands blocks and shortcodes, so
+	 * a page-builder page yields its text instead of its markup. Rendered as a
+	 * logged-out visitor, because the knowledge base answers anonymous visitors
+	 * and a shortcode can hand a signed-in administrator more than the public
+	 * sees: core's `[gallery]` returns the captions of a private post's images
+	 * to anyone who passes `read_post`.
+	 *
+	 * Every path that sends a post to Connect reads it from here, so the content
+	 * the platform stores and the content its hash is computed from are the same
+	 * string. They diverged once, and reconcile then re-pushed every edited post
+	 * forever.
+	 *
+	 * @param int $post_id The post id.
+	 *
+	 * @return string
+	 */
+	private function post_source_content( $post_id ) {
+		$user = get_current_user_id();
+
+		wp_set_current_user( 0 );
+
+		try {
+			return (string) apply_filters( 'the_content', get_post_field( 'post_content', $post_id ) );
+		} finally {
+			wp_set_current_user( $user );
+		}
+	}
+
+	/**
 	 * Build the contract-shaped document for a Hyve Connect upsert.
 	 *
 	 * @param int                  $post_id The owning post id (site-scoped source id).
@@ -1237,7 +1268,7 @@ class DB_Table {
 				(int) $post_id,
 				[
 					'title'   => get_the_title( $post_id ),
-					'content' => get_post_field( 'post_content', $post_id ),
+					'content' => $this->post_source_content( (int) $post_id ),
 				]
 			);
 
@@ -1640,7 +1671,7 @@ class DB_Table {
 			(int) $post_id,
 			[
 				'title'   => get_the_title( $post_id ),
-				'content' => get_post_field( 'post_content', $post_id ),
+				'content' => $this->post_source_content( (int) $post_id ),
 			]
 		);
 
