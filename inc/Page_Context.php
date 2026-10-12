@@ -294,7 +294,10 @@ class Page_Context {
 				continue;
 			}
 
-			$count = intval( $chunk->token_count );
+			// The newline this chunk will be joined with costs a token of its
+			// own, so it is budgeted here; counting only the chunks let the
+			// block run over its limit by one token per join.
+			$count = intval( $chunk->token_count ) + ( empty( $parts ) ? 0 : 1 );
 
 			if ( $limit < $tokens + $count ) {
 				break;

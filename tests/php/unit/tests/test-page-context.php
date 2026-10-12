@@ -291,6 +291,39 @@ class Test_Page_Context extends WP_UnitTestCase {
 	}
 
 	/**
+	 * The joined block has to fit the budget, not just the chunks it is built
+	 * from: each newline between two chunks is a token of its own, so counting
+	 * only `token_count` let a page that filled the budget exactly run over it.
+	 */
+	public function test_pinned_chunks_budget_covers_the_joining_newlines() {
+		update_post_meta( $this->post_id, '_hyve_added', 1 );
+
+		add_filter( 'hyve_page_context_token_limit', fn () => 1000 );
+
+		$table = DB_Table::instance();
+
+		foreach ( [ 700, 300 ] as $index => $count ) {
+			$table->insert(
+				[
+					'post_id'      => $this->post_id,
+					'post_title'   => 'Blue Widget',
+					'post_content' => 'Chunk ' . $index . ' ' . str_repeat( 'alpha beta gamma delta ', 10 ),
+					'token_count'  => $count,
+					'post_status'  => 'processed',
+				]
+			);
+		}
+
+		$page  = Page_Context::instance()->for_request( $this->chat_request( get_permalink( $this->post_id ) ) );
+		$block = Page_Context::instance()->context_block( $page );
+
+		// 700 + 300 fills the budget exactly, so the second chunk cannot also
+		// bring a newline with it.
+		$this->assertStringContainsString( 'Chunk 0', $block );
+		$this->assertStringNotContainsString( 'Chunk 1', $block );
+	}
+
+	/**
 	 * When every chunk is already in context, the page is still identified.
 	 */
 	public function test_indexed_page_identity_marker_when_all_deduped() {
