@@ -207,8 +207,7 @@ class IngestContentTest extends WP_UnitTestCase {
 
 		$this->assertCount( 2, $captured );
 
-		// Asserted outright, not just against each other: before this change
-		// both paths sent raw `[hyve_test_hours]`, so they agreed on markup.
+		// Asserted outright too: two paths that both sent raw `[hyve_test_hours]` would still be equal.
 		$this->assertSame( 'Open Monday to Friday, 8am to 6pm.', $captured[1]['content'] );
 		$this->assertSame( $captured[0]['content'], $captured[1]['content'] );
 
