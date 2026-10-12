@@ -679,6 +679,11 @@ class DB_Table {
 			return $error;
 		}
 
+		// The document has text this time, so whatever a previous attempt
+		// recorded no longer describes it. Cleared here rather than on success
+		// so the listing stops showing it the moment the source is re-added.
+		delete_post_meta( (int) ( $args['post_id'] ?? 0 ), '_hyve_processing_error' );
+
 		// Connect mode ships the whole document to the platform, which chunks,
 		// moderates, embeds, and stores it. No local chunking/embedding/rows.
 		if ( Hyve_Connect::is_active() ) {

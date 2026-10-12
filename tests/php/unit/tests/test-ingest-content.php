@@ -274,7 +274,7 @@ class IngestContentTest extends WP_UnitTestCase {
 	 * so the listing has to carry its reason on a row that still offers Add,
 	 * or the admin reloads and sees nothing explaining the empty result.
 	 */
-	public function test_a_skipped_page_keeps_a_visible_status_in_the_list() {
+	public function test_a_skipped_page_keeps_a_visible_status_in_the_list(): void {
 		wp_set_current_user( $this->factory()->user->create( [ 'role' => 'administrator' ] ) );
 
 		$post_id = $this->factory()->post->create(
@@ -306,5 +306,65 @@ class IngestContentTest extends WP_UnitTestCase {
 		$this->assertNotNull( $row, 'The skipped page is still listed.' );
 		$this->assertArrayHasKey( 'error', $row );
 		$this->assertStringContainsString( 'no text content to index', $row['error'] );
+	}
+
+	/**
+	 * The row promises the admin that an edit clears the reason. A refused page
+	 * never gets `_hyve_added`, so the clearing has to happen for a page the
+	 * knowledge base does not hold.
+	 */
+	public function test_editing_a_skipped_page_clears_its_status(): void {
+		$post_id = $this->factory()->post->create(
+			[
+				'post_type'    => 'page',
+				'post_status'  => 'publish',
+				'post_content' => '[woocommerce_checkout]',
+			]
+		);
+
+		DB_Table::instance()->add_post( $post_id, 'add' );
+
+		$this->assertNotEmpty( get_post_meta( $post_id, '_hyve_processing_error', true ) );
+		$this->assertEmpty( get_post_meta( $post_id, '_hyve_added', true ) );
+
+		wp_update_post(
+			[
+				'ID'           => $post_id,
+				'post_content' => 'Checkout is open Monday to Friday.',
+			]
+		);
+
+		$this->assertEmpty( get_post_meta( $post_id, '_hyve_processing_error', true ) );
+	}
+
+	/**
+	 * A refusal can also be fixed without touching the post: activating the
+	 * plugin whose shortcode was inert gives the same page text. The re-add has
+	 * to drop the reason, which no edit would have cleared.
+	 */
+	public function test_a_successful_re_add_clears_the_skipped_status(): void {
+		update_option( 'hyve_settings', [ 'ai_mode' => Hyve_Connect::MODE_CONNECT ] );
+
+		$post_id = $this->factory()->post->create(
+			[
+				'post_type'    => 'page',
+				'post_status'  => 'publish',
+				'post_content' => '[hyve_test_hours]',
+			]
+		);
+
+		DB_Table::instance()->add_post( $post_id, 'add' );
+
+		$this->assertNotEmpty( get_post_meta( $post_id, '_hyve_processing_error', true ) );
+
+		$this->register_hours_shortcode();
+
+		$captured = [];
+		$this->capture_upserts( $captured );
+
+		DB_Table::instance()->add_post( $post_id, 'add' );
+
+		$this->assertSame( 'Open Monday to Friday, 8am to 6pm.', $captured[0]['content'] );
+		$this->assertEmpty( get_post_meta( $post_id, '_hyve_processing_error', true ) );
 	}
 }
