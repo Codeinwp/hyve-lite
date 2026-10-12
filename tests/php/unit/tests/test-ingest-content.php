@@ -367,4 +367,40 @@ class IngestContentTest extends WP_UnitTestCase {
 		$this->assertSame( 'Open Monday to Friday, 8am to 6pm.', $captured[0]['content'] );
 		$this->assertEmpty( get_post_meta( $post_id, '_hyve_processing_error', true ) );
 	}
+
+	/**
+	 * A retry that fails again leaves the row explaining itself: the platform
+	 * failure returns before the source is marked added and records no reason
+	 * of its own.
+	 */
+	public function test_a_failed_retry_keeps_the_reason_it_still_has(): void {
+		update_option( 'hyve_settings', [ 'ai_mode' => Hyve_Connect::MODE_CONNECT ] );
+
+		$post_id = $this->factory()->post->create(
+			[
+				'post_type'    => 'page',
+				'post_status'  => 'publish',
+				'post_content' => 'The clinic is open Monday to Friday.',
+			]
+		);
+
+		update_post_meta( $post_id, '_hyve_processing_error', 'Hyve Connect could not index this content. Fix the reported issue and re-add this content.' );
+
+		add_filter(
+			'pre_http_request',
+			function ( $pre, $args ) {
+				return isset( $args['body'] ) && false !== strpos( (string) $args['body'], '"documents"' )
+					? new WP_Error( 'http_request_failed', 'Connection timed out.' )
+					: $pre;
+			},
+			10,
+			2
+		);
+
+		$result = DB_Table::instance()->add_post( $post_id, 'add' );
+
+		$this->assertWPError( $result );
+		$this->assertEmpty( get_post_meta( $post_id, '_hyve_added', true ) );
+		$this->assertNotEmpty( get_post_meta( $post_id, '_hyve_processing_error', true ) );
+	}
 }

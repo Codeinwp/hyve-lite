@@ -1124,8 +1124,7 @@ class Main {
 		}
 
 		// An edit may fix whatever failed indexing (e.g. no text content).
-		// Cleared before the `$added` guard because a source refused up front
-		// was never added, and its row would otherwise keep the stale reason.
+		// Before the `$added` guard: a source refused up front is never added.
 		delete_post_meta( $post_id, '_hyve_processing_error' );
 
 		$added = get_post_meta( $post_id, '_hyve_added', true );

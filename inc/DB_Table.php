@@ -679,11 +679,6 @@ class DB_Table {
 			return $error;
 		}
 
-		// The document has text this time, so whatever a previous attempt
-		// recorded no longer describes it. Cleared here rather than on success
-		// so the listing stops showing it the moment the source is re-added.
-		delete_post_meta( (int) ( $args['post_id'] ?? 0 ), '_hyve_processing_error' );
-
 		// Connect mode ships the whole document to the platform, which chunks,
 		// moderates, embeds, and stores it. No local chunking/embedding/rows.
 		if ( Hyve_Connect::is_active() ) {
@@ -933,6 +928,8 @@ class DB_Table {
 		}
 
 		update_post_meta( $post_id, '_hyve_added', 1 );
+		// Cleared on success only, so a failed retry keeps its reason.
+		delete_post_meta( $post_id, '_hyve_processing_error' );
 		// The synced hash marks the source as on the platform (so the sync job
 		// skips it) and feeds cheap reconcile fingerprints.
 		$this->connect_store_synced_hash( (int) $post_id, hash( 'sha256', (string) $document['content'] ) );
