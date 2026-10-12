@@ -669,7 +669,14 @@ class DB_Table {
 		// only a shortcode): refuse up front so nothing is queued or marked as
 		// added in either mode.
 		if ( '' === Tokenizer::html_to_text( (string) ( $doc['content'] ?? '' ) ) ) {
-			return new \WP_Error( 'empty_content', __( 'There is no text content to index.', 'hyve-lite' ) );
+			$error = new \WP_Error( 'empty_content', __( 'There is no text content to index.', 'hyve-lite' ) );
+
+			// Recorded, not just returned: the caller shows a snackbar that is
+			// gone on reload, and the listing would offer Add again with no
+			// sign of why it did nothing. An edit clears this.
+			$this->record_processing_error( (int) ( $args['post_id'] ?? 0 ), $error, false );
+
+			return $error;
 		}
 
 		// Connect mode ships the whole document to the platform, which chunks,

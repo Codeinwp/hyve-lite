@@ -268,4 +268,43 @@ class IngestContentTest extends WP_UnitTestCase {
 		$this->assertSame( 'empty_content', $result->get_error_code() );
 		$this->assertEmpty( get_post_meta( $post_id, '_hyve_added', true ) );
 	}
+
+	/**
+	 * The refusal has to outlive the snackbar. A skipped page is never added,
+	 * so the listing has to carry its reason on a row that still offers Add,
+	 * or the admin reloads and sees nothing explaining the empty result.
+	 */
+	public function test_a_skipped_page_keeps_a_visible_status_in_the_list() {
+		wp_set_current_user( $this->factory()->user->create( [ 'role' => 'administrator' ] ) );
+
+		$post_id = $this->factory()->post->create(
+			[
+				'post_type'    => 'page',
+				'post_title'   => 'QA Checkout Only',
+				'post_status'  => 'publish',
+				'post_content' => '[woocommerce_checkout]',
+			]
+		);
+
+		DB_Table::instance()->add_post( $post_id, 'add' );
+
+		$this->assertNotEmpty( get_post_meta( $post_id, '_hyve_processing_error', true ) );
+
+		$request  = new WP_REST_Request( 'GET', '/hyve/v1/data' );
+		$response = rest_do_request( $request );
+		$rows     = $response->get_data()['posts'] ?? [];
+
+		$row = null;
+
+		foreach ( $rows as $candidate ) {
+			if ( (int) $candidate['ID'] === $post_id ) {
+				$row = $candidate;
+				break;
+			}
+		}
+
+		$this->assertNotNull( $row, 'The skipped page is still listed.' );
+		$this->assertArrayHasKey( 'error', $row );
+		$this->assertStringContainsString( 'no text content to index', $row['error'] );
+	}
 }
