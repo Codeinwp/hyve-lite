@@ -291,11 +291,10 @@ class Test_Page_Context extends WP_UnitTestCase {
 	}
 
 	/**
-	 * The joined block has to fit the budget, not just the chunks it is built
-	 * from: each newline between two chunks is a token of its own, so counting
-	 * only `token_count` let a page that filled the budget exactly run over it.
+	 * The joined block, newlines included, has to fit the budget: each newline
+	 * between two chunks costs a token.
 	 */
-	public function test_pinned_chunks_budget_covers_the_joining_newlines() {
+	public function test_pinned_chunks_budget_covers_the_joining_newlines(): void {
 		update_post_meta( $this->post_id, '_hyve_added', 1 );
 
 		add_filter( 'hyve_page_context_token_limit', fn () => 1000 );
