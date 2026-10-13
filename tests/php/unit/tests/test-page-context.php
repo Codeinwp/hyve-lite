@@ -370,6 +370,38 @@ class Test_Page_Context extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Without an encoder the chunk that needs trimming is skipped and the ones
+	 * that fit whole are kept, rather than the chat turn failing.
+	 *
+	 * @runInSeparateProcess
+	 * @preserveGlobalState disabled
+	 */
+	public function test_encoder_failure_keeps_the_chunks_that_fit_whole(): void {
+		update_post_meta( $this->post_id, '_hyve_added', 1 );
+
+		foreach ( [ 'FIRSTCHUNK', 'SECONDCHUNK' ] as $marker ) {
+			DB_Table::instance()->insert(
+				[
+					'post_id'      => $this->post_id,
+					'post_title'   => 'Blue Widget',
+					'post_content' => $marker . ' ' . str_repeat( 'alpha beta gamma delta ', 20 ),
+					'token_count'  => 600,
+					'post_status'  => 'processed',
+				]
+			);
+		}
+
+		// A temp directory that cannot exist, so the vocabulary cannot load.
+		define( 'WP_TEMP_DIR', __FILE__ . '/nope/' );
+
+		$page  = Page_Context::instance()->for_request( $this->chat_request( get_permalink( $this->post_id ) ) );
+		$block = Page_Context::instance()->context_block( $page );
+
+		$this->assertStringContainsString( 'FIRSTCHUNK', $block );
+		$this->assertStringNotContainsString( 'SECONDCHUNK', $block );
+	}
+
+	/**
 	 * The whole block, identity line and delimiters included, fits the budget.
 	 */
 	public function test_page_block_fits_its_budget_including_the_wrapper(): void {
