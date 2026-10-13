@@ -410,4 +410,56 @@ class IngestContentTest extends WP_UnitTestCase {
 		$this->assertNotEmpty( $current );
 		$this->assertStringNotContainsString( 'no text content to index', $current );
 	}
+
+	/**
+	 * A retry rejected by moderation drops the refusal; moderation has its own row state.
+	 */
+	public function test_a_retry_rejected_by_moderation_drops_the_refusal(): void {
+		update_option( 'hyve_settings', [ 'ai_mode' => Hyve_Connect::MODE_CONNECT ] );
+
+		$post_id = $this->factory()->post->create(
+			[
+				'post_type'    => 'page',
+				'post_status'  => 'publish',
+				'post_content' => '[hyve_test_hours]',
+			]
+		);
+
+		DB_Table::instance()->add_post( $post_id, 'add' );
+
+		$this->assertStringContainsString( 'no text content to index', (string) get_post_meta( $post_id, '_hyve_processing_error', true ) );
+
+		$this->register_hours_shortcode();
+
+		add_filter(
+			'pre_http_request',
+			function ( $pre, $args ) {
+				$body = json_decode( isset( $args['body'] ) ? $args['body'] : '', true );
+
+				if ( ! isset( $body['documents'][0]['id'] ) ) {
+					return $pre;
+				}
+
+				$results = [
+					[
+						'id'     => $body['documents'][0]['id'],
+						'status' => 'rejected',
+					],
+				];
+
+				return [
+					'response' => [ 'code' => 200 ],
+					'body'     => 'event: job_complete' . "\n" . 'data: ' . wp_json_encode( [ 'results' => $results ] ) . "\n\n",
+				];
+			},
+			10,
+			2
+		);
+
+		$result = DB_Table::instance()->add_post( $post_id, 'add' );
+
+		$this->assertWPError( $result );
+		$this->assertSame( 'content_failed_moderation', $result->get_error_code() );
+		$this->assertEmpty( get_post_meta( $post_id, '_hyve_processing_error', true ) );
+	}
 }

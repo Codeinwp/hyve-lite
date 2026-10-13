@@ -668,8 +668,12 @@ class DB_Table {
 		$result = $this->run_ingest( $doc, $args );
 
 		// The row reports the latest attempt. Moderation has its own meta.
-		if ( is_wp_error( $result ) && 'content_failed_moderation' !== $result->get_error_code() ) {
-			$this->record_processing_error( (int) ( $args['post_id'] ?? 0 ), $result, false );
+		if ( is_wp_error( $result ) ) {
+			if ( 'content_failed_moderation' === $result->get_error_code() ) {
+				delete_post_meta( (int) ( $args['post_id'] ?? 0 ), '_hyve_processing_error' );
+			} else {
+				$this->record_processing_error( (int) ( $args['post_id'] ?? 0 ), $result, false );
+			}
 		}
 
 		return $result;
