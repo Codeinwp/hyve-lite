@@ -300,9 +300,13 @@ class Test_Page_Context extends WP_UnitTestCase {
 
 		add_filter( 'hyve_page_context_token_limit', fn () => 1000 );
 
+		$page    = Page_Context::instance()->for_request( $this->chat_request( get_permalink( $this->post_id ) ) );
+		$label   = $page['title'] . ' (' . $page['url'] . ')';
+		$wrapper = Tokenizer::count_tokens( "\n ===START CURRENT PAGE=== The visitor is currently viewing this page: " . $label . '.  ===END CURRENT PAGE===' );
+
 		$table = DB_Table::instance();
 
-		foreach ( [ 700, 300 ] as $index => $count ) {
+		foreach ( [ 700, 300 - $wrapper ] as $index => $count ) {
 			$table->insert(
 				[
 					'post_id'      => $this->post_id,
@@ -314,11 +318,10 @@ class Test_Page_Context extends WP_UnitTestCase {
 			);
 		}
 
-		$page  = Page_Context::instance()->for_request( $this->chat_request( get_permalink( $this->post_id ) ) );
 		$block = Page_Context::instance()->context_block( $page );
 
-		// 700 + 300 fills the budget exactly, so the second chunk cannot also
-		// bring a newline with it.
+		// The two chunks fill what the wrapper leaves exactly, so only the
+		// newline between them pushes the second one out.
 		$this->assertStringContainsString( 'Chunk 0', $block );
 		$this->assertStringNotContainsString( 'Chunk 1', $block );
 	}

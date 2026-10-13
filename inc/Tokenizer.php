@@ -212,8 +212,8 @@ class Tokenizer {
 	 *
 	 * @return int
 	 */
-	public static function count_tokens( $text ) {
-		return count( self::encoder()->encode( (string) $text ) );
+	public static function count_tokens( string $text ): int {
+		return count( self::encoder()->encode( $text ) );
 	}
 
 	/**
@@ -221,7 +221,7 @@ class Tokenizer {
 	 *
 	 * @return \guttedgarden\Tiktoken\Encoder
 	 */
-	private static function encoder() {
+	private static function encoder(): \guttedgarden\Tiktoken\Encoder {
 		$provider = new EncoderProvider();
 		$provider->setVocabCache( get_temp_dir() );
 

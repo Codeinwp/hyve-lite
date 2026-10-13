@@ -207,8 +207,13 @@ class Page_Context {
 		$close = ' ===END CURRENT PAGE===';
 
 		// The identity line and delimiters count toward the page budget too.
-		$budget  = max( 0, self::token_limit() - Tokenizer::count_tokens( $open . $close ) );
-		$content = 0 < $budget ? $this->page_content( $page, $existing_context, $budget ) : '';
+		try {
+			$budget  = max( 0, self::token_limit() - Tokenizer::count_tokens( $open . $close ) );
+			$content = 0 < $budget ? $this->page_content( $page, $existing_context, $budget ) : '';
+		} catch ( \Exception $e ) {
+			// The encoder could not load its vocabulary; budget the content alone.
+			$content = $this->page_content( $page, $existing_context );
+		}
 
 		if ( '' === $content ) {
 			// The pinned chunks were all already retrieved; still tell the model
@@ -234,7 +239,7 @@ class Page_Context {
 	 *
 	 * @return string
 	 */
-	private function page_content( $page, $existing_context = '', $limit = null ) {
+	private function page_content( $page, $existing_context = '', ?int $limit = null ): string {
 		$limit = null === $limit ? self::token_limit() : $limit;
 
 		if ( $page['indexed'] ) {
@@ -290,7 +295,7 @@ class Page_Context {
 	 *
 	 * @return string
 	 */
-	private function pinned_chunks( $post_id, $existing_context, $limit ) {
+	private function pinned_chunks( $post_id, $existing_context, int $limit ) {
 		$chunks = DB_Table::instance()->get_chunks_by_post_id( $post_id );
 
 		if ( empty( $chunks ) ) {
@@ -431,7 +436,7 @@ class Page_Context {
 	 *
 	 * @return string
 	 */
-	private function trim_to_limit( $text, $limit = null ) {
+	private function trim_to_limit( $text, ?int $limit = null ) {
 		$text = trim( (string) preg_replace( '/\s+/', ' ', $text ) );
 
 		if ( '' === $text ) {
