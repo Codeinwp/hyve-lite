@@ -379,13 +379,15 @@ class Test_Page_Context extends WP_UnitTestCase {
 	public function test_encoder_failure_keeps_the_chunks_that_fit_whole(): void {
 		update_post_meta( $this->post_id, '_hyve_added', 1 );
 
-		foreach ( [ 'FIRSTCHUNK', 'SECONDCHUNK' ] as $marker ) {
+		// 600 + 400 fills the 1000 limit exactly, so only the joining newline
+		// makes the second chunk need a trim, which needs the encoder.
+		foreach ( [ 'FIRSTCHUNK' => 600, 'SECONDCHUNK' => 400 ] as $marker => $count ) {
 			DB_Table::instance()->insert(
 				[
 					'post_id'      => $this->post_id,
 					'post_title'   => 'Blue Widget',
 					'post_content' => $marker . ' ' . str_repeat( 'alpha beta gamma delta ', 20 ),
-					'token_count'  => 600,
+					'token_count'  => $count,
 					'post_status'  => 'processed',
 				]
 			);
