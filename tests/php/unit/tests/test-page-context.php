@@ -9,6 +9,7 @@ use ThemeIsle\HyveLite\API;
 use ThemeIsle\HyveLite\DB_Table;
 use ThemeIsle\HyveLite\Hyve_Connect;
 use ThemeIsle\HyveLite\Page_Context;
+use ThemeIsle\HyveLite\Tokenizer;
 
 /**
  * Tests for the page context fed to chat turns.
@@ -320,6 +321,23 @@ class Test_Page_Context extends WP_UnitTestCase {
 		// bring a newline with it.
 		$this->assertStringContainsString( 'Chunk 0', $block );
 		$this->assertStringNotContainsString( 'Chunk 1', $block );
+	}
+
+	/**
+	 * The whole block, identity line and delimiters included, fits the budget.
+	 */
+	public function test_page_block_fits_its_budget_including_the_wrapper(): void {
+		add_filter( 'hyve_page_context_token_limit', fn () => 200 );
+		add_filter(
+			'hyve_page_context_content',
+			fn () => str_repeat( 'The studio runs evening classes in throwing and glazing. ', 60 )
+		);
+
+		$page  = Page_Context::instance()->for_request( $this->chat_request( get_permalink( $this->post_id ) ) );
+		$block = Page_Context::instance()->context_block( $page );
+
+		$this->assertStringContainsString( 'evening classes', $block );
+		$this->assertLessThanOrEqual( 200, Tokenizer::count_tokens( $block ) );
 	}
 
 	/**

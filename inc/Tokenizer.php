@@ -152,12 +152,8 @@ class Tokenizer {
 	 * @return array<string>
 	 */
 	public static function create_chunks( $text, $size = 1000 ) {
-		$size = max( 1, (int) $size );
-
-		$provider = new EncoderProvider();
-		$provider->setVocabCache( get_temp_dir() );
-
-		$encoder = $provider->get( 'cl100k_base' );
+		$size    = max( 1, (int) $size );
+		$encoder = self::encoder();
 
 		$segments = preg_split( '/(?<=[.!?])[ \t]+|\n+/u', (string) $text, -1, PREG_SPLIT_NO_EMPTY );
 
@@ -207,5 +203,28 @@ class Tokenizer {
 		}
 
 		return $chunks;
+	}
+
+	/**
+	 * Count the tokens in a string.
+	 *
+	 * @param string $text Text to count.
+	 *
+	 * @return int
+	 */
+	public static function count_tokens( $text ) {
+		return count( self::encoder()->encode( (string) $text ) );
+	}
+
+	/**
+	 * The cl100k_base encoder the chunk budgets are measured with.
+	 *
+	 * @return \guttedgarden\Tiktoken\Encoder
+	 */
+	private static function encoder() {
+		$provider = new EncoderProvider();
+		$provider->setVocabCache( get_temp_dir() );
+
+		return $provider->get( 'cl100k_base' );
 	}
 }

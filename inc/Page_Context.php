@@ -202,8 +202,13 @@ class Page_Context {
 	 * @return string Empty when no usable content was found.
 	 */
 	public function context_block( $page, $existing_context = '' ) {
-		$content = $this->page_content( $page, $existing_context );
-		$label   = '' !== $page['title'] ? $page['title'] . ' (' . $page['url'] . ')' : $page['url'];
+		$label = '' !== $page['title'] ? $page['title'] . ' (' . $page['url'] . ')' : $page['url'];
+		$open  = "\n ===START CURRENT PAGE=== The visitor is currently viewing this page: " . $label . '. ';
+		$close = ' ===END CURRENT PAGE===';
+
+		// The identity line and delimiters count toward the page budget too.
+		$budget  = max( 0, self::token_limit() - Tokenizer::count_tokens( $open . $close ) );
+		$content = 0 < $budget ? $this->page_content( $page, $existing_context, $budget ) : '';
 
 		if ( '' === $content ) {
 			// The pinned chunks were all already retrieved; still tell the model
@@ -215,7 +220,7 @@ class Page_Context {
 			return '';
 		}
 
-		return "\n ===START CURRENT PAGE=== The visitor is currently viewing this page: " . $label . '. ' . $content . ' ===END CURRENT PAGE===';
+		return $open . $content . $close;
 	}
 
 	/**
@@ -225,15 +230,21 @@ class Page_Context {
 	 *
 	 * @param array{id:int,title:string,url:string,indexed:bool} $page             Resolved page.
 	 * @param string                                             $existing_context Knowledge base context already assembled.
+	 * @param int|null                                           $limit            Token budget. Default the page context limit.
 	 *
 	 * @return string
 	 */
-	private function page_content( $page, $existing_context = '' ) {
+	private function page_content( $page, $existing_context = '', $limit = null ) {
+		$limit = null === $limit ? self::token_limit() : $limit;
+
 		if ( $page['indexed'] ) {
-			return $this->pinned_chunks( $page['id'], $existing_context );
+			return $this->pinned_chunks( $page['id'], $existing_context, $limit );
 		}
 
-		return $page['id'] ? $this->unindexed_content( $page['id'] ) : $this->url_content( $page['url'] );
+		$content = $page['id'] ? $this->unindexed_content( $page['id'] ) : $this->url_content( $page['url'] );
+
+		// Cached at the full limit, which the Connect payload uses as is.
+		return $limit < self::token_limit() ? $this->trim_to_limit( $content, $limit ) : $content;
 	}
 
 	/**
@@ -275,17 +286,17 @@ class Page_Context {
 	 *
 	 * @param int    $post_id          Page post ID.
 	 * @param string $existing_context Knowledge base context already assembled.
+	 * @param int    $limit            Token budget.
 	 *
 	 * @return string
 	 */
-	private function pinned_chunks( $post_id, $existing_context ) {
+	private function pinned_chunks( $post_id, $existing_context, $limit ) {
 		$chunks = DB_Table::instance()->get_chunks_by_post_id( $post_id );
 
 		if ( empty( $chunks ) ) {
 			return '';
 		}
 
-		$limit  = self::token_limit();
 		$tokens = 0;
 		$parts  = [];
 
@@ -415,18 +426,19 @@ class Page_Context {
 	/**
 	 * Trim text to the page context token budget, on sentence boundaries.
 	 *
-	 * @param string $text Plain text.
+	 * @param string   $text  Plain text.
+	 * @param int|null $limit Token budget. Default the page context limit.
 	 *
 	 * @return string
 	 */
-	private function trim_to_limit( $text ) {
+	private function trim_to_limit( $text, $limit = null ) {
 		$text = trim( (string) preg_replace( '/\s+/', ' ', $text ) );
 
 		if ( '' === $text ) {
 			return '';
 		}
 
-		$chunks = Tokenizer::create_chunks( $text, self::token_limit() );
+		$chunks = Tokenizer::create_chunks( $text, null === $limit ? self::token_limit() : $limit );
 
 		if ( empty( $chunks ) ) {
 			return '';
