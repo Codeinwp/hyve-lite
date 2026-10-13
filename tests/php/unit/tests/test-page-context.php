@@ -381,7 +381,12 @@ class Test_Page_Context extends WP_UnitTestCase {
 
 		// 600 + 400 fills the 1000 limit exactly, so only the joining newline
 		// makes the second chunk need a trim, which needs the encoder.
-		foreach ( [ 'FIRSTCHUNK' => 600, 'SECONDCHUNK' => 400 ] as $marker => $count ) {
+		$chunks = [
+			'FIRSTCHUNK'  => 600,
+			'SECONDCHUNK' => 400,
+		];
+
+		foreach ( $chunks as $marker => $count ) {
 			DB_Table::instance()->insert(
 				[
 					'post_id'      => $this->post_id,
