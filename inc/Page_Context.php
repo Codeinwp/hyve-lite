@@ -317,7 +317,13 @@ class Page_Context {
 			// larger than the budget still gives the page its start.
 			if ( $limit < $tokens + $count ) {
 				$left = $limit - $tokens - ( empty( $parts ) ? 0 : 1 );
-				$rest = 0 < $left ? $this->trim_to_limit( $chunk->post_content, $left ) : '';
+
+				try {
+					$rest = 0 < $left ? $this->trim_to_limit( $chunk->post_content, $left ) : '';
+				} catch ( \Exception $e ) {
+					// No encoder to trim with; keep the chunks that fit whole.
+					$rest = '';
+				}
 
 				if ( '' !== $rest ) {
 					$parts[] = $rest;
