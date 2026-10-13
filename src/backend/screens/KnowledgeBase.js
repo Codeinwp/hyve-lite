@@ -650,9 +650,19 @@ const WordPressDrill = () => {
 
 		const currentPost = rows.find( ( row ) => row.ID === id );
 
+		// The row mirrors what the server now stores for this source, so a
+		// reason from an earlier attempt never outlives the one that replaced it.
+		const setRowError = ( error ) =>
+			setRows( ( prev ) =>
+				prev.map( ( row ) =>
+					row.ID === id ? { ...row, error } : row
+				)
+			);
+
 		await onProcessData( {
 			post: currentPost,
-			onSuccess: () => {
+			onSuccess: ( response ) => {
+				setRowError( response?.warning ?? '' );
 				setUpdating( ( prev ) =>
 					prev.filter( ( postId ) => postId !== id )
 				);
@@ -675,17 +685,12 @@ const WordPressDrill = () => {
 					} );
 				}
 
-				// Show the reason on the row now; the listing returns it on reload.
-				if (
-					'content_failed_moderation' !== error?.code &&
-					error?.error
-				) {
-					setRows( ( prev ) =>
-						prev.map( ( row ) =>
-							row.ID === id ? { ...row, error: error.error } : row
-						)
-					);
-				}
+				// A moderation rejection is shown by its own state and modal.
+				setRowError(
+					'content_failed_moderation' === error?.code
+						? ''
+						: error?.error ?? ''
+				);
 
 				fetchAttentionCount( setAttentionCount );
 				setUpdating( ( prev ) =>

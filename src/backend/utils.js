@@ -171,7 +171,7 @@ export const onProcessData = async ( {
 			);
 		}
 
-		onSuccess();
+		onSuccess( response );
 	} catch ( error ) {
 		createNotice( 'error', error.error, {
 			type: 'snackbar',

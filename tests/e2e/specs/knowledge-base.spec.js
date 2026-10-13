@@ -85,7 +85,11 @@ async function mockDataApi( page, handlers = {} ) {
 			await route.fulfill( {
 				status: 200,
 				contentType: 'application/json',
-				body: JSON.stringify( handlers.addResponse ?? true ),
+				body: JSON.stringify(
+					'function' === typeof handlers.addResponse
+						? handlers.addResponse()
+						: handlers.addResponse ?? true
+				),
 			} );
 			return;
 		}
@@ -414,6 +418,90 @@ test.describe( 'Knowledge Base', () => {
 				'Indexing failed: There is no text content to index.'
 			)
 		).toBeVisible();
+	} );
+
+	test( 'a successful add clears the reason left by an earlier attempt', async ( {
+		page,
+		admin,
+	} ) => {
+		let attempts = 0;
+
+		await mockDataApi( page, {
+			listing: {
+				posts: MOCK_POSTS,
+				more: false,
+				total: 3,
+				per_page: 20,
+				totalChunks: '0',
+			},
+			addResponse: () =>
+				1 === ++attempts
+					? {
+							error: 'There is no text content to index.',
+							code: 'empty_content',
+					  }
+					: true,
+		} );
+		await openWordPressDrill( page, admin );
+
+		const reason = page.getByText(
+			'Indexing failed: There is no text content to index.'
+		);
+
+		await page
+			.getByRole( 'button', { name: 'Add', exact: true } )
+			.nth( 0 )
+			.click();
+		await expect( reason ).toBeVisible();
+
+		await page
+			.getByRole( 'button', { name: 'Add', exact: true } )
+			.nth( 0 )
+			.click();
+
+		await expect(
+			page.getByText( 'Added', { exact: true } )
+		).toBeVisible();
+		await expect( reason ).toBeHidden();
+	} );
+
+	test( 'a moderation rejection clears the stored reason on the row', async ( {
+		page,
+		admin,
+	} ) => {
+		await mockDataApi( page, {
+			listing: {
+				posts: [
+					{
+						...MOCK_POSTS[ 0 ],
+						error: 'There is no text content to index.',
+					},
+				],
+				more: false,
+				total: 1,
+				per_page: 20,
+				totalChunks: '0',
+			},
+			addResponse: {
+				error: 'The content failed moderation policies.',
+				code: 'content_failed_moderation',
+				review: { harassment: 0.9 },
+			},
+		} );
+		await openWordPressDrill( page, admin );
+
+		const reason = page.getByText(
+			'Indexing failed: There is no text content to index.'
+		);
+
+		await expect( reason ).toBeVisible();
+
+		await page
+			.getByRole( 'button', { name: 'Add', exact: true } )
+			.nth( 0 )
+			.click();
+
+		await expect( reason ).toBeHidden();
 	} );
 
 	test( 'public post is added without confirmation', async ( {
