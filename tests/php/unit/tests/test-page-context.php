@@ -450,6 +450,43 @@ class Test_Page_Context extends WP_UnitTestCase {
 	}
 
 	/**
+	 * A very long title is capped so the block stays within the page budget.
+	 */
+	public function test_long_title_stays_within_the_budget() {
+		$title = str_repeat( '陶芸工房🏺', 120 );
+
+		wp_update_post(
+			[
+				'ID'         => $this->post_id,
+				'post_title' => $title,
+			]
+		);
+
+		add_filter(
+			'hyve_page_context_content',
+			function () {
+				return str_repeat( 'Kiln firing is included in every membership. ', 200 );
+			}
+		);
+
+		$page  = Page_Context::instance()->for_request( $this->chat_request( get_permalink( $this->post_id ) ) );
+		$block = Page_Context::instance()->context_block( $page );
+
+		$this->assertGreaterThan( 1000, Tokenizer::count_tokens( $title ) );
+		$this->assertStringContainsString( 'Kiln firing', $block );
+		$this->assertLessThanOrEqual( 1000, Tokenizer::count_tokens( $block ) );
+
+		update_post_meta( $this->post_id, '_hyve_added', 1 );
+
+		$page  = Page_Context::instance()->for_request( $this->chat_request( get_permalink( $this->post_id ) ) );
+		$block = Page_Context::instance()->context_block( $page );
+
+		$this->assertStringContainsString( '===CURRENT PAGE===', $block );
+		$this->assertStringContainsString( 'viewing the page: 陶芸工房', $block );
+		$this->assertLessThanOrEqual( 1000, Tokenizer::count_tokens( $block ) );
+	}
+
+	/**
 	 * The Connect payload carries identity always, content only when unindexed,
 	 * and no post id for loop pages.
 	 */
