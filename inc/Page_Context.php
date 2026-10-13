@@ -313,7 +313,16 @@ class Page_Context {
 			// The newline joining this chunk to the previous one costs a token.
 			$count = intval( $chunk->token_count ) + ( empty( $parts ) ? 0 : 1 );
 
+			// Trimmed to what is left rather than dropped, so a first chunk
+			// larger than the budget still gives the page its start.
 			if ( $limit < $tokens + $count ) {
+				$left = $limit - $tokens - ( empty( $parts ) ? 0 : 1 );
+				$rest = 0 < $left ? $this->trim_to_limit( $chunk->post_content, $left ) : '';
+
+				if ( '' !== $rest ) {
+					$parts[] = $rest;
+				}
+
 				break;
 			}
 

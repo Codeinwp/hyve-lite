@@ -292,38 +292,81 @@ class Test_Page_Context extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Store a chunk of the test page with its real token count.
+	 *
+	 * @param string $content Chunk text.
+	 *
+	 * @return int The chunk's token count.
+	 */
+	private function insert_page_chunk( string $content ): int {
+		$count = Tokenizer::count_tokens( $content );
+
+		DB_Table::instance()->insert(
+			[
+				'post_id'      => $this->post_id,
+				'post_title'   => 'Blue Widget',
+				'post_content' => $content,
+				'token_count'  => $count,
+				'post_status'  => 'processed',
+			]
+		);
+
+		return $count;
+	}
+
+	/**
+	 * The tokens the block's wrapper costs for the test page.
+	 *
+	 * @param array{id:int,title:string,url:string,indexed:bool} $page Resolved page.
+	 *
+	 * @return int
+	 */
+	private function wrapper_tokens( array $page ): int {
+		$label = $page['title'] . ' (' . $page['url'] . ')';
+
+		return Tokenizer::count_tokens( "\n ===START CURRENT PAGE=== The visitor is currently viewing this page: " . $label . '.  ===END CURRENT PAGE===' );
+	}
+
+	/**
 	 * The joined block, newlines included, has to fit the budget: each newline
 	 * between two chunks costs a token.
 	 */
 	public function test_pinned_chunks_budget_covers_the_joining_newlines(): void {
 		update_post_meta( $this->post_id, '_hyve_added', 1 );
 
-		add_filter( 'hyve_page_context_token_limit', fn () => 1000 );
+		$page  = Page_Context::instance()->for_request( $this->chat_request( get_permalink( $this->post_id ) ) );
+		$first = $this->insert_page_chunk( 'The first chunk describes the widget in plain words' );
+		$last  = $this->insert_page_chunk( 'The second chunk ends with ENDMARK' );
+		$limit = $this->wrapper_tokens( $page ) + $first + $last;
 
-		$page    = Page_Context::instance()->for_request( $this->chat_request( get_permalink( $this->post_id ) ) );
-		$label   = $page['title'] . ' (' . $page['url'] . ')';
-		$wrapper = Tokenizer::count_tokens( "\n ===START CURRENT PAGE=== The visitor is currently viewing this page: " . $label . '.  ===END CURRENT PAGE===' );
-
-		$table = DB_Table::instance();
-
-		foreach ( [ 700, 300 - $wrapper ] as $index => $count ) {
-			$table->insert(
-				[
-					'post_id'      => $this->post_id,
-					'post_title'   => 'Blue Widget',
-					'post_content' => 'Chunk ' . $index . ' ' . str_repeat( 'alpha beta gamma delta ', 10 ),
-					'token_count'  => $count,
-					'post_status'  => 'processed',
-				]
-			);
-		}
+		add_filter( 'hyve_page_context_token_limit', fn () => $limit );
 
 		$block = Page_Context::instance()->context_block( $page );
 
-		// The two chunks fill what the wrapper leaves exactly, so only the
-		// newline between them pushes the second one out.
-		$this->assertStringContainsString( 'Chunk 0', $block );
-		$this->assertStringNotContainsString( 'Chunk 1', $block );
+		// The chunks fill what the wrapper leaves exactly, so the newline
+		// between them costs the second chunk its last token.
+		$this->assertStringContainsString( 'The first chunk', $block );
+		$this->assertStringContainsString( 'The second chunk', $block );
+		$this->assertStringNotContainsString( 'ENDMARK', $block );
+	}
+
+	/**
+	 * Stored chunks run up to the full limit, so after the wrapper the first
+	 * one often does not fit; it is trimmed rather than dropped.
+	 */
+	public function test_a_first_chunk_larger_than_the_budget_keeps_its_start(): void {
+		update_post_meta( $this->post_id, '_hyve_added', 1 );
+
+		$page  = Page_Context::instance()->for_request( $this->chat_request( get_permalink( $this->post_id ) ) );
+		$limit = $this->insert_page_chunk( 'START1 ' . str_repeat( 'Members get unlimited studio time and two firings a month. ', 40 ) . 'END1' );
+
+		add_filter( 'hyve_page_context_token_limit', fn () => $limit );
+
+		$block = Page_Context::instance()->context_block( $page );
+
+		$this->assertStringContainsString( 'START1', $block );
+		$this->assertStringNotContainsString( 'END1', $block );
+		$this->assertLessThanOrEqual( $limit, Tokenizer::count_tokens( $block ) );
 	}
 
 	/**
