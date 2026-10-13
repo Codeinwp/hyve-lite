@@ -85,7 +85,7 @@ async function mockDataApi( page, handlers = {} ) {
 			await route.fulfill( {
 				status: 200,
 				contentType: 'application/json',
-				body: JSON.stringify( true ),
+				body: JSON.stringify( handlers.addResponse ?? true ),
 			} );
 			return;
 		}
@@ -352,6 +352,68 @@ test.describe( 'Knowledge Base', () => {
 		await expect( page.getByTestId( 'snackbar' ) ).toBeVisible();
 		expect( deleted ).toHaveLength( 1 );
 		expect( deleted[ 0 ] ).toContain( 'id=1001' );
+	} );
+
+	test( 'a refused post keeps its reason in the picker', async ( {
+		page,
+		admin,
+	} ) => {
+		await mockDataApi( page, {
+			listing: {
+				posts: [
+					...MOCK_POSTS,
+					{
+						ID: 204,
+						title: 'Checkout',
+						type: 'page',
+						visibility: 'public',
+						error: 'There is no text content to index.',
+					},
+				],
+				more: false,
+				total: 4,
+				per_page: 20,
+				totalChunks: '0',
+			},
+		} );
+		await openWordPressDrill( page, admin );
+
+		await expect(
+			page.getByText(
+				'Indexing failed: There is no text content to index.'
+			)
+		).toBeVisible();
+	} );
+
+	test( 'a failed add shows its reason on the row', async ( {
+		page,
+		admin,
+	} ) => {
+		await mockDataApi( page, {
+			listing: {
+				posts: MOCK_POSTS,
+				more: false,
+				total: 3,
+				per_page: 20,
+				totalChunks: '0',
+			},
+			addResponse: {
+				error: 'There is no text content to index.',
+				code: 'empty_content',
+			},
+		} );
+		await openWordPressDrill( page, admin );
+
+		await page
+			.getByRole( 'button', { name: 'Add', exact: true } )
+			.nth( 0 )
+			.click();
+
+		await expect(
+			page.getByText(
+				'Indexing failed: There is no text content to index.'
+			)
+		).toBeVisible();
 	} );
 
 	test( 'public post is added without confirmation', async ( {

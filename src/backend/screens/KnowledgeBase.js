@@ -115,6 +115,23 @@ const getIndexedSources = () => {
 	return options;
 };
 
+/**
+ * A source's recorded indexing failure, shown under its title.
+ *
+ * @param {Object}  props
+ * @param {string=} props.error The stored reason, if any.
+ */
+const IndexingError = ( { error } ) =>
+	error ? (
+		<span className="hyve-next-table__sub hyve-next-table__sub--wrap">
+			{ sprintf(
+				// translators: %s: the reason indexing failed, including whether it will be retried.
+				__( 'Indexing failed: %s', 'hyve-lite' ),
+				error
+			) }
+		</span>
+	) : null;
+
 const IndexedContent = () => {
 	const [ rows, setRows ] = useState( [] );
 	const [ hasMore, setHasMore ] = useState( false );
@@ -323,18 +340,7 @@ const IndexedContent = () => {
 								<span className="hyve-next-table__title">
 									{ row.title }
 								</span>
-								{ row.error && (
-									<span className="hyve-next-table__sub hyve-next-table__sub--wrap">
-										{ sprintf(
-											// translators: %s: the reason indexing failed, including whether it will be retried.
-											__(
-												'Indexing failed: %s',
-												'hyve-lite'
-											),
-											row.error
-										) }
-									</span>
-								) }
+								<IndexingError error={ row.error } />
 							</div>
 						),
 					},
@@ -667,6 +673,18 @@ const WordPressDrill = () => {
 						...currentPost,
 						review: error.review,
 					} );
+				}
+
+				// Show the reason on the row now; the listing returns it on reload.
+				if (
+					'content_failed_moderation' !== error?.code &&
+					error?.error
+				) {
+					setRows( ( prev ) =>
+						prev.map( ( row ) =>
+							row.ID === id ? { ...row, error: error.error } : row
+						)
+					);
 				}
 
 				fetchAttentionCount( setAttentionCount );
@@ -1085,6 +1103,7 @@ const WordPressDrill = () => {
 									<span className="hyve-next-table__title">
 										{ row.title }
 									</span>
+									<IndexingError error={ row.error } />
 								</div>
 							),
 						},
