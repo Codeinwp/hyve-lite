@@ -99,6 +99,28 @@ class IngestContentTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * A Connect-mode page whose only content is an inert shortcode, already
+	 * refused once for having no text.
+	 *
+	 * @return int The post ID.
+	 */
+	private function create_refused_page(): int {
+		update_option( 'hyve_settings', [ 'ai_mode' => Hyve_Connect::MODE_CONNECT ] );
+
+		$post_id = $this->factory()->post->create(
+			[
+				'post_type'    => 'page',
+				'post_status'  => 'publish',
+				'post_content' => '[hyve_test_hours]',
+			]
+		);
+
+		DB_Table::instance()->add_post( $post_id, 'add' );
+
+		return $post_id;
+	}
+
+	/**
 	 * Connect sent raw `post_content`, so page-builder sites embedded their
 	 * markup verbatim.
 	 */
@@ -343,17 +365,7 @@ class IngestContentTest extends WP_UnitTestCase {
 	 * to drop the reason, which no edit would have cleared.
 	 */
 	public function test_a_successful_re_add_clears_the_skipped_status(): void {
-		update_option( 'hyve_settings', [ 'ai_mode' => Hyve_Connect::MODE_CONNECT ] );
-
-		$post_id = $this->factory()->post->create(
-			[
-				'post_type'    => 'page',
-				'post_status'  => 'publish',
-				'post_content' => '[hyve_test_hours]',
-			]
-		);
-
-		DB_Table::instance()->add_post( $post_id, 'add' );
+		$post_id = $this->create_refused_page();
 
 		$this->assertNotEmpty( get_post_meta( $post_id, '_hyve_processing_error', true ) );
 
@@ -372,17 +384,7 @@ class IngestContentTest extends WP_UnitTestCase {
 	 * A retry that fails for a new reason has to report that one.
 	 */
 	public function test_a_failed_retry_reports_its_own_reason(): void {
-		update_option( 'hyve_settings', [ 'ai_mode' => Hyve_Connect::MODE_CONNECT ] );
-
-		$post_id = $this->factory()->post->create(
-			[
-				'post_type'    => 'page',
-				'post_status'  => 'publish',
-				'post_content' => '[hyve_test_hours]',
-			]
-		);
-
-		DB_Table::instance()->add_post( $post_id, 'add' );
+		$post_id = $this->create_refused_page();
 
 		$refusal = (string) get_post_meta( $post_id, '_hyve_processing_error', true );
 		$this->assertStringContainsString( 'no text content to index', $refusal );
@@ -415,17 +417,7 @@ class IngestContentTest extends WP_UnitTestCase {
 	 * A retry rejected by moderation drops the refusal; moderation has its own row state.
 	 */
 	public function test_a_retry_rejected_by_moderation_drops_the_refusal(): void {
-		update_option( 'hyve_settings', [ 'ai_mode' => Hyve_Connect::MODE_CONNECT ] );
-
-		$post_id = $this->factory()->post->create(
-			[
-				'post_type'    => 'page',
-				'post_status'  => 'publish',
-				'post_content' => '[hyve_test_hours]',
-			]
-		);
-
-		DB_Table::instance()->add_post( $post_id, 'add' );
+		$post_id = $this->create_refused_page();
 
 		$this->assertStringContainsString( 'no text content to index', (string) get_post_meta( $post_id, '_hyve_processing_error', true ) );
 

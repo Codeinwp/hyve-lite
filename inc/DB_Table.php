@@ -946,7 +946,7 @@ class DB_Table {
 		}
 
 		update_post_meta( $post_id, '_hyve_added', 1 );
-		// Cleared on success only, so a failed retry keeps its reason.
+		// Cleared here on success. ingest_document() also clears it when moderation rejects a retry.
 		delete_post_meta( $post_id, '_hyve_processing_error' );
 		// The synced hash marks the source as on the platform (so the sync job
 		// skips it) and feeds cheap reconcile fingerprints.
