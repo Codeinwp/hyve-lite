@@ -452,7 +452,7 @@ class Test_Page_Context extends WP_UnitTestCase {
 	/**
 	 * A very long title is capped so the block stays within the page budget.
 	 */
-	public function test_long_title_stays_within_the_budget() {
+	public function test_long_title_stays_within_the_budget(): void {
 		$title = str_repeat( '陶芸工房🏺', 120 );
 
 		wp_update_post(
