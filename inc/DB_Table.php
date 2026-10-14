@@ -689,7 +689,7 @@ class DB_Table {
 	 * @return true|\WP_Error
 	 * @throws \Exception If Qdrant API fails.
 	 */
-	private function run_ingest( $doc, $args ) {
+	private function run_ingest( array $doc, array $args ) {
 		// No extractable text (media-only content, empty page, a body that is
 		// only a shortcode): refuse up front so nothing is queued or marked as
 		// added in either mode.
@@ -985,7 +985,7 @@ class DB_Table {
 	 *
 	 * @return string
 	 */
-	private function post_source_content( $post_id ) {
+	private function post_source_content( int $post_id ): string {
 		$user = get_current_user_id();
 
 		wp_set_current_user( 0 );

@@ -63,7 +63,7 @@ class IngestContentTest extends WP_UnitTestCase {
 	 *
 	 * @return false|array<string, mixed>|\WP_Error
 	 */
-	public function mock_openai( $pre, $args, $url ) {
+	public function mock_openai( $pre, array $args, string $url ) {
 		if ( false !== strpos( $url, '/moderations' ) ) {
 			return [
 				'response' => [ 'code' => 200 ],
@@ -88,10 +88,10 @@ class IngestContentTest extends WP_UnitTestCase {
 	 *
 	 * @return void
 	 */
-	private function register_hours_shortcode( $output = 'Open Monday to Friday, 8am to 6pm.' ) {
+	private function register_hours_shortcode( string $output = 'Open Monday to Friday, 8am to 6pm.' ): void {
 		add_shortcode(
 			'hyve_test_hours',
-			function () use ( $output ) {
+			function () use ( $output ): string {
 				return $output;
 			}
 		);
@@ -105,10 +105,10 @@ class IngestContentTest extends WP_UnitTestCase {
 	 *
 	 * @return void
 	 */
-	private function capture_upserts( &$captured ) {
+	private function capture_upserts( array &$captured ): void {
 		add_filter(
 			'pre_http_request',
-			function ( $pre, $args ) use ( &$captured ) {
+			function ( $pre, array $args ) use ( &$captured ) {
 				$body = json_decode( isset( $args['body'] ) ? $args['body'] : '', true );
 
 				if ( ! isset( $body['documents'] ) ) {
@@ -164,7 +164,7 @@ class IngestContentTest extends WP_UnitTestCase {
 	 * Connect sent raw `post_content`, so page-builder sites embedded their
 	 * markup verbatim.
 	 */
-	public function test_connect_sends_rendered_text_not_raw_post_content() {
+	public function test_connect_sends_rendered_text_not_raw_post_content(): void {
 		update_option( 'hyve_settings', [ 'ai_mode' => Hyve_Connect::MODE_CONNECT ] );
 
 		$post_id = $this->factory()->post->create(
@@ -190,7 +190,7 @@ class IngestContentTest extends WP_UnitTestCase {
 	 * The self-hosted path stores the same text, so a site that disconnects
 	 * keeps the content it had.
 	 */
-	public function test_self_hosted_stores_the_same_rendered_text() {
+	public function test_self_hosted_stores_the_same_rendered_text(): void {
 		$post_id = $this->factory()->post->create(
 			[
 				'post_title'   => 'Clinic Opening Hours',
@@ -213,7 +213,7 @@ class IngestContentTest extends WP_UnitTestCase {
 	 * The text an active shortcode renders only exists after `the_content` runs,
 	 * so this is what tells rendering apart from stripping the markers.
 	 */
-	public function test_connect_sends_what_an_active_shortcode_renders() {
+	public function test_connect_sends_what_an_active_shortcode_renders(): void {
 		update_option( 'hyve_settings', [ 'ai_mode' => Hyve_Connect::MODE_CONNECT ] );
 
 		$this->register_hours_shortcode();
@@ -240,7 +240,7 @@ class IngestContentTest extends WP_UnitTestCase {
 	 * the platform held the hash of rendered content, so every edited post
 	 * looked stale forever and was pushed again on each reconcile.
 	 */
-	public function test_every_connect_path_sends_the_same_content() {
+	public function test_every_connect_path_sends_the_same_content(): void {
 		update_option( 'hyve_settings', [ 'ai_mode' => Hyve_Connect::MODE_CONNECT ] );
 
 		$this->register_hours_shortcode();
@@ -281,12 +281,12 @@ class IngestContentTest extends WP_UnitTestCase {
 	 * one. A shortcode that checks the current user must not hand the hosted
 	 * index what only a signed-in administrator can see.
 	 */
-	public function test_content_is_rendered_as_a_logged_out_visitor() {
+	public function test_content_is_rendered_as_a_logged_out_visitor(): void {
 		update_option( 'hyve_settings', [ 'ai_mode' => Hyve_Connect::MODE_CONNECT ] );
 
 		add_shortcode(
 			'hyve_test_hours',
-			function () {
+			function (): string {
 				return is_user_logged_in() ? 'Private: staff rota for March.' : 'Open Monday to Friday, 8am to 6pm.';
 			}
 		);
@@ -314,7 +314,7 @@ class IngestContentTest extends WP_UnitTestCase {
 	 * A page that renders to nothing but a shortcode is refused, so it never
 	 * becomes a near-empty chunk that outranks real pages.
 	 */
-	public function test_shortcode_only_document_is_refused() {
+	public function test_shortcode_only_document_is_refused(): void {
 		$post_id = $this->factory()->post->create(
 			[
 				'post_title'   => 'Checkout',
@@ -434,7 +434,7 @@ class IngestContentTest extends WP_UnitTestCase {
 
 		add_filter(
 			'pre_http_request',
-			function ( $pre, $args ) {
+			function ( $pre, array $args ) {
 				return isset( $args['body'] ) && false !== strpos( (string) $args['body'], '"documents"' )
 					? new WP_Error( 'http_request_failed', 'Connection timed out.' )
 					: $pre;
@@ -464,7 +464,7 @@ class IngestContentTest extends WP_UnitTestCase {
 
 		add_filter(
 			'pre_http_request',
-			function ( $pre, $args ) {
+			function ( $pre, array $args ) {
 				$body = json_decode( isset( $args['body'] ) ? $args['body'] : '', true );
 
 				if ( ! isset( $body['documents'][0]['id'] ) ) {
