@@ -31,11 +31,11 @@ class Page_Context {
 	const CACHE_PREFIX = 'hyve_page_context_';
 
 	/**
-	 * Most tokens of the page title the identity line carries.
+	 * Most tokens the identity line carries for the page title, and for its URL.
 	 *
 	 * @var int
 	 */
-	const TITLE_TOKEN_LIMIT = 64;
+	const IDENTITY_TOKEN_LIMIT = 64;
 
 	/**
 	 * The single instance of the class.
@@ -209,7 +209,8 @@ class Page_Context {
 	 * @return string Empty when no usable content was found.
 	 */
 	public function context_block( $page, $existing_context = '' ) {
-		$label = '' !== $page['title'] ? $this->short_title( $page['title'] ) . ' (' . $page['url'] . ')' : $page['url'];
+		$url   = $this->shorten( $page['url'] );
+		$label = '' !== $page['title'] ? $this->shorten( $page['title'] ) . ' (' . $url . ')' : $url;
 		$open  = "\n ===START CURRENT PAGE=== The visitor is currently viewing this page: " . $label . '. ';
 		$close = ' ===END CURRENT PAGE===';
 
@@ -236,21 +237,21 @@ class Page_Context {
 	}
 
 	/**
-	 * Cap the page title so a long one cannot fill the page budget.
+	 * Cap a part of the identity line so a long title or URL cannot fill the page budget.
 	 *
-	 * @param string $title Page title.
+	 * @param string $text The page title or URL.
 	 *
 	 * @return string
 	 */
-	private function short_title( string $title ): string {
+	private function shorten( string $text ): string {
 		try {
-			if ( Tokenizer::count_tokens( $title ) <= self::TITLE_TOKEN_LIMIT ) {
-				return $title;
+			if ( Tokenizer::count_tokens( $text ) <= self::IDENTITY_TOKEN_LIMIT ) {
+				return $text;
 			}
 
-			return str_replace( "\n", ' ', $this->trim_to_limit( $title, self::TITLE_TOKEN_LIMIT ) );
+			return str_replace( "\n", ' ', $this->trim_to_limit( $text, self::IDENTITY_TOKEN_LIMIT ) );
 		} catch ( \Exception $e ) {
-			return mb_substr( $title, 0, self::TITLE_TOKEN_LIMIT );
+			return mb_substr( $text, 0, self::IDENTITY_TOKEN_LIMIT );
 		}
 	}
 

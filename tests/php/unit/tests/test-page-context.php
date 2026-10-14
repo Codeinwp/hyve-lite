@@ -487,6 +487,55 @@ class Test_Page_Context extends WP_UnitTestCase {
 	}
 
 	/**
+	 * A very long URL is capped too, so an unindexed page keeps its content and
+	 * an indexed one its identity, both within the page budget.
+	 */
+	public function test_long_url_stays_within_the_budget(): void {
+		$this->set_permalink_structure( '/%postname%/' );
+
+		$parent = 0;
+
+		for ( $level = 0; $level < 8; $level++ ) {
+			$parent = $this->factory()->post->create(
+				[
+					'post_type'   => 'page',
+					'post_status' => 'publish',
+					'post_title'  => 'Deep URL Page',
+					'post_name'   => str_repeat( '陶芸工房', 15 ) . $level,
+					'post_parent' => $parent,
+				]
+			);
+		}
+
+		add_filter(
+			'hyve_page_context_content',
+			function () {
+				return str_repeat( 'Kiln firing is included in every membership. ', 200 );
+			}
+		);
+
+		$url  = (string) get_permalink( $parent );
+		$page = Page_Context::instance()->for_request( $this->chat_request( $url ) );
+
+		$this->assertSame( $parent, $page['id'] );
+		$this->assertGreaterThan( 1000, Tokenizer::count_tokens( $url ) );
+
+		$block = Page_Context::instance()->context_block( $page );
+
+		$this->assertStringContainsString( 'viewing this page: Deep URL Page (', $block );
+		$this->assertStringContainsString( 'Kiln firing', $block );
+		$this->assertLessThanOrEqual( 1000, Tokenizer::count_tokens( $block ) );
+
+		update_post_meta( $parent, '_hyve_added', 1 );
+
+		$page  = Page_Context::instance()->for_request( $this->chat_request( $url ) );
+		$block = Page_Context::instance()->context_block( $page );
+
+		$this->assertStringContainsString( 'viewing the page: Deep URL Page (', $block );
+		$this->assertLessThanOrEqual( 1000, Tokenizer::count_tokens( $block ) );
+	}
+
+	/**
 	 * The Connect payload carries identity always, content only when unindexed,
 	 * and no post id for loop pages.
 	 */
