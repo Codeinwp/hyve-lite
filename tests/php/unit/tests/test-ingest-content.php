@@ -7,6 +7,7 @@
 
 use ThemeIsle\HyveLite\DB_Table;
 use ThemeIsle\HyveLite\Hyve_Connect;
+use ThemeIsle\HyveLite\OpenAI;
 
 /**
  * Class IngestContentTest.
@@ -25,11 +26,13 @@ class IngestContentTest extends WP_UnitTestCase {
 		'[us_iconbox icon="fa-clock" title="Hours"]Open Monday to Friday, 8am to 6pm.[/us_iconbox][/vc_column][/vc_row]';
 
 	/**
-	 * Ensure the KB table exists.
+	 * Ensure the KB table exists and OpenAI is answered locally.
 	 */
 	protected function setUp(): void {
 		parent::setUp();
 		new DB_Table();
+		$this->reset_openai();
+		add_filter( 'pre_http_request', [ $this, 'mock_openai' ], 10, 3 );
 	}
 
 	/**
@@ -37,8 +40,45 @@ class IngestContentTest extends WP_UnitTestCase {
 	 */
 	protected function tearDown(): void {
 		remove_shortcode( 'hyve_test_hours' );
+		$this->reset_openai();
 
 		parent::tearDown();
+	}
+
+	/**
+	 * OpenAI::instance() keeps the key it read, so a test that set one must not leak it here.
+	 */
+	private function reset_openai(): void {
+		$instance = new ReflectionProperty( OpenAI::class, 'instance' );
+		$instance->setAccessible( true );
+		$instance->setValue( null, null );
+	}
+
+	/**
+	 * Answer the moderation and embedding calls the self-hosted ingest makes.
+	 *
+	 * @param false|array<string, mixed>|\WP_Error $pre  The short-circuit response.
+	 * @param array<string, mixed>                 $args The request arguments.
+	 * @param string                               $url  The request URL.
+	 *
+	 * @return false|array<string, mixed>|\WP_Error
+	 */
+	public function mock_openai( $pre, $args, $url ) {
+		if ( false !== strpos( $url, '/moderations' ) ) {
+			return [
+				'response' => [ 'code' => 200 ],
+				'body'     => wp_json_encode( [ 'results' => [ [ 'flagged' => false ] ] ] ),
+			];
+		}
+
+		if ( false !== strpos( $url, '/embeddings' ) ) {
+			return [
+				'response' => [ 'code' => 200 ],
+				'body'     => wp_json_encode( [ 'data' => [ [ 'embedding' => [ 0.7, 0.8, 0.9 ] ] ] ] ),
+			];
+		}
+
+		return $pre;
 	}
 
 	/**
@@ -159,8 +199,7 @@ class IngestContentTest extends WP_UnitTestCase {
 			]
 		);
 
-		$table = DB_Table::instance();
-		$table->add_post( $post_id, 'add' );
+		$this->assertTrue( DB_Table::instance()->add_post( $post_id, 'add' ) );
 
 		// The chunks table is dropped once per run, not per test, so ids repeat
 		// across tests: read back the row this ingest just wrote.
