@@ -645,24 +645,27 @@ const WordPressDrill = () => {
 
 	const totalPages = Math.max( 1, Math.ceil( total / perPageRef.current ) );
 
+	/**
+	 * Mirror what the server now stores for a source, so a reason from an
+	 * earlier attempt never outlives the one that replaced it.
+	 *
+	 * @param {number} id    The source's post ID.
+	 * @param {string} error The stored reason, or '' when there is none.
+	 */
+	const setRowError = ( id, error ) =>
+		setRows( ( prev ) =>
+			prev.map( ( row ) => ( row.ID === id ? { ...row, error } : row ) )
+		);
+
 	const processPost = async ( id ) => {
 		setUpdating( ( prev ) => [ ...prev, id ] );
 
 		const currentPost = rows.find( ( row ) => row.ID === id );
 
-		// The row mirrors what the server now stores for this source, so a
-		// reason from an earlier attempt never outlives the one that replaced it.
-		const setRowError = ( error ) =>
-			setRows( ( prev ) =>
-				prev.map( ( row ) =>
-					row.ID === id ? { ...row, error } : row
-				)
-			);
-
 		await onProcessData( {
 			post: currentPost,
 			onSuccess: ( response ) => {
-				setRowError( response?.warning ?? '' );
+				setRowError( id, response?.warning ?? '' );
 				setUpdating( ( prev ) =>
 					prev.filter( ( postId ) => postId !== id )
 				);
@@ -685,12 +688,13 @@ const WordPressDrill = () => {
 					} );
 				}
 
-				// A moderation rejection is shown by its own state and modal.
-				setRowError(
-					'content_failed_moderation' === error?.code
-						? ''
-						: error?.error ?? ''
-				);
+				// A moderation rejection is shown by its own state and modal; a
+				// request that never reached the server leaves the stored reason.
+				if ( 'content_failed_moderation' === error?.code ) {
+					setRowError( id, '' );
+				} else if ( 'string' === typeof error?.error ) {
+					setRowError( id, error.error );
+				}
 
 				fetchAttentionCount( setAttentionCount );
 				setUpdating( ( prev ) =>
@@ -1248,7 +1252,8 @@ const WordPressDrill = () => {
 				<ModerationModal
 					post={ reviewPost }
 					onClose={ () => setReviewPost( null ) }
-					onSuccess={ () => {
+					onSuccess={ ( response ) => {
+						setRowError( reviewPost.ID, response?.warning ?? '' );
 						setProcessedPosts( ( prev ) => [
 							...prev,
 							reviewPost.ID,

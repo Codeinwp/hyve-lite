@@ -107,6 +107,28 @@ export const moderationLabels = {
 	},
 };
 
+/**
+ * The add endpoints' success reply.
+ *
+ * @typedef {true | { success: true, warning: string }} ProcessDataSuccess
+ */
+
+/**
+ * The add endpoints' error reply, or the request's own failure.
+ *
+ * @typedef {{ error: string, code?: string, review?: Object<string, number> } | { code: string, message: string }} ProcessDataError
+ */
+
+/**
+ * Send a source to its add endpoint and hand the reply to the caller.
+ *
+ * @param {Object}                                 props
+ * @param {Object}                                 [props.post]      The source to add.
+ * @param {'core'|'knowledge'|'link'}              [props.type]      Which endpoint to call.
+ * @param {Object<string, *>}                      [props.params]    Extra request fields, such as an override action.
+ * @param {(response: ProcessDataSuccess) => void} [props.onSuccess] Called with the endpoint's success reply.
+ * @param {(error: ProcessDataError) => void}      [props.onError]   Called with the endpoint's error reply, or the failed request.
+ */
 export const onProcessData = async ( {
 	post = {},
 	type = 'core',
