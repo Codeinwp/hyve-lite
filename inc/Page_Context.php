@@ -32,6 +32,7 @@ class Page_Context {
 
 	/**
 	 * Most tokens the identity line carries for the page title, and for its URL.
+	 * A longer title is cut; a longer URL is left out, since a cut URL is a broken link.
 	 *
 	 * @var int
 	 */
@@ -209,8 +210,7 @@ class Page_Context {
 	 * @return string Empty when no usable content was found.
 	 */
 	public function context_block( $page, $existing_context = '' ) {
-		$url   = $this->shorten( $page['url'] );
-		$label = '' !== $page['title'] ? $this->shorten( $page['title'] ) . ' (' . $url . ')' : $url;
+		$label = $this->label( $page );
 		$open  = "\n ===START CURRENT PAGE=== The visitor is currently viewing this page: " . $label . '. ';
 		$close = ' ===END CURRENT PAGE===';
 
@@ -237,22 +237,74 @@ class Page_Context {
 	}
 
 	/**
-	 * Cap a part of the identity line so a long title or URL cannot fill the page budget.
+	 * Name the page for the identity line: its title and URL, each capped so
+	 * neither can fill the page budget.
 	 *
-	 * @param string $text The page title or URL.
+	 * @param array{id:int,title:string,url:string,indexed:bool} $page Resolved page.
 	 *
 	 * @return string
 	 */
-	private function shorten( string $text ): string {
+	private function label( array $page ): string {
+		$title = $this->short_title( $page['title'] );
+		$url   = $this->whole_url( $page['url'] );
+
+		if ( '' !== $title && '' !== $url ) {
+			return $title . ' (' . $url . ')';
+		}
+
+		// A page with neither is still placed on this site.
+		return '' !== $title ? $title : ( '' !== $url ? $url : home_url( '/' ) );
+	}
+
+	/**
+	 * Cap the page title, on one line, so a long one cannot fill the page budget.
+	 *
+	 * @param string $title Page title.
+	 *
+	 * @return string
+	 */
+	private function short_title( string $title ): string {
+		$title = trim( (string) preg_replace( '/\s+/', ' ', $title ) );
+
 		try {
-			if ( Tokenizer::count_tokens( $text ) <= self::IDENTITY_TOKEN_LIMIT ) {
-				return $text;
+			if ( Tokenizer::count_tokens( $title ) <= self::IDENTITY_TOKEN_LIMIT ) {
+				return $title;
 			}
 
-			return str_replace( "\n", ' ', $this->trim_to_limit( $text, self::IDENTITY_TOKEN_LIMIT ) );
+			// The cut re-joins sentences with line breaks.
+			return trim( (string) preg_replace( '/\s+/', ' ', $this->trim_to_limit( $title, self::IDENTITY_TOKEN_LIMIT ) ) );
 		} catch ( \Exception $e ) {
-			return mb_substr( $text, 0, self::IDENTITY_TOKEN_LIMIT );
+			return mb_substr( $title, 0, self::IDENTITY_TOKEN_LIMIT );
 		}
+	}
+
+	/**
+	 * The page URL in its readable form, or nothing when even that is too long:
+	 * a cut URL would hand the model a broken link.
+	 *
+	 * @param string $url Page URL.
+	 *
+	 * @return string
+	 */
+	private function whole_url( string $url ): string {
+		// Non-ASCII escapes cost several tokens a character and read the same decoded;
+		// ASCII escapes keep their meaning only as sent, and bad bytes stay out of the prompt.
+		$readable = (string) preg_replace_callback(
+			'/(?:%[89a-f][0-9a-f])+/i',
+			function ( array $escape ): string {
+				return rawurldecode( $escape[0] );
+			},
+			$url
+		);
+		$url      = '' === wp_check_invalid_utf8( $readable ) ? $url : $readable;
+
+		try {
+			$fits = Tokenizer::count_tokens( $url ) <= self::IDENTITY_TOKEN_LIMIT;
+		} catch ( \Exception $e ) {
+			$fits = strlen( $url ) <= 4 * self::IDENTITY_TOKEN_LIMIT;
+		}
+
+		return $fits ? $url : '';
 	}
 
 	/**

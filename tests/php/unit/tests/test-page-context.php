@@ -522,7 +522,8 @@ class Test_Page_Context extends WP_UnitTestCase {
 
 		$block = Page_Context::instance()->context_block( $page );
 
-		$this->assertStringContainsString( 'viewing this page: Deep URL Page (', $block );
+		$this->assertStringContainsString( 'viewing this page: Deep URL Page. ', $block );
+		$this->assertStringNotContainsString( '陶芸工房', $block );
 		$this->assertStringContainsString( 'Kiln firing', $block );
 		$this->assertLessThanOrEqual( 1000, Tokenizer::count_tokens( $block ) );
 
@@ -531,8 +532,76 @@ class Test_Page_Context extends WP_UnitTestCase {
 		$page  = Page_Context::instance()->for_request( $this->chat_request( $url ) );
 		$block = Page_Context::instance()->context_block( $page );
 
-		$this->assertStringContainsString( 'viewing the page: Deep URL Page (', $block );
+		$this->assertStringContainsString( 'viewing the page: Deep URL Page ===END', $block );
 		$this->assertLessThanOrEqual( 1000, Tokenizer::count_tokens( $block ) );
+	}
+
+	/**
+	 * An ordinary non-Latin URL is carried whole, in its readable form, never
+	 * cut in the middle of a percent escape.
+	 */
+	public function test_a_non_latin_url_is_carried_whole(): void {
+		$this->set_permalink_structure( '/%postname%/' );
+
+		$post_id = $this->factory()->post->create(
+			[
+				'post_status' => 'publish',
+				'post_title'  => '陶芸教室のご案内',
+				'post_name'   => '陶芸教室のご案内',
+			]
+		);
+
+		update_post_meta( $post_id, '_hyve_added', 1 );
+
+		$url  = (string) get_permalink( $post_id );
+		$page = Page_Context::instance()->for_request( $this->chat_request( $url ) );
+
+		$this->assertGreaterThan( Page_Context::IDENTITY_TOKEN_LIMIT, Tokenizer::count_tokens( $url ) );
+
+		$block = Page_Context::instance()->context_block( $page );
+
+		$this->assertStringContainsString( '陶芸教室のご案内 (' . rawurldecode( $url ) . ')', $block );
+		$this->assertStringNotContainsString( '%', $block );
+	}
+
+	/**
+	 * Escapes that are not valid text, or that stand for ASCII, stay as sent:
+	 * decoding them would corrupt the prompt or change the link.
+	 */
+	public function test_ascii_and_invalid_escapes_in_a_url_stay_encoded(): void {
+		add_filter(
+			'hyve_page_context_content',
+			function () {
+				return 'Latest widget news.';
+			}
+		);
+
+		foreach ( [ '/%ff%fe/', '/a%3fb/', '/a%0ab/' ] as $path ) {
+			$page  = Page_Context::instance()->for_request( $this->chat_request( home_url( $path ) ) );
+			$block = Page_Context::instance()->context_block( $page );
+
+			$this->assertStringContainsString( 'viewing this page: ' . home_url( $path ) . '. ', $block );
+		}
+	}
+
+	/**
+	 * A title with line breaks and runs of spaces is carried on one line.
+	 */
+	public function test_a_multiline_title_is_carried_on_one_line(): void {
+		wp_update_post(
+			[
+				'ID'         => $this->post_id,
+				'post_title' => implode( "\n\n", array_fill( 0, 10, 'Quartz  jinx vexes dwarfs.' ) ),
+			]
+		);
+		update_post_meta( $this->post_id, '_hyve_added', 1 );
+
+		$page  = Page_Context::instance()->for_request( $this->chat_request( get_permalink( $this->post_id ) ) );
+		$block = Page_Context::instance()->context_block( $page );
+
+		$this->assertStringContainsString( 'viewing the page: Quartz jinx vexes dwarfs. Quartz jinx', $block );
+		$this->assertStringNotContainsString( "\n", trim( $block ) );
+		$this->assertStringNotContainsString( '  ', $block );
 	}
 
 	/**
