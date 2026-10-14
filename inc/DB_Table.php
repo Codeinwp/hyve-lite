@@ -605,7 +605,7 @@ class DB_Table {
 		// delete below leaves a flag that can be aged out instead of sticking.
 		update_post_meta( $post_id, '_hyve_post_processing', time() );
 
-		$content = $this->post_source_content( $post_id );
+		$content = $this->post_source_content( (int) $post_id );
 
 		$result = $this->ingest_document(
 			[

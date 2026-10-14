@@ -161,6 +161,18 @@ class IngestContentTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * An ID that is not a post is answered with the no-text error, never a fatal.
+	 */
+	public function test_an_id_that_is_not_a_post_is_refused_with_an_error(): void {
+		wp_set_current_user( $this->factory()->user->create( [ 'role' => 'administrator' ] ) );
+
+		$request = new WP_REST_Request( 'POST', '/hyve/v1/data' );
+		$request->set_body_params( [ 'data' => [ 'ID' => 'abc' ] ] );
+
+		$this->assertSame( [ 'error' => 'There is no text content to index.' ], rest_do_request( $request )->get_data() );
+	}
+
+	/**
 	 * Connect sent raw `post_content`, so page-builder sites embedded their
 	 * markup verbatim.
 	 */
