@@ -264,6 +264,46 @@ class IngestContentTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * An ability can run `add_post()` from inside a loop. The caller's post and
+	 * loop state must be back when it returns.
+	 */
+	public function test_rendering_restores_the_post_that_was_already_current(): void {
+		update_option( 'hyve_settings', [ 'ai_mode' => Hyve_Connect::MODE_CONNECT ] );
+
+		$this->register_hours_shortcode();
+
+		$post_id = $this->factory()->post->create(
+			[
+				'post_title'   => 'Clinic Opening Hours',
+				'post_status'  => 'publish',
+				'post_content' => '[hyve_test_hours]',
+			]
+		);
+
+		$other = $this->factory()->post->create_and_get( [ 'post_title' => 'The page being viewed' ] );
+
+		$GLOBALS['post'] = $other; // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited
+		setup_postdata( $other );
+		$GLOBALS['wp_query']->in_the_loop = true;
+
+		$captured = [];
+		$this->capture_upserts( $captured );
+
+		try {
+			$this->assertTrue( DB_Table::instance()->add_post( $post_id, 'add' ) );
+
+			$this->assertSame( 'Open Monday to Friday, 8am to 6pm.', $captured[0]['content'], 'The source post, not the current one, is rendered.' );
+			$this->assertSame( $other->ID, get_the_ID() );
+			$this->assertSame( $other, $GLOBALS['post'] );
+			$this->assertSame( $other->ID, $GLOBALS['id'], 'setup_postdata() must have run again for the current post.' );
+			$this->assertTrue( in_the_loop() );
+		} finally {
+			$GLOBALS['wp_query']->in_the_loop = false;
+			$GLOBALS['post']                  = null; // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited
+		}
+	}
+
+	/**
 	 * The text an active shortcode renders only exists after `the_content` runs,
 	 * so this is what tells rendering apart from stripping the markers.
 	 */
