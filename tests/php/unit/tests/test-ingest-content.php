@@ -222,6 +222,48 @@ class IngestContentTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Elementor-style builders render from post meta and find the post through
+	 * `get_the_ID()`. From REST or cron there was no current post, so the page
+	 * was refused as empty.
+	 */
+	public function test_a_builder_that_renders_from_post_meta_sees_its_post(): void {
+		update_option( 'hyve_settings', [ 'ai_mode' => Hyve_Connect::MODE_CONNECT ] );
+
+		$post_id = $this->factory()->post->create(
+			[
+				'post_title'   => 'Clinic Opening Hours',
+				'post_status'  => 'publish',
+				'post_content' => '',
+			]
+		);
+
+		update_post_meta( $post_id, '_hyve_test_builder_text', 'Open Monday to Friday, 8am to 6pm.' );
+
+		$builder = function ( string $content ): string {
+			$text = get_the_ID() ? (string) get_post_meta( get_the_ID(), '_hyve_test_builder_text', true ) : '';
+
+			return '' !== $text && in_the_loop() ? '<p>' . $text . '</p>' : $content;
+		};
+
+		add_filter( 'the_content', $builder );
+
+		$captured = [];
+		$this->capture_upserts( $captured );
+
+		$this->assertNull( $GLOBALS['post'] ?? null, 'Must start outside the loop, as REST and cron do.' );
+		$this->assertFalse( in_the_loop() );
+
+		$result = DB_Table::instance()->add_post( $post_id, 'add' );
+
+		remove_filter( 'the_content', $builder );
+
+		$this->assertTrue( $result );
+		$this->assertSame( 'Open Monday to Friday, 8am to 6pm.', $captured[0]['content'] );
+		$this->assertNull( $GLOBALS['post'] ?? null, 'The global post must be put back as it was.' );
+		$this->assertFalse( in_the_loop(), 'The loop state must be put back as it was.' );
+	}
+
+	/**
 	 * The text an active shortcode renders only exists after `the_content` runs,
 	 * so this is what tells rendering apart from stripping the markers.
 	 */

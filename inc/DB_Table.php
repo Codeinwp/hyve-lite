@@ -977,6 +977,10 @@ class DB_Table {
 	 * sees: core's `[gallery]` returns the captions of a private post's images
 	 * to anyone who passes `read_post`.
 	 *
+	 * Rendered inside the loop, because builders such as Elementor find the post
+	 * through `get_the_ID()`; from REST or cron there is no current post, so
+	 * they return the raw (for Elementor, empty) content.
+	 *
 	 * Every path that sends a post to Connect reads it from here, so the content
 	 * the platform stores and the content its hash is computed from are the same
 	 * string.
@@ -986,13 +990,43 @@ class DB_Table {
 	 * @return string
 	 */
 	private function post_source_content( int $post_id ): string {
-		$user = get_current_user_id();
+		$post = get_post( $post_id );
+
+		if ( ! $post instanceof \WP_Post ) {
+			return '';
+		}
+
+		global $wp_query;
+
+		$user        = get_current_user_id();
+		$previous    = $GLOBALS['post'] ?? null;
+		$in_the_loop = $wp_query instanceof \WP_Query && $wp_query->in_the_loop;
 
 		wp_set_current_user( 0 );
 
+		// As `the_post()` does; restored below.
+		// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited
+		$GLOBALS['post'] = $post;
+		setup_postdata( $post );
+
+		if ( $wp_query instanceof \WP_Query ) {
+			$wp_query->in_the_loop = true;
+		}
+
 		try {
-			return (string) apply_filters( 'the_content', get_post_field( 'post_content', $post_id ) );
+			return (string) apply_filters( 'the_content', $post->post_content );
 		} finally {
+			// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited
+			$GLOBALS['post'] = $previous;
+
+			if ( $wp_query instanceof \WP_Query ) {
+				$wp_query->in_the_loop = $in_the_loop;
+			}
+
+			if ( $previous instanceof \WP_Post ) {
+				setup_postdata( $previous );
+			}
+
 			wp_set_current_user( $user );
 		}
 	}
