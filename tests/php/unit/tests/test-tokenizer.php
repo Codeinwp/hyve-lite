@@ -5,7 +5,12 @@
  * @package Codeinwp/HyveLite
  */
 
+use guttedgarden\Tiktoken\EncoderProvider;
+use guttedgarden\Tiktoken\Vocab\Vocab;
+use ThemeIsle\HyveLite\API;
+use ThemeIsle\HyveLite\DB_Table;
 use ThemeIsle\HyveLite\Tokenizer;
+use ThemeIsle\HyveLite\Vocab_Loader;
 
 /**
  * Class Test_Tokenizer.
@@ -219,5 +224,267 @@ class Test_Tokenizer extends WP_UnitTestCase {
 		$this->assertStringContainsString( 'We are open on weekdays.', $result );
 		$this->assertStringContainsString( 'The end.', $result );
 		$this->assertStringNotContainsString( '[gallery', $result );
+	}
+
+	/**
+	 * The sha256 the library expects for cl100k_base.
+	 */
+	const CL100K_HASH = '223921b76ee99bde995b7ff738513eef100fb51d18c93597a113bcffe865b2a7';
+
+	/**
+	 * The URI the library fetches cl100k_base from.
+	 */
+	const CL100K_URI = 'https://openaipublic.blob.core.windows.net/encodings/cl100k_base.tiktoken';
+
+	/**
+	 * Drop the shared encoder and any HTTP fake a test left behind.
+	 */
+	public function tear_down() {
+		$this->set_provider( null );
+		remove_all_filters( 'pre_http_request' );
+
+		parent::tear_down();
+	}
+
+	/**
+	 * Answer the vocabulary download with a fixed response.
+	 *
+	 * @param array<string, mixed>|WP_Error $response What wp_remote_get() returns.
+	 *
+	 * @return void
+	 */
+	private function fake_download( $response ): void {
+		add_filter(
+			'pre_http_request',
+			function ( $pre, array $args ) use ( $response ) {
+				// A streamed request lands in the file, as the HTTP API would.
+				if ( is_array( $response ) && ! empty( $args['filename'] ) ) {
+					file_put_contents( $args['filename'], $response['body'] ?? '' ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents, WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_file_put_contents
+				}
+
+				return $response;
+			},
+			10,
+			2
+		);
+	}
+
+	/**
+	 * The real vocabulary bytes, from the cache the default loader keeps.
+	 *
+	 * @return string
+	 */
+	private function vocab_body(): string {
+		( new Vocab_Loader() )->load( self::CL100K_URI, self::CL100K_HASH );
+
+		return (string) file_get_contents( get_temp_dir() . sha1( self::CL100K_URI ) ); // phpcs:ignore WordPressVIPMinimum.Performance.FetchingRemoteData.FileGetContentsUnknown
+	}
+
+	/**
+	 * A fresh, writable cache directory under the temp directory.
+	 *
+	 * @return string
+	 */
+	private function cache_dir(): string {
+		$dir = get_temp_dir() . 'hyve-vocab-' . wp_generate_password( 8, false );
+		wp_mkdir_p( $dir );
+
+		return $dir;
+	}
+
+	/**
+	 * Replace the encoder provider the tokenizer shares across calls.
+	 *
+	 * @param EncoderProvider|null $provider The provider, or null to rebuild on next use.
+	 *
+	 * @return void
+	 */
+	private function set_provider( ?EncoderProvider $provider ): void {
+		$property = new ReflectionProperty( Tokenizer::class, 'provider' );
+		$property->setAccessible( true );
+		$property->setValue( null, $provider );
+	}
+
+	/**
+	 * The vocabulary is fetched through the HTTP API and cached under the
+	 * library's own file name, so a cache the library wrote is reused and one
+	 * this loader writes serves the library too.
+	 */
+	public function test_vocabulary_is_downloaded_with_the_http_api_and_cached(): void {
+		$vocab = ( new Vocab_Loader() )->load( self::CL100K_URI, self::CL100K_HASH );
+
+		$this->assertInstanceOf( Vocab::class, $vocab );
+		$this->assertSame( self::CL100K_HASH, hash_file( 'sha256', get_temp_dir() . sha1( self::CL100K_URI ) ) );
+
+		// Cached now, so a dead network no longer matters.
+		$this->fake_download( new WP_Error( 'http_request_failed', 'No route to host' ) );
+
+		$this->assertInstanceOf( Vocab::class, ( new Vocab_Loader() )->load( self::CL100K_URI, self::CL100K_HASH ) );
+	}
+
+	/**
+	 * With nowhere to cache, the vocabulary is buffered and parsed from memory.
+	 */
+	public function test_vocabulary_is_parsed_from_memory_when_nothing_is_writable(): void {
+		$this->fake_download(
+			[
+				'response' => [ 'code' => 200 ],
+				'body'     => $this->vocab_body(),
+			]
+		);
+
+		$vocab = ( new Vocab_Loader( [ __FILE__ . '/nope' ] ) )->load( self::CL100K_URI, self::CL100K_HASH );
+
+		$this->assertInstanceOf( Vocab::class, $vocab );
+		$this->assertFileDoesNotExist( __FILE__ . '/nope/' . sha1( self::CL100K_URI ) );
+	}
+
+	/**
+	 * A download that does not match the expected checksum is refused, whether
+	 * it was streamed to a cache file or buffered in memory.
+	 */
+	public function test_a_download_with_the_wrong_checksum_is_refused(): void {
+		$this->fake_download(
+			[
+				'response' => [ 'code' => 200 ],
+				'body'     => 'not a vocabulary',
+			]
+		);
+
+		foreach ( [ [ get_temp_dir() . 'hyve-vocab-test' ], [ __FILE__ . '/nope' ] ] as $dirs ) {
+			try {
+				( new Vocab_Loader( $dirs ) )->load( self::CL100K_URI, self::CL100K_HASH );
+				$this->fail( 'A wrong checksum must be refused.' );
+			} catch ( RuntimeException $e ) {
+				$this->assertStringContainsString( 'Checksum failed', $e->getMessage() );
+			}
+		}
+
+		$this->assertFileDoesNotExist( get_temp_dir() . 'hyve-vocab-test/' . sha1( self::CL100K_URI ) );
+	}
+
+	/**
+	 * Ingest used to need `fopen()` on a remote URI and a writable temp
+	 * directory (Codeinwp/hyve-lite#241). The temp directory is now optional.
+	 *
+	 * @runInSeparateProcess
+	 * @preserveGlobalState disabled
+	 */
+	public function test_tokenizing_needs_no_vocabulary_cache(): void {
+		define( 'WP_TEMP_DIR', __FILE__ . '/nope/' );
+
+		$chunks = Tokenizer::tokenize(
+			[
+				'ID'      => 1,
+				'title'   => 'Hours',
+				'content' => 'Open Monday to Friday.',
+			]
+		);
+
+		$this->assertSame( 'Open Monday to Friday.', $chunks[0]['post_content'] );
+		$this->assertGreaterThan( 0, $chunks[0]['token_count'] );
+	}
+
+	/**
+	 * A vocabulary that cannot be loaded is reported as an error, not an
+	 * uncaught exception that crashes the request.
+	 */
+	public function test_a_failed_vocabulary_load_is_an_ingest_error_not_a_crash(): void {
+		$this->fake_download( new WP_Error( 'http_request_failed', 'No route to host' ) );
+
+		$provider = new EncoderProvider();
+		$provider->setVocabLoader( new Vocab_Loader( [ __FILE__ . '/nope' ] ) );
+		$this->set_provider( $provider );
+
+		$post_id = $this->factory()->post->create( [ 'post_content' => 'Open Monday to Friday.' ] );
+
+		$request = new WP_REST_Request( 'POST', '/hyve/v1/data' );
+		$request->set_param( 'data', [ 'ID' => $post_id ] );
+		$request->set_param( 'action', 'add' );
+
+		$response = API::instance()->add_data( $request );
+
+		$this->assertStringContainsString( 'could not be tokenized', $response->get_data()['error'] );
+		$this->assertEmpty( get_post_meta( $post_id, '_hyve_added', true ) );
+	}
+
+	/**
+	 * A cache in a later directory, such as uploads after the temp directory
+	 * was unusable, is read without a download.
+	 */
+	public function test_a_cache_in_a_later_directory_is_read(): void {
+		$dir = $this->cache_dir();
+		file_put_contents( $dir . '/' . sha1( self::CL100K_URI ), $this->vocab_body() ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents, WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_file_put_contents
+
+		$this->fake_download( new WP_Error( 'http_request_failed', 'No route to host' ) );
+
+		$vocab = ( new Vocab_Loader( [ __FILE__ . '/nope', $dir ] ) )->load( self::CL100K_URI, self::CL100K_HASH );
+
+		$this->assertInstanceOf( Vocab::class, $vocab );
+	}
+
+	/**
+	 * A cache file that no longer matches its checksum is replaced.
+	 */
+	public function test_a_stale_cache_file_is_replaced(): void {
+		$dir  = $this->cache_dir();
+		$file = $dir . '/' . sha1( self::CL100K_URI );
+		file_put_contents( $file, 'not a vocabulary' ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents, WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_file_put_contents
+
+		$this->fake_download(
+			[
+				'response' => [ 'code' => 200 ],
+				'body'     => $this->vocab_body(),
+			]
+		);
+
+		$vocab = ( new Vocab_Loader( [ $dir ] ) )->load( self::CL100K_URI, self::CL100K_HASH );
+
+		$this->assertInstanceOf( Vocab::class, $vocab );
+		$this->assertSame( self::CL100K_HASH, hash_file( 'sha256', $file ) );
+	}
+
+	/**
+	 * A download answered with anything but 200 is refused, and the partial
+	 * file it streamed into is removed.
+	 */
+	public function test_a_failed_streamed_download_leaves_no_partial_file(): void {
+		$dir = $this->cache_dir();
+
+		$this->fake_download(
+			[
+				'response' => [ 'code' => 404 ],
+				'body'     => 'Not found',
+			]
+		);
+
+		try {
+			( new Vocab_Loader( [ $dir ] ) )->load( self::CL100K_URI, self::CL100K_HASH );
+			$this->fail( 'A 404 must be refused.' );
+		} catch ( RuntimeException $e ) {
+			$this->assertStringContainsString( 'HTTP 404', $e->getMessage() );
+		}
+
+		$this->assertSame( [], glob( $dir . '/*' ) );
+	}
+
+	/**
+	 * The update cron keeps a post flagged when the vocabulary cannot be
+	 * loaded, so a transient failure is retried on the next run.
+	 */
+	public function test_the_update_cron_retries_a_post_the_vocabulary_failed_for(): void {
+		$this->fake_download( new WP_Error( 'http_request_failed', 'No route to host' ) );
+
+		$provider = new EncoderProvider();
+		$provider->setVocabLoader( new Vocab_Loader( [ __FILE__ . '/nope' ] ) );
+		$this->set_provider( $provider );
+
+		$post_id = $this->factory()->post->create( [ 'post_content' => 'Open Monday to Friday.' ] );
+		update_post_meta( $post_id, '_hyve_added', 1 );
+		update_post_meta( $post_id, '_hyve_needs_update', 1 );
+
+		DB_Table::instance()->update_posts();
+
+		$this->assertSame( '1', get_post_meta( $post_id, '_hyve_needs_update', true ) );
 	}
 }
