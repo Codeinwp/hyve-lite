@@ -585,13 +585,38 @@ class Test_Page_Context extends WP_UnitTestCase {
 	}
 
 	/**
-	 * A title with line breaks and runs of spaces is carried on one line.
+	 * A title-less loop page whose URL is too long to carry is still placed on
+	 * the site, without the home page being passed off as the one viewed.
+	 */
+	public function test_a_title_less_page_with_a_long_url_is_placed_on_the_site(): void {
+		add_filter(
+			'hyve_page_context_content',
+			function () {
+				return 'Latest widget news.';
+			}
+		);
+
+		$url  = home_url( '/' . str_repeat( '%e9%99%b6%e8%8a%b8%e5%b7%a5%e6%88%bf/', 10 ) . 'page/2/' );
+		$page = Page_Context::instance()->for_request( $this->chat_request( $url ) );
+
+		$this->assertSame( '', $page['title'] );
+		$this->assertGreaterThan( Page_Context::IDENTITY_TOKEN_LIMIT, Tokenizer::count_tokens( rawurldecode( $url ) ) );
+
+		$block = Page_Context::instance()->context_block( $page );
+
+		$this->assertStringContainsString( 'viewing this page: a page on ' . home_url( '/' ) . '. Latest widget news.', $block );
+		$this->assertStringNotContainsString( '陶芸工房', $block );
+	}
+
+	/**
+	 * A title with line breaks and runs of spaces is carried on one line, even
+	 * when it is short enough to be carried whole.
 	 */
 	public function test_a_multiline_title_is_carried_on_one_line(): void {
 		wp_update_post(
 			[
 				'ID'         => $this->post_id,
-				'post_title' => implode( "\n\n", array_fill( 0, 10, 'Quartz  jinx vexes dwarfs.' ) ),
+				'post_title' => "Quartz  jinx\n\nvexes dwarfs.",
 			]
 		);
 		update_post_meta( $this->post_id, '_hyve_added', 1 );
@@ -599,7 +624,7 @@ class Test_Page_Context extends WP_UnitTestCase {
 		$page  = Page_Context::instance()->for_request( $this->chat_request( get_permalink( $this->post_id ) ) );
 		$block = Page_Context::instance()->context_block( $page );
 
-		$this->assertStringContainsString( 'viewing the page: Quartz jinx vexes dwarfs. Quartz jinx', $block );
+		$this->assertStringContainsString( 'viewing the page: Quartz jinx vexes dwarfs. (', $block );
 		$this->assertStringNotContainsString( "\n", trim( $block ) );
 		$this->assertStringNotContainsString( '  ', $block );
 	}

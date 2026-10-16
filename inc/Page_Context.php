@@ -252,8 +252,9 @@ class Page_Context {
 			return $title . ' (' . $url . ')';
 		}
 
-		// A page with neither is still placed on this site.
-		return '' !== $title ? $title : ( '' !== $url ? $url : home_url( '/' ) );
+		// A page with neither is still placed on this site, without passing the
+		// home page off as the one being viewed.
+		return '' !== $title ? $title : ( '' !== $url ? $url : 'a page on ' . home_url( '/' ) );
 	}
 
 	/**
@@ -296,7 +297,8 @@ class Page_Context {
 			},
 			$url
 		);
-		$url      = '' === wp_check_invalid_utf8( $readable ) ? $url : $readable;
+		// Checked directly: wp_check_invalid_utf8() passes bytes through on a non-UTF-8 site.
+		$url = 1 === preg_match( '//u', $readable ) ? $readable : $url;
 
 		try {
 			$fits = Tokenizer::count_tokens( $url ) <= self::IDENTITY_TOKEN_LIMIT;
