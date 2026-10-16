@@ -7,6 +7,9 @@
 
 use ThemeIsle\HyveLite\DB_Table;
 use ThemeIsle\HyveLite\Page_Context;
+use ThemeIsle\HyveLite\Tokenizer;
+use ThemeIsle\HyveLite\Vocab_Loader;
+use guttedgarden\Tiktoken\EncoderProvider;
 
 /**
  * Tests for the page context fed to chat turns.
@@ -45,6 +48,9 @@ class Test_Page_Context extends WP_UnitTestCase {
 	public function tear_down() {
 		remove_all_filters( 'hyve_page_context_enabled' );
 		remove_all_filters( 'hyve_page_context_content' );
+		remove_all_filters( 'pre_http_request' );
+		remove_all_filters( 'hyve_page_context_token_limit' );
+		$this->set_tokenizer_provider( null );
 		delete_transient( Page_Context::CACHE_PREFIX . $this->post_id );
 		delete_transient( Page_Context::CACHE_PREFIX . 'url_' . md5( $this->home_root_url() ) );
 
@@ -160,6 +166,40 @@ class Test_Page_Context extends WP_UnitTestCase {
 
 		Page_Context::instance()->context_block( $page );
 		$this->assertSame( 1, $runs );
+	}
+
+	/**
+	 * Replace the encoder provider the tokenizer shares across calls.
+	 *
+	 * @param EncoderProvider|null $provider The provider, or null to rebuild on next use.
+	 *
+	 * @return void
+	 */
+	private function set_tokenizer_provider( ?EncoderProvider $provider ): void {
+		$property = new ReflectionProperty( Tokenizer::class, 'provider' );
+		$property->setAccessible( true );
+		$property->setValue( null, $provider );
+	}
+
+	/**
+	 * Without a loadable vocabulary the page block is trimmed by characters
+	 * instead of crashing the chat request.
+	 */
+	public function test_page_content_is_trimmed_by_characters_when_the_vocabulary_is_unavailable() {
+		add_filter( 'pre_http_request', fn() => new WP_Error( 'http_request_failed', 'No route to host' ) );
+		add_filter( 'hyve_page_context_token_limit', fn() => 5 );
+
+		$provider = new EncoderProvider();
+		$provider->setVocabLoader( new Vocab_Loader( [ __FILE__ . '/nope' ] ) );
+		$this->set_tokenizer_provider( $provider );
+
+		add_filter( 'hyve_page_context_content', fn() => '<p>' . str_repeat( 'lorem ipsum ', 50 ) . '</p>' );
+
+		$page  = Page_Context::instance()->for_request( $this->chat_request( get_permalink( $this->post_id ) ) );
+		$block = Page_Context::instance()->context_block( $page );
+
+		$this->assertStringContainsString( 'lorem ipsum', $block );
+		$this->assertStringNotContainsString( str_repeat( 'lorem ipsum ', 5 ), $block );
 	}
 
 	/**
