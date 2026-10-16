@@ -539,7 +539,15 @@ class Page_Context {
 			return '';
 		}
 
-		$chunks = Tokenizer::create_chunks( $text, null === $limit ? self::token_limit() : $limit );
+		$limit = null === $limit ? self::token_limit() : $limit;
+
+		try {
+			$chunks = Tokenizer::create_chunks( $text, $limit );
+		} catch ( \RuntimeException $e ) {
+			$cut = mb_substr( $text, 0, $limit * 4 );
+
+			return trim( mb_strlen( $cut ) < mb_strlen( $text ) ? (string) preg_replace( '/\s+\S*$/u', '', $cut ) : $cut );
+		}
 
 		if ( empty( $chunks ) ) {
 			return '';
