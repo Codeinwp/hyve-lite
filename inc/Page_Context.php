@@ -413,6 +413,8 @@ class Page_Context {
 
 	/**
 	 * Trim text to the page context token budget, on sentence boundaries.
+	 * Without a loadable tokenizer vocabulary, trims to about four characters
+	 * per token on a word boundary instead.
 	 *
 	 * @param string $text Plain text.
 	 *
@@ -428,7 +430,6 @@ class Page_Context {
 		try {
 			$chunks = Tokenizer::create_chunks( $text, self::token_limit() );
 		} catch ( \RuntimeException $e ) {
-			// No vocabulary: trim by characters (about four per token) on a word boundary.
 			$cut = mb_substr( $text, 0, self::token_limit() * 4 );
 
 			return trim( mb_strlen( $cut ) < mb_strlen( $text ) ? (string) preg_replace( '/\s+\S*$/u', '', $cut ) : $cut );

@@ -185,7 +185,7 @@ class Test_Page_Context extends WP_UnitTestCase {
 	 * Without a loadable vocabulary the page block is trimmed by characters
 	 * instead of crashing the chat request.
 	 */
-	public function test_page_content_is_trimmed_by_characters_when_the_vocabulary_is_unavailable() {
+	public function test_page_content_is_trimmed_by_characters_when_the_vocabulary_is_unavailable(): void {
 		add_filter( 'pre_http_request', fn() => new WP_Error( 'http_request_failed', 'No route to host' ) );
 		add_filter( 'hyve_page_context_token_limit', fn() => 5 );
 
