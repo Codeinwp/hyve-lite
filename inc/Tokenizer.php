@@ -23,6 +23,10 @@ class Tokenizer {
 	 * This keeps that structure as text: cells become "label | value" pairs,
 	 * block elements become line breaks, and entities are decoded.
 	 *
+	 * Shortcode markers are dropped and the text they wrap kept: `the_content`
+	 * only expands shortcodes whose plugin is active, so an inactive builder or
+	 * content copied from another site leaves tags behind.
+	 *
 	 * @since 1.5.1
 	 *
 	 * @param string $content HTML (or plain text) content.
@@ -35,6 +39,18 @@ class Tokenizer {
 		if ( '' === trim( $content ) ) {
 			return '';
 		}
+
+		// A name has to start with a letter, and anything after it has to look
+		// like a `name="value"` attribute. Between them those keep bracketed
+		// prose ("[1]", "[see below]", "[Open 9am to 6pm]") out of the match.
+		// Once a tag does carry an attribute, the text up to the next `]` goes
+		// with it. The run is possessive only so that an unclosed `[tag attr=`
+		// cannot fail on backtracking.
+		$stripped = preg_replace( '/\[\/?[a-zA-Z][a-zA-Z0-9_-]*(?:\s+[a-zA-Z0-9_-]+\s*=[^\]]*+)?\s*\/?\]/', '', $content );
+
+		// Keep the text if the engine gave up: an empty document is refused on
+		// ingest, so a failed strip would drop the page entirely.
+		$content = null === $stripped ? $content : $stripped;
 
 		$content = (string) preg_replace(
 			[

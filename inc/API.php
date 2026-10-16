@@ -930,7 +930,11 @@ class API extends BaseAPI {
 
 			$processing_error = get_post_meta( $post_id, '_hyve_processing_error', true );
 
-			if ( ! empty( $processing_error ) && get_post_meta( $post_id, '_hyve_added', true ) ) {
+			// Shown whether or not the source made it into the index: a document
+			// refused for having no text is never added, and that refusal is
+			// exactly what the row has to explain. Editing or removing the
+			// source clears the meta, so it cannot outlive the problem.
+			if ( ! empty( $processing_error ) ) {
 				$post_data['error'] = $processing_error;
 			}
 

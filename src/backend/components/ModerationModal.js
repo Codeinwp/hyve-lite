@@ -18,11 +18,11 @@ import { moderationLabels, onProcessData } from '../utils';
  * Moderation review modal: flagged categories with score bars and an
  * override action for false positives.
  *
- * @param {Object}   props           Component props.
- * @param {?Object}  props.post      Post with a `review` scores object.
- * @param {string}   props.type      onProcessData type ('core'/'knowledge').
- * @param {Function} props.onClose   Close handler.
- * @param {Function} props.onSuccess Called after a successful override.
+ * @param {Object}                                                    props           Component props.
+ * @param {?Object}                                                   props.post      Post with a `review` scores object.
+ * @param {string}                                                    props.type      onProcessData type ('core'/'knowledge').
+ * @param {Function}                                                  props.onClose   Close handler.
+ * @param {(response: import('../utils').ProcessDataSuccess) => void} props.onSuccess Called with the override's success reply.
  */
 const ModerationModal = ( { post, type = '', onClose, onSuccess } ) => {
 	const [ isBusy, setBusy ] = useState( false );
@@ -40,9 +40,9 @@ const ModerationModal = ( { post, type = '', onClose, onSuccess } ) => {
 			params: {
 				action: 'override',
 			},
-			onSuccess: () => {
+			onSuccess: ( response ) => {
 				onClose();
-				onSuccess();
+				onSuccess( response );
 			},
 		} );
 

@@ -1123,6 +1123,10 @@ class Main {
 			return;
 		}
 
+		// An edit may fix whatever failed indexing (e.g. no text content).
+		// Before the `$added` guard: a source refused up front is never added.
+		delete_post_meta( $post_id, '_hyve_processing_error' );
+
 		$added = get_post_meta( $post_id, '_hyve_added', true );
 
 		if ( ! $added ) {
@@ -1140,8 +1144,6 @@ class Main {
 		update_post_meta( $post_id, '_hyve_needs_update', 1 );
 		delete_post_meta( $post_id, '_hyve_moderation_failed' );
 		delete_post_meta( $post_id, '_hyve_moderation_review' );
-		// An edit may fix whatever failed indexing (e.g. no text content).
-		delete_post_meta( $post_id, '_hyve_processing_error' );
 
 		wp_schedule_single_event( time(), 'hyve_update_posts' );
 	}
