@@ -930,7 +930,11 @@ class API extends BaseAPI {
 
 			$processing_error = get_post_meta( $post_id, '_hyve_processing_error', true );
 
-			if ( ! empty( $processing_error ) && get_post_meta( $post_id, '_hyve_added', true ) ) {
+			// Shown whether or not the source made it into the index: a document
+			// refused for having no text is never added, and that refusal is
+			// exactly what the row has to explain. Editing or removing the
+			// source clears the meta, so it cannot outlive the problem.
+			if ( ! empty( $processing_error ) ) {
 				$post_data['error'] = $processing_error;
 			}
 
@@ -2221,6 +2225,18 @@ class API extends BaseAPI {
 	}
 
 	/**
+	 * Get what the last knowledge base search retrieved.
+	 *
+	 * @return array{sources: array<int, int|string>, chunks: array<int, array<string, mixed>>}
+	 */
+	public function get_last_retrieval() {
+		return [
+			'sources' => $this->source_post_ids,
+			'chunks'  => $this->retrieval_trace,
+		];
+	}
+
+	/**
 	 * Build the text used for knowledge base retrieval.
 	 *
 	 * Retrieval embeds this text and searches the knowledge base with it. For the
@@ -2872,10 +2888,38 @@ class API extends BaseAPI {
 		);
 
 		if ( empty( $job['is_test'] ) ) {
+			self::cache_question_vector( $job['message'], isset( $result['question_embedding'] ) ? $result['question_embedding'] : null );
+
 			do_action( 'hyve_chat_response', (string) $run_id, $job['thread_id'], $job['message'], $job['record_id'], $payload, $final );
 		}
 
 		return rest_ensure_response( $data );
+	}
+
+	/**
+	 * Cache the embedded query for the turn being answered.
+	 *
+	 * Read back on `hyve_chat_response` by unanswered-question analytics, which
+	 * group questions by cosine distance. Self-hosted embeds locally; Connect
+	 * embeds server-side and returns the vector with an unanswered turn, so
+	 * both transports store it here under the same key.
+	 *
+	 * The TTL must outlast the slowest reply (streaming can run up to the 120s
+	 * cURL cap) so the vector is still there when the action fires.
+	 *
+	 * @param string $message Visitor message, as sent.
+	 * @param mixed  $vector  Embedding for the turn; ignored unless a non-empty array.
+	 *
+	 * @return void
+	 */
+	public static function cache_question_vector( $message, $vector ) {
+		if ( ! is_array( $vector ) || empty( $vector ) ) {
+			return;
+		}
+
+		$hash = hash( 'md5', strtolower( (string) $message ) );
+
+		set_transient( 'hyve_message_' . $hash, $vector, 5 * MINUTE_IN_SECONDS );
 	}
 
 	/**
@@ -2947,14 +2991,12 @@ class API extends BaseAPI {
 			);
 		}
 
-		$openai          = OpenAI::instance();
-		$record_id       = $request->get_param( 'record_id' );
-		$record_id       = $record_id ? $record_id : null;
+		$openai    = OpenAI::instance();
+		$record_id = $request->get_param( 'record_id' );
+		$record_id = $record_id ? $record_id : null;
+		// The current page stays out of the query: context_block() attaches it to
+		// the context on its own budget.
 		$retrieval_query = $this->build_retrieval_query( $message, $record_id, $request->get_param( 'thread_id' ) );
-
-		if ( $page && '' !== $page['title'] ) {
-			$retrieval_query .= "\n" . $page['title'];
-		}
 
 		$message_vector = $openai->create_embeddings( $retrieval_query );
 
@@ -3031,11 +3073,7 @@ class API extends BaseAPI {
 			$this->chat_debug['page_context'] = true;
 		}
 
-		$hash = hash( 'md5', strtolower( $message ) );
-		// TTL must outlast the slowest reply (streaming can run up to the 120s
-		// cURL cap) so the embedding is still available when hyve_chat_response
-		// fires and unanswered-question analytics can read it.
-		set_transient( 'hyve_message_' . $hash, $message_vector, 5 * MINUTE_IN_SECONDS );
+		self::cache_question_vector( $message, $message_vector );
 
 		return [
 			'thread_id' => $thread_id,

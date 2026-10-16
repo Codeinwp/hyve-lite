@@ -136,4 +136,88 @@ class Test_Tokenizer extends WP_UnitTestCase {
 		$this->assertCount( 1, $chunks );
 		$this->assertSame( "First sentence.\nSecond one!\nThird?", $chunks[0] );
 	}
+
+	/**
+	 * On one hosted practice 304 of 358 chunks were mostly `[vc_row]`
+	 * attributes rather than text. The wrapped text survives; the markers go.
+	 */
+	public function test_html_to_text_strips_leftover_shortcodes(): void {
+		$builder = '[vc_row css="%7B%22default%22%3A%7B%22margin-top%22%3A%2230px%22%7D%7D"][vc_column width="1/2"]' .
+			'[us_iconbox icon="fa-clock" title="Hours"]Open Monday to Friday, 8am to 6pm.[/us_iconbox][/vc_column][/vc_row]';
+
+		$text = Tokenizer::html_to_text( $builder );
+
+		$this->assertSame( 'Open Monday to Friday, 8am to 6pm.', $text );
+		$this->assertStringNotContainsString( '%22', $text );
+	}
+
+	/**
+	 * `the_content` texturizes attribute quotes into curly ones before the
+	 * content reaches here, so the stripper has to match those too.
+	 */
+	public function test_html_to_text_strips_shortcodes_with_curly_quotes(): void {
+		$text = Tokenizer::html_to_text( '[vc_row css=”%7B%22a%22%3A1%7D”]Rates from $9.[/vc_row]' );
+
+		$this->assertSame( 'Rates from $9.', $text );
+	}
+
+	/**
+	 * A document that is only a shortcode renders to nothing, which is what
+	 * lets ingest refuse it instead of storing an 18-character chunk that
+	 * outranks real pages.
+	 */
+	public function test_html_to_text_empties_a_shortcode_only_document(): void {
+		$this->assertSame( '', Tokenizer::html_to_text( '[woocommerce_checkout]' ) );
+		$this->assertSame( '', Tokenizer::html_to_text( '[ihc-logout-link]' ) );
+	}
+
+	/**
+	 * Square brackets in prose are not shortcodes: citations, numeric ranges and
+	 * bracketed asides have to survive the markup being stripped around them.
+	 * Opening hours are the case that matters, being exactly what visitors ask
+	 * for.
+	 *
+	 * @dataProvider provide_bracketed_prose
+	 *
+	 * @param string $prose The text to keep.
+	 */
+	public function test_html_to_text_keeps_bracketed_prose( string $prose ): void {
+		$wrapped = '[vc_column_text css="%7B%22a%22%3A1%7D"]' . $prose . '[/vc_column_text]';
+
+		$this->assertSame( $prose, Tokenizer::html_to_text( $wrapped ) );
+	}
+
+	/**
+	 * Bracketed asides that carry no `name="value"` attribute.
+	 *
+	 * @return array<string, array<int, string>>
+	 */
+	public function provide_bracketed_prose(): array {
+		return [
+			'footnotes'       => [ 'See footnote [1] and reference [23]. The study [Note: revised in 2024] priced it at [100] to [200].' ],
+			'opening hours'   => [ 'Hours: [Open 9am to 6pm] daily.' ],
+			'clinic hours'    => [ 'Clinic [Mon-Fri 9-5] only.' ],
+			'citation needed' => [ 'The rate rose [citation needed] last year.' ],
+			'cross reference' => [ 'Prices vary [see below] by region.' ],
+			'dated aside'     => [ 'The fee is $40 [as of 2024] per visit.' ],
+			'markdown link'   => [ 'Read [the docs](https://example.test/guide) first.' ],
+			'unclosed tag'    => [ 'Opening hours [see the notes below and ask at the desk.' ],
+		];
+	}
+
+	/**
+	 * An unclosed `[tag ` used to run to whatever bracket came next, taking the
+	 * page with it. It carries no `name="value"` attribute, so it is no longer
+	 * read as a tag at all and the text between survives.
+	 */
+	public function test_html_to_text_does_not_swallow_the_page_after_an_unclosed_tag(): void {
+		$text = 'Opening hours [see the notes below ' . str_repeat( 'We are open on weekdays. ', 400 ) . '[gallery ids="1,2"] The end.';
+
+		$result = Tokenizer::html_to_text( $text );
+
+		$this->assertStringContainsString( 'Opening hours [see the notes below', $result );
+		$this->assertStringContainsString( 'We are open on weekdays.', $result );
+		$this->assertStringContainsString( 'The end.', $result );
+		$this->assertStringNotContainsString( '[gallery', $result );
+	}
 }
