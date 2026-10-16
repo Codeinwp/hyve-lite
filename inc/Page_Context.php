@@ -526,6 +526,8 @@ class Page_Context {
 
 	/**
 	 * Trim text to the page context token budget, on sentence boundaries.
+	 * Without a loadable tokenizer vocabulary, trims to about four characters
+	 * per token on a word boundary instead.
 	 *
 	 * @param string   $text  Plain text.
 	 * @param int|null $limit Token budget. Default the page context limit.
