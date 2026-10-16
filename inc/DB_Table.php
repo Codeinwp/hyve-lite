@@ -688,13 +688,26 @@ class DB_Table {
 		$persist_moderation = ! empty( $args['persist_moderation'] );
 		$allow_retry        = $args['retry_async'] ?? true;
 
-		$data   = Tokenizer::tokenize(
-			[
-				'ID'      => $post_id,
-				'title'   => $doc['title'],
-				'content' => $doc['content'],
-			]
-		);
+		try {
+			$data = Tokenizer::tokenize(
+				[
+					'ID'      => $post_id,
+					'title'   => $doc['title'],
+					'content' => $doc['content'],
+				]
+			);
+		} catch ( \Exception $e ) {
+			// The vocabulary could not be loaded; an error, not a crashed request.
+			return new \WP_Error(
+				'tokenizer_unavailable',
+				sprintf(
+					// translators: %s: the reason the tokenizer could not start.
+					__( 'The content could not be tokenized: %s', 'hyve-lite' ),
+					$e->getMessage()
+				)
+			);
+		}
+
 		$chunks = array_column( $data, 'post_content' );
 		// Only reuse the per-post moderation cache for an existing WP post
 		// (the posts source). Freshly submitted content is always re-moderated.
