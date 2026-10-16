@@ -591,7 +591,7 @@ class Test_Page_Context extends WP_UnitTestCase {
 	public function test_a_title_less_page_with_a_long_url_is_placed_on_the_site(): void {
 		add_filter(
 			'hyve_page_context_content',
-			function () {
+			function (): string {
 				return 'Latest widget news.';
 			}
 		);
