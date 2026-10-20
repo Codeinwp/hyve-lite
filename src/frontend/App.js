@@ -451,9 +451,9 @@ class App {
 				// A real content/server error (e.g. flagged) — not a transport
 				// problem, so surface it instead of falling back.
 				this.removeMessage( 'hyve-preloader' );
-				// The server sends the throttle message already translated.
+				// The throttle and empty-KB messages arrive already translated.
 				this.add(
-					'rate_limited' === setup.code
+					[ 'rate_limited', 'kb_empty' ].includes( setup.code )
 						? setup.error
 						: strings.tryAgain,
 					'bot'
@@ -747,8 +747,10 @@ class App {
 
 				if ( 'content_flagged' === response.code ) {
 					text = strings.flagged;
-				} else if ( 'rate_limited' === response.code ) {
-					// The server sends the throttle message already translated.
+				} else if (
+					[ 'rate_limited', 'kb_empty' ].includes( response.code )
+				) {
+					// The throttle and empty-KB messages arrive already translated.
 					text = response.error;
 				}
 
@@ -2496,6 +2498,51 @@ class App {
 
 		return container;
 	}
+	/**
+	 * Build the notice an admin sees while the knowledge base is empty: the
+	 * widget is hidden from visitors until content is added.
+	 *
+	 * @return {HTMLElement|null} The notice element, or null when it shouldn't show.
+	 */
+	renderEmptyKbNotice() {
+		if (
+			! window.hyveClient?.canManage ||
+			0 !== Number( window.hyveClient?.totalChunks ?? 1 ) ||
+			! strings.emptyKb
+		) {
+			return null;
+		}
+
+		const icon = this.createElement( 'span', {
+			className: 'hyve-empty-kb-notice__icon',
+			innerHTML:
+				'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"/><path d="M12 8v4m0 4h.01"/></svg>',
+		} );
+
+		const text = this.createElement( 'span', {
+			className: 'hyve-empty-kb-notice__text',
+		} );
+
+		text.appendChild( document.createTextNode( strings.emptyKb + ' ' ) );
+
+		if ( window.hyveClient.kbUrl ) {
+			text.appendChild(
+				this.createElement( 'a', {
+					className: 'hyve-empty-kb-notice__link',
+					href: window.hyveClient.kbUrl,
+					textContent: strings.emptyKbLink || '',
+				} )
+			);
+		}
+
+		return this.createElement(
+			'div',
+			{ className: 'hyve-empty-kb-notice' },
+			icon,
+			text
+		);
+	}
+
 	renderUI() {
 		// Whether the widget is anchored to the left side of the screen.
 		const isLeft = 'left' === window.hyveClient?.chatPosition;
@@ -2749,6 +2796,12 @@ class App {
 		} );
 
 		chatWindow.appendChild( scrollDownButton );
+
+		const emptyKbNotice = this.renderEmptyKbNotice();
+
+		if ( emptyKbNotice ) {
+			chatWindow.appendChild( emptyKbNotice );
+		}
 
 		const privacyNotice = this.renderPrivacyNotice();
 

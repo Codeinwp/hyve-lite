@@ -49,6 +49,16 @@ class API extends BaseAPI {
 	private $retrieval_trace = [];
 
 	/**
+	 * How the last search built its context: `similarity` for the scored
+	 * search, `kb_full_context` when the whole knowledge base fit the budget.
+	 *
+	 * @since 2.1.0
+	 *
+	 * @var string
+	 */
+	private $retrieval_mode = 'similarity';
+
+	/**
 	 * Debug information collected while preparing the current chat turn (the
 	 * retrieval query, threshold and matched chunks), attached to the recorded
 	 * bot message so the history shows what led to the reply.
@@ -2217,11 +2227,75 @@ class API extends BaseAPI {
 		 */
 		$tokens_threshold = (int) apply_filters( 'hyve_chat_context_token_limit', $tokens_threshold );
 
-		if ( Qdrant_API::is_active() ) {
-			return $this->search_knowledge_base_qdrant( $message_vector, $similarity_score_threshold, $tokens_threshold );
+		$context = Qdrant_API::is_active()
+			? $this->search_knowledge_base_qdrant( $message_vector, $similarity_score_threshold, $tokens_threshold )
+			: $this->search_knowledge_base_wp( $message_vector, $similarity_score_threshold, $tokens_threshold );
+
+		// A knowledge base that fits the budget goes in whole: same cost, and
+		// no gamble on the threshold. The scored search still picks the sources.
+		$this->retrieval_mode = 'similarity';
+
+		if ( $this->table->get_total_tokens() <= $tokens_threshold ) {
+			$full = $this->full_context();
+
+			if ( '' !== $full ) {
+				$context              = $full;
+				$this->retrieval_mode = 'kb_full_context';
+			}
 		}
 
-		return $this->search_knowledge_base_wp( $message_vector, $similarity_score_threshold, $tokens_threshold );
+		return $context;
+	}
+
+	/**
+	 * Every chunk as context, in source order. The trace lists them all as
+	 * included, keeping the score the search gave the ones it matched.
+	 *
+	 * @return string
+	 */
+	private function full_context(): string {
+		$scores = [];
+
+		foreach ( $this->retrieval_trace as $entry ) {
+			if ( isset( $entry['score'] ) && false !== ( $entry['included'] ?? true ) ) {
+				$scores[ $entry['post_id'] . "\0" . $entry['title'] ] = $entry['score'];
+			}
+		}
+
+		$context = '';
+		$trace   = [];
+
+		foreach ( $this->table->get_all_chunks() as $chunk ) {
+			$context .= "\n ===START POST=== " . $chunk->post_title . ' - ' . $chunk->post_content . ' ===END POST===';
+			$trace[]  = [
+				'post_id' => intval( $chunk->post_id ),
+				'title'   => (string) $chunk->post_title,
+				'score'   => $scores[ $chunk->post_id . "\0" . $chunk->post_title ] ?? null,
+				'tokens'  => intval( $chunk->token_count ),
+			];
+		}
+
+		if ( '' !== $context ) {
+			$this->retrieval_trace = $trace;
+		}
+
+		return $context;
+	}
+
+	/**
+	 * Whether the knowledge base has nothing to answer from.
+	 *
+	 * @return bool
+	 */
+	private function kb_is_empty(): bool {
+		if ( Hyve_Connect::is_active() ) {
+			$stats = Hyve_Connect::instance()->stats();
+
+			// An unreachable platform is not an empty knowledge base.
+			return isset( $stats['kb']['chunks'] ) && 0 === (int) $stats['kb']['chunks'];
+		}
+
+		return 0 === (int) $this->table->get_count();
 	}
 
 	/**
@@ -2407,6 +2481,17 @@ class API extends BaseAPI {
 		delete_transient( $transient_key );
 
 		return $this->maybe_append_source_link( $response, $post_ids );
+	}
+
+	/**
+	 * Whether a platform result says the knowledge base was empty.
+	 *
+	 * @param array<string, mixed> $result The platform job result.
+	 *
+	 * @return bool
+	 */
+	public static function connect_kb_empty( $result ): bool {
+		return isset( $result['retrieval'] ) && 'kb_empty' === $result['retrieval'];
 	}
 
 	/**
@@ -2745,6 +2830,20 @@ class API extends BaseAPI {
 			);
 		}
 
+		// The platform found nothing to answer from (the local count was stale).
+		if ( self::connect_kb_empty( $result ) ) {
+			$this->record_chat_failure( (string) $prepared['thread_id'], $record_id, $prepared['message'], $is_test, 'kb_empty' );
+
+			Main::add_labels_to_default_settings();
+
+			return rest_ensure_response(
+				[
+					'error' => (string) Main::get_settings()['default_message'],
+					'code'  => 'kb_empty',
+				]
+			);
+		}
+
 		// Close the latency clock here: the platform call is synchronous, and
 		// the poll hop that serves the buffered reply is not answering time.
 		$debug = $this->chat_debug;
@@ -2942,6 +3041,15 @@ class API extends BaseAPI {
 			return new \WP_Error( 'missing_message', __( 'No message was provided.', 'hyve-lite' ) );
 		}
 
+		// Nothing to answer from: no moderation, embedding or model call. The
+		// message is the site's own unanswered fallback, so the visitor sees
+		// what any other unanswered turn shows.
+		if ( $this->kb_is_empty() ) {
+			Main::add_labels_to_default_settings();
+
+			return new \WP_Error( 'kb_empty', (string) Main::get_settings()['default_message'] );
+		}
+
 		$page = Page_Context::instance()->for_request( $request );
 
 		// The page the visitor chatted from, kept for the debug trace. Sent on
@@ -3060,6 +3168,7 @@ class API extends BaseAPI {
 		$this->chat_debug = [
 			'query'     => mb_substr( $retrieval_query, 0, 2000 ),
 			'threshold' => (float) $similarity_score_threshold,
+			'retrieval' => $this->retrieval_mode,
 			'context'   => $this->retrieval_trace,
 			'model'     => $openai->get_chat_model(),
 			'started'   => microtime( true ),
@@ -3239,8 +3348,16 @@ class API extends BaseAPI {
 			return;
 		}
 
-		$event = 'content_flagged' === $code ? 'moderation_flagged' : 'chat_error';
-		$debug = [ 'code' => (string) $code ];
+		$events = [
+			'content_flagged' => 'moderation_flagged',
+			'kb_empty'        => 'kb_empty',
+		];
+		$event  = $events[ $code ] ?? 'chat_error';
+		$debug  = [ 'code' => (string) $code ];
+
+		if ( 'kb_empty' === $code ) {
+			$debug['retrieval'] = 'kb_empty';
+		}
 
 		if ( 'moderation_flagged' === $event && ! empty( $categories ) ) {
 			$debug['categories'] = array_keys( $categories );
@@ -3387,6 +3504,10 @@ class API extends BaseAPI {
 
 		if ( null !== $usage ) {
 			$debug['usage'] = $usage;
+		}
+
+		if ( isset( $result['retrieval'] ) && is_string( $result['retrieval'] ) ) {
+			$debug['retrieval'] = $result['retrieval'];
 		}
 
 		if ( empty( $result['sources'] ) || ! is_array( $result['sources'] ) ) {

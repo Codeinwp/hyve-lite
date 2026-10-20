@@ -261,8 +261,19 @@ class ConnectChatTest extends WP_UnitTestCase {
 		$message = 'Mennyibe kerül a szállítás?';
 		$key     = 'hyve_message_' . hash( 'md5', strtolower( $message ) );
 
-		// Retrieval reads the knowledge base table on the self-hosted path.
+		// Retrieval reads the knowledge base table on the self-hosted path, and
+		// an empty one is answered without a model call.
 		\ThemeIsle\HyveLite\DB_Table::instance()->create_table();
+		\ThemeIsle\HyveLite\DB_Table::instance()->insert(
+			[
+				'post_id'      => 1,
+				'post_title'   => 'Shipping',
+				'post_content' => 'Shipping costs 5 EUR.',
+				'embeddings'   => wp_json_encode( [ 0.7, 0.8, 0.9 ] ),
+				'token_count'  => 10,
+				'post_status'  => 'processed',
+			]
+		);
 
 		update_option(
 			'hyve_settings',

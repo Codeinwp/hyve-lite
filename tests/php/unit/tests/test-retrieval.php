@@ -46,11 +46,13 @@ class RetrievalTest extends WP_UnitTestCase {
 	 *
 	 * @param string            $title       Chunk title.
 	 * @param array<int, float> $embeddings  Embedding vector.
-	 * @param int               $token_count Token count.
+	 * @param int               $token_count Token count. Large by default, so the
+	 *                                       knowledge base outgrows the context
+	 *                                       budget and the scored search runs.
 	 *
 	 * @return int Row ID.
 	 */
-	private function seed_chunk( $title, $embeddings, $token_count = 100 ) {
+	private function seed_chunk( $title, $embeddings, $token_count = 1000 ) {
 		return $this->table->insert(
 			[
 				'post_id'      => 1000 + wp_rand( 1, 999 ),
@@ -114,6 +116,8 @@ class RetrievalTest extends WP_UnitTestCase {
 		$this->seed_chunk( 'StrongestMatch', [ 1.0, 0.0, 0.0 ] );
 		// Above the 0.3 floor, but below 0.6 × the top score (~0.995).
 		$this->seed_chunk( 'TangentialMatch', [ 0.4, 0.9, 0.0 ] );
+		// Keeps the knowledge base over the budget, so the scored search runs.
+		$this->seed_chunk( 'Irrelevant', [ 0.0, 0.0, 1.0 ] );
 
 		$context = API::instance()->search_knowledge_base( [ 1.0, 0.0, 0.0 ], 0.3, 2000 );
 
@@ -175,5 +179,53 @@ class RetrievalTest extends WP_UnitTestCase {
 
 		// The current question comes last, where it weighs the most.
 		$this->assertStringEndsWith( 'How difficult is it?', $query );
+	}
+
+	/**
+	 * The retrieval mode the last search recorded.
+	 *
+	 * @return string
+	 */
+	private function retrieval_mode(): string {
+		$property = new ReflectionProperty( API::instance(), 'retrieval_mode' );
+		$property->setAccessible( true );
+
+		return $property->getValue( API::instance() );
+	}
+
+	/**
+	 * A knowledge base that fits the context budget goes in whole, so a
+	 * question nothing scores for still has every chunk to be answered from.
+	 * The scored search still picks the sources.
+	 */
+	public function test_a_knowledge_base_that_fits_the_budget_is_sent_whole(): void {
+		$this->seed_chunk( 'OpeningHours', [ 1.0, 0.0, 0.0 ], 100 );
+		$this->seed_chunk( 'Pricing', [ 0.0, 1.0, 0.0 ], 100 );
+
+		$context = API::instance()->search_knowledge_base( [ 1.0, 0.0, 0.0 ], 0.3, 2000 );
+
+		$this->assertSame( 'kb_full_context', $this->retrieval_mode() );
+		$this->assertStringContainsString( 'OpeningHours', $context );
+		$this->assertStringContainsString( 'Pricing', $context );
+
+		$retrieval = API::instance()->get_last_retrieval();
+
+		$this->assertCount( 2, $retrieval['chunks'] );
+		$this->assertCount( 1, $retrieval['sources'] );
+		$this->assertSame( 1.0, round( (float) $retrieval['chunks'][0]['score'], 2 ) + round( (float) $retrieval['chunks'][1]['score'], 2 ) );
+	}
+
+	/**
+	 * The budget is the limit: a knowledge base one token over it keeps the
+	 * scored search.
+	 */
+	public function test_a_knowledge_base_over_the_budget_keeps_the_scored_search(): void {
+		$this->seed_chunk( 'OpeningHours', [ 1.0, 0.0, 0.0 ], 1001 );
+		$this->seed_chunk( 'Pricing', [ 0.0, 1.0, 0.0 ], 1000 );
+
+		$context = API::instance()->search_knowledge_base( [ 1.0, 0.0, 0.0 ], 0.3, 2000 );
+
+		$this->assertSame( 'similarity', $this->retrieval_mode() );
+		$this->assertStringNotContainsString( 'Pricing', $context );
 	}
 }
