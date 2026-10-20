@@ -55,6 +55,7 @@ Build an AI knowledge base from the content you already publish, without copying
 * Every answer cites its sources, with numbered links back to the pages it came from, so visitors can click through and read more
 * Hyve turns your content into embeddings for semantic search, and scales to thousands of documents when you connect an external vector database like [Qdrant](https://qdrant.tech/)
 * Include private and password-protected posts in the knowledge base, with role-based permissions controlling who can view conversations
+* Works as a customer support chatbot and knowledge base chatbot, giving visitors AI customer service around the clock
  
 **Put the chat where you want it**
 
@@ -63,6 +64,7 @@ Add the assistant wherever visitors need help, from every page on your site to a
 * A floating chat bubble in either bottom corner, or an inline chat sitting in the page itself
 * Drop it in with the Hyve Chat Gutenberg blocks, or the `[hyve]` and `[hyve floating="true"]` shortcodes for any theme, page builder, or widget area
 * Run the website chatbot site-wide, only on the pages you pick, or everywhere except the ones you exclude with visibility filters
+* Run it as a WP chatbot, helpdesk chatbot, or docs chatbot, with source citations on every answer
  
 **Control the conversation**
 
