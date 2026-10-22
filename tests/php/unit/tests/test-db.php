@@ -133,4 +133,28 @@ class DB_TableTest extends WP_UnitTestCase {
 		$this->assertNotSame( '', get_post_meta( $post_id, '_hyve_processing_error', true ) );
 		$this->assertSame( '', get_post_meta( $post_id, '_hyve_needs_update', true ) );
 	}
+
+	/**
+	 * The cached knowledge base size follows every write, or a chat would
+	 * judge the budget by a stale total for a day.
+	 */
+	public function test_total_tokens_cache_follows_writes() {
+		$before = $this->db_table->get_total_tokens();
+
+		$id = $this->db_table->insert(
+			[
+				'post_id'      => 77,
+				'post_content' => 'Sized content.',
+				'token_count'  => 100,
+				'post_status'  => 'processed',
+			]
+		);
+		$this->assertSame( $before + 100, $this->db_table->get_total_tokens() );
+
+		$this->db_table->update( $id, [ 'token_count' => 300 ] );
+		$this->assertSame( $before + 300, $this->db_table->get_total_tokens() );
+
+		$this->db_table->delete_by_post_id( 77 );
+		$this->assertSame( $before, $this->db_table->get_total_tokens() );
+	}
 }

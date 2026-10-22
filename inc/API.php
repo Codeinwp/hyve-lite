@@ -49,6 +49,14 @@ class API extends BaseAPI {
 	private $retrieval_trace = [];
 
 	/**
+	 * The score the last search gave each chunk it put in the context, keyed
+	 * by chunk_key(). Qdrant points carry no row id, so the content stands in.
+	 *
+	 * @var array<string, float>
+	 */
+	private $chunk_scores = [];
+
+	/**
 	 * How the last search built its context: `similarity` for the scored
 	 * search, `kb_full_context` when the whole knowledge base fit the budget.
 	 *
@@ -1947,6 +1955,10 @@ class API extends BaseAPI {
 			$articles_embedded_data .= "\n ===START POST=== " . $point['post_title'] . ' - ' . $point['post_content'] . ' ===END POST===';
 			$current_token_count    += intval( $point['token_count'] );
 
+			if ( isset( $point['score'] ) ) {
+				$this->chunk_scores[ self::chunk_key( intval( $point['post_id'] ?? 0 ), (string) $point['post_content'] ) ] = round( floatval( $point['score'] ), 4 );
+			}
+
 			$this->retrieval_trace[] = [
 				'post_id' => isset( $point['post_id'] ) ? intval( $point['post_id'] ) : 0,
 				'title'   => (string) $point['post_title'],
@@ -2072,6 +2084,8 @@ class API extends BaseAPI {
 			}
 
 			$articles_embedded_data .= "\n ===START POST=== " . $article_data['post_title'] . ' - ' . $article_data['post_content'] . ' ===END POST===';
+
+			$this->chunk_scores[ self::chunk_key( intval( $post_id ), $article_data['post_content'] ) ] = round( floatval( $article['score'] ), 4 );
 
 			$this->retrieval_trace[] = [
 				'post_id' => intval( $post_id ),
@@ -2209,17 +2223,19 @@ class API extends BaseAPI {
 	 * @param float             $similarity_score_threshold Cosine similarity score.
 	 * @param int               $tokens_threshold Tokens threshold for final data.
 	 *
-	 * @return string The articles blob data that match the given message vector.
+	 * @return string The matched chunks, or the whole knowledge base when it fits the token budget.
 	 */
 	public function search_knowledge_base( $message_vector, $similarity_score_threshold = 0.25, $tokens_threshold = 2000 ) {
 		$this->source_post_ids = [];
 		$this->retrieval_trace = [];
+		$this->chunk_scores    = [];
 
 		/**
 		 * Filters the token budget for the knowledge base context sent with a
-		 * chat message. Matched chunks are added best-first until the budget
-		 * is full; a larger budget lets more of the knowledge base reach the
-		 * model at a higher API cost per message.
+		 * chat message. A knowledge base within the budget is sent whole, in
+		 * source order; otherwise matched chunks are added best-first until
+		 * the budget is full. A larger budget lets more of the knowledge base
+		 * reach the model at a higher API cost per message.
 		 *
 		 * @since 1.5.1
 		 *
@@ -2236,7 +2252,7 @@ class API extends BaseAPI {
 		$this->retrieval_mode = 'similarity';
 
 		if ( $this->table->get_total_tokens() <= $tokens_threshold ) {
-			$full = $this->full_context();
+			$full = $this->full_context( $tokens_threshold );
 
 			if ( '' !== $full ) {
 				$context              = $full;
@@ -2248,29 +2264,32 @@ class API extends BaseAPI {
 	}
 
 	/**
-	 * Every chunk as context, in source order. The trace lists them all as
-	 * included, keeping the score the search gave the ones it matched.
+	 * Every chunk as context, in source order; nothing when the chunks add up
+	 * to more than the budget, which a stale cached total can claim they do
+	 * not. The trace lists them all as included, keeping the score the search
+	 * gave the ones it matched.
+	 *
+	 * @param int $tokens_threshold Maximum context tokens.
 	 *
 	 * @return string
 	 */
-	private function full_context(): string {
-		$scores = [];
-
-		foreach ( $this->retrieval_trace as $entry ) {
-			if ( isset( $entry['score'] ) && false !== ( $entry['included'] ?? true ) ) {
-				$scores[ $entry['post_id'] . "\0" . $entry['title'] ] = $entry['score'];
-			}
-		}
-
+	private function full_context( int $tokens_threshold ): string {
 		$context = '';
 		$trace   = [];
+		$tokens  = 0;
 
 		foreach ( $this->table->get_all_chunks() as $chunk ) {
+			$tokens += intval( $chunk->token_count );
+
+			if ( $tokens_threshold < $tokens ) {
+				return '';
+			}
+
 			$context .= "\n ===START POST=== " . $chunk->post_title . ' - ' . $chunk->post_content . ' ===END POST===';
 			$trace[]  = [
 				'post_id' => intval( $chunk->post_id ),
 				'title'   => (string) $chunk->post_title,
-				'score'   => $scores[ $chunk->post_id . "\0" . $chunk->post_title ] ?? null,
+				'score'   => $this->chunk_scores[ self::chunk_key( intval( $chunk->post_id ), $chunk->post_content ) ] ?? null,
 				'tokens'  => intval( $chunk->token_count ),
 			];
 		}
@@ -2280,6 +2299,18 @@ class API extends BaseAPI {
 		}
 
 		return $context;
+	}
+
+	/**
+	 * Identify one chunk by its source and text, which both storages carry.
+	 *
+	 * @param int    $post_id The source post ID.
+	 * @param string $content The chunk text.
+	 *
+	 * @return string
+	 */
+	private static function chunk_key( int $post_id, string $content ): string {
+		return $post_id . ':' . md5( $content );
 	}
 
 	/**

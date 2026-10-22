@@ -140,6 +140,25 @@ class EmptyKbTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Connect: a count the platform did not answer is unknown, not zero, so
+	 * the admin is not told the knowledge base is empty.
+	 */
+	public function test_connect_degraded_stats_leave_the_count_unknown(): void {
+		update_option( 'hyve_settings', [ 'ai_mode' => Hyve_Connect::MODE_CONNECT ] );
+		set_transient( 'hyve_connect_stats', [ 'service' => 'error' ], MINUTE_IN_SECONDS );
+		wp_set_current_user( $this->factory()->user->create( [ 'role' => 'administrator' ] ) );
+
+		$data = ( new Main() )->get_frontend_data();
+
+		$this->assertNull( $data['totalChunks'] );
+		$this->assertTrue( $data['canShow'] );
+
+		set_transient( 'hyve_connect_stats', [ 'kb' => [ 'chunks' => 0 ] ], MINUTE_IN_SECONDS );
+
+		$this->assertSame( 0, ( new Main() )->get_frontend_data()['totalChunks'] );
+	}
+
+	/**
 	 * Connect: when the local count is stale, the platform's `kb_empty`
 	 * outcome is shown the same way and recorded with its retrieval mode.
 	 */

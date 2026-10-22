@@ -2505,9 +2505,14 @@ class App {
 	 * @return {HTMLElement|null} The notice element, or null when it shouldn't show.
 	 */
 	renderEmptyKbNotice() {
+		// Null means the count is unknown (the platform did not answer), which
+		// is not an empty knowledge base.
+		const totalChunks = window.hyveClient?.totalChunks ?? null;
+
 		if (
 			! window.hyveClient?.canManage ||
-			0 !== Number( window.hyveClient?.totalChunks ?? 1 ) ||
+			null === totalChunks ||
+			0 !== Number( totalChunks ) ||
 			! strings.emptyKb
 		) {
 			return null;

@@ -228,4 +228,51 @@ class RetrievalTest extends WP_UnitTestCase {
 		$this->assertSame( 'similarity', $this->retrieval_mode() );
 		$this->assertStringNotContainsString( 'Pricing', $context );
 	}
+
+	/**
+	 * The cached total can lag a write; the chunks themselves decide. A total
+	 * that claims the knowledge base fits does not get it sent whole when it
+	 * does not.
+	 */
+	public function test_a_stale_total_does_not_send_an_oversized_knowledge_base_whole(): void {
+		$this->seed_chunk( 'OpeningHours', [ 1.0, 0.0, 0.0 ], 1001 );
+		$this->seed_chunk( 'Pricing', [ 0.0, 1.0, 0.0 ], 1000 );
+		set_transient( DB_Table::CACHE_PREFIX . 'total_tokens', 10, DAY_IN_SECONDS );
+
+		$context = API::instance()->search_knowledge_base( [ 1.0, 0.0, 0.0 ], 0.3, 2000 );
+
+		$this->assertSame( 'similarity', $this->retrieval_mode() );
+		$this->assertStringNotContainsString( 'Pricing', $context );
+	}
+
+	/**
+	 * In the whole-knowledge-base trace, a score belongs to the chunk that
+	 * earned it, not to every chunk of the same post.
+	 */
+	public function test_full_context_trace_scores_each_chunk_on_its_own(): void {
+		$post_id = 4242;
+
+		foreach ( [ [ 1.0, 0.0, 0.0 ], [ 0.0, 1.0, 0.0 ] ] as $embedding ) {
+			$this->table->insert(
+				[
+					'post_id'      => $post_id,
+					'post_title'   => 'Handbook',
+					'post_content' => 'Handbook chunk ' . wp_json_encode( $embedding ),
+					'embeddings'   => wp_json_encode( $embedding ),
+					'token_count'  => 100,
+					'post_status'  => 'processed',
+				]
+			);
+		}
+
+		API::instance()->search_knowledge_base( [ 1.0, 0.0, 0.0 ], 0.3, 2000 );
+
+		$this->assertSame( 'kb_full_context', $this->retrieval_mode() );
+
+		$scores = array_column( API::instance()->get_last_retrieval()['chunks'], 'score' );
+
+		$this->assertCount( 2, $scores );
+		$this->assertSame( 1.0, (float) $scores[0] );
+		$this->assertNull( $scores[1] );
+	}
 }
