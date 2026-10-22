@@ -712,13 +712,26 @@ class DB_Table {
 		$persist_moderation = ! empty( $args['persist_moderation'] );
 		$allow_retry        = $args['retry_async'] ?? true;
 
-		$data   = Tokenizer::tokenize(
-			[
-				'ID'      => $post_id,
-				'title'   => $doc['title'],
-				'content' => $doc['content'],
-			]
-		);
+		try {
+			$data = Tokenizer::tokenize(
+				[
+					'ID'      => $post_id,
+					'title'   => $doc['title'],
+					'content' => $doc['content'],
+				]
+			);
+		} catch ( \Exception $e ) {
+			// The vocabulary could not be loaded; an error, not a crashed request.
+			return new \WP_Error(
+				'tokenizer_unavailable',
+				sprintf(
+					// translators: %s: the reason the tokenizer could not start.
+					__( 'The content could not be tokenized: %s', 'hyve-lite' ),
+					$e->getMessage()
+				)
+			);
+		}
+
 		$chunks = array_column( $data, 'post_content' );
 		// Only reuse the per-post moderation cache for an existing WP post
 		// (the posts source). Freshly submitted content is always re-moderated.
@@ -2258,11 +2271,20 @@ class DB_Table {
 			 */
 			$result = $this->add_post( $post_id, 'update' );
 
+			if ( ! is_wp_error( $result ) ) {
+				continue;
+			}
+
 			// Terminal until the post is edited again, so surface the error and
 			// stop re-queueing; an edit clears the error and re-flags the post.
-			if ( is_wp_error( $result ) && 'empty_content' === $result->get_error_code() ) {
+			if ( 'empty_content' === $result->get_error_code() ) {
 				$this->record_processing_error( (int) $post_id, $result, false );
 				delete_post_meta( (int) $post_id, '_hyve_needs_update' );
+			}
+
+			// The post stays flagged, so the next run tries again.
+			if ( 'tokenizer_unavailable' === $result->get_error_code() ) {
+				$this->record_processing_error( (int) $post_id, $result, true );
 			}
 		}
 
