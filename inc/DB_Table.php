@@ -530,7 +530,7 @@ class DB_Table {
 		$bindings[] = 'processed';
 		$bindings[] = $limit;
 
-		$sql = 'SELECT id, post_id, post_title, post_content, token_count, ( ' . implode( ' + ', $score ) . ' ) AS score FROM %i WHERE post_status = %s HAVING score > 0 ORDER BY score DESC LIMIT %d';
+		$sql = 'SELECT id, post_id, post_title, post_content, token_count, ( ' . implode( ' + ', $score ) . ' ) AS score FROM %i WHERE post_status = %s HAVING score > 0 ORDER BY score DESC, id ASC LIMIT %d';
 
 		// phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- the score clause and its bindings are built together above.
 		return $wpdb->get_results( $wpdb->prepare( $sql, ...$bindings ) );

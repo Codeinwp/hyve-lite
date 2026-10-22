@@ -745,7 +745,7 @@ const MessageDebug = ( { debug, time } ) => {
 						<DebugKey
 							label={ __( 'Sources', 'hyve-lite' ) }
 							help={ __(
-								'Knowledge base content sent to the model as context, with how closely each piece matched the question (0–1). Hover a title for its size in tokens. The best-scoring sources may also be shown to the visitor as source links.',
+								'Knowledge base content sent to the model as context, with how closely each piece matched the question (0–1), or "keyword" with its rank score when only the keyword search found it. Hover a title for its size in tokens. The best-scoring sources may also be shown to the visitor as source links.',
 								'hyve-lite'
 							) }
 						/>
@@ -755,6 +755,12 @@ const MessageDebug = ( { debug, time } ) => {
 									const score =
 										'number' === typeof source.score
 											? source.score
+											: null;
+									// Found by the keyword search alone: no
+									// similarity to show, so name the pass.
+									const lexical =
+										'number' === typeof source.lexical
+											? source.lexical
 											: null;
 									const dropped = false === source.included;
 									const droppedClass = dropped
@@ -818,9 +824,21 @@ const MessageDebug = ( { debug, time } ) => {
 											<span
 												className={ `hyve-next-debug__score${ droppedClass }` }
 											>
-												{ null !== score
-													? score.toFixed( 2 )
-													: '—' }
+												{ null !== score &&
+													score.toFixed( 2 ) }
+												{ null === score &&
+													null !== lexical &&
+													sprintf(
+														/* translators: %s: the keyword search's rank score. */
+														__(
+															'keyword %s',
+															'hyve-lite'
+														),
+														lexical.toFixed( 2 )
+													) }
+												{ null === score &&
+													null === lexical &&
+													'—' }
 											</span>
 										</Fragment>
 									);

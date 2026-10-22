@@ -164,4 +164,43 @@ class DB_TableTest extends WP_UnitTestCase {
 		$this->assertNotSame( '', get_post_meta( $post_id, '_hyve_processing_error', true ) );
 		$this->assertSame( '', get_post_meta( $post_id, '_hyve_needs_update', true ) );
 	}
+
+	/**
+	 * A table from before 1.3.0 gains the keyword index when the plugin
+	 * constructs the table at the new version.
+	 */
+	public function test_upgrade_adds_fulltext_index() {
+		global $wpdb;
+		$table = $wpdb->prefix . 'hyve';
+
+		$wpdb->query( "ALTER TABLE {$table} DROP INDEX content_search" ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.SchemaChange, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		update_option( $table . '_db_version', '1.2.0' );
+
+		$this->assertEmpty( $wpdb->get_results( "SHOW INDEX FROM {$table} WHERE Key_name = 'content_search'" ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+
+		new DB_Table();
+
+		$this->assertNotEmpty( $wpdb->get_results( "SHOW INDEX FROM {$table} WHERE Key_name = 'content_search'" ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		$this->assertSame( '1.3.0', get_option( $table . '_db_version' ) );
+	}
+
+	/**
+	 * The keyword parsers' edges: short words and single no-space characters
+	 * are dropped, the term list is capped, and a query with nothing left
+	 * runs no SQL.
+	 */
+	public function test_query_terms_and_segments_boundaries() {
+		global $wpdb;
+
+		$this->assertSame( [], DB_Table::query_terms( 'is it ok' ) );
+		$this->assertSame( [ 'alpha' ], DB_Table::query_terms( 'Alpha ALPHA alpha' ) );
+		$this->assertCount( 10, DB_Table::query_terms( 'one1 two2 three four five six seven eight nine ten1 eleven' ) );
+		$this->assertSame( [], DB_Table::query_segments( '日' ) );
+		$this->assertSame( [ '日本語' ], DB_Table::query_segments( 'hello 日本語 and 日本語' ) );
+
+		$queries = $wpdb->num_queries;
+
+		$this->assertSame( [], $this->db_table->lexical_search( 'is it ok' ) );
+		$this->assertSame( $queries, $wpdb->num_queries );
+	}
 }

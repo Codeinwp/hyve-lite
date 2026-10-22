@@ -38,6 +38,7 @@ class RetrievalTest extends WP_UnitTestCase {
 	protected function tearDown(): void {
 		remove_all_filters( 'hyve_chat_context_token_limit' );
 		remove_all_filters( 'hyve_context_score_ratio' );
+		remove_all_filters( 'hyve_hybrid_retrieval' );
 		remove_all_filters( 'pre_http_request' );
 		delete_option( 'hyve_qdrant_status' );
 		$this->set_qdrant_instance( null );
@@ -60,6 +61,10 @@ class RetrievalTest extends WP_UnitTestCase {
 		}
 
 		wp_cache_flush();
+
+		// The cleanup ran in a new transaction after commit_seeds(); the parent
+		// rolls back next, so commit it or the seeds and options stay.
+		$wpdb->query( 'COMMIT' ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 
 		parent::tearDown();
 	}
@@ -96,13 +101,14 @@ class RetrievalTest extends WP_UnitTestCase {
 	 * @param string            $content     Chunk text.
 	 * @param array<int, float> $embeddings  Stored vector.
 	 * @param int               $token_count Token count.
+	 * @param int               $post_id     Source post ID; random when 0.
 	 *
 	 * @return int The row ID.
 	 */
-	private function seed_text( string $title, string $content, array $embeddings, int $token_count = 100 ): int {
+	private function seed_text( string $title, string $content, array $embeddings, int $token_count = 100, int $post_id = 0 ): int {
 		return (int) $this->table->insert(
 			[
-				'post_id'      => 1000 + wp_rand( 1, 999 ),
+				'post_id'      => $post_id ? $post_id : 1000 + wp_rand( 1, 999 ),
 				'post_title'   => $title,
 				'post_content' => $content,
 				'embeddings'   => wp_json_encode( $embeddings ),
@@ -122,16 +128,7 @@ class RetrievalTest extends WP_UnitTestCase {
 	 * @return int Row ID.
 	 */
 	private function seed_chunk( $title, $embeddings, $token_count = 100 ) {
-		return $this->table->insert(
-			[
-				'post_id'      => 1000 + wp_rand( 1, 999 ),
-				'post_title'   => $title,
-				'post_content' => $title . ' content.',
-				'embeddings'   => wp_json_encode( $embeddings ),
-				'token_count'  => $token_count,
-				'post_status'  => 'processed',
-			]
-		);
+		return $this->seed_text( $title, $title . ' content.', $embeddings, $token_count );
 	}
 
 	/**
@@ -392,7 +389,7 @@ class RetrievalTest extends WP_UnitTestCase {
 	public function test_qdrant_path_fuses_local_keyword_hits() {
 		update_option( 'hyve_qdrant_status', 'active' );
 
-		$this->seed_text( 'Clan guide', 'ArtIsWar - cercato anche come Art Is War, ArtisWar o artiswar.', [ 0.0, 1.0, 0.0 ] );
+		$this->seed_text( 'Clan guide', 'ArtIsWar - cercato anche come Art Is War, ArtisWar o artiswar.', [ 0.0, 1.0, 0.0 ], 100, 4242 );
 		$this->commit_seeds();
 
 		$this->set_qdrant_instance(
@@ -423,5 +420,156 @@ class RetrievalTest extends WP_UnitTestCase {
 
 		$this->assertStringContainsString( 'Welcome to our gaming', $context );
 		$this->assertStringContainsString( 'ArtIsWar - cercato', $context );
+		// Vector sources first, then the posts only the keyword pass found.
+		$this->assertSame( [ 7, 4242 ], array_map( 'intval', API::instance()->get_last_retrieval()['sources'] ) );
+	}
+
+	/**
+	 * The test-retrieval ability runs the same keyword pass as chat, and
+	 * keeps going on it when the embeddings call fails.
+	 */
+	public function test_retrieval_ability_includes_keyword_only_chunks() {
+		update_option(
+			'hyve_settings',
+			[
+				'ai_mode' => \ThemeIsle\HyveLite\Hyve_Connect::MODE_SELF,
+				'api_key' => 'sk-test',
+			]
+		);
+
+		$instance = new ReflectionProperty( \ThemeIsle\HyveLite\OpenAI::class, 'instance' );
+		$instance->setAccessible( true );
+		$instance->setValue( null, null );
+
+		$this->seed_text( 'Clan guide', 'ArtIsWar - cercato anche come artiswar.', [ 0.0, 1.0, 0.0 ], 100, 4242 );
+		$this->commit_seeds();
+
+		add_filter(
+			'pre_http_request',
+			function ( $pre, $args, $url ) {
+				if ( false !== strpos( $url, '/moderations' ) ) {
+					return [
+						'response' => [ 'code' => 200 ],
+						'body'     => wp_json_encode( [ 'results' => [ [ 'flagged' => false ] ] ] ),
+					];
+				}
+
+				return new WP_Error( 'http_request_failed', 'Embeddings are down.' );
+			},
+			10,
+			3
+		);
+
+		$result = ( new \ThemeIsle\HyveLite\Abilities() )->test_retrieval( [ 'query' => 'artiswar' ] );
+
+		$this->assertNotWPError( $result );
+		$this->assertTrue( $result['embedding_failed'] );
+		$this->assertSame( [ 4242 ], array_column( $result['sources'], 'id' ) );
+		$this->assertCount( 1, $result['chunks'] );
+		$this->assertSame( 4242, $result['chunks'][0]['source_id'] );
+		$this->assertSame( 0.0, $result['chunks'][0]['score'] );
+		$this->assertTrue( $result['chunks'][0]['included'] );
+	}
+
+	/**
+	 * The `hyve_hybrid_retrieval` filter merges over the defaults, and its
+	 * `candidates` cap limits each list.
+	 */
+	public function test_hybrid_settings_filter_caps_each_list() {
+		$this->seed_text( 'Returns policy', 'Returns are accepted within 30 days with a receipt.', [ 0.0, 1.0, 0.0 ] );
+		$this->seed_text( 'Returns note', 'Mentions returns once.', [ 0.0, 0.0, 1.0 ] );
+		$this->commit_seeds();
+
+		add_filter( 'hyve_hybrid_retrieval', fn() => [ 'candidates' => 1 ] );
+
+		$this->assertSame( 60, API::hybrid_settings()['rrf_k'] );
+
+		$context = API::instance()->search_knowledge_base( [], 0.25, 2000, 'returns receipt' );
+
+		$this->assertStringContainsString( 'accepted within 30 days', $context );
+		$this->assertStringNotContainsString( 'Mentions returns once', $context );
+	}
+
+	/**
+	 * The keyword pass reads a capped number of terms, so the current
+	 * question must come before the blended history or a long thread crowds
+	 * its words out.
+	 */
+	public function test_keyword_pass_keeps_the_current_question_after_a_long_history() {
+		update_option(
+			'hyve_settings',
+			[
+				'ai_mode' => \ThemeIsle\HyveLite\Hyve_Connect::MODE_SELF,
+				'api_key' => 'sk-test',
+			]
+		);
+
+		$instance = new ReflectionProperty( \ThemeIsle\HyveLite\OpenAI::class, 'instance' );
+		$instance->setAccessible( true );
+		$instance->setValue( null, null );
+
+		$this->seed_text( 'Treatments', 'We offer Morpheus8 skin tightening on Fridays.', [ 0.0, 1.0, 0.0 ] );
+		$this->commit_seeds();
+
+		$thread = self::factory()->post->create( [ 'post_type' => 'hyve_threads' ] );
+		update_post_meta(
+			$thread,
+			'_hyve_thread_data',
+			[
+				[
+					'sender'  => 'user',
+					'message' => 'Hi there, I would like to know about your opening hours',
+				],
+				[
+					'sender'  => 'bot',
+					'message' => 'We are open every weekday.',
+				],
+				[
+					'sender'  => 'user',
+					'message' => 'Thanks. Also what payment methods do you accept today',
+				],
+				[
+					'sender'  => 'bot',
+					'message' => 'Cards and cash.',
+				],
+			]
+		);
+
+		add_filter(
+			'pre_http_request',
+			function ( $pre, $args, $url ) {
+				if ( false !== strpos( $url, '/moderations' ) ) {
+					return [
+						'response' => [ 'code' => 200 ],
+						'body'     => wp_json_encode( [ 'results' => [ [ 'flagged' => false ] ] ] ),
+					];
+				}
+
+				if ( false !== strpos( $url, '/embeddings' ) ) {
+					return new WP_Error( 'http_request_failed', 'Embeddings are down.' );
+				}
+
+				if ( false !== strpos( $url, '/responses' ) ) {
+					return [
+						'response' => [ 'code' => 200 ],
+						'body'     => wp_json_encode( [ 'id' => 'resp_test' ] ),
+					];
+				}
+
+				return new WP_Error( 'unexpected_request', 'Unfaked outbound request: ' . $url );
+			},
+			10,
+			3
+		);
+
+		$request = new WP_REST_Request( 'POST', '/hyve/v1/chat' );
+		$request->set_param( 'message', 'Do you offer Morpheus8?' );
+		$request->set_param( 'record_id', $thread );
+		$request->set_param( 'thread_id', 'conv_local' );
+
+		$response = API::instance()->send_chat( $request )->get_data();
+
+		$this->assertArrayNotHasKey( 'error', $response );
+		$this->assertStringContainsString( 'Morpheus8 skin tightening', $response['content'] );
 	}
 }

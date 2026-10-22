@@ -3189,7 +3189,11 @@ class API extends BaseAPI {
 		 */
 		$similarity_score_threshold = apply_filters( 'hyve_similarity_score_threshold', 0.25 );
 
-		$article_context = $this->search_knowledge_base( $message_vector, $similarity_score_threshold, 2000, $retrieval_query );
+		// The keyword pass reads a capped number of terms, so the message goes
+		// first or a long history crowds its words out.
+		$keyword_query = $message . "\n" . $retrieval_query;
+
+		$article_context = $this->search_knowledge_base( $message_vector, $similarity_score_threshold, 2000, $keyword_query );
 
 		if ( $page ) {
 			$article_context .= Page_Context::instance()->context_block( $page, $article_context );
