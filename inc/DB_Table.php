@@ -2271,11 +2271,20 @@ class DB_Table {
 			 */
 			$result = $this->add_post( $post_id, 'update' );
 
+			if ( ! is_wp_error( $result ) ) {
+				continue;
+			}
+
 			// Terminal until the post is edited again, so surface the error and
 			// stop re-queueing; an edit clears the error and re-flags the post.
-			if ( is_wp_error( $result ) && 'empty_content' === $result->get_error_code() ) {
+			if ( 'empty_content' === $result->get_error_code() ) {
 				$this->record_processing_error( (int) $post_id, $result, false );
 				delete_post_meta( (int) $post_id, '_hyve_needs_update' );
+			}
+
+			// The post stays flagged, so the next run tries again.
+			if ( 'tokenizer_unavailable' === $result->get_error_code() ) {
+				$this->record_processing_error( (int) $post_id, $result, true );
 			}
 		}
 

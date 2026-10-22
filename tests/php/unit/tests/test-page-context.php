@@ -184,16 +184,25 @@ class Test_Page_Context extends WP_UnitTestCase {
 	}
 
 	/**
-	 * Without a loadable vocabulary the page block is trimmed by characters
-	 * instead of crashing the chat request.
+	 * Make the vocabulary unloadable: no cache directory and no download.
+	 *
+	 * @return void
 	 */
-	public function test_page_content_is_trimmed_by_characters_when_the_vocabulary_is_unavailable(): void {
+	private function break_tokenizer(): void {
 		add_filter( 'pre_http_request', fn() => new WP_Error( 'http_request_failed', 'No route to host' ) );
-		add_filter( 'hyve_page_context_token_limit', fn() => 5 );
 
 		$provider = new EncoderProvider();
 		$provider->setVocabLoader( new Vocab_Loader( [ __FILE__ . '/nope' ] ) );
 		$this->set_tokenizer_provider( $provider );
+	}
+
+	/**
+	 * Without a loadable vocabulary an unindexed page's content is trimmed by
+	 * characters instead of crashing the chat request.
+	 */
+	public function test_page_content_is_trimmed_by_characters_when_the_vocabulary_is_unavailable(): void {
+		$this->break_tokenizer();
+		add_filter( 'hyve_page_context_token_limit', fn() => 5 );
 
 		add_filter( 'hyve_page_context_content', fn() => '<p>' . str_repeat( 'lorem ipsum ', 50 ) . '</p>' );
 
@@ -409,42 +418,39 @@ class Test_Page_Context extends WP_UnitTestCase {
 	}
 
 	/**
-	 * Without an encoder the chunk that needs trimming is skipped and the ones
-	 * that fit whole are kept, rather than the chat turn failing.
-	 *
-	 * @runInSeparateProcess
-	 * @preserveGlobalState disabled
+	 * Without an encoder the chunk that overruns the budget is trimmed by
+	 * characters, rather than dropped or the chat turn failing.
 	 */
-	public function test_encoder_failure_keeps_the_chunks_that_fit_whole(): void {
+	public function test_encoder_failure_trims_the_overrunning_chunk_by_characters(): void {
 		update_post_meta( $this->post_id, '_hyve_added', 1 );
+		$this->break_tokenizer();
 
 		// 600 + 400 fills the 1000 limit exactly, so only the joining newline
-		// makes the second chunk need a trim, which needs the encoder.
+		// makes the second chunk need a trim. Its text runs past the 399 tokens
+		// left, at four characters each, so the trim has to cut it.
 		$chunks = [
-			'FIRSTCHUNK'  => 600,
-			'SECONDCHUNK' => 400,
+			'FIRSTCHUNK'  => [ 600, 'alpha beta gamma delta ' ],
+			'SECONDCHUNK' => [ 400, str_repeat( 'alpha beta gamma delta ', 80 ) . 'END2' ],
 		];
 
-		foreach ( $chunks as $marker => $count ) {
+		foreach ( $chunks as $marker => [ $count, $text ] ) {
 			DB_Table::instance()->insert(
 				[
 					'post_id'      => $this->post_id,
 					'post_title'   => 'Blue Widget',
-					'post_content' => $marker . ' ' . str_repeat( 'alpha beta gamma delta ', 20 ),
+					'post_content' => $marker . ' ' . $text,
 					'token_count'  => $count,
 					'post_status'  => 'processed',
 				]
 			);
 		}
 
-		// A temp directory that cannot exist, so the vocabulary cannot load.
-		define( 'WP_TEMP_DIR', __FILE__ . '/nope/' );
-
 		$page  = Page_Context::instance()->for_request( $this->chat_request( get_permalink( $this->post_id ) ) );
 		$block = Page_Context::instance()->context_block( $page );
 
 		$this->assertStringContainsString( 'FIRSTCHUNK', $block );
-		$this->assertStringNotContainsString( 'SECONDCHUNK', $block );
+		$this->assertStringContainsString( 'SECONDCHUNK', $block );
+		$this->assertStringNotContainsString( 'END2', $block );
 	}
 
 	/**

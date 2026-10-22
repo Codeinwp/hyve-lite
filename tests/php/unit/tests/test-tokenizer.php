@@ -406,6 +406,18 @@ class Test_Tokenizer extends WP_UnitTestCase {
 
 		$this->assertStringContainsString( 'could not be tokenized', $response->get_data()['error'] );
 		$this->assertEmpty( get_post_meta( $post_id, '_hyve_added', true ) );
+		$this->assertEmpty( get_post_meta( $post_id, '_hyve_post_processing', true ) );
+
+		// The reason stays on the row after a reload, not only in the notice.
+		$listing = new WP_REST_Request( 'GET', '/hyve/v1/data' );
+		$listing->set_param( 'type', 'post' );
+		$listing->set_param( 'offset', 0 );
+
+		$rows = array_filter( API::instance()->get_data( $listing )->get_data()['posts'], fn( $row ) => $row['ID'] === $post_id );
+		$row  = reset( $rows );
+
+		$this->assertStringContainsString( 'could not be tokenized', $row['error'] );
+		$this->assertStringContainsString( 'Fix the reported issue', $row['error'] );
 	}
 
 	/**
@@ -486,5 +498,9 @@ class Test_Tokenizer extends WP_UnitTestCase {
 		DB_Table::instance()->update_posts();
 
 		$this->assertSame( '1', get_post_meta( $post_id, '_hyve_needs_update', true ) );
+
+		$error = get_post_meta( $post_id, '_hyve_processing_error', true );
+		$this->assertStringContainsString( 'could not be tokenized', $error );
+		$this->assertStringContainsString( 'retried automatically', $error );
 	}
 }
