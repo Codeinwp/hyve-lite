@@ -5,8 +5,11 @@
  * @package Codeinwp/HyveLite
  */
 
+use ThemeIsle\HyveLite\API;
 use ThemeIsle\HyveLite\DB_Table;
+use ThemeIsle\HyveLite\Hyve_Connect;
 use ThemeIsle\HyveLite\Page_Context;
+use ThemeIsle\HyveLite\Tokenizer;
 
 /**
  * Tests for the page context fed to chat turns.
@@ -289,6 +292,140 @@ class Test_Page_Context extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Store a chunk of the test page with its real token count.
+	 *
+	 * @param string $content Chunk text.
+	 *
+	 * @return int The chunk's token count.
+	 */
+	private function insert_page_chunk( string $content ): int {
+		$count = Tokenizer::count_tokens( $content );
+
+		DB_Table::instance()->insert(
+			[
+				'post_id'      => $this->post_id,
+				'post_title'   => 'Blue Widget',
+				'post_content' => $content,
+				'token_count'  => $count,
+				'post_status'  => 'processed',
+			]
+		);
+
+		return $count;
+	}
+
+	/**
+	 * The tokens the block's wrapper costs for the test page.
+	 *
+	 * @param array{id:int,title:string,url:string,indexed:bool} $page Resolved page.
+	 *
+	 * @return int
+	 */
+	private function wrapper_tokens( array $page ): int {
+		$label = $page['title'] . ' (' . $page['url'] . ')';
+
+		return Tokenizer::count_tokens( "\n ===START CURRENT PAGE=== The visitor is currently viewing this page: " . $label . '.  ===END CURRENT PAGE===' );
+	}
+
+	/**
+	 * The joined block, newlines included, has to fit the budget: each newline
+	 * between two chunks costs a token.
+	 */
+	public function test_pinned_chunks_budget_covers_the_joining_newlines(): void {
+		update_post_meta( $this->post_id, '_hyve_added', 1 );
+
+		$page  = Page_Context::instance()->for_request( $this->chat_request( get_permalink( $this->post_id ) ) );
+		$first = $this->insert_page_chunk( 'The first chunk describes the widget in plain words' );
+		$last  = $this->insert_page_chunk( 'The second chunk ends with ENDMARK' );
+		$limit = $this->wrapper_tokens( $page ) + $first + $last;
+
+		add_filter( 'hyve_page_context_token_limit', fn () => $limit );
+
+		$block = Page_Context::instance()->context_block( $page );
+
+		// The chunks fill what the wrapper leaves exactly, so the newline
+		// between them costs the second chunk its last token.
+		$this->assertStringContainsString( 'The first chunk', $block );
+		$this->assertStringContainsString( 'The second chunk', $block );
+		$this->assertStringNotContainsString( 'ENDMARK', $block );
+	}
+
+	/**
+	 * Stored chunks run up to the full limit, so after the wrapper the first
+	 * one often does not fit; it is trimmed rather than dropped.
+	 */
+	public function test_a_first_chunk_larger_than_the_budget_keeps_its_start(): void {
+		update_post_meta( $this->post_id, '_hyve_added', 1 );
+
+		$page  = Page_Context::instance()->for_request( $this->chat_request( get_permalink( $this->post_id ) ) );
+		$limit = $this->insert_page_chunk( 'START1 ' . str_repeat( 'Members get unlimited studio time and two firings a month. ', 40 ) . 'END1' );
+
+		add_filter( 'hyve_page_context_token_limit', fn () => $limit );
+
+		$block = Page_Context::instance()->context_block( $page );
+
+		$this->assertStringContainsString( 'START1', $block );
+		$this->assertStringNotContainsString( 'END1', $block );
+		$this->assertLessThanOrEqual( $limit, Tokenizer::count_tokens( $block ) );
+	}
+
+	/**
+	 * Without an encoder the chunk that needs trimming is skipped and the ones
+	 * that fit whole are kept, rather than the chat turn failing.
+	 *
+	 * @runInSeparateProcess
+	 * @preserveGlobalState disabled
+	 */
+	public function test_encoder_failure_keeps_the_chunks_that_fit_whole(): void {
+		update_post_meta( $this->post_id, '_hyve_added', 1 );
+
+		// 600 + 400 fills the 1000 limit exactly, so only the joining newline
+		// makes the second chunk need a trim, which needs the encoder.
+		$chunks = [
+			'FIRSTCHUNK'  => 600,
+			'SECONDCHUNK' => 400,
+		];
+
+		foreach ( $chunks as $marker => $count ) {
+			DB_Table::instance()->insert(
+				[
+					'post_id'      => $this->post_id,
+					'post_title'   => 'Blue Widget',
+					'post_content' => $marker . ' ' . str_repeat( 'alpha beta gamma delta ', 20 ),
+					'token_count'  => $count,
+					'post_status'  => 'processed',
+				]
+			);
+		}
+
+		// A temp directory that cannot exist, so the vocabulary cannot load.
+		define( 'WP_TEMP_DIR', __FILE__ . '/nope/' );
+
+		$page  = Page_Context::instance()->for_request( $this->chat_request( get_permalink( $this->post_id ) ) );
+		$block = Page_Context::instance()->context_block( $page );
+
+		$this->assertStringContainsString( 'FIRSTCHUNK', $block );
+		$this->assertStringNotContainsString( 'SECONDCHUNK', $block );
+	}
+
+	/**
+	 * The whole block, identity line and delimiters included, fits the budget.
+	 */
+	public function test_page_block_fits_its_budget_including_the_wrapper(): void {
+		add_filter( 'hyve_page_context_token_limit', fn () => 200 );
+		add_filter(
+			'hyve_page_context_content',
+			fn () => str_repeat( 'The studio runs evening classes in throwing and glazing. ', 60 )
+		);
+
+		$page  = Page_Context::instance()->for_request( $this->chat_request( get_permalink( $this->post_id ) ) );
+		$block = Page_Context::instance()->context_block( $page );
+
+		$this->assertStringContainsString( 'evening classes', $block );
+		$this->assertLessThanOrEqual( 200, Tokenizer::count_tokens( $block ) );
+	}
+
+	/**
 	 * When every chunk is already in context, the page is still identified.
 	 */
 	public function test_indexed_page_identity_marker_when_all_deduped() {
@@ -310,6 +447,186 @@ class Test_Page_Context extends WP_UnitTestCase {
 		$this->assertStringContainsString( '===CURRENT PAGE===', $block );
 		$this->assertStringContainsString( 'Blue Widget', $block );
 		$this->assertStringNotContainsString( 'costs $19', $block );
+	}
+
+	/**
+	 * A very long title is capped so the block stays within the page budget.
+	 */
+	public function test_long_title_stays_within_the_budget(): void {
+		$title = str_repeat( '陶芸工房🏺', 120 );
+
+		wp_update_post(
+			[
+				'ID'         => $this->post_id,
+				'post_title' => $title,
+			]
+		);
+
+		add_filter(
+			'hyve_page_context_content',
+			function () {
+				return str_repeat( 'Kiln firing is included in every membership. ', 200 );
+			}
+		);
+
+		$page  = Page_Context::instance()->for_request( $this->chat_request( get_permalink( $this->post_id ) ) );
+		$block = Page_Context::instance()->context_block( $page );
+
+		$this->assertGreaterThan( 1000, Tokenizer::count_tokens( $title ) );
+		$this->assertStringContainsString( 'Kiln firing', $block );
+		$this->assertLessThanOrEqual( 1000, Tokenizer::count_tokens( $block ) );
+
+		update_post_meta( $this->post_id, '_hyve_added', 1 );
+
+		$page  = Page_Context::instance()->for_request( $this->chat_request( get_permalink( $this->post_id ) ) );
+		$block = Page_Context::instance()->context_block( $page );
+
+		$this->assertStringContainsString( '===CURRENT PAGE===', $block );
+		$this->assertStringContainsString( 'viewing the page: 陶芸工房', $block );
+		$this->assertLessThanOrEqual( 1000, Tokenizer::count_tokens( $block ) );
+	}
+
+	/**
+	 * A very long URL is capped too, so an unindexed page keeps its content and
+	 * an indexed one its identity, both within the page budget.
+	 */
+	public function test_long_url_stays_within_the_budget(): void {
+		$this->set_permalink_structure( '/%postname%/' );
+
+		$parent = 0;
+
+		for ( $level = 0; $level < 8; $level++ ) {
+			$parent = $this->factory()->post->create(
+				[
+					'post_type'   => 'page',
+					'post_status' => 'publish',
+					'post_title'  => 'Deep URL Page',
+					'post_name'   => str_repeat( '陶芸工房', 15 ) . $level,
+					'post_parent' => $parent,
+				]
+			);
+		}
+
+		add_filter(
+			'hyve_page_context_content',
+			function () {
+				return str_repeat( 'Kiln firing is included in every membership. ', 200 );
+			}
+		);
+
+		$url  = (string) get_permalink( $parent );
+		$page = Page_Context::instance()->for_request( $this->chat_request( $url ) );
+
+		$this->assertSame( $parent, $page['id'] );
+		$this->assertGreaterThan( 1000, Tokenizer::count_tokens( $url ) );
+
+		$block = Page_Context::instance()->context_block( $page );
+
+		$this->assertStringContainsString( 'viewing this page: Deep URL Page. ', $block );
+		$this->assertStringNotContainsString( '陶芸工房', $block );
+		$this->assertStringContainsString( 'Kiln firing', $block );
+		$this->assertLessThanOrEqual( 1000, Tokenizer::count_tokens( $block ) );
+
+		update_post_meta( $parent, '_hyve_added', 1 );
+
+		$page  = Page_Context::instance()->for_request( $this->chat_request( $url ) );
+		$block = Page_Context::instance()->context_block( $page );
+
+		$this->assertStringContainsString( 'viewing the page: Deep URL Page ===END', $block );
+		$this->assertLessThanOrEqual( 1000, Tokenizer::count_tokens( $block ) );
+	}
+
+	/**
+	 * An ordinary non-Latin URL is carried whole, in its readable form, never
+	 * cut in the middle of a percent escape.
+	 */
+	public function test_a_non_latin_url_is_carried_whole(): void {
+		$this->set_permalink_structure( '/%postname%/' );
+
+		$post_id = $this->factory()->post->create(
+			[
+				'post_status' => 'publish',
+				'post_title'  => '陶芸教室のご案内',
+				'post_name'   => '陶芸教室のご案内',
+			]
+		);
+
+		update_post_meta( $post_id, '_hyve_added', 1 );
+
+		$url  = (string) get_permalink( $post_id );
+		$page = Page_Context::instance()->for_request( $this->chat_request( $url ) );
+
+		$this->assertGreaterThan( Page_Context::IDENTITY_TOKEN_LIMIT, Tokenizer::count_tokens( $url ) );
+
+		$block = Page_Context::instance()->context_block( $page );
+
+		$this->assertStringContainsString( '陶芸教室のご案内 (' . rawurldecode( $url ) . ')', $block );
+		$this->assertStringNotContainsString( '%', $block );
+	}
+
+	/**
+	 * Escapes that are not valid text, or that stand for ASCII, stay as sent:
+	 * decoding them would corrupt the prompt or change the link.
+	 */
+	public function test_ascii_and_invalid_escapes_in_a_url_stay_encoded(): void {
+		add_filter(
+			'hyve_page_context_content',
+			function () {
+				return 'Latest widget news.';
+			}
+		);
+
+		foreach ( [ '/%ff%fe/', '/a%3fb/', '/a%0ab/' ] as $path ) {
+			$page  = Page_Context::instance()->for_request( $this->chat_request( home_url( $path ) ) );
+			$block = Page_Context::instance()->context_block( $page );
+
+			$this->assertStringContainsString( 'viewing this page: ' . home_url( $path ) . '. ', $block );
+		}
+	}
+
+	/**
+	 * A title-less loop page whose URL is too long to carry is still placed on
+	 * the site, without the home page being passed off as the one viewed.
+	 */
+	public function test_a_title_less_page_with_a_long_url_is_placed_on_the_site(): void {
+		add_filter(
+			'hyve_page_context_content',
+			function (): string {
+				return 'Latest widget news.';
+			}
+		);
+
+		$url  = home_url( '/' . str_repeat( '%e9%99%b6%e8%8a%b8%e5%b7%a5%e6%88%bf/', 10 ) . 'page/2/' );
+		$page = Page_Context::instance()->for_request( $this->chat_request( $url ) );
+
+		$this->assertSame( '', $page['title'] );
+		$this->assertGreaterThan( Page_Context::IDENTITY_TOKEN_LIMIT, Tokenizer::count_tokens( rawurldecode( $url ) ) );
+
+		$block = Page_Context::instance()->context_block( $page );
+
+		$this->assertStringContainsString( 'viewing this page: a page on ' . home_url( '/' ) . '. Latest widget news.', $block );
+		$this->assertStringNotContainsString( '陶芸工房', $block );
+	}
+
+	/**
+	 * A title with line breaks and runs of spaces is carried on one line, even
+	 * when it is short enough to be carried whole.
+	 */
+	public function test_a_multiline_title_is_carried_on_one_line(): void {
+		wp_update_post(
+			[
+				'ID'         => $this->post_id,
+				'post_title' => "Quartz  jinx\n\nvexes dwarfs.",
+			]
+		);
+		update_post_meta( $this->post_id, '_hyve_added', 1 );
+
+		$page  = Page_Context::instance()->for_request( $this->chat_request( get_permalink( $this->post_id ) ) );
+		$block = Page_Context::instance()->context_block( $page );
+
+		$this->assertStringContainsString( 'viewing the page: Quartz jinx vexes dwarfs. (', $block );
+		$this->assertStringNotContainsString( "\n", trim( $block ) );
+		$this->assertStringNotContainsString( '  ', $block );
 	}
 
 	/**
@@ -345,5 +662,72 @@ class Test_Page_Context extends WP_UnitTestCase {
 		$this->assertArrayNotHasKey( 'title', $payload );
 		$this->assertSame( $this->home_root_url(), $payload['url'] );
 		$this->assertSame( 'Plans start at $9.', $payload['content'] );
+	}
+
+	/**
+	 * The page title stays out of the embedded retrieval query: it biases
+	 * retrieval toward the current page, which context_block() already attaches.
+	 */
+	public function test_page_title_is_not_embedded_in_the_retrieval_query() {
+		update_option(
+			'hyve_settings',
+			[
+				'ai_mode' => Hyve_Connect::MODE_SELF,
+				'api_key' => 'sk-test',
+			]
+		);
+
+		// OpenAI::instance() reads the key once and caches the instance for the
+		// process, so an earlier test can leave a keyless one behind.
+		$instance = new \ReflectionProperty( \ThemeIsle\HyveLite\OpenAI::class, 'instance' );
+		$instance->setAccessible( true );
+		$instance->setValue( null, null );
+
+		$embedded = [];
+
+		add_filter(
+			'pre_http_request',
+			function ( $pre, $args, $url ) use ( &$embedded ) {
+				if ( false !== strpos( $url, '/moderations' ) ) {
+					return [
+						'response' => [ 'code' => 200 ],
+						'body'     => wp_json_encode( [ 'results' => [ [ 'flagged' => false ] ] ] ),
+					];
+				}
+
+				if ( false !== strpos( $url, '/embeddings' ) ) {
+					$body       = json_decode( $args['body'], true );
+					$embedded[] = $body['input'];
+
+					return [
+						'response' => [ 'code' => 200 ],
+						'body'     => wp_json_encode( [ 'data' => [ [ 'embedding' => [ 0.1, 0.2, 0.3 ] ] ] ] ),
+					];
+				}
+
+				// The turn ends by queueing a background run.
+				if ( false !== strpos( $url, '/responses' ) ) {
+					return [
+						'response' => [ 'code' => 200 ],
+						'body'     => wp_json_encode( [ 'id' => 'resp_test' ] ),
+					];
+				}
+
+				// Fail any unfaked request instead of letting it reach the network.
+				return new \WP_Error( 'unexpected_request', 'Unfaked outbound request: ' . $url );
+			},
+			10,
+			3
+		);
+
+		// A supplied thread id keeps the turn off create_conversation().
+		$request = new WP_REST_Request( 'POST', '/hyve/v1/chat' );
+		$request->set_param( 'message', 'what is your address?' );
+		$request->set_param( 'page_url', get_permalink( $this->post_id ) );
+		$request->set_param( 'thread_id', 'conv_local' );
+
+		API::instance()->send_chat( $request );
+
+		$this->assertSame( [ 'what is your address?' ], $embedded );
 	}
 }

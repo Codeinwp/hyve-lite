@@ -115,6 +115,23 @@ const getIndexedSources = () => {
 	return options;
 };
 
+/**
+ * A source's recorded indexing failure, shown under its title.
+ *
+ * @param {Object}  props
+ * @param {string=} props.error The stored reason, if any.
+ */
+const IndexingError = ( { error } ) =>
+	error ? (
+		<span className="hyve-next-table__sub hyve-next-table__sub--wrap">
+			{ sprintf(
+				// translators: %s: the reason indexing failed, including whether it will be retried.
+				__( 'Indexing failed: %s', 'hyve-lite' ),
+				error
+			) }
+		</span>
+	) : null;
+
 const IndexedContent = () => {
 	const [ rows, setRows ] = useState( [] );
 	const [ hasMore, setHasMore ] = useState( false );
@@ -323,18 +340,7 @@ const IndexedContent = () => {
 								<span className="hyve-next-table__title">
 									{ row.title }
 								</span>
-								{ row.error && (
-									<span className="hyve-next-table__sub hyve-next-table__sub--wrap">
-										{ sprintf(
-											// translators: %s: the reason indexing failed, including whether it will be retried.
-											__(
-												'Indexing failed: %s',
-												'hyve-lite'
-											),
-											row.error
-										) }
-									</span>
-								) }
+								<IndexingError error={ row.error } />
 							</div>
 						),
 					},
@@ -639,6 +645,18 @@ const WordPressDrill = () => {
 
 	const totalPages = Math.max( 1, Math.ceil( total / perPageRef.current ) );
 
+	/**
+	 * Mirror what the server now stores for a source, so a reason from an
+	 * earlier attempt never outlives the one that replaced it.
+	 *
+	 * @param {number} id    The source's post ID.
+	 * @param {string} error The stored reason, or '' when there is none.
+	 */
+	const setRowError = ( id, error ) =>
+		setRows( ( prev ) =>
+			prev.map( ( row ) => ( row.ID === id ? { ...row, error } : row ) )
+		);
+
 	const processPost = async ( id ) => {
 		setUpdating( ( prev ) => [ ...prev, id ] );
 
@@ -646,7 +664,8 @@ const WordPressDrill = () => {
 
 		await onProcessData( {
 			post: currentPost,
-			onSuccess: () => {
+			onSuccess: ( response ) => {
+				setRowError( id, response?.warning ?? '' );
 				setUpdating( ( prev ) =>
 					prev.filter( ( postId ) => postId !== id )
 				);
@@ -667,6 +686,14 @@ const WordPressDrill = () => {
 						...currentPost,
 						review: error.review,
 					} );
+				}
+
+				// A moderation rejection is shown by its own state and modal; a
+				// request that never reached the server leaves the stored reason.
+				if ( 'content_failed_moderation' === error?.code ) {
+					setRowError( id, '' );
+				} else if ( 'string' === typeof error?.error ) {
+					setRowError( id, error.error );
 				}
 
 				fetchAttentionCount( setAttentionCount );
@@ -1085,6 +1112,7 @@ const WordPressDrill = () => {
 									<span className="hyve-next-table__title">
 										{ row.title }
 									</span>
+									<IndexingError error={ row.error } />
 								</div>
 							),
 						},
@@ -1224,7 +1252,8 @@ const WordPressDrill = () => {
 				<ModerationModal
 					post={ reviewPost }
 					onClose={ () => setReviewPost( null ) }
-					onSuccess={ () => {
+					onSuccess={ ( response ) => {
+						setRowError( reviewPost.ID, response?.warning ?? '' );
 						setProcessedPosts( ( prev ) => [
 							...prev,
 							reviewPost.ID,

@@ -605,9 +605,7 @@ class DB_Table {
 		// delete below leaves a flag that can be aged out instead of sticking.
 		update_post_meta( $post_id, '_hyve_post_processing', time() );
 
-		$content = Hyve_Connect::is_active()
-			? get_post_field( 'post_content', $post_id )
-			: apply_filters( 'the_content', get_post_field( 'post_content', $post_id ) );
+		$content = $this->post_source_content( (int) $post_id );
 
 		$result = $this->ingest_document(
 			[
@@ -667,9 +665,35 @@ class DB_Table {
 	 * @throws \Exception If Qdrant API fails.
 	 */
 	public function ingest_document( $doc, $args = [] ) {
-		// No extractable text (media-only content, empty page): refuse up front
-		// so nothing is queued or marked as added in either mode.
-		if ( '' === trim( wp_strip_all_tags( (string) ( $doc['content'] ?? '' ) ) ) ) {
+		$result = $this->run_ingest( $doc, $args );
+
+		// The row reports the latest attempt. Moderation has its own meta.
+		if ( is_wp_error( $result ) ) {
+			if ( 'content_failed_moderation' === $result->get_error_code() ) {
+				delete_post_meta( (int) ( $args['post_id'] ?? 0 ), '_hyve_processing_error' );
+			} else {
+				$this->record_processing_error( (int) ( $args['post_id'] ?? 0 ), $result, false );
+			}
+		}
+
+		return $result;
+	}
+
+	/**
+	 * Run the ingest pipeline. Failures return without recording; the caller
+	 * records them.
+	 *
+	 * @param array<string, mixed> $doc  The document, with `title` and `content` keys.
+	 * @param array<string, mixed> $args Ingestion options (see ingest_document()).
+	 *
+	 * @return true|\WP_Error
+	 * @throws \Exception If Qdrant API fails.
+	 */
+	private function run_ingest( array $doc, array $args ) {
+		// No extractable text (media-only content, empty page, a body that is
+		// only a shortcode): refuse up front so nothing is queued or marked as
+		// added in either mode.
+		if ( '' === Tokenizer::html_to_text( (string) ( $doc['content'] ?? '' ) ) ) {
 			return new \WP_Error( 'empty_content', __( 'There is no text content to index.', 'hyve-lite' ) );
 		}
 
@@ -922,6 +946,8 @@ class DB_Table {
 		}
 
 		update_post_meta( $post_id, '_hyve_added', 1 );
+		// Cleared here on success. ingest_document() also clears it when moderation rejects a retry.
+		delete_post_meta( $post_id, '_hyve_processing_error' );
 		// The synced hash marks the source as on the platform (so the sync job
 		// skips it) and feeds cheap reconcile fingerprints.
 		$this->connect_store_synced_hash( (int) $post_id, hash( 'sha256', (string) $document['content'] ) );
@@ -939,6 +965,70 @@ class DB_Table {
 		Hyve_Connect::flush_stats();
 
 		return true;
+	}
+
+	/**
+	 * The text a post contributes to the knowledge base.
+	 *
+	 * Rendered rather than raw: `the_content` expands blocks and shortcodes, so
+	 * a page-builder page yields its text instead of its markup. Rendered as a
+	 * logged-out visitor, because the knowledge base answers anonymous visitors
+	 * and a shortcode can hand a signed-in administrator more than the public
+	 * sees: core's `[gallery]` returns the captions of a private post's images
+	 * to anyone who passes `read_post`.
+	 *
+	 * Rendered inside the loop, because builders such as Elementor find the post
+	 * through `get_the_ID()`; from REST or cron there is no current post, so
+	 * they return the raw (for Elementor, empty) content.
+	 *
+	 * Every path that sends a post to Connect reads it from here, so the content
+	 * the platform stores and the content its hash is computed from are the same
+	 * string.
+	 *
+	 * @param int $post_id The post id.
+	 *
+	 * @return string
+	 */
+	private function post_source_content( int $post_id ): string {
+		$post = get_post( $post_id );
+
+		if ( ! $post instanceof \WP_Post ) {
+			return '';
+		}
+
+		global $wp_query;
+
+		$user        = get_current_user_id();
+		$previous    = $GLOBALS['post'] ?? null;
+		$in_the_loop = $wp_query instanceof \WP_Query && $wp_query->in_the_loop;
+
+		wp_set_current_user( 0 );
+
+		// As `the_post()` does; restored below.
+		// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited
+		$GLOBALS['post'] = $post;
+		setup_postdata( $post );
+
+		if ( $wp_query instanceof \WP_Query ) {
+			$wp_query->in_the_loop = true;
+		}
+
+		try {
+			return (string) apply_filters( 'the_content', $post->post_content );
+		} finally {
+			// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited
+			$GLOBALS['post'] = $previous;
+
+			if ( $wp_query instanceof \WP_Query ) {
+				$wp_query->in_the_loop = $in_the_loop;
+			}
+
+			if ( $previous instanceof \WP_Post ) {
+				setup_postdata( $previous );
+			}
+
+			wp_set_current_user( $user );
+		}
 	}
 
 	/**
@@ -1238,7 +1328,7 @@ class DB_Table {
 				(int) $post_id,
 				[
 					'title'   => get_the_title( $post_id ),
-					'content' => get_post_field( 'post_content', $post_id ),
+					'content' => $this->post_source_content( (int) $post_id ),
 				]
 			);
 
@@ -1641,7 +1731,7 @@ class DB_Table {
 			(int) $post_id,
 			[
 				'title'   => get_the_title( $post_id ),
-				'content' => get_post_field( 'post_content', $post_id ),
+				'content' => $this->post_source_content( (int) $post_id ),
 			]
 		);
 

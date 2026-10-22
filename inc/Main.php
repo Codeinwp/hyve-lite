@@ -54,6 +54,7 @@ class Main {
 		new Block();
 		new Threads();
 		new Stream();
+		new Abilities();
 
 		add_action( 'admin_menu', [ $this, 'register_menu_page' ] );
 		add_filter( 'user_has_cap', [ $this, 'grant_message_capabilities' ] );
@@ -108,6 +109,7 @@ class Main {
 
 		add_filter( 'themeisle_sdk_blackfriday_data', [ $this, 'add_black_friday_data' ] );
 		add_filter( 'hyve_lite_about_us_metadata', [ $this, 'about_us_metadata' ] );
+		add_filter( 'hyve_lite_ai_connect_metadata', [ $this, 'ai_connect_metadata' ] );
 		add_action( 'admin_init', [ $this, 'admin_init' ] );
 		add_action( 'admin_init', [ $this, 'add_privacy_policy_content' ] );
 		add_action( 'admin_notices', [ $this, 'encryption_key_notice' ] );
@@ -1121,6 +1123,10 @@ class Main {
 			return;
 		}
 
+		// An edit may fix whatever failed indexing (e.g. no text content).
+		// Before the `$added` guard: a source refused up front is never added.
+		delete_post_meta( $post_id, '_hyve_processing_error' );
+
 		$added = get_post_meta( $post_id, '_hyve_added', true );
 
 		if ( ! $added ) {
@@ -1138,8 +1144,6 @@ class Main {
 		update_post_meta( $post_id, '_hyve_needs_update', 1 );
 		delete_post_meta( $post_id, '_hyve_moderation_failed' );
 		delete_post_meta( $post_id, '_hyve_moderation_review' );
-		// An edit may fix whatever failed indexing (e.g. no text content).
-		delete_post_meta( $post_id, '_hyve_processing_error' );
 
 		wp_schedule_single_event( time(), 'hyve_update_posts' );
 	}
@@ -1214,6 +1218,28 @@ class Main {
 			'upgrade_link'     => tsdk_utmify( 'https://themeisle.com/plugins/hyve/', 'about-us' ),
 			'upgrade_text'     => __( 'Upgrade to Pro', 'hyve-lite' ),
 			'review_link'      => 'https://wordpress.org/support/plugin/hyve-lite/reviews/',
+		];
+	}
+
+	/**
+	 * Set the AI Connect metadata.
+	 *
+	 * @return array{name: string, notice_cases: array<string>, prompts: array<string>, ability_prefix: string} The AI Connect metadata.
+	 */
+	public function ai_connect_metadata() {
+		return [
+			'name'           => 'Hyve',
+			'notice_cases'   => [
+				__( 'add pages to the knowledge base', 'hyve-lite' ),
+				__( 'test what the chatbot knows', 'hyve-lite' ),
+				__( 'update the chatbot messages', 'hyve-lite' ),
+			],
+			'prompts'        => [
+				__( 'Add my Pricing, FAQ and Shipping pages to my Hyve chatbot knowledge base.', 'hyve-lite' ),
+				__( 'Refresh the knowledge base for every page that changed since it was indexed.', 'hyve-lite' ),
+				__( 'Change the chatbot welcome message to "Hi! Ask me anything about our services."', 'hyve-lite' ),
+			],
+			'ability_prefix' => 'hyve',
 		];
 	}
 
