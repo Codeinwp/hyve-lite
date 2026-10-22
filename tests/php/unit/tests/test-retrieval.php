@@ -38,7 +38,78 @@ class RetrievalTest extends WP_UnitTestCase {
 	protected function tearDown(): void {
 		remove_all_filters( 'hyve_chat_context_token_limit' );
 		remove_all_filters( 'hyve_context_score_ratio' );
+		remove_all_filters( 'pre_http_request' );
+		delete_option( 'hyve_qdrant_status' );
+		$this->set_qdrant_instance( null );
+
+		// Committed seeds, and the caches written after the commit, outlive
+		// the test transaction; see commit_seeds().
+		global $wpdb;
+		$wpdb->query( 'DELETE FROM ' . $wpdb->prefix . 'hyve' ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$wpdb->query( "DELETE FROM {$wpdb->options} WHERE option_name LIKE '\\_transient\\_hyve-%' OR option_name LIKE '\\_transient\\_timeout\\_hyve-%'" ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		delete_option( 'hyve_settings' );
+
+		foreach ( get_posts(
+			[
+				'post_type'   => 'hyve_threads',
+				'fields'      => 'ids',
+				'numberposts' => 100,
+			] 
+		) as $thread_id ) {
+			wp_delete_post( $thread_id, true );
+		}
+
+		wp_cache_flush();
+
 		parent::tearDown();
+	}
+
+	/**
+	 * InnoDB's FULLTEXT index only sees committed rows, and the test case
+	 * wraps every test in a transaction: commit the seeds so the keyword
+	 * search can find them. tearDown() removes them.
+	 *
+	 * @return void
+	 */
+	private function commit_seeds(): void {
+		global $wpdb;
+		$wpdb->query( 'COMMIT' ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+	}
+
+	/**
+	 * Replace the shared Qdrant client, or reset it with null.
+	 *
+	 * @param \ThemeIsle\HyveLite\Qdrant_API|null $instance The client to install.
+	 *
+	 * @return void
+	 */
+	private function set_qdrant_instance( $instance ): void {
+		$property = new ReflectionProperty( \ThemeIsle\HyveLite\Qdrant_API::class, 'instance' );
+		$property->setAccessible( true );
+		$property->setValue( null, $instance );
+	}
+
+	/**
+	 * Seed a processed chunk with its own title and content.
+	 *
+	 * @param string            $title       Chunk title.
+	 * @param string            $content     Chunk text.
+	 * @param array<int, float> $embeddings  Stored vector.
+	 * @param int               $token_count Token count.
+	 *
+	 * @return int The row ID.
+	 */
+	private function seed_text( string $title, string $content, array $embeddings, int $token_count = 100 ): int {
+		return (int) $this->table->insert(
+			[
+				'post_id'      => 1000 + wp_rand( 1, 999 ),
+				'post_title'   => $title,
+				'post_content' => $content,
+				'embeddings'   => wp_json_encode( $embeddings ),
+				'token_count'  => $token_count,
+				'post_status'  => 'processed',
+			]
+		);
 	}
 
 	/**
@@ -175,5 +246,182 @@ class RetrievalTest extends WP_UnitTestCase {
 
 		// The current question comes last, where it weighs the most.
 		$this->assertStringEndsWith( 'How difficult is it?', $query );
+	}
+
+	/**
+	 * A term that appears verbatim in a chunk retrieves it even when its
+	 * vector score is below the noise floor: the keyword list carries it in.
+	 */
+	public function test_exact_term_below_the_vector_floor_is_retrieved() {
+		$this->seed_text( 'Clan guide', 'ArtIsWar - cercato anche come Art Is War, ArtisWar o artiswar.', [ 0.0, 1.0, 0.0 ] );
+		$this->seed_text( 'Welcome', 'Welcome to our gaming community site.', [ 1.0, 0.0, 0.0 ] );
+		$this->commit_seeds();
+
+		$context = API::instance()->search_knowledge_base( [ 1.0, 0.0, 0.0 ], 0.25, 2000, 'artiswar' );
+
+		$this->assertStringContainsString( 'ArtIsWar - cercato', $context );
+		$this->assertStringContainsString( 'Welcome to our gaming', $context );
+
+		$chunks = API::instance()->get_last_retrieval()['chunks'];
+		$clan   = array_values( array_filter( $chunks, fn( $chunk ) => 'Clan guide' === $chunk['title'] ) );
+
+		$this->assertNull( $clan[0]['score'] );
+		$this->assertGreaterThan( 0, $clan[0]['lexical'] );
+	}
+
+	/**
+	 * Case does not matter to the keyword stage: `morpheus8` finds `Morpheus8`.
+	 */
+	public function test_keyword_match_ignores_case() {
+		$this->seed_text( 'Treatments', 'Morpheus8 is a fractional skin treatment.', [ 0.0, 1.0, 0.0 ] );
+		$this->commit_seeds();
+
+		$context = API::instance()->search_knowledge_base( [ 1.0, 0.0, 0.0 ], 0.25, 2000, 'morpheus8' );
+
+		$this->assertStringContainsString( 'Morpheus8 is a fractional', $context );
+	}
+
+	/**
+	 * With equal vector standing, the chunk whose title carries the term
+	 * outranks the one that only mentions it in the body.
+	 */
+	public function test_title_match_outranks_a_body_match() {
+		$this->seed_text( 'Studio news', 'We now offer Morpheus8 alongside our other treatments.', [ 1.0, 0.0, 0.0 ] );
+		$this->seed_text( 'Morpheus8', 'A fractional radiofrequency skin treatment.', [ 1.0, 0.0, 0.0 ] );
+		$this->commit_seeds();
+
+		$context = API::instance()->search_knowledge_base( [ 1.0, 0.0, 0.0 ], 0.25, 2000, 'morpheus8' );
+
+		$this->assertLessThan( strpos( $context, 'Studio news' ), strpos( $context, 'Morpheus8 - ' ) );
+	}
+
+	/**
+	 * Scripts without word boundaries match as substrings, since the index
+	 * tokenizes a run of them as one word.
+	 */
+	public function test_no_space_script_matches_as_a_substring() {
+		$this->seed_text( 'お知らせ', '営業時間は月曜から金曜の9時から17時です。', [ 0.0, 1.0, 0.0 ] );
+		$this->seed_text( 'เวลาทำการ', 'ร้านเปิดวันจันทร์ถึงวันศุกร์ เวลา 9 โมงถึง 5 โมงเย็น', [ 0.0, 1.0, 0.0 ] );
+		$this->commit_seeds();
+
+		$japanese = API::instance()->search_knowledge_base( [ 1.0, 0.0, 0.0 ], 0.25, 2000, '営業時間' );
+		$thai     = API::instance()->search_knowledge_base( [ 1.0, 0.0, 0.0 ], 0.25, 2000, 'เวลาทำการ' );
+
+		$this->assertStringContainsString( '営業時間は月曜', $japanese );
+		$this->assertStringContainsString( 'ร้านเปิดวันจันทร์', $thai );
+	}
+
+	/**
+	 * Without a vector at all the keyword stage still builds a context, so
+	 * an embeddings outage degrades the turn instead of failing it.
+	 */
+	public function test_keyword_only_retrieval_without_a_vector() {
+		$this->seed_text( 'Returns', 'You can return any item within 30 days of delivery.', [ 1.0, 0.0, 0.0 ] );
+		$this->commit_seeds();
+
+		$context = API::instance()->search_knowledge_base( [], 0.25, 2000, 'return within 30 days' );
+
+		$this->assertStringContainsString( 'return any item', $context );
+	}
+
+	/**
+	 * A failed embeddings call no longer fails the chat turn: retrieval runs
+	 * keyword-only and the turn records why.
+	 */
+	public function test_embedding_failure_degrades_to_keyword_retrieval() {
+		update_option(
+			'hyve_settings',
+			[
+				'ai_mode' => \ThemeIsle\HyveLite\Hyve_Connect::MODE_SELF,
+				'api_key' => 'sk-test',
+			] 
+		);
+
+		$instance = new ReflectionProperty( \ThemeIsle\HyveLite\OpenAI::class, 'instance' );
+		$instance->setAccessible( true );
+		$instance->setValue( null, null );
+
+		$this->seed_text( 'Returns', 'You can return any item within 30 days of delivery.', [ 1.0, 0.0, 0.0 ] );
+		$this->commit_seeds();
+
+		add_filter(
+			'pre_http_request',
+			function ( $pre, $args, $url ) {
+				if ( false !== strpos( $url, '/moderations' ) ) {
+					return [
+						'response' => [ 'code' => 200 ],
+						'body'     => wp_json_encode( [ 'results' => [ [ 'flagged' => false ] ] ] ),
+					];
+				}
+
+				if ( false !== strpos( $url, '/embeddings' ) ) {
+					return new WP_Error( 'http_request_failed', 'Embeddings are down.' );
+				}
+
+				if ( false !== strpos( $url, '/responses' ) ) {
+					return [
+						'response' => [ 'code' => 200 ],
+						'body'     => wp_json_encode( [ 'id' => 'resp_test' ] ),
+					];
+				}
+
+				return new WP_Error( 'unexpected_request', 'Unfaked outbound request: ' . $url );
+			},
+			10,
+			3
+		);
+
+		$request = new WP_REST_Request( 'POST', '/hyve/v1/chat' );
+		$request->set_param( 'message', 'Can I return an item?' );
+		$request->set_param( 'thread_id', 'conv_local' );
+
+		$response = API::instance()->send_chat( $request )->get_data();
+
+		$this->assertArrayNotHasKey( 'error', $response );
+		$this->assertStringContainsString( 'return any item', $response['content'] );
+
+		$debug = new ReflectionProperty( API::class, 'chat_debug' );
+		$debug->setAccessible( true );
+		$this->assertTrue( $debug->getValue( API::instance() )['embedding_failed'] );
+	}
+
+	/**
+	 * With Qdrant holding the vectors, the keyword stage still runs on the
+	 * local table and its hits join the vector hits.
+	 */
+	public function test_qdrant_path_fuses_local_keyword_hits() {
+		update_option( 'hyve_qdrant_status', 'active' );
+
+		$this->seed_text( 'Clan guide', 'ArtIsWar - cercato anche come Art Is War, ArtisWar o artiswar.', [ 0.0, 1.0, 0.0 ] );
+		$this->commit_seeds();
+
+		$this->set_qdrant_instance(
+			new class() extends \ThemeIsle\HyveLite\Qdrant_API {
+				/**
+				 * One vector hit, as Qdrant would return it.
+				 *
+				 * @param array<int, float> $embeddings      Ignored.
+				 * @param float             $score_threshold Ignored.
+				 *
+				 * @return array<int, array<string, mixed>>
+				 */
+				public function search( $embeddings, $score_threshold ) {
+					return [
+						[
+							'post_id'      => 7,
+							'post_title'   => 'Welcome',
+							'post_content' => 'Welcome to our gaming community site.',
+							'token_count'  => 10,
+							'score'        => 0.9,
+						],
+					];
+				}
+			}
+		);
+
+		$context = API::instance()->search_knowledge_base( [ 1.0, 0.0, 0.0 ], 0.25, 2000, 'artiswar' );
+
+		$this->assertStringContainsString( 'Welcome to our gaming', $context );
+		$this->assertStringContainsString( 'ArtIsWar - cercato', $context );
 	}
 }

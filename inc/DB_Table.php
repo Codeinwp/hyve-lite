@@ -30,7 +30,7 @@ class DB_Table {
 	 * @since 1.2.0
 	 * @var string
 	 */
-	public $version = '1.2.0';
+	public $version = '1.3.0';
 
 	/**
 	 * Cache prefix.
@@ -189,7 +189,8 @@ class DB_Table {
 		token_count int(11) NOT NULL DEFAULT 0,
 		post_status VARCHAR(255) NOT NULL DEFAULT "scheduled",
         storage VARCHAR(255) NOT NULL DEFAULT "WordPress",
-		PRIMARY KEY (id)
+		PRIMARY KEY (id),
+		FULLTEXT KEY content_search (post_title,post_content)
 		) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;';
 
 		dbDelta( $sql );
@@ -483,6 +484,98 @@ class DB_Table {
 		$this->set_cache( 'cached_embeddings', $cached_embeddings );
 
 		return $posts;
+	}
+
+	/**
+	 * Keyword search over processed chunks: the terms the question shares
+	 * with a chunk, whatever its vector score. Word scripts go through the
+	 * FULLTEXT index (each term as a prefix, so `morpheus8` finds
+	 * `Morpheus8`); scripts without word boundaries (Thai, CJK) are matched
+	 * as substrings instead, since the index tokenizes those as whole runs.
+	 *
+	 * @since 2.1.0
+	 *
+	 * @param string $query The visitor's question.
+	 * @param int    $limit Most matches to return.
+	 *
+	 * @return array<object{id: string, post_id: string, post_title: string, post_content: string, token_count: string, score: string}> Best first.
+	 */
+	public function lexical_search( string $query, int $limit = 20 ): array {
+		$terms    = self::query_terms( $query );
+		$segments = self::query_segments( $query );
+
+		if ( empty( $terms ) && empty( $segments ) ) {
+			return [];
+		}
+
+		global $wpdb;
+
+		$score    = [];
+		$bindings = [];
+
+		if ( ! empty( $terms ) ) {
+			$score[]    = 'MATCH( post_title, post_content ) AGAINST( %s IN BOOLEAN MODE )';
+			$bindings[] = implode( ' ', array_map( fn( $term ) => $term . '*', $terms ) );
+		}
+
+		foreach ( $segments as $segment ) {
+			// A title hit counts double: proper nouns live there.
+			$score[]    = '( CASE WHEN post_title LIKE %s THEN 2 ELSE 0 END ) + ( CASE WHEN post_content LIKE %s THEN 1 ELSE 0 END )';
+			$like       = '%' . $wpdb->esc_like( $segment ) . '%';
+			$bindings[] = $like;
+			$bindings[] = $like;
+		}
+
+		$bindings[] = $this->table_name;
+		$bindings[] = 'processed';
+		$bindings[] = $limit;
+
+		$sql = 'SELECT id, post_id, post_title, post_content, token_count, ( ' . implode( ' + ', $score ) . ' ) AS score FROM %i WHERE post_status = %s HAVING score > 0 ORDER BY score DESC LIMIT %d';
+
+		// phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- the score clause and its bindings are built together above.
+		return $wpdb->get_results( $wpdb->prepare( $sql, ...$bindings ) );
+	}
+
+	/**
+	 * The question's words for the FULLTEXT index: letters and digits only,
+	 * at least three characters (InnoDB indexes nothing shorter), at most
+	 * ten of them.
+	 *
+	 * @param string $query The visitor's question.
+	 *
+	 * @return array<int, string>
+	 */
+	public static function query_terms( string $query ): array {
+		$words = preg_split( '/[^\p{L}\p{N}]+/u', mb_strtolower( $query ), -1, PREG_SPLIT_NO_EMPTY );
+		$terms = [];
+
+		if ( false === $words ) {
+			return [];
+		}
+
+		foreach ( $words as $word ) {
+			if ( mb_strlen( $word ) < 3 || 1 === preg_match( '/^[\p{Han}\p{Hiragana}\p{Katakana}\p{Thai}\p{Lao}\p{Khmer}\p{Myanmar}]+$/u', $word ) ) {
+				continue;
+			}
+
+			$terms[ $word ] = $word;
+		}
+
+		return array_slice( array_values( $terms ), 0, 10 );
+	}
+
+	/**
+	 * Runs of characters from scripts without word boundaries, matched as
+	 * substrings. At least two characters, at most five runs.
+	 *
+	 * @param string $query The visitor's question.
+	 *
+	 * @return array<int, string>
+	 */
+	public static function query_segments( string $query ): array {
+		preg_match_all( '/[\p{Han}\p{Hiragana}\p{Katakana}\p{Thai}\p{Lao}\p{Khmer}\p{Myanmar}]{2,}/u', $query, $matches );
+
+		return array_slice( array_values( array_unique( $matches[0] ) ), 0, 5 );
 	}
 
 	/**

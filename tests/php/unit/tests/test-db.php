@@ -20,9 +20,22 @@ class DB_TableTest extends WP_UnitTestCase {
 	protected $db_table;
 
 	/**
+	 * The table is real in the test database (see bootstrap.php), so the IDs
+	 * these tests assert start from one only after a reset.
+	 */
+	public static function set_up_before_class() {
+		parent::set_up_before_class();
+		new DB_Table();
+
+		global $wpdb;
+		$wpdb->query( 'TRUNCATE TABLE ' . $wpdb->prefix . 'hyve' ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.SchemaChange
+	}
+
+	/**
 	 * Set up.
 	 */
 	protected function setUp(): void {
+		parent::setUp();
 		$this->db_table = new DB_Table();
 	}
 
@@ -43,10 +56,16 @@ class DB_TableTest extends WP_UnitTestCase {
 	 * Test get.
 	 */
 	public function test_get() {
-		$row = $this->db_table->get( 1 );
+		$insert_id = $this->db_table->insert(
+			[
+				'post_content' => 'Test content.',
+				'post_id'      => 42,
+			] 
+		);
+		$row       = $this->db_table->get( $insert_id );
 
 		$this->assertIsObject( $row );
-		$this->assertEquals( 1, $row->id );
+		$this->assertEquals( $insert_id, $row->id );
 	}
 
 	/**
@@ -57,8 +76,14 @@ class DB_TableTest extends WP_UnitTestCase {
 			'post_content' => 'Updated content.',
 		];
 
-		$rows_affected = $this->db_table->update( 1, $data );
-		$row           = $this->db_table->get( 1 );
+		$insert_id     = $this->db_table->insert(
+			[
+				'post_content' => 'Test content.',
+				'post_id'      => 42,
+			] 
+		);
+		$rows_affected = $this->db_table->update( $insert_id, $data );
+		$row           = $this->db_table->get( $insert_id );
 
 		$this->assertEquals( 1, $rows_affected );
 		$this->assertEquals( 'Updated content.', $row->post_content );
@@ -68,6 +93,12 @@ class DB_TableTest extends WP_UnitTestCase {
 	 * Test delete.
 	 */
 	public function test_delete_by_post_id() {
+		$this->db_table->insert(
+			[
+				'post_content' => 'Test content.',
+				'post_id'      => 42,
+			] 
+		);
 		$rows_affected = $this->db_table->delete_by_post_id( 42 );
 		$this->assertEquals( 1, $rows_affected );
 	}
