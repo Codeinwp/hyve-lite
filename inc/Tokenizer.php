@@ -14,6 +14,20 @@ use guttedgarden\Tiktoken\EncoderProvider;
  */
 class Tokenizer {
 	/**
+	 * Encoder provider, shared across calls.
+	 *
+	 * @var EncoderProvider|null
+	 */
+	private static $provider = null;
+
+	/**
+	 * The vocabulary failure of this request, rethrown instead of retried.
+	 *
+	 * @var \Exception|null
+	 */
+	private static $failure = null;
+
+	/**
 	 * Convert HTML content into retrieval-friendly plain text.
 	 *
 	 * A plain tag strip destroys the structure that carries meaning: table
@@ -89,10 +103,7 @@ class Tokenizer {
 	 * @return array<array<string, mixed>>
 	 */
 	public static function tokenize( $post ) {
-		$provider = new EncoderProvider();
-		$provider->setVocabCache( get_temp_dir() );
-
-		$encoder = $provider->get( 'cl100k_base' );
+		$encoder = self::encoder();
 
 		// Chunks are sized, embedded and sent to the model as this cleaned
 		// text, so sizes are measured on what is actually stored rather than
@@ -233,14 +244,31 @@ class Tokenizer {
 	}
 
 	/**
-	 * The cl100k_base encoder the chunk budgets are measured with.
+	 * The cl100k_base encoder, built once per request: loading the vocabulary
+	 * is the expensive part.
 	 *
 	 * @return \guttedgarden\Tiktoken\Encoder
+	 * @throws \RuntimeException When the vocabulary cannot be loaded.
+	 * @throws \Exception The failure remembered from earlier in the request.
 	 */
 	private static function encoder(): \guttedgarden\Tiktoken\Encoder {
-		$provider = new EncoderProvider();
-		$provider->setVocabCache( get_temp_dir() );
+		if ( null !== self::$failure ) {
+			throw self::$failure;
+		}
 
-		return $provider->get( 'cl100k_base' );
+		if ( null === self::$provider ) {
+			self::$provider = new EncoderProvider();
+			self::$provider->setVocabLoader( new Vocab_Loader() );
+		}
+
+		try {
+			return self::$provider->get( 'cl100k_base' );
+		} catch ( \Exception $e ) {
+			// Remembered for the request: a cron run over several posts must
+			// not wait out one download timeout per post.
+			self::$failure = $e;
+
+			throw $e;
+		}
 	}
 }
