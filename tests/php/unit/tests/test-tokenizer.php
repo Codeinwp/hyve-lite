@@ -300,9 +300,11 @@ class Test_Tokenizer extends WP_UnitTestCase {
 	 * @return void
 	 */
 	private function set_provider( ?EncoderProvider $provider ): void {
-		$property = new ReflectionProperty( Tokenizer::class, 'provider' );
-		$property->setAccessible( true );
-		$property->setValue( null, $provider );
+		foreach ( [ 'provider' => $provider, 'failure' => null ] as $name => $value ) {
+			$property = new ReflectionProperty( Tokenizer::class, $name );
+			$property->setAccessible( true );
+			$property->setValue( null, $value );
+		}
 	}
 
 	/**
@@ -502,5 +504,47 @@ class Test_Tokenizer extends WP_UnitTestCase {
 		$error = get_post_meta( $post_id, '_hyve_processing_error', true );
 		$this->assertStringContainsString( 'could not be tokenized', $error );
 		$this->assertStringContainsString( 'retried automatically', $error );
+	}
+
+	/**
+	 * One cron run over several flagged posts tries the download once: a
+	 * failed load is remembered for the request, so a slow CDN costs one
+	 * timeout, not one per post.
+	 */
+	public function test_a_failed_vocabulary_load_is_not_retried_within_the_request(): void {
+		$requests = 0;
+		add_filter(
+			'pre_http_request',
+			function ( $pre, array $args, string $url ) use ( &$requests ) {
+				if ( str_contains( $url, 'tiktoken' ) ) {
+					++$requests;
+				}
+
+				return $pre;
+			},
+			9,
+			3
+		);
+		$this->fake_download( new WP_Error( 'http_request_failed', 'No route to host' ) );
+
+		$provider = new EncoderProvider();
+		$provider->setVocabLoader( new Vocab_Loader( [ __FILE__ . '/nope' ] ) );
+		$this->set_provider( $provider );
+
+		$posts = $this->factory()->post->create_many( 3, [ 'post_content' => 'Open Monday to Friday.' ] );
+
+		foreach ( $posts as $post_id ) {
+			update_post_meta( $post_id, '_hyve_added', 1 );
+			update_post_meta( $post_id, '_hyve_needs_update', 1 );
+		}
+
+		DB_Table::instance()->update_posts();
+
+		$this->assertSame( 1, $requests );
+
+		foreach ( $posts as $post_id ) {
+			$this->assertSame( '1', get_post_meta( $post_id, '_hyve_needs_update', true ) );
+			$this->assertStringContainsString( 'could not be tokenized', get_post_meta( $post_id, '_hyve_processing_error', true ) );
+		}
 	}
 }

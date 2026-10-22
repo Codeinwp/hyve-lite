@@ -21,6 +21,13 @@ class Tokenizer {
 	private static $provider = null;
 
 	/**
+	 * The vocabulary failure of this request, rethrown instead of retried.
+	 *
+	 * @var \Exception|null
+	 */
+	private static $failure = null;
+
+	/**
 	 * Convert HTML content into retrieval-friendly plain text.
 	 *
 	 * A plain tag strip destroys the structure that carries meaning: table
@@ -244,11 +251,23 @@ class Tokenizer {
 	 * @throws \RuntimeException When the vocabulary cannot be loaded.
 	 */
 	private static function encoder(): \guttedgarden\Tiktoken\Encoder {
+		if ( null !== self::$failure ) {
+			throw self::$failure;
+		}
+
 		if ( null === self::$provider ) {
 			self::$provider = new EncoderProvider();
 			self::$provider->setVocabLoader( new Vocab_Loader() );
 		}
 
-		return self::$provider->get( 'cl100k_base' );
+		try {
+			return self::$provider->get( 'cl100k_base' );
+		} catch ( \Exception $e ) {
+			// Remembered for the request: a cron run over several posts must
+			// not wait out one download timeout per post.
+			self::$failure = $e;
+
+			throw $e;
+		}
 	}
 }

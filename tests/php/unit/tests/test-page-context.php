@@ -178,9 +178,11 @@ class Test_Page_Context extends WP_UnitTestCase {
 	 * @return void
 	 */
 	private function set_tokenizer_provider( ?EncoderProvider $provider ): void {
-		$property = new ReflectionProperty( Tokenizer::class, 'provider' );
-		$property->setAccessible( true );
-		$property->setValue( null, $provider );
+		foreach ( [ 'provider' => $provider, 'failure' => null ] as $name => $value ) {
+			$property = new ReflectionProperty( Tokenizer::class, $name );
+			$property->setAccessible( true );
+			$property->setValue( null, $value );
+		}
 	}
 
 	/**
