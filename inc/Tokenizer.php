@@ -249,6 +249,7 @@ class Tokenizer {
 	 *
 	 * @return \guttedgarden\Tiktoken\Encoder
 	 * @throws \RuntimeException When the vocabulary cannot be loaded.
+	 * @throws \Exception The failure remembered from earlier in the request.
 	 */
 	private static function encoder(): \guttedgarden\Tiktoken\Encoder {
 		if ( null !== self::$failure ) {
