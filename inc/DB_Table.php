@@ -311,6 +311,7 @@ class DB_Table {
 
 		$this->delete_cache( 'entries' );
 		$this->delete_cache( 'entries_count' );
+		$this->delete_cache( 'total_tokens' );
 		$this->delete_cache( 'chunk_counts' );
 		$this->delete_cache( 'cached_embeddings' );
 
@@ -339,6 +340,7 @@ class DB_Table {
 
 		$this->delete_cache( 'entry_' . $id );
 		$this->delete_cache( 'entries_processed' );
+		$this->delete_cache( 'total_tokens' );
 		$this->delete_cache( 'cached_embeddings' );
 
 		return $rows_affected;
@@ -361,6 +363,7 @@ class DB_Table {
 		$this->delete_cache( 'entries' );
 		$this->delete_cache( 'entries_processed' );
 		$this->delete_cache( 'entries_count' );
+		$this->delete_cache( 'total_tokens' );
 		$this->delete_cache( 'chunk_counts' );
 		$this->delete_cache( 'cached_embeddings' );
 
@@ -2348,6 +2351,44 @@ class DB_Table {
 		$this->set_cache( 'entries_count', $count );
 
 		return $count;
+	}
+
+	/**
+	 * Total tokens across every processed chunk: the size of the whole
+	 * knowledge base, which decides whether it fits a chat's context budget.
+	 *
+	 * @since 2.1.0
+	 *
+	 * @return int
+	 */
+	public function get_total_tokens(): int {
+		$cache = $this->get_cache( 'total_tokens' );
+
+		if ( false !== $cache ) {
+			return (int) $cache;
+		}
+
+		global $wpdb;
+
+		$total = (int) $wpdb->get_var( $wpdb->prepare( 'SELECT COALESCE( SUM( token_count ), 0 ) FROM %i WHERE post_status = %s', $this->table_name, 'processed' ) );
+
+		$this->set_cache( 'total_tokens', $total );
+
+		return $total;
+	}
+
+	/**
+	 * Every processed chunk, in source order. Only called when the whole
+	 * knowledge base fits a context budget, so the result is small.
+	 *
+	 * @since 2.1.0
+	 *
+	 * @return array<object{post_id: string, post_title: string, post_content: string, token_count: string}>
+	 */
+	public function get_all_chunks(): array {
+		global $wpdb;
+
+		return $wpdb->get_results( $wpdb->prepare( 'SELECT post_id, post_title, post_content, token_count FROM %i WHERE post_status = %s ORDER BY post_id ASC, id ASC', $this->table_name, 'processed' ) );
 	}
 
 	/**

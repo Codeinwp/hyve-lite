@@ -735,6 +735,18 @@ class Test_Page_Context extends WP_UnitTestCase {
 		$instance->setAccessible( true );
 		$instance->setValue( null, null );
 
+		// An empty knowledge base is answered without embedding anything.
+		DB_Table::instance()->insert(
+			[
+				'post_id'      => $this->post_id,
+				'post_title'   => 'Address',
+				'post_content' => 'We are at 1 Main Street.',
+				'embeddings'   => wp_json_encode( [ 0.1, 0.2, 0.3 ] ),
+				'token_count'  => 10,
+				'post_status'  => 'processed',
+			]
+		);
+
 		$embedded = [];
 
 		add_filter(
@@ -781,5 +793,7 @@ class Test_Page_Context extends WP_UnitTestCase {
 		API::instance()->send_chat( $request );
 
 		$this->assertSame( [ 'what is your address?' ], $embedded );
+
+		DB_Table::instance()->delete_by_post_id( $this->post_id );
 	}
 }
