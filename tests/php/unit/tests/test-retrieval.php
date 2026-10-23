@@ -309,6 +309,60 @@ class RetrievalTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Combining marks belong to their word, including Bengali vowel signs
+	 * and viramas; they must not leave the exact question with no terms.
+	 */
+	public function test_query_keeps_combining_marks() {
+		$this->assertSame( [ 'মূল্য' ], DB_Table::query_terms( 'মূল্য কত' ) );
+		$this->assertSame( [ 'মূল্য' ], DB_Table::query_segments( 'মূল্য কত' ) );
+		$this->assertContains( 'कीमत', DB_Table::query_segments( 'कीमत क्या है?' ) );
+		$this->assertContains( "cafe\u{0301}", DB_Table::query_segments( "cafe\u{0301}" ) );
+		$this->assertSame( [], DB_Table::query_segments( "\u{0301} !" ) );
+	}
+
+	/**
+	 * Adding marked words must preserve the script runs around digits.
+	 */
+	public function test_mixed_thai_digit_query_keeps_script_segments() {
+		$this->assertSame( [ 'เปิด', 'โมง', 'เปิด9โมง' ], DB_Table::query_segments( 'เปิด9โมง' ) );
+		$this->seed_text( 'Hours', 'ร้านเปิดวันจันทร์ถึงวันศุกร์ เวลา 9 โมงถึง 5 โมงเย็น', [ 0.0, 1.0, 0.0 ] );
+		$this->commit_seeds();
+
+		$context = API::instance()->search_knowledge_base( [], 0.25, 2000, 'เปิด9โมง' );
+		$this->assertStringContainsString( 'ร้านเปิดวันจันทร์', $context );
+	}
+
+	/**
+	 * A long word without marks must not hide a later script segment or
+	 * exhaust the regex backtracking budget while looking for a mark.
+	 */
+	public function test_long_unmarked_query_keeps_later_segment() {
+		$query = str_repeat( 'a', 20000 ) . ' 営業時間';
+		$start = microtime( true );
+		$this->assertSame( [ '営業時間' ], DB_Table::query_segments( $query ) );
+		$this->assertLessThan( 1.0, microtime( true ) - $start );
+	}
+
+	/**
+	 * FULLTEXT can split at combining marks too: the substring pass must
+	 * find the whole Bengali word, both below the floor and without vectors.
+	 */
+	public function test_bengali_exact_query_retrieves_matching_chunk() {
+		$this->seed_text( 'Welcome', 'Welcome to our shop.', [ 1.0, 0.0, 0.0 ] );
+		$this->seed_text( 'Prices', 'মূল্য কত? মূল্য ৭৩ টাকা।', [ 0.0, 1.0, 0.0 ] );
+		$this->commit_seeds();
+
+		foreach ( [ [ 1.0, 0.0, 0.0 ], [] ] as $vector ) {
+			$context = API::instance()->search_knowledge_base( $vector, 0.25, 2000, 'মূল্য কত' );
+			$this->assertStringContainsString( 'মূল্য ৭৩ টাকা', $context );
+			$chunks = API::instance()->get_last_retrieval()['chunks'];
+			$price  = array_values( array_filter( $chunks, fn( $chunk ) => 'Prices' === $chunk['title'] ) );
+			$this->assertNull( $price[0]['score'] );
+			$this->assertGreaterThan( 0, $price[0]['lexical'] );
+		}
+	}
+
+	/**
 	 * Without a vector at all the keyword stage still builds a context, so
 	 * an embeddings outage degrades the turn instead of failing it.
 	 */
@@ -324,8 +378,13 @@ class RetrievalTest extends WP_UnitTestCase {
 	/**
 	 * A failed embeddings call no longer fails the chat turn: retrieval runs
 	 * keyword-only and the turn records why.
+	 *
+	 * @dataProvider embedding_failure_queries
+	 *
+	 * @param string $message Visitor's question.
+	 * @param string $content Matching chunk content.
 	 */
-	public function test_embedding_failure_degrades_to_keyword_retrieval() {
+	public function test_embedding_failure_degrades_to_keyword_retrieval( string $message, string $content ) {
 		update_option(
 			'hyve_settings',
 			[
@@ -338,7 +397,7 @@ class RetrievalTest extends WP_UnitTestCase {
 		$instance->setAccessible( true );
 		$instance->setValue( null, null );
 
-		$this->seed_text( 'Returns', 'You can return any item within 30 days of delivery.', [ 1.0, 0.0, 0.0 ] );
+		$this->seed_text( 'Answer', $content, [ 1.0, 0.0, 0.0 ] );
 		$this->commit_seeds();
 
 		add_filter(
@@ -369,17 +428,29 @@ class RetrievalTest extends WP_UnitTestCase {
 		);
 
 		$request = new WP_REST_Request( 'POST', '/hyve/v1/chat' );
-		$request->set_param( 'message', 'Can I return an item?' );
+		$request->set_param( 'message', $message );
 		$request->set_param( 'thread_id', 'conv_local' );
 
 		$response = API::instance()->send_chat( $request )->get_data();
 
 		$this->assertArrayNotHasKey( 'error', $response );
-		$this->assertStringContainsString( 'return any item', $response['content'] );
+		$this->assertStringContainsString( $content, $response['content'] );
 
 		$debug = new ReflectionProperty( API::class, 'chat_debug' );
 		$debug->setAccessible( true );
 		$this->assertTrue( $debug->getValue( API::instance() )['embedding_failed'] );
+	}
+
+	/**
+	 * Questions whose answer must survive an embeddings outage.
+	 *
+	 * @return array<string, array{string, string}>
+	 */
+	public static function embedding_failure_queries(): array {
+		return [
+			'english' => [ 'Can I return an item?', 'You can return any item within 30 days of delivery.' ],
+			'bengali' => [ 'মূল্য কত', 'মূল্য কত? মূল্য ৭৩ টাকা।' ],
+		];
 	}
 
 	/**

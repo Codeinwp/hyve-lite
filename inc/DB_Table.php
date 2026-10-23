@@ -492,6 +492,8 @@ class DB_Table {
 	 * FULLTEXT index (each term as a prefix, so `morpheus8` finds
 	 * `Morpheus8`); scripts without word boundaries (Thai, CJK) are matched
 	 * as substrings instead, since the index tokenizes those as whole runs.
+	 * Words with combining marks also use substrings: FULLTEXT can split
+	 * at vowel signs and viramas within a word.
 	 *
 	 * @since 2.1.0
 	 *
@@ -537,7 +539,7 @@ class DB_Table {
 	}
 
 	/**
-	 * The question's words for the FULLTEXT index: letters and digits only,
+	 * The question's words for the FULLTEXT index: letters, digits and marks,
 	 * at least three characters (InnoDB indexes nothing shorter), at most
 	 * ten of them.
 	 *
@@ -546,7 +548,7 @@ class DB_Table {
 	 * @return array<int, string>
 	 */
 	public static function query_terms( string $query ): array {
-		$words = preg_split( '/[^\p{L}\p{N}]+/u', mb_strtolower( $query ), -1, PREG_SPLIT_NO_EMPTY );
+		$words = preg_split( '/[^\p{L}\p{N}\p{M}]+/u', mb_strtolower( $query ), -1, PREG_SPLIT_NO_EMPTY );
 		$terms = [];
 
 		if ( false === $words ) {
@@ -565,8 +567,9 @@ class DB_Table {
 	}
 
 	/**
-	 * Runs of characters from scripts without word boundaries, matched as
-	 * substrings. At least two characters, at most five runs.
+	 * Words containing combining marks and runs from scripts without word
+	 * boundaries, matched as substrings. At least two characters, at most
+	 * five segments. A marked word must start with a letter or digit.
 	 *
 	 * @param string $query The visitor's question.
 	 *
@@ -574,6 +577,13 @@ class DB_Table {
 	 */
 	public static function query_segments( string $query ): array {
 		preg_match_all( '/[\p{Han}\p{Hiragana}\p{Katakana}\p{Thai}\p{Lao}\p{Khmer}\p{Myanmar}]{2,}/u', $query, $matches );
+		preg_match_all( '/[\p{L}\p{N}][\p{L}\p{N}\p{M}]*/u', $query, $words );
+
+		foreach ( $words[0] as $word ) {
+			if ( 1 === preg_match( '/\p{M}/u', $word ) ) {
+				$matches[0][] = $word;
+			}
+		}
 
 		return array_slice( array_values( array_unique( $matches[0] ) ), 0, 5 );
 	}
