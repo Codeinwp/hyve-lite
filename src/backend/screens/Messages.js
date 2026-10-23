@@ -756,8 +756,9 @@ const MessageDebug = ( { debug, time } ) => {
 										'number' === typeof source.score
 											? source.score
 											: null;
-									// Found by the keyword search alone: no
-									// similarity to show, so name the pass.
+									// Rank score from the keyword search, shown
+									// beside the similarity score when both
+									// passes found the chunk.
 									const lexical =
 										'number' === typeof source.lexical
 											? source.lexical
