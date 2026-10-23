@@ -74,11 +74,19 @@ class QdrantMigrationTest extends WP_UnitTestCase {
 			public $disconnect_result = true;
 
 			/**
+			 * Number of remote disconnect attempts.
+			 *
+			 * @var int
+			 */
+			public $disconnect_calls = 0;
+
+			/**
 			 * Return the canned disconnect result.
 			 *
 			 * @return bool|WP_Error
 			 */
 			public function disconnect() {
+				++$this->disconnect_calls;
 				return $this->disconnect_result;
 			}
 
@@ -450,6 +458,73 @@ class QdrantMigrationTest extends WP_UnitTestCase {
 		$settings['qdrant_api_key']  = '';
 		$settings['qdrant_endpoint'] = '';
 		Main::save_settings( $settings );
+	}
+
+	/**
+	 * A local-only disconnect gives an unreachable cluster a local exit.
+	 */
+	public function test_forced_disconnect_skips_remote_and_cleans_up() {
+		$a                           = $this->seed( 'A', [ 1.0, 0.0, 0.0 ], 'processed', 'Qdrant' );
+		$settings                    = Main::get_settings();
+		$settings['qdrant_api_key']  = 'key';
+		$settings['qdrant_endpoint'] = 'https://example.qdrant.io';
+		Main::save_settings( $settings );
+		update_option( Qdrant_API::ERROR_OPTION_KEY, [ 'message' => 'Unreachable' ] );
+		update_option( Qdrant_API::MIGRATE_RETRY_AT, time() + 300, false );
+		Qdrant_API::schedule_migration();
+		$this->qdrant->disconnect_result = new WP_Error( 'collection_error', 'Unreachable' );
+		$request                         = new WP_REST_Request( 'POST' );
+		$request->set_param( 'force', true );
+
+		$response = API::instance()->qdrant_deactivate( $request );
+
+		$this->assertSame( 'Qdrant deactivated.', $response->get_data() );
+		$this->assertSame( 0, $this->qdrant->disconnect_calls );
+		$this->assertFalse( Qdrant_API::is_active() );
+		$this->assertSame( '', Main::get_settings()['qdrant_api_key'] );
+		$this->assertSame( '', Main::get_settings()['qdrant_endpoint'] );
+		$this->assertEquals( 'WordPress', $this->storage_of( $a ) );
+		$this->assertFalse( get_option( 'hyve_qdrant_migration' ) );
+		$this->assertFalse( get_option( Qdrant_API::ERROR_OPTION_KEY ) );
+		$this->assertFalse( get_option( Qdrant_API::MIGRATE_RETRY_AT ) );
+		$this->assertFalse( wp_next_scheduled( Qdrant_API::MIGRATE_HOOK ) );
+	}
+
+	/**
+	 * Even at its HTTP deadline, an upload still holds a live migration lock.
+	 */
+	public function test_upload_timeout_cannot_outlive_the_lock() {
+		$a                  = $this->seed( 'A' );
+		$qdrant             = new Qdrant_API( 'test-key', 'https://example.invalid' );
+		$transport_property = new ReflectionProperty( Qdrant\Qdrant::class, 'client' );
+		$transport_property->setAccessible( true );
+		$transport     = $transport_property->getValue( $qdrant->client );
+		$http_property = new ReflectionProperty( Qdrant\Http\GuzzleClient::class, 'client' );
+		$http_property->setAccessible( true );
+		$config = $http_property->getValue( $transport )->getConfig();
+		$this->assertGreaterThan( 0, $config['timeout'] );
+		$this->assertLessThan( Qdrant_API::MIGRATE_LOCK_TTL, $config['timeout'] );
+		$calls             = 0;
+		$config['handler'] = function ( $request, $options ) use ( $qdrant, &$calls ) {
+			++$calls;
+			$lock         = get_option( Qdrant_API::MIGRATE_LOCK );
+			$lock['time'] = time() - $options['timeout'];
+			update_option( Qdrant_API::MIGRATE_LOCK, $lock, false );
+			$qdrant->migrate_data();
+			throw new GuzzleHttp\Exception\ConnectException( 'Operation timed out', $request );
+		};
+		$http_property->setValue( $transport, new GuzzleHttp\Client( $config ) );
+
+		try {
+			$qdrant->migrate_data();
+		} finally {
+			remove_action( Qdrant_API::MIGRATE_HOOK, [ $qdrant, 'migrate_data' ] );
+		}
+
+		$this->assertSame( 1, $calls );
+		$this->assertEquals( 'WordPress', $this->storage_of( $a ) );
+		$this->assertFalse( get_option( Qdrant_API::MIGRATE_LOCK ) );
+		$this->assertNotFalse( wp_next_scheduled( Qdrant_API::MIGRATE_HOOK ) );
 	}
 
 	/**

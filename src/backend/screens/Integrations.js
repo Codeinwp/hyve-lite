@@ -40,6 +40,7 @@ export const QdrantPanel = () => {
 	const [ migration, setMigration ] = useState( null );
 	const [ isConfirmOpen, setConfirmOpen ] = useState( false );
 	const [ isBusy, setBusy ] = useState( false );
+	const [ disconnectFailed, setDisconnectFailed ] = useState( false );
 
 	const timeoutRef = useRef( null );
 
@@ -89,13 +90,14 @@ export const QdrantPanel = () => {
 		} );
 	};
 
-	const onDisconnect = async () => {
+	const onDisconnect = async ( force = false ) => {
 		setBusy( true );
 
 		try {
 			const response = await apiFetch( {
 				path: `${ window.hyve.api }/qdrant`,
 				method: 'POST',
+				data: { force },
 			} );
 
 			if ( response.error ) {
@@ -105,6 +107,7 @@ export const QdrantPanel = () => {
 			setQdrantStatus( false );
 			setMigration( null );
 			setConfirmOpen( false );
+			setDisconnectFailed( false );
 
 			createNotice(
 				'success',
@@ -121,6 +124,7 @@ export const QdrantPanel = () => {
 				featureValue: 'disconnected',
 			} );
 		} catch ( error ) {
+			setDisconnectFailed( true );
 			createNotice( 'error', error?.message ?? String( error ), {
 				type: 'snackbar',
 				isDismissible: true,
@@ -313,6 +317,24 @@ export const QdrantPanel = () => {
 							'hyve-lite'
 						) }
 					</p>
+					{ disconnectFailed && (
+						<>
+							<p>
+								{ __(
+									'Could not disconnect from Qdrant. You can disconnect locally instead. Data will remain in your Qdrant cluster; remove it there before reconnecting to avoid duplicate results. The local Knowledge Base limit still applies.',
+									'hyve-lite'
+								) }
+							</p>
+							<Button
+								variant="secondary"
+								isDestructive
+								disabled={ isBusy }
+								onClick={ () => onDisconnect( true ) }
+							>
+								{ __( 'Disconnect locally', 'hyve-lite' ) }
+							</Button>
+						</>
+					) }
 					<div className="hyve-next-modal__actions">
 						<Button
 							variant="tertiary"
@@ -326,7 +348,7 @@ export const QdrantPanel = () => {
 							isDestructive
 							isBusy={ isBusy }
 							disabled={ isBusy }
-							onClick={ onDisconnect }
+							onClick={ () => onDisconnect() }
 						>
 							{ __( 'Disconnect', 'hyve-lite' ) }
 						</Button>

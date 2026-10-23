@@ -270,6 +270,12 @@ class API extends BaseAPI {
 				[
 					'methods'  => \WP_REST_Server::CREATABLE,
 					'callback' => [ $this, 'qdrant_deactivate' ],
+					'args'     => [
+						'force' => [
+							'type'    => 'boolean',
+							'default' => false,
+						],
+					],
 				],
 			],
 			'connect'           => [
@@ -1353,14 +1359,17 @@ class API extends BaseAPI {
 	/**
 	 * Qdrant deactivate.
 	 *
+	 * @param \WP_REST_Request<array{force?: bool}>|null $request Optional local-only disconnect.
+	 *
 	 * @return \WP_REST_Response
 	 * @throws \Exception If Qdrant API fails.
 	 */
-	public function qdrant_deactivate() {
+	public function qdrant_deactivate( $request = null ) {
 		$settings = Main::get_settings();
 
 		try {
-			$deactivated = Qdrant_API::instance()->disconnect();
+			$force       = null !== $request && true === $request->get_param( 'force' );
+			$deactivated = $force ? true : Qdrant_API::instance()->disconnect();
 
 			if ( is_wp_error( $deactivated ) ) {
 				throw new \Exception( $deactivated->get_error_message() );
@@ -1387,6 +1396,8 @@ class API extends BaseAPI {
 		Main::save_settings( $settings );
 		update_option( 'hyve_qdrant_status', 'inactive' );
 		delete_option( 'hyve_qdrant_migration' );
+		delete_option( Qdrant_API::MIGRATE_RETRY_AT );
+		wp_clear_scheduled_hook( Qdrant_API::MIGRATE_HOOK );
 		delete_option( Qdrant_API::ERROR_OPTION_KEY );
 
 		return rest_ensure_response( __( 'Qdrant deactivated.', 'hyve-lite' ) );

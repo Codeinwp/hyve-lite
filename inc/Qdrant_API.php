@@ -9,7 +9,6 @@ namespace ThemeIsle\HyveLite;
 
 use ThemeIsle\HyveLite\Main;
 use Qdrant\Qdrant;
-use Qdrant\Http\GuzzleClient;
 use Qdrant\Endpoints\Collections;
 use Qdrant\Models\PointsStruct;
 use Qdrant\Models\PointStruct;
@@ -121,7 +120,7 @@ class Qdrant_API {
 		$config = new \Qdrant\Config( $endpoint );
 		$config->setApiKey( $api_key );
 
-		$transport    = new GuzzleClient( $config );
+		$transport    = new Qdrant_HTTP_Client( $config );
 		$this->client = new Qdrant( $transport );
 
 		add_action( self::MIGRATE_HOOK, [ $this, 'migrate_data' ] );
