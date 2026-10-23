@@ -745,7 +745,7 @@ const MessageDebug = ( { debug, time } ) => {
 						<DebugKey
 							label={ __( 'Sources', 'hyve-lite' ) }
 							help={ __(
-								'Knowledge base content sent to the model as context, with how closely each piece matched the question (0–1), or "keyword" with its rank score when only the keyword search found it. Hover a title for its size in tokens. The best-scoring sources may also be shown to the visitor as source links.',
+								'Knowledge base content sent to the model as context, with how closely each piece matched the question (0–1) and, when the keyword search also found it, "keyword" with its rank score; a keyword-only hit shows just the keyword score. Hover a title for its size in tokens. The best-scoring sources may also be shown to the visitor as source links.',
 								'hyve-lite'
 							) }
 						/>
@@ -826,8 +826,10 @@ const MessageDebug = ( { debug, time } ) => {
 											>
 												{ null !== score &&
 													score.toFixed( 2 ) }
-												{ null === score &&
+												{ null !== score &&
 													null !== lexical &&
+													' · ' }
+												{ null !== lexical &&
 													sprintf(
 														/* translators: %s: the keyword search's rank score. */
 														__(

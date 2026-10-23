@@ -173,15 +173,23 @@ class DB_TableTest extends WP_UnitTestCase {
 		global $wpdb;
 		$table = $wpdb->prefix . 'hyve';
 
-		$wpdb->query( "ALTER TABLE {$table} DROP INDEX content_search" ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.SchemaChange, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-		update_option( $table . '_db_version', '1.2.0' );
+		// The ALTERs commit implicitly, so the 1.2.0 version write is committed
+		// too; the upgrade is redone and committed in `finally` so the next
+		// test does not start on a downgraded table.
+		try {
+			$wpdb->query( "ALTER TABLE {$table} DROP INDEX content_search" ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.SchemaChange, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			update_option( $table . '_db_version', '1.2.0' );
 
-		$this->assertEmpty( $wpdb->get_results( "SHOW INDEX FROM {$table} WHERE Key_name = 'content_search'" ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			$this->assertEmpty( $wpdb->get_results( "SHOW INDEX FROM {$table} WHERE Key_name = 'content_search'" ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 
-		new DB_Table();
+			new DB_Table();
 
-		$this->assertNotEmpty( $wpdb->get_results( "SHOW INDEX FROM {$table} WHERE Key_name = 'content_search'" ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-		$this->assertSame( '1.3.0', get_option( $table . '_db_version' ) );
+			$this->assertNotEmpty( $wpdb->get_results( "SHOW INDEX FROM {$table} WHERE Key_name = 'content_search'" ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			$this->assertSame( '1.3.0', get_option( $table . '_db_version' ) );
+		} finally {
+			new DB_Table();
+			$wpdb->query( 'COMMIT' ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		}
 	}
 
 	/**
