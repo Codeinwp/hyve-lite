@@ -248,6 +248,16 @@ export const percentOf = ( used, limit ) =>
 		: 0;
 
 /**
+ * A chunk count from the stats, or null while it is unknown because Hyve
+ * Connect did not answer.
+ *
+ * @param {number|string|null|undefined} value The raw count.
+ * @return {number|null} The count, or null when unknown.
+ */
+export const chunkCount = ( value ) =>
+	null === value || undefined === value ? null : Number( value );
+
+/**
  * Read a Hyve Connect stats block's usage for one dimension. KB usage lives on
  * the storage sub-block (falling back to the chunk count); chat is a flat block.
  *

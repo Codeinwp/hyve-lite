@@ -968,10 +968,11 @@ class API extends BaseAPI {
 			$posts_data[] = apply_filters( 'hyve_data_post', $post_data, $post_id );
 		}
 
-		// Connect mode keeps no local rows; the KB footprint is the hosted total.
+		// Connect mode keeps no local rows; the KB footprint is the hosted total,
+		// unknown (not zero) when the platform did not answer.
 		if ( Hyve_Connect::is_active() ) {
 			$connect      = Hyve_Connect::instance()->stats();
-			$total_chunks = isset( $connect['kb']['chunks'] ) ? (int) $connect['kb']['chunks'] : 0;
+			$total_chunks = isset( $connect['kb']['chunks'] ) ? (int) $connect['kb']['chunks'] : null;
 		} else {
 			$total_chunks = $this->table->get_count();
 		}

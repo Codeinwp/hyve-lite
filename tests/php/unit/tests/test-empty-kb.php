@@ -159,6 +159,26 @@ class EmptyKbTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Connect: the Knowledge Base listing reports the same unknown count, so
+	 * the dashboard does not present an unreachable platform as empty.
+	 */
+	public function test_connect_degraded_stats_leave_the_listing_count_unknown(): void {
+		update_option( 'hyve_settings', [ 'ai_mode' => Hyve_Connect::MODE_CONNECT ] );
+		set_transient( 'hyve_connect_stats', [ 'service' => 'error' ], MINUTE_IN_SECONDS );
+
+		$request = new WP_REST_Request( 'GET', '/hyve/v1/data' );
+		$request->set_param( 'type', 'post' );
+		$request->set_param( 'status', 'included' );
+		$request->set_param( 'offset', 0 );
+
+		$this->assertNull( API::instance()->get_data( $request )->get_data()['totalChunks'] );
+
+		set_transient( 'hyve_connect_stats', [ 'kb' => [ 'chunks' => 3 ] ], MINUTE_IN_SECONDS );
+
+		$this->assertSame( 3, API::instance()->get_data( $request )->get_data()['totalChunks'] );
+	}
+
+	/**
 	 * Connect: when the local count is stale, the platform's `kb_empty`
 	 * outcome is shown the same way and recorded with its retrieval mode.
 	 */
