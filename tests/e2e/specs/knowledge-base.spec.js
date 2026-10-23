@@ -271,6 +271,33 @@ test.describe( 'Knowledge Base', () => {
 		await expect( page.getByText( 'Page 1 of 2' ) ).toBeVisible();
 	} );
 
+	test( 'an unknown chunk count is labelled unavailable, not zero', async ( {
+		page,
+		admin,
+	} ) => {
+		// Connect mode with no answer from the platform: the listing reports
+		// the count as null.
+		await mockDataApi( page, {
+			included: () => ( {
+				posts: indexedRows( 2 ),
+				more: false,
+				total: 2,
+				per_page: 20,
+				totalChunks: null,
+			} ),
+		} );
+
+		await admin.visitAdminPage( `${ HYVE_ADMIN }&nav=kb` );
+
+		await expect(
+			page.getByText( 'Indexed Post 1', { exact: true } )
+		).toBeVisible();
+		await expect(
+			page.getByText( 'Chunk count unavailable' )
+		).toBeVisible();
+		await expect( page.getByText( '0 chunks' ) ).toBeHidden();
+	} );
+
 	test( 'indexing failures surface a warn chip and the stored error', async ( {
 		page,
 		admin,
