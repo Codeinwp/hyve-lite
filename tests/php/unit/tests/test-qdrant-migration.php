@@ -7,6 +7,7 @@
 
 use ThemeIsle\HyveLite\API;
 use ThemeIsle\HyveLite\DB_Table;
+use ThemeIsle\HyveLite\Main;
 use ThemeIsle\HyveLite\Qdrant_API;
 
 /**
@@ -66,6 +67,22 @@ class QdrantMigrationTest extends WP_UnitTestCase {
 			public $batches = [];
 
 			/**
+			 * What disconnect() returns.
+			 *
+			 * @var bool|WP_Error
+			 */
+			public $disconnect_result = true;
+
+			/**
+			 * Return the canned disconnect result.
+			 *
+			 * @return bool|WP_Error
+			 */
+			public function disconnect() {
+				return $this->disconnect_result;
+			}
+
+			/**
 			 * Skip the parent constructor: no settings, no client.
 			 */
 			public function __construct() {}
@@ -112,7 +129,8 @@ class QdrantMigrationTest extends WP_UnitTestCase {
 			]
 		);
 		delete_option( Qdrant_API::ERROR_OPTION_KEY );
-		delete_transient( Qdrant_API::MIGRATE_LOCK );
+		delete_option( Qdrant_API::MIGRATE_RETRY_AT );
+		delete_option( Qdrant_API::MIGRATE_LOCK );
 		wp_clear_scheduled_hook( Qdrant_API::MIGRATE_HOOK );
 	}
 
@@ -124,7 +142,9 @@ class QdrantMigrationTest extends WP_UnitTestCase {
 		delete_option( 'hyve_qdrant_status' );
 		delete_option( 'hyve_qdrant_migration' );
 		delete_option( Qdrant_API::ERROR_OPTION_KEY );
-		delete_transient( Qdrant_API::MIGRATE_LOCK );
+		delete_option( Qdrant_API::MIGRATE_RETRY_AT );
+		delete_option( Qdrant_API::MIGRATE_LOCK );
+		remove_action( 'shutdown', [ $this->qdrant, 'migrate_data' ] );
 		wp_clear_scheduled_hook( Qdrant_API::MIGRATE_HOOK );
 		parent::tearDown();
 	}
@@ -205,6 +225,7 @@ class QdrantMigrationTest extends WP_UnitTestCase {
 
 		$this->qdrant->add_points_result = new WP_Error( 'collection_error', 'Timed out' );
 		$this->qdrant->migrate_data();
+		update_option( Qdrant_API::MIGRATE_RETRY_AT, time() - 1, false );
 		$this->qdrant->migrate_data();
 
 		$this->assertCount( 2, $this->qdrant->batches );
@@ -219,7 +240,15 @@ class QdrantMigrationTest extends WP_UnitTestCase {
 	 */
 	public function test_lock_blocks_parallel_runs_and_rearming() {
 		$this->seed( 'A' );
-		set_transient( Qdrant_API::MIGRATE_LOCK, time(), MINUTE_IN_SECONDS );
+		add_option(
+			Qdrant_API::MIGRATE_LOCK,
+			[
+				'token' => 'other-run',
+				'time'  => time(),
+			],
+			'',
+			false
+		);
 
 		$this->qdrant->migrate_data();
 		$this->assertCount( 0, $this->qdrant->batches );
@@ -228,11 +257,199 @@ class QdrantMigrationTest extends WP_UnitTestCase {
 		Qdrant_API::has_pending_migration();
 		$this->assertFalse( wp_next_scheduled( Qdrant_API::MIGRATE_HOOK ) );
 
-		// The lock is released after a run, even one that failed.
-		delete_transient( Qdrant_API::MIGRATE_LOCK );
+		// Another run's lock is never released by this one.
+		$this->assertSame( 'other-run', get_option( Qdrant_API::MIGRATE_LOCK )['token'] );
+	}
+
+	/**
+	 * A lock left behind by a run that died mid-batch is stale after its TTL
+	 * and does not block the migration; the lock is released after a run,
+	 * even one that failed.
+	 */
+	public function test_stale_lock_is_reclaimed_and_released() {
+		$this->seed( 'A' );
+		add_option(
+			Qdrant_API::MIGRATE_LOCK,
+			[
+				'token' => 'dead-run',
+				'time'  => time() - Qdrant_API::MIGRATE_LOCK_TTL - 1,
+			],
+			'',
+			false
+		);
+
 		$this->qdrant->add_points_result = new WP_Error( 'collection_error', 'Server error', 500 );
 		$this->qdrant->migrate_data();
-		$this->assertFalse( get_transient( Qdrant_API::MIGRATE_LOCK ) );
+
+		$this->assertCount( 1, $this->qdrant->batches );
+		$this->assertFalse( get_option( Qdrant_API::MIGRATE_LOCK ) );
+	}
+
+	/**
+	 * A concurrent claim between the option read and insert must win.
+	 */
+	public function test_concurrent_insert_does_not_overwrite_the_lock() {
+		$this->seed( 'A' );
+		$other = [
+			'token' => 'concurrent-run',
+			'time'  => time(),
+		];
+		$claim = function ( $query ) use ( &$claim, $other ) {
+			if ( false !== strpos( $query, 'INSERT' ) && false !== strpos( $query, Qdrant_API::MIGRATE_LOCK ) ) {
+				remove_filter( 'query', $claim );
+				add_option( Qdrant_API::MIGRATE_LOCK, $other, '', false );
+			}
+			return $query;
+		};
+		add_filter( 'query', $claim );
+
+		try {
+			$this->qdrant->migrate_data();
+		} finally {
+			remove_filter( 'query', $claim );
+		}
+
+		$this->assertCount( 0, $this->qdrant->batches );
+		$this->assertSame( $other, get_option( Qdrant_API::MIGRATE_LOCK ) );
+	}
+
+	/**
+	 * Reclaiming a stale lock cannot delete a newer run's replacement.
+	 */
+	public function test_stale_lock_replacement_is_preserved() {
+		$this->seed( 'A' );
+		add_option(
+			Qdrant_API::MIGRATE_LOCK,
+			[
+				'token' => 'dead-run',
+				'time'  => time() - Qdrant_API::MIGRATE_LOCK_TTL - 1,
+			],
+			'',
+			false
+		);
+		$other   = [
+			'token' => 'replacement-run',
+			'time'  => time(),
+		];
+		$replace = function ( $query ) use ( &$replace, $other ) {
+			if ( false !== strpos( $query, 'DELETE FROM' ) && false !== strpos( $query, Qdrant_API::MIGRATE_LOCK ) ) {
+				remove_filter( 'query', $replace );
+				update_option( Qdrant_API::MIGRATE_LOCK, $other, false );
+			}
+			return $query;
+		};
+		add_filter( 'query', $replace );
+
+		try {
+			$this->qdrant->migrate_data();
+		} finally {
+			remove_filter( 'query', $replace );
+		}
+
+		$this->assertCount( 0, $this->qdrant->batches );
+		$this->assertSame( $other, get_option( Qdrant_API::MIGRATE_LOCK ) );
+	}
+
+	/**
+	 * When WP-Cron never fires, the event sits overdue in the cron array, so
+	 * re-scheduling would do nothing. The chat path runs a batch at shutdown
+	 * instead, so the site still recovers from visitor traffic.
+	 */
+	public function test_overdue_event_runs_a_batch_at_shutdown() {
+		$a = $this->seed( 'A' );
+		wp_schedule_single_event( time() - 2 * Qdrant_API::MIGRATE_RETRY_DELAY, Qdrant_API::MIGRATE_HOOK );
+
+		$this->assertTrue( Qdrant_API::has_pending_migration() );
+		$this->assertNotFalse( has_action( 'shutdown', [ $this->qdrant, 'migrate_data' ] ) );
+
+		// Core's own shutdown callback would close PHPUnit's output buffer.
+		remove_action( 'shutdown', 'wp_ob_end_flush_all', 1 );
+		do_action( 'shutdown' );
+		add_action( 'shutdown', 'wp_ob_end_flush_all', 1 );
+
+		$this->assertCount( 1, $this->qdrant->batches );
+		$this->assertEquals( 'Qdrant', $this->storage_of( $a ) );
+	}
+
+	/**
+	 * Shutdown recovery consumes the overdue event and respects a failed
+	 * batch's retry time, including callbacks queued before the first run.
+	 */
+	public function test_shutdown_recovery_preserves_retry_delay() {
+		$a = $this->seed( 'A' );
+		wp_schedule_single_event( time() - 2 * Qdrant_API::MIGRATE_RETRY_DELAY, Qdrant_API::MIGRATE_HOOK );
+		$this->qdrant->add_points_result = new WP_Error( 'collection_error', 'Server error', 500 );
+		$overdue                         = get_option( 'cron' );
+
+		Qdrant_API::has_pending_migration();
+		remove_action( 'shutdown', 'wp_ob_end_flush_all', 1 );
+
+		try {
+			do_action( 'shutdown' );
+			$this->assertCount( 1, $this->qdrant->batches );
+			$this->assertGreaterThanOrEqual( time() + Qdrant_API::MIGRATE_RETRY_DELAY - 1, wp_next_scheduled( Qdrant_API::MIGRATE_HOOK ) );
+
+			// Simulate another visitor's option cache from before the first run.
+			$alloptions         = wp_load_alloptions();
+			$alloptions['cron'] = maybe_serialize( $overdue );
+			wp_cache_set( 'alloptions', $alloptions, 'options' );
+			wp_cache_set( 'cron', $overdue, 'options' );
+			do_action( 'shutdown' );
+			$this->assertCount( 1, $this->qdrant->batches );
+			$this->assertEquals( 'WordPress', $this->storage_of( $a ) );
+
+			// A captured cron job can overwrite the retry event before dispatching.
+			wp_clear_scheduled_hook( Qdrant_API::MIGRATE_HOOK );
+			$this->qdrant->migrate_data();
+			$this->assertCount( 1, $this->qdrant->batches );
+			$this->assertGreaterThanOrEqual( time() + Qdrant_API::MIGRATE_RETRY_DELAY - 1, wp_next_scheduled( Qdrant_API::MIGRATE_HOOK ) );
+		} finally {
+			add_action( 'shutdown', 'wp_ob_end_flush_all', 1 );
+		}
+	}
+
+	/**
+	 * Rows with no usable embedding have nothing to upload; they are skipped
+	 * and marked migrated so the migration can finish.
+	 */
+	public function test_rows_without_embeddings_are_skipped_but_marked() {
+		$a     = $this->seed( 'A' );
+		$empty = $this->seed( 'Empty', [] );
+
+		$this->qdrant->migrate_data();
+
+		$this->assertCount( 1, $this->qdrant->batches );
+		$this->assertCount( 1, $this->qdrant->batches[0] );
+		$this->assertEquals( 'Qdrant', $this->storage_of( $a ) );
+		$this->assertEquals( 'Qdrant', $this->storage_of( $empty ) );
+		$this->assertFalse( Qdrant_API::has_pending_migration() );
+	}
+
+	/**
+	 * A disconnect that Qdrant rejects must not report success and wipe the
+	 * credentials: the site's points would stay in the collection and a
+	 * reconnect would duplicate them.
+	 */
+	public function test_failed_disconnect_keeps_settings_and_storage() {
+		$a        = $this->seed( 'A', [ 1.0, 0.0, 0.0 ], 'processed', 'Qdrant' );
+		$settings = Main::get_settings();
+
+		$settings['qdrant_api_key']  = 'key';
+		$settings['qdrant_endpoint'] = 'https://example.qdrant.io';
+		Main::save_settings( $settings );
+
+		$this->qdrant->disconnect_result = new WP_Error( 'collection_error', 'Hyve could not connect to Qdrant.' );
+
+		$response = API::instance()->qdrant_deactivate();
+
+		$this->assertSame( 'Hyve could not connect to Qdrant.', $response->get_data()['error'] );
+		$this->assertTrue( Qdrant_API::is_active() );
+		$this->assertSame( 'key', Main::get_settings()['qdrant_api_key'] );
+		$this->assertEquals( 'Qdrant', $this->storage_of( $a ) );
+
+		$settings['qdrant_api_key']  = '';
+		$settings['qdrant_endpoint'] = '';
+		Main::save_settings( $settings );
 	}
 
 	/**
@@ -339,10 +556,12 @@ class QdrantMigrationTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * Once everything is migrated Qdrant answers.
+	 * Qdrant answers only once the last chunk has moved: before that the
+	 * local table is the only place that holds every vector.
 	 */
-	public function test_search_uses_qdrant_after_migration() {
-		$this->seed( 'LocalMatch', [ 1.0, 0.0, 0.0 ], 'processed', 'Qdrant' );
+	public function test_search_switches_to_qdrant_once_migration_completes() {
+		$this->seed( 'LocalMatch' );
+		$this->seed( 'Migrated', [ 0.0, 1.0, 0.0 ], 'processed', 'Qdrant' );
 		$this->qdrant->search_result = [
 			[
 				'post_id'      => 7,
@@ -352,6 +571,13 @@ class QdrantMigrationTest extends WP_UnitTestCase {
 				'score'        => 0.9,
 			],
 		];
+
+		$context = API::instance()->search_knowledge_base( [ 1.0, 0.0, 0.0 ], 0.3, 2000 );
+
+		$this->assertStringContainsString( 'LocalMatch', $context );
+		$this->assertStringNotContainsString( 'QdrantMatch', $context );
+
+		$this->qdrant->migrate_data();
 
 		$context = API::instance()->search_knowledge_base( [ 1.0, 0.0, 0.0 ], 0.3, 2000 );
 

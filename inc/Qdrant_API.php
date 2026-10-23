@@ -54,12 +54,27 @@ class Qdrant_API {
 	public const MIGRATE_RETRY_DELAY = 5 * MINUTE_IN_SECONDS;
 
 	/**
-	 * Transient held while a migration batch is uploading, so a second cron
-	 * run cannot upload the same rows alongside it.
+	 * Shared retry deadline, independent of WordPress's cron snapshots.
+	 *
+	 * @var string
+	 */
+	public const MIGRATE_RETRY_AT = 'hyve_qdrant_migration_retry_at';
+
+	/**
+	 * Option held while a migration batch is uploading, so a second cron run
+	 * cannot upload the same rows alongside it. Claimed with INSERT IGNORE;
+	 * stale after MIGRATE_LOCK_TTL.
 	 *
 	 * @var string
 	 */
 	public const MIGRATE_LOCK = 'hyve_qdrant_migration_lock';
+
+	/**
+	 * Seconds after which a migration lock is treated as abandoned.
+	 *
+	 * @var int
+	 */
+	public const MIGRATE_LOCK_TTL = 10 * MINUTE_IN_SECONDS;
 
 	/**
 	 * Qdrant Client. Unset when the stored credentials are incomplete.
@@ -141,6 +156,7 @@ class Qdrant_API {
 		}
 
 		update_option( 'hyve_qdrant_status', 'active' );
+		delete_option( self::MIGRATE_RETRY_AT );
 
 		$existing_chunks = DB_Table::instance()->get_unmigrated_count();
 
@@ -178,20 +194,147 @@ class Qdrant_API {
 	}
 
 	/**
-	 * Re-arm a migration whose cron event was lost (blocked WP-Cron, a fatal
-	 * mid-batch), unless a batch is uploading right now: that run schedules
-	 * the next one itself, and a parallel run would upload the same rows.
+	 * Re-arm a migration whose cron event was lost (a fatal mid-batch), or
+	 * run a batch at shutdown when the event is overdue because WP-Cron never
+	 * fires (blocked by HTTP auth, DISABLE_WP_CRON without a system cron).
+	 * Skipped while a batch is uploading: that run schedules the next one
+	 * itself, and a parallel run would upload the same rows.
 	 *
 	 * @since 2.0.5
 	 *
 	 * @return void
 	 */
 	private static function rearm_migration() {
-		if ( false !== get_transient( self::MIGRATE_LOCK ) ) {
+		if ( self::is_locked() ) {
 			return;
 		}
 
-		self::schedule_migration();
+		$next = wp_next_scheduled( self::MIGRATE_HOOK );
+
+		if ( false === $next ) {
+			self::schedule_migration();
+			return;
+		}
+
+		if ( $next <= time() - self::MIGRATE_RETRY_DELAY && ! has_action( 'shutdown', [ self::instance(), 'migrate_data' ] ) ) {
+			add_action( 'shutdown', [ self::instance(), 'migrate_data' ] );
+		}
+	}
+
+	/**
+	 * Whether a migration batch holds the lock and it is not stale.
+	 *
+	 * @since 2.0.5
+	 *
+	 * @return bool
+	 */
+	private static function is_locked() {
+		$lock = self::get_lock();
+
+		return false !== $lock && $lock['time'] > time() - self::MIGRATE_LOCK_TTL;
+	}
+
+	/**
+	 * Read a migration lock with a valid token and timestamp.
+	 *
+	 * @since 2.0.5
+	 *
+	 * @return array{token: string, time: int}|false
+	 */
+	private static function get_lock() {
+		$lock = get_option( self::MIGRATE_LOCK, false );
+
+		if ( ! is_array( $lock ) || ! isset( $lock['token'], $lock['time'] ) || ! is_string( $lock['token'] ) || ! is_int( $lock['time'] ) ) {
+			return false;
+		}
+
+		return [
+			'token' => $lock['token'],
+			'time'  => $lock['time'],
+		];
+	}
+
+	/**
+	 * Claim the migration lock.
+	 *
+	 * @since 2.0.5
+	 *
+	 * @return string|false The token to release it with, or false when another run holds it.
+	 */
+	private static function acquire_lock() {
+		global $wpdb;
+
+		$lock = self::get_lock();
+
+		if ( false !== $lock && $lock['time'] > time() - self::MIGRATE_LOCK_TTL ) {
+			return false;
+		}
+
+		if ( false !== $lock ) {
+			self::delete_lock( $lock );
+		}
+
+		$token = wp_generate_uuid4();
+		$value = [
+			'token' => $token,
+			'time'  => time(),
+		];
+
+		// add_option() can overwrite a concurrent insert through ON DUPLICATE KEY UPDATE.
+		$claimed = $wpdb->query(
+			$wpdb->prepare(
+				"INSERT IGNORE INTO $wpdb->options (option_name, option_value, autoload) VALUES (%s, %s, 'no')",
+				self::MIGRATE_LOCK,
+				maybe_serialize( $value )
+			)
+		);
+		wp_cache_delete( self::MIGRATE_LOCK, 'options' );
+		wp_cache_delete( 'notoptions', 'options' );
+
+		if ( 1 !== $claimed ) {
+			return false;
+		}
+
+		return $token;
+	}
+
+	/**
+	 * Release the migration lock, only if this run still holds it.
+	 *
+	 * @since 2.0.5
+	 *
+	 * @param string $token The token acquire_lock() returned.
+	 *
+	 * @return void
+	 */
+	private static function release_lock( $token ) {
+		$lock = self::get_lock();
+
+		if ( false !== $lock && $lock['token'] === $token ) {
+			self::delete_lock( $lock );
+		}
+	}
+
+	/**
+	 * Delete only the lock that was read, preserving a concurrent replacement.
+	 *
+	 * @since 2.0.5
+	 *
+	 * @param array{token: string, time: int} $lock The stored lock.
+	 *
+	 * @return void
+	 */
+	private static function delete_lock( array $lock ) {
+		global $wpdb;
+
+		$wpdb->query(
+			$wpdb->prepare(
+				"DELETE FROM $wpdb->options WHERE option_name = %s AND option_value = %s",
+				self::MIGRATE_LOCK,
+				maybe_serialize( $lock )
+			)
+		);
+		wp_cache_delete( self::MIGRATE_LOCK, 'options' );
 	}
 
 	/**
@@ -199,8 +342,8 @@ class Qdrant_API {
 	 *
 	 * Chat must keep answering from the local vectors until this is false:
 	 * Qdrant only holds the chunks the migration has already uploaded. A
-	 * pending migration with no cron event is re-armed here so a stalled
-	 * site recovers from chat traffic alone.
+	 * stalled migration is re-armed here so a site recovers from chat
+	 * traffic alone.
 	 *
 	 * @since 2.0.5
 	 *
@@ -504,8 +647,9 @@ class Qdrant_API {
 	/**
 	 * Message for a caught throwable.
 	 *
-	 * The Qdrant client throws a bare Error (no response to read a status
-	 * from) when the cluster cannot be reached at all, so name the cause.
+	 * The Qdrant client throws a bare Error on a response-less
+	 * RequestException (for example, a TLS verification failure), so give
+	 * a readable cause.
 	 *
 	 * @since 2.0.5
 	 *
@@ -523,16 +667,43 @@ class Qdrant_API {
 	 * @return void
 	 */
 	public function migrate_data() {
-		if ( false !== get_transient( self::MIGRATE_LOCK ) ) {
+		$token = self::acquire_lock();
+
+		if ( false === $token ) {
 			return;
 		}
 
-		set_transient( self::MIGRATE_LOCK, time(), 10 * MINUTE_IN_SECONDS );
-
 		try {
+			// A second request may still cache the overdue event in autoloaded options.
+			wp_cache_delete( 'alloptions', 'options' );
+			wp_cache_delete( 'cron', 'options' );
+			wp_cache_delete( self::MIGRATE_RETRY_AT, 'options' );
+			$next     = wp_next_scheduled( self::MIGRATE_HOOK );
+			$retry_at = (int) get_option( self::MIGRATE_RETRY_AT, 0 );
+
+			// A cron worker may already have captured the event recovered at shutdown.
+			if ( $retry_at > time() ) {
+				if ( false !== $next && $next <= time() ) {
+					wp_unschedule_event( $next, self::MIGRATE_HOOK );
+				}
+				self::schedule_migration( $retry_at - time() );
+				return;
+			}
+
+			// Another request may have recovered the event before this shutdown runs.
+			if ( 'shutdown' === current_action() && ( false === $next || $next > time() - self::MIGRATE_RETRY_DELAY ) ) {
+				return;
+			}
+
+			// WP-Cron consumes its event before dispatch; shutdown recovery must do the same.
+			if ( false !== $next && $next <= time() ) {
+				wp_unschedule_event( $next, self::MIGRATE_HOOK );
+			}
+
+			delete_option( self::MIGRATE_RETRY_AT );
 			$this->migrate_batch();
 		} finally {
-			delete_transient( self::MIGRATE_LOCK );
+			self::release_lock( $token );
 		}
 	}
 
@@ -600,6 +771,7 @@ class Qdrant_API {
 			}
 
 			if ( self::is_active() ) {
+				update_option( self::MIGRATE_RETRY_AT, time() + self::MIGRATE_RETRY_DELAY, false );
 				self::schedule_migration( self::MIGRATE_RETRY_DELAY );
 			} else {
 				$this->finish_migration();
@@ -633,6 +805,7 @@ class Qdrant_API {
 	 * @return void
 	 */
 	private function finish_migration() {
+		delete_option( self::MIGRATE_RETRY_AT );
 		$migration_status = get_option( 'hyve_qdrant_migration', [] );
 
 		if ( empty( $migration_status ) ) {

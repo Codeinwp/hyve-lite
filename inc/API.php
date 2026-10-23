@@ -1362,6 +1362,10 @@ class API extends BaseAPI {
 		try {
 			$deactivated = Qdrant_API::instance()->disconnect();
 
+			if ( is_wp_error( $deactivated ) ) {
+				throw new \Exception( $deactivated->get_error_message() );
+			}
+
 			if ( ! $deactivated ) {
 				throw new \Exception( __( 'Failed to deactivate Qdrant.', 'hyve-lite' ) );
 			}
