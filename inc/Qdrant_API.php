@@ -514,7 +514,7 @@ class Qdrant_API {
 	 * @return string
 	 */
 	private static function throwable_message( $e ) {
-		return $e instanceof \Exception ? $e->getMessage() : __( 'Hyve could not reach your Qdrant cluster.', 'hyve-lite' );
+		return $e instanceof \Exception ? $e->getMessage() : __( 'Hyve could not connect to Qdrant.', 'hyve-lite' );
 	}
 
 	/**
