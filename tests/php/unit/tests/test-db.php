@@ -20,9 +20,22 @@ class DB_TableTest extends WP_UnitTestCase {
 	protected $db_table;
 
 	/**
+	 * The table is real in the test database (see bootstrap.php), so the IDs
+	 * these tests assert start from one only after a reset.
+	 */
+	public static function set_up_before_class() {
+		parent::set_up_before_class();
+		new DB_Table();
+
+		global $wpdb;
+		$wpdb->query( 'TRUNCATE TABLE ' . $wpdb->prefix . 'hyve' ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.SchemaChange
+	}
+
+	/**
 	 * Set up.
 	 */
 	protected function setUp(): void {
+		parent::setUp();
 		$this->db_table = new DB_Table();
 	}
 
@@ -43,10 +56,16 @@ class DB_TableTest extends WP_UnitTestCase {
 	 * Test get.
 	 */
 	public function test_get() {
-		$row = $this->db_table->get( 1 );
+		$insert_id = $this->db_table->insert(
+			[
+				'post_content' => 'Test content.',
+				'post_id'      => 42,
+			] 
+		);
+		$row       = $this->db_table->get( $insert_id );
 
 		$this->assertIsObject( $row );
-		$this->assertEquals( 1, $row->id );
+		$this->assertEquals( $insert_id, $row->id );
 	}
 
 	/**
@@ -57,8 +76,14 @@ class DB_TableTest extends WP_UnitTestCase {
 			'post_content' => 'Updated content.',
 		];
 
-		$rows_affected = $this->db_table->update( 1, $data );
-		$row           = $this->db_table->get( 1 );
+		$insert_id     = $this->db_table->insert(
+			[
+				'post_content' => 'Test content.',
+				'post_id'      => 42,
+			] 
+		);
+		$rows_affected = $this->db_table->update( $insert_id, $data );
+		$row           = $this->db_table->get( $insert_id );
 
 		$this->assertEquals( 1, $rows_affected );
 		$this->assertEquals( 'Updated content.', $row->post_content );
@@ -68,6 +93,12 @@ class DB_TableTest extends WP_UnitTestCase {
 	 * Test delete.
 	 */
 	public function test_delete_by_post_id() {
+		$this->db_table->insert(
+			[
+				'post_content' => 'Test content.',
+				'post_id'      => 42,
+			] 
+		);
 		$rows_affected = $this->db_table->delete_by_post_id( 42 );
 		$this->assertEquals( 1, $rows_affected );
 	}
@@ -132,5 +163,52 @@ class DB_TableTest extends WP_UnitTestCase {
 
 		$this->assertNotSame( '', get_post_meta( $post_id, '_hyve_processing_error', true ) );
 		$this->assertSame( '', get_post_meta( $post_id, '_hyve_needs_update', true ) );
+	}
+
+	/**
+	 * A table from before 1.3.0 gains the keyword index when the plugin
+	 * constructs the table at the new version.
+	 */
+	public function test_upgrade_adds_fulltext_index() {
+		global $wpdb;
+		$table = $wpdb->prefix . 'hyve';
+
+		// The ALTERs commit implicitly, so the 1.2.0 version write is committed
+		// too; the upgrade is redone and committed in `finally` so the next
+		// test does not start on a downgraded table.
+		try {
+			$wpdb->query( "ALTER TABLE {$table} DROP INDEX content_search" ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.SchemaChange, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			update_option( $table . '_db_version', '1.2.0' );
+
+			$this->assertEmpty( $wpdb->get_results( "SHOW INDEX FROM {$table} WHERE Key_name = 'content_search'" ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+
+			new DB_Table();
+
+			$this->assertNotEmpty( $wpdb->get_results( "SHOW INDEX FROM {$table} WHERE Key_name = 'content_search'" ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			$this->assertSame( '1.3.0', get_option( $table . '_db_version' ) );
+		} finally {
+			new DB_Table();
+			$wpdb->query( 'COMMIT' ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		}
+	}
+
+	/**
+	 * The keyword parsers' edges: short words and single no-space characters
+	 * are dropped, the term list is capped, and a query with nothing left
+	 * runs no SQL.
+	 */
+	public function test_query_terms_and_segments_boundaries() {
+		global $wpdb;
+
+		$this->assertSame( [], DB_Table::query_terms( 'is it ok' ) );
+		$this->assertSame( [ 'alpha' ], DB_Table::query_terms( 'Alpha ALPHA alpha' ) );
+		$this->assertCount( 10, DB_Table::query_terms( 'one1 two2 three four five six seven eight nine ten1 eleven' ) );
+		$this->assertSame( [], DB_Table::query_segments( '日' ) );
+		$this->assertSame( [ '日本語' ], DB_Table::query_segments( 'hello 日本語 and 日本語' ) );
+
+		$queries = $wpdb->num_queries;
+
+		$this->assertSame( [], $this->db_table->lexical_search( 'is it ok' ) );
+		$this->assertSame( $queries, $wpdb->num_queries );
 	}
 }
