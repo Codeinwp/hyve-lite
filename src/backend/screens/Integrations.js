@@ -178,6 +178,18 @@ export const QdrantPanel = () => {
 								migrationTotal.toLocaleString()
 							) }
 						</p>
+						{ migration?.error && (
+							<p className="hyve-next-card__hint">
+								{ sprintf(
+									/* translators: %s: the last error reported by Qdrant. */
+									__(
+										'The last upload failed (%s). Hyve will retry shortly and keeps answering from your local Knowledge Base in the meantime.',
+										'hyve-lite'
+									),
+									migration.error
+								) }
+							</p>
+						) }
 					</div>
 				) }
 

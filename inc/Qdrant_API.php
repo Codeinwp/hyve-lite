@@ -40,6 +40,28 @@ class Qdrant_API {
 	public const ERROR_OPTION_KEY = 'hyve_qdrant_api_error';
 
 	/**
+	 * Cron hook that moves local vectors to Qdrant.
+	 *
+	 * @var string
+	 */
+	public const MIGRATE_HOOK = 'hyve_lite_migrate_data';
+
+	/**
+	 * Delay before a failed migration batch is tried again, in seconds.
+	 *
+	 * @var int
+	 */
+	public const MIGRATE_RETRY_DELAY = 5 * MINUTE_IN_SECONDS;
+
+	/**
+	 * Transient held while a migration batch is uploading, so a second cron
+	 * run cannot upload the same rows alongside it.
+	 *
+	 * @var string
+	 */
+	public const MIGRATE_LOCK = 'hyve_qdrant_migration_lock';
+
+	/**
 	 * Qdrant Client. Unset when the stored credentials are incomplete.
 	 *
 	 * @var Qdrant|null
@@ -87,7 +109,7 @@ class Qdrant_API {
 		$transport    = new GuzzleClient( $config );
 		$this->client = new Qdrant( $transport );
 
-		add_action( 'hyve_lite_migrate_data', [ $this, 'migrate_data' ] );
+		add_action( self::MIGRATE_HOOK, [ $this, 'migrate_data' ] );
 	}
 
 	/**
@@ -120,20 +142,76 @@ class Qdrant_API {
 
 		update_option( 'hyve_qdrant_status', 'active' );
 
-		$existing_chunks = DB_Table::instance()->get_count_by_storage( 'WordPress' );
+		$existing_chunks = DB_Table::instance()->get_unmigrated_count();
 
 		if ( $existing_chunks > 0 ) {
 			update_option(
 				'hyve_qdrant_migration',
 				[
-					'total'       => (int) $existing_chunks,
+					'total'       => $existing_chunks,
 					'current'     => 0,
 					'in_progress' => true,
-				] 
+				]
 			);
 
-			wp_schedule_single_event( time(), 'hyve_lite_migrate_data' );
+			self::schedule_migration();
 		}
+
+		return true;
+	}
+
+	/**
+	 * Schedule the next migration batch unless one is already pending.
+	 *
+	 * @since 2.0.5
+	 *
+	 * @param int $delay Seconds from now.
+	 *
+	 * @return void
+	 */
+	public static function schedule_migration( int $delay = 0 ) {
+		if ( false !== wp_next_scheduled( self::MIGRATE_HOOK ) ) {
+			return;
+		}
+
+		wp_schedule_single_event( time() + max( 0, $delay ), self::MIGRATE_HOOK );
+	}
+
+	/**
+	 * Re-arm a migration whose cron event was lost (blocked WP-Cron, a fatal
+	 * mid-batch), unless a batch is uploading right now: that run schedules
+	 * the next one itself, and a parallel run would upload the same rows.
+	 *
+	 * @since 2.0.5
+	 *
+	 * @return void
+	 */
+	private static function rearm_migration() {
+		if ( false !== get_transient( self::MIGRATE_LOCK ) ) {
+			return;
+		}
+
+		self::schedule_migration();
+	}
+
+	/**
+	 * Whether local chunks are still waiting to be moved to Qdrant.
+	 *
+	 * Chat must keep answering from the local vectors until this is false:
+	 * Qdrant only holds the chunks the migration has already uploaded. A
+	 * pending migration with no cron event is re-armed here so a stalled
+	 * site recovers from chat traffic alone.
+	 *
+	 * @since 2.0.5
+	 *
+	 * @return bool
+	 */
+	public static function has_pending_migration() {
+		if ( ! self::is_active() || DB_Table::instance()->get_unmigrated_count() < 1 ) {
+			return false;
+		}
+
+		self::rearm_migration();
 
 		return true;
 	}
@@ -183,7 +261,7 @@ class Qdrant_API {
 			}
 
 			return false;
-		} catch ( \Exception $e ) {
+		} catch ( \Throwable $e ) {
 			return $this->handle_exception( $e );
 		}
 	}
@@ -207,7 +285,7 @@ class Qdrant_API {
 			delete_option( self::ERROR_OPTION_KEY );
 
 			return $response['result'];
-		} catch ( \Exception $e ) {
+		} catch ( \Throwable $e ) {
 			return $this->handle_exception( $e );
 		}
 	}
@@ -238,7 +316,7 @@ class Qdrant_API {
 			delete_option( self::ERROR_OPTION_KEY );
 
 			return true;
-		} catch ( \Exception $e ) {
+		} catch ( \Throwable $e ) {
 			return $this->handle_exception( $e );
 		}
 	}
@@ -274,17 +352,17 @@ class Qdrant_API {
 			delete_option( self::ERROR_OPTION_KEY );
 
 			return 'completed' === $response['result']['status'];
-		} catch ( \Exception $e ) {
+		} catch ( \Throwable $e ) {
 			return $this->handle_exception( $e );
 		}
 	}
 
 
 	/**
-	 * Add point to collection.
-	 * 
-	 * @param array<array<string, mixed>> $points Points.
-	 * 
+	 * Add points to collection.
+	 *
+	 * @param array<int, array{id?: string, embeddings: array<int, float>, data: array<string, mixed>}> $points Points. A point without an id gets a random one.
+	 *
 	 * @return bool|\WP_Error
 	 */
 	public function add_points( $points ) {
@@ -300,7 +378,7 @@ class Qdrant_API {
 			foreach ( $points as $point ) {
 				$points_struct->addPoint(
 					new PointStruct(
-						self::random_hash(),
+						$point['id'] ?? self::random_hash(),
 						new VectorStruct( $point['embeddings'], 'embeddings' ),
 						$point['data']
 					)
@@ -312,7 +390,7 @@ class Qdrant_API {
 			delete_option( self::ERROR_OPTION_KEY );
 
 			return 'completed' === $response['result']['status'];
-		} catch ( \Exception $e ) {
+		} catch ( \Throwable $e ) {
 			return $this->handle_exception( $e );
 		}
 	}
@@ -341,7 +419,7 @@ class Qdrant_API {
 			delete_option( self::ERROR_OPTION_KEY );
 
 			return 'acknowledged' === $response['result']['status'];
-		} catch ( \Exception $e ) {
+		} catch ( \Throwable $e ) {
 			return $this->handle_exception( $e );
 		}
 	}
@@ -391,7 +469,7 @@ class Qdrant_API {
 			);
 
 			return $payload;
-		} catch ( \Exception $e ) {
+		} catch ( \Throwable $e ) {
 			return $this->handle_exception( $e );
 		}
 	}
@@ -418,9 +496,25 @@ class Qdrant_API {
 			);
 
 			return 'acknowledged' === $response['result']['status'];
-		} catch ( \Exception $e ) {
-			return new \WP_Error( 'collection_error', $e->getMessage() );
+		} catch ( \Throwable $e ) {
+			return new \WP_Error( 'collection_error', self::throwable_message( $e ) );
 		}
+	}
+
+	/**
+	 * Message for a caught throwable.
+	 *
+	 * The Qdrant client throws a bare Error (no response to read a status
+	 * from) when the cluster cannot be reached at all, so name the cause.
+	 *
+	 * @since 2.0.5
+	 *
+	 * @param \Throwable $e The throwable.
+	 *
+	 * @return string
+	 */
+	private static function throwable_message( $e ) {
+		return $e instanceof \Exception ? $e->getMessage() : __( 'Hyve could not reach your Qdrant cluster.', 'hyve-lite' );
 	}
 
 	/**
@@ -429,25 +523,54 @@ class Qdrant_API {
 	 * @return void
 	 */
 	public function migrate_data() {
+		if ( false !== get_transient( self::MIGRATE_LOCK ) ) {
+			return;
+		}
+
+		set_transient( self::MIGRATE_LOCK, time(), 10 * MINUTE_IN_SECONDS );
+
+		try {
+			$this->migrate_batch();
+		} finally {
+			delete_transient( self::MIGRATE_LOCK );
+		}
+	}
+
+	/**
+	 * Upload one batch of local vectors and schedule the next.
+	 *
+	 * @since 2.0.5
+	 *
+	 * @return void
+	 */
+	private function migrate_batch() {
+		if ( ! self::is_active() ) {
+			$this->finish_migration();
+			return;
+		}
+
 		$db_table = DB_Table::instance();
-		$posts    = $db_table->get_by_storage( 'WordPress' );
+		$posts    = $db_table->get_unmigrated();
 
 		if ( empty( $posts ) ) {
-			$migration_status = get_option( 'hyve_qdrant_migration', [] );
-
-			if ( ! empty( $migration_status ) ) {
-				$migration_status['in_progress'] = false;
-				update_option( 'hyve_qdrant_migration', $migration_status );
-			}
-
+			$this->finish_migration();
 			return;
 		}
 
 		$points = [];
 
 		foreach ( $posts as $post ) {
+			$embeddings = json_decode( $post->embeddings, true );
+
+			if ( ! is_array( $embeddings ) || empty( $embeddings ) ) {
+				continue;
+			}
+
+			// A stable id makes a retried batch overwrite rather than duplicate
+			// points Qdrant stored before the first response was lost.
 			$points[] = [
-				'embeddings' => json_decode( $post->embeddings, true ),
+				'id'         => self::point_id( 'row-' . $post->id ),
+				'embeddings' => $embeddings,
 				'data'       => [
 					'post_id'      => $post->post_id,
 					'post_title'   => $post->post_title,
@@ -458,11 +581,30 @@ class Qdrant_API {
 			];
 		}
 
-		$qdrant = self::instance();
+		$success = empty( $points ) ? true : $this->add_points( $points );
 
-		$success = $qdrant->add_points( $points );
+		if ( is_wp_error( $success ) || true !== $success ) {
+			// A transient failure keeps the batch local and tries again later;
+			// chat keeps answering from the local vectors meanwhile. A terminal
+			// error has already marked Qdrant inactive, which ends the migration.
+			if ( ! is_wp_error( $success ) ) {
+				update_option(
+					self::ERROR_OPTION_KEY,
+					[
+						'code'     => 'incomplete',
+						'message'  => __( 'Qdrant did not confirm the upload.', 'hyve-lite' ),
+						'date'     => wp_date( 'c' ),
+						'provider' => 'Qdrant',
+					]
+				);
+			}
 
-		if ( is_wp_error( $success ) ) {
+			if ( self::is_active() ) {
+				self::schedule_migration( self::MIGRATE_RETRY_DELAY );
+			} else {
+				$this->finish_migration();
+			}
+
 			return;
 		}
 
@@ -471,27 +613,34 @@ class Qdrant_API {
 				intval( $post->id ),
 				[
 					'storage' => 'Qdrant',
-				] 
+				]
 			);
 		}
 
+		if ( $db_table->get_unmigrated_count() > 0 ) {
+			self::schedule_migration( 10 );
+			return;
+		}
+
+		$this->finish_migration();
+	}
+
+	/**
+	 * Mark the migration as no longer running.
+	 *
+	 * @since 2.0.5
+	 *
+	 * @return void
+	 */
+	private function finish_migration() {
 		$migration_status = get_option( 'hyve_qdrant_migration', [] );
 
-		$migration_status['current'] += count( $posts );
-
-		$current  = $migration_status['current'] ?? 0;
-		$total    = $migration_status['total'] ?? 0;
-		$has_more = $current < $total;
-
-		if ( ! $has_more ) {
-			$migration_status['in_progress'] = false;
+		if ( empty( $migration_status ) ) {
+			return;
 		}
 
+		$migration_status['in_progress'] = false;
 		update_option( 'hyve_qdrant_migration', $migration_status );
-
-		if ( $has_more ) {
-			wp_schedule_single_event( time() + 10, 'hyve_lite_migrate_data' );
-		}
 	}
 
 	/**
@@ -504,18 +653,19 @@ class Qdrant_API {
 	 *
 	 * @since 1.4.2
 	 *
-	 * @param \Exception $e The caught exception.
+	 * @param \Throwable $e The caught exception.
 	 *
 	 * @return \WP_Error
 	 */
 	private function handle_exception( $e ) {
-		$code = $e->getCode();
+		$code    = $e instanceof \Exception ? $e->getCode() : 0;
+		$message = self::throwable_message( $e );
 
 		update_option(
 			self::ERROR_OPTION_KEY,
 			[
 				'code'     => $code,
-				'message'  => $e->getMessage(),
+				'message'  => $message,
 				'date'     => wp_date( 'c' ),
 				'provider' => 'Qdrant',
 			]
@@ -525,7 +675,7 @@ class Qdrant_API {
 			update_option( 'hyve_qdrant_status', 'inactive' );
 		}
 
-		return new \WP_Error( 'collection_error', $e->getMessage() );
+		return new \WP_Error( 'collection_error', $message );
 	}
 
 	/**
@@ -554,6 +704,8 @@ class Qdrant_API {
 	 *
 	 * @since 1.3.0
 	 *
+	 * @phpstan-impure
+	 *
 	 * @return bool
 	 */
 	public static function is_active() {
@@ -565,10 +717,37 @@ class Qdrant_API {
 	 * 
 	 * @since 1.3.0
 	 * 
-	 * @return array<string, mixed>
+	 * @return array{}|array{total: int, current: int, in_progress: bool, error?: string}
 	 */
 	public static function migration_status() {
-		return get_option( 'hyve_qdrant_migration', [] );
+		$status = get_option( 'hyve_qdrant_migration', [] );
+
+		if ( ! self::is_active() ) {
+			return is_array( $status ) ? $status : [];
+		}
+
+		// Report what is actually left in the table rather than a counter the
+		// cron may never have advanced.
+		$remaining = DB_Table::instance()->get_unmigrated_count();
+		$total     = max( (int) ( $status['total'] ?? 0 ), $remaining );
+
+		if ( $remaining > 0 ) {
+			self::rearm_migration();
+		}
+
+		$status = [
+			'total'       => $total,
+			'current'     => max( 0, $total - $remaining ),
+			'in_progress' => $remaining > 0,
+		];
+
+		$error = get_option( self::ERROR_OPTION_KEY, false );
+
+		if ( $remaining > 0 && is_array( $error ) && ! empty( $error['date'] ) ) {
+			$status['error'] = (string) ( $error['message'] ?? '' );
+		}
+
+		return $status;
 	}
 
 	/**
@@ -579,8 +758,30 @@ class Qdrant_API {
 	 * @return string
 	 */
 	public static function random_hash() {
-		$data = random_bytes( 16 );
+		return self::format_uuid( random_bytes( 16 ) );
+	}
 
+	/**
+	 * Stable point id for a chunk of this site.
+	 *
+	 * @since 2.0.5
+	 *
+	 * @param string $key What the point represents, e.g. the chunk row id.
+	 *
+	 * @return string
+	 */
+	public static function point_id( $key ) {
+		return self::format_uuid( md5( get_site_url() . '|' . $key, true ) );
+	}
+
+	/**
+	 * Lay 16 bytes out as a version 4 UUID, the id format Qdrant accepts.
+	 *
+	 * @param string $data 16 bytes.
+	 *
+	 * @return string
+	 */
+	private static function format_uuid( $data ) {
 		$data[6] = chr( ( ord( $data[6] ) & 0x0f ) | 0x40 );
 		$data[8] = chr( ( ord( $data[8] ) & 0x3f ) | 0x80 );
 

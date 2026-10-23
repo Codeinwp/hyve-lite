@@ -1383,6 +1383,7 @@ class API extends BaseAPI {
 		Main::save_settings( $settings );
 		update_option( 'hyve_qdrant_status', 'inactive' );
 		delete_option( 'hyve_qdrant_migration' );
+		delete_option( Qdrant_API::ERROR_OPTION_KEY );
 
 		return rest_ensure_response( __( 'Qdrant deactivated.', 'hyve-lite' ) );
 	}
@@ -1880,7 +1881,7 @@ class API extends BaseAPI {
 	 * @param float             $similarity_score_threshold Minimum cosine similarity score for relevance.
 	 * @param int               $tokens_threshold Maximum tokens to include in the response.
 	 *
-	 * @return string Concatenated article content.
+	 * @return string|null Concatenated article content, or null when Qdrant could not be searched.
 	 */
 	private function search_knowledge_base_qdrant( $message_vector, $similarity_score_threshold, $tokens_threshold ) {
 		$articles_embedded_data = '';
@@ -1889,7 +1890,7 @@ class API extends BaseAPI {
 		$knowledge_points = Qdrant_API::instance()->search( $message_vector, $similarity_score_threshold );
 
 		if ( is_wp_error( $knowledge_points ) ) {
-			return $articles_embedded_data;
+			return null;
 		}
 
 		$source_scores = [];
@@ -2217,8 +2218,18 @@ class API extends BaseAPI {
 		 */
 		$tokens_threshold = (int) apply_filters( 'hyve_chat_context_token_limit', $tokens_threshold );
 
-		if ( Qdrant_API::is_active() ) {
-			return $this->search_knowledge_base_qdrant( $message_vector, $similarity_score_threshold, $tokens_threshold );
+		// The local table keeps every vector even once Qdrant holds a copy, so
+		// it answers while chunks are still being migrated (Qdrant only has the
+		// ones uploaded so far) and when Qdrant cannot be reached.
+		if ( Qdrant_API::is_active() && ! Qdrant_API::has_pending_migration() ) {
+			$context = $this->search_knowledge_base_qdrant( $message_vector, $similarity_score_threshold, $tokens_threshold );
+
+			if ( null !== $context ) {
+				return $context;
+			}
+
+			$this->source_post_ids = [];
+			$this->retrieval_trace = [];
 		}
 
 		return $this->search_knowledge_base_wp( $message_vector, $similarity_score_threshold, $tokens_threshold );
