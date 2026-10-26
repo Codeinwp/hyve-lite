@@ -384,6 +384,50 @@ class RetrievalTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Two-character Arabic, Hebrew and Hangul words never reach the
+	 * FULLTEXT index, so a short verbatim question (`سن من`) must match as
+	 * substrings; Latin and Cyrillic two-letter words stay out.
+	 */
+	public function test_short_abjad_and_hangul_words_match_as_substrings() {
+		$this->assertSame( [ 'سن', 'من' ], DB_Table::query_short_words( 'سن من' ) );
+		$this->assertSame( [], DB_Table::query_segments( 'سن من' ) );
+		$this->assertSame( [ '나이' ], DB_Table::query_short_words( '나이' ) );
+		$this->assertSame( [], DB_Table::query_short_words( 'is ok' ) );
+		$this->assertSame( [], DB_Table::query_short_words( 'как он' ) );
+		$this->assertSame( [], DB_Table::query_short_words( 'و ممنون' ) );
+		$this->assertSame( [], DB_Table::query_short_words( '۱۰ روز' ) );
+
+		$this->seed_text( 'QA welcome', 'Welcome to our shop.', [ 1.0, 0.0, 0.0 ] );
+		$this->seed_text( 'QA Persian thanks', 'ممنون از شما', [ 0.0, 0.0, 1.0 ] );
+		$this->seed_text( 'QA Persian short', 'سن من سی سال است', [ 0.0, 1.0, 0.0 ] );
+		$this->commit_seeds();
+
+		// `ممنون` contains `من` and scores half the target, below the 0.6 cutoff.
+		$context = API::instance()->search_knowledge_base( [ 1.0, 0.0, 0.0 ], 0.25, 2000, 'سن من' );
+		$this->assertStringContainsString( 'سن من سی سال است', $context );
+		$this->assertStringNotContainsString( 'ممنون', $context );
+	}
+
+	/**
+	 * Index scores scale with the corpus (a term scores ~0.09 among two
+	 * rows, ~9 among a thousand) and a substring hit does not, so a
+	 * two-letter preposition (`در`) must stay out whenever a word reaches
+	 * the index, or it evicts the chunk carrying the indexed term.
+	 */
+	public function test_short_word_stays_out_when_a_term_reaches_the_index() {
+		$this->seed_text( 'درباره ما', 'ما در تهران هستیم.', [ 1.0, 0.0, 0.0 ] );
+		$this->seed_text( 'Shipping', 'ارسال به سراسر ایران انجام می‌شود.', [ 0.0, 1.0, 0.0 ] );
+		$this->commit_seeds();
+
+		$rows = $this->table->lexical_search( 'ارسال در ایران' );
+		$this->assertCount( 1, $rows );
+		$this->assertSame( 'Shipping', $rows[0]->post_title );
+
+		$context = API::instance()->search_knowledge_base( [], 0.25, 2000, 'ارسال در ایران' );
+		$this->assertStringContainsString( 'ارسال به سراسر ایران', $context );
+	}
+
+	/**
 	 * Without a vector at all the keyword stage still builds a context, so
 	 * an embeddings outage degrades the turn instead of failing it.
 	 */

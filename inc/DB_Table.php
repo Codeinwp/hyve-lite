@@ -492,8 +492,12 @@ class DB_Table {
 	 * FULLTEXT index (each term as a prefix, so `morpheus8` finds
 	 * `Morpheus8`); scripts without word boundaries (Thai, CJK) are matched
 	 * as substrings instead, since the index tokenizes those as whole runs.
-	 * Words with combining marks also use substrings: FULLTEXT can split
-	 * at vowel signs and viramas within a word.
+	 * Words with combining marks also use substrings (FULLTEXT can split
+	 * at vowel signs and viramas within a word). When no word reaches the
+	 * index at all, two-character Arabic, Hebrew and Hangul words (`سن من`)
+	 * are matched as substrings too; alongside indexed terms they would
+	 * outrank them, since index scores scale with the corpus and a
+	 * substring hit does not.
 	 *
 	 * @since 2.1.0
 	 *
@@ -505,6 +509,10 @@ class DB_Table {
 	public function lexical_search( string $query, int $limit = 20 ): array {
 		$terms    = self::query_terms( $query );
 		$segments = self::query_segments( $query );
+
+		if ( empty( $terms ) ) {
+			$segments = array_values( array_unique( array_merge( $segments, self::query_short_words( $query ) ) ) );
+		}
 
 		if ( empty( $terms ) && empty( $segments ) ) {
 			return [];
@@ -596,6 +604,22 @@ class DB_Table {
 				$matches[0][] = $word;
 			}
 		}
+
+		return array_slice( array_values( array_unique( $matches[0] ) ), 0, 5 );
+	}
+
+	/**
+	 * Two-letter words in scripts where those are content words below the
+	 * index's three-character minimum (Arabic, Hebrew, Hangul: `سن من`).
+	 * Latin and Cyrillic two-letter words are stopwords and stay out. At
+	 * most five.
+	 *
+	 * @param string $query The visitor's question.
+	 *
+	 * @return array<int, string>
+	 */
+	public static function query_short_words( string $query ): array {
+		preg_match_all( '/(?<![\p{L}\p{N}\p{M}])(?:(?=\p{L})[\p{Arabic}\p{Hebrew}\p{Hangul}]){2}(?![\p{L}\p{N}\p{M}])/u', $query, $matches );
 
 		return array_slice( array_values( array_unique( $matches[0] ) ), 0, 5 );
 	}
