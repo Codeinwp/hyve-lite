@@ -541,7 +541,10 @@ class DB_Table {
 	/**
 	 * The question's words for the FULLTEXT index: letters, digits and marks,
 	 * at least three characters (InnoDB indexes nothing shorter), at most
-	 * ten of them.
+	 * ten of them. A Latin word carrying marks also adds its mark-free form,
+	 * after the whole words, so decomposed input (`gia` + U+0301 from a
+	 * Vietnamese keyboard) still reaches precomposed `giá` through the
+	 * collation. Other scripts keep their marks: they belong to the word.
 	 *
 	 * @param string $query The visitor's question.
 	 *
@@ -550,6 +553,7 @@ class DB_Table {
 	public static function query_terms( string $query ): array {
 		$words = preg_split( '/[^\p{L}\p{N}\p{M}]+/u', mb_strtolower( $query ), -1, PREG_SPLIT_NO_EMPTY );
 		$terms = [];
+		$bare  = [];
 
 		if ( false === $words ) {
 			return [];
@@ -561,9 +565,17 @@ class DB_Table {
 			}
 
 			$terms[ $word ] = $word;
+
+			if ( 1 === preg_match( '/^[\p{Latin}\p{N}\p{M}]*\p{M}[\p{Latin}\p{N}\p{M}]*$/u', $word ) ) {
+				$stripped = (string) preg_replace( '/\p{M}+/u', '', $word );
+
+				if ( mb_strlen( $stripped ) >= 3 ) {
+					$bare[ $stripped ] = $stripped;
+				}
+			}
 		}
 
-		return array_slice( array_values( $terms ), 0, 10 );
+		return array_slice( array_values( $terms + $bare ), 0, 10 );
 	}
 
 	/**

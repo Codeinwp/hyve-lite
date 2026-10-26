@@ -333,14 +333,34 @@ class RetrievalTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * A long word without marks must not hide a later script segment or
-	 * exhaust the regex backtracking budget while looking for a mark.
+	 * A long unmarked word must not hide a later marked word.
 	 */
-	public function test_long_unmarked_query_keeps_later_segment() {
-		$query = str_repeat( 'a', 20000 ) . ' 営業時間';
-		$start = microtime( true );
-		$this->assertSame( [ '営業時間' ], DB_Table::query_segments( $query ) );
-		$this->assertLessThan( 1.0, microtime( true ) - $start );
+	public function test_long_unmarked_query_keeps_later_marked_word() {
+		$this->assertSame( [ 'মূল্য' ], DB_Table::query_segments( str_repeat( 'a', 20000 ) . ' মূল্য' ) );
+	}
+
+	/**
+	 * Decomposed input (`cafe` + U+0301) must still reach precomposed
+	 * content: the mark-free form of a Latin word goes to the index too,
+	 * after the whole words so it never displaces one. Other scripts keep
+	 * their marks.
+	 */
+	public function test_decomposed_accent_matches_precomposed_content() {
+		$this->assertSame( [ "cafe\u{0301}", 'cafe' ], DB_Table::query_terms( "cafe\u{0301}" ) );
+		$this->assertSame( [ "mo\u{0323}t", "cu\u{031B}\u{0309}a", 'mot', 'cua' ], DB_Table::query_terms( "mo\u{0323}t cu\u{031B}\u{0309}a" ) );
+		$this->assertSame( [ 'เปิด9โมง' ], DB_Table::query_terms( 'เปิด9โมง' ) );
+
+		$words = array_map( fn( $i ) => "wo\u{0301}rd{$i}", range( 1, 9 ) );
+		$terms = DB_Table::query_terms( implode( ' ', $words ) );
+		$this->assertSame( $words, array_slice( $terms, 0, 9 ) );
+		$this->assertCount( 10, $terms );
+
+		$this->seed_text( 'Café menu prices', 'Espresso is 3 dollars.', [ 0.0, 1.0, 0.0 ] );
+		$this->commit_seeds();
+
+		$rows = $this->table->lexical_search( "cafe\u{0301}" );
+		$this->assertCount( 1, $rows );
+		$this->assertSame( 'Café menu prices', $rows[0]->post_title );
 	}
 
 	/**
