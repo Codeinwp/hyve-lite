@@ -349,6 +349,7 @@ class RetrievalTest extends WP_UnitTestCase {
 		$this->assertSame( [ "cafe\u{0301}", 'cafe' ], DB_Table::query_terms( "cafe\u{0301}" ) );
 		$this->assertSame( [ "mo\u{0323}t", "cu\u{031B}\u{0309}a", 'mot', 'cua' ], DB_Table::query_terms( "mo\u{0323}t cu\u{031B}\u{0309}a" ) );
 		$this->assertSame( [ 'เปิด9โมง' ], DB_Table::query_terms( 'เปิด9โมง' ) );
+		$this->assertSame( [ "ne\u{0301}" ], DB_Table::query_terms( "ne\u{0301}" ) );
 
 		$words = array_map( fn( $i ) => "wo\u{0301}rd{$i}", range( 1, 9 ) );
 		$terms = DB_Table::query_terms( implode( ' ', $words ) );
