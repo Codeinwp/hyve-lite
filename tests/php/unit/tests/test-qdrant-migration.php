@@ -462,19 +462,68 @@ class QdrantMigrationTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * Rows with no usable embedding have nothing to upload; they are skipped
-	 * and marked migrated so the migration can finish.
+	 * A row with no vector (a hosted export can omit it) is neither moved
+	 * nor counted: progress reports only chunks actually uploaded, across
+	 * batches, and the migration still finishes.
 	 */
-	public function test_rows_without_embeddings_are_skipped_but_marked() {
-		$a     = $this->seed( 'A' );
+	public function test_rows_without_embeddings_are_not_counted_as_moved() {
 		$empty = $this->seed( 'Empty', [] );
+
+		for ( $i = 0; $i < 101; $i++ ) {
+			$this->seed( 'Chunk ' . $i );
+		}
+
+		update_option(
+			'hyve_qdrant_migration',
+			[
+				'total'       => $this->table->get_unmigrated_count(),
+				'current'     => 0,
+				'in_progress' => true,
+			]
+		);
 
 		$this->qdrant->migrate_data();
 
-		$this->assertCount( 1, $this->qdrant->batches );
+		$status = Qdrant_API::migration_status();
+		$this->assertSame( 101, $status['total'] );
+		$this->assertSame( 100, $status['current'] );
+		$this->assertTrue( $status['in_progress'] );
+
+		$this->qdrant->migrate_data();
+
+		$status = Qdrant_API::migration_status();
+		$this->assertSame( 101, $status['current'] );
+		$this->assertFalse( $status['in_progress'] );
+		$this->assertCount( 2, $this->qdrant->batches );
+		$this->assertSame( 101, count( $this->qdrant->batches[0] ) + count( $this->qdrant->batches[1] ) );
+		$this->assertEquals( 'WordPress', $this->storage_of( $empty ) );
+		$this->assertFalse( Qdrant_API::has_pending_migration() );
+	}
+
+	/**
+	 * A vector the table holds as unreadable JSON is normalised to the empty
+	 * form and dropped from the migration instead of being retried forever.
+	 */
+	public function test_unreadable_embeddings_are_normalised_and_skipped() {
+		$a   = $this->seed( 'A' );
+		$bad = $this->table->insert(
+			[
+				'post_id'      => 9999,
+				'post_title'   => 'Bad',
+				'post_content' => 'Bad content.',
+				'embeddings'   => '{not json',
+				'token_count'  => 10,
+				'post_status'  => 'processed',
+				'storage'      => 'WordPress',
+			]
+		);
+
+		$this->qdrant->migrate_data();
+
 		$this->assertCount( 1, $this->qdrant->batches[0] );
 		$this->assertEquals( 'Qdrant', $this->storage_of( $a ) );
-		$this->assertEquals( 'Qdrant', $this->storage_of( $empty ) );
+		$this->assertEquals( 'WordPress', $this->storage_of( $bad ) );
+		$this->assertSame( '[]', $this->table->get( $bad )->embeddings );
 		$this->assertFalse( Qdrant_API::has_pending_migration() );
 	}
 

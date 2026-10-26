@@ -730,14 +730,20 @@ class Qdrant_API {
 			return;
 		}
 
-		$points = [];
+		$points   = [];
+		$uploaded = [];
 
 		foreach ( $posts as $post ) {
 			$embeddings = json_decode( $post->embeddings, true );
 
 			if ( ! is_array( $embeddings ) || empty( $embeddings ) ) {
+				// Unreadable vector: normalise it to the empty form the
+				// query excludes, so the row is neither moved nor retried.
+				$db_table->update( intval( $post->id ), [ 'embeddings' => '[]' ] );
 				continue;
 			}
+
+			$uploaded[] = intval( $post->id );
 
 			// A stable id makes a retried batch overwrite rather than duplicate
 			// points Qdrant stored before the first response was lost.
@@ -782,13 +788,8 @@ class Qdrant_API {
 			return;
 		}
 
-		foreach ( $posts as $post ) {
-			$db_table->update(
-				intval( $post->id ),
-				[
-					'storage' => 'Qdrant',
-				]
-			);
+		foreach ( $uploaded as $id ) {
+			$db_table->update( $id, [ 'storage' => 'Qdrant' ] );
 		}
 
 		if ( $db_table->get_unmigrated_count() > 0 ) {
