@@ -613,14 +613,15 @@ class DB_Table {
 	 * index's three-character minimum: two letters of Arabic or Hebrew
 	 * (`سن من`), one or two Hangul syllables (`내 집`, each syllable a
 	 * whole morpheme). Latin and Cyrillic two-letter words are stopwords
-	 * and stay out, as do single Arabic and Hebrew letters. At most five.
+	 * and stay out, as do single Arabic and Hebrew letters and lone jamo.
+	 * At most five.
 	 *
 	 * @param string $query The visitor's question.
 	 *
 	 * @return array<int, string>
 	 */
 	public static function query_short_words( string $query ): array {
-		preg_match_all( '/(?<![\p{L}\p{N}\p{M}])(?:(?:(?=\p{L})[\p{Arabic}\p{Hebrew}\p{Hangul}]){2}|(?=\p{L})\p{Hangul})(?![\p{L}\p{N}\p{M}])/u', $query, $matches );
+		preg_match_all( '/(?<![\p{L}\p{N}\p{M}])(?:(?:(?=\p{L})[\p{Arabic}\p{Hebrew}\x{AC00}-\x{D7A3}]){2}|[\x{AC00}-\x{D7A3}])(?![\p{L}\p{N}\p{M}])/u', $query, $matches );
 
 		return array_slice( array_values( array_unique( $matches[0] ) ), 0, 5 );
 	}

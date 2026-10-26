@@ -394,6 +394,9 @@ class RetrievalTest extends WP_UnitTestCase {
 		$this->assertSame( [ '나이' ], DB_Table::query_short_words( '나이' ) );
 		$this->assertSame( [ '내', '집' ], DB_Table::query_short_words( '내 집' ) );
 		$this->assertSame( [], DB_Table::query_short_words( '한국어' ) );
+		$this->assertSame( [], DB_Table::query_short_words( 'ㅋ ㅋㅋ' ) );
+		$this->assertSame( [], DB_Table::query_short_words( 'ᄀ ᄀᄂ' ) );
+		$this->assertSame( [], DB_Table::query_short_words( '가ㅋ 가ᄀ ᄀ가 ㅋ가' ) );
 		$this->assertSame( [], DB_Table::query_short_words( 'is ok' ) );
 		$this->assertSame( [], DB_Table::query_short_words( 'как он' ) );
 		$this->assertSame( [], DB_Table::query_short_words( 'و ممنون' ) );
