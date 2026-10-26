@@ -74,6 +74,13 @@ class QdrantMigrationTest extends WP_UnitTestCase {
 			public $disconnect_result = true;
 
 			/**
+			 * Runs once inside add_points(), while the upload is "in flight".
+			 *
+			 * @var callable|null
+			 */
+			public $during_upload = null;
+
+			/**
 			 * Number of remote disconnect attempts.
 			 *
 			 * @var int
@@ -104,6 +111,12 @@ class QdrantMigrationTest extends WP_UnitTestCase {
 			 */
 			public function add_points( $points ) {
 				$this->batches[] = $points;
+
+				if ( is_callable( $this->during_upload ) ) {
+					$callback            = $this->during_upload;
+					$this->during_upload = null;
+					$callback();
+				}
 
 				if ( is_wp_error( $this->add_points_result ) && 404 === $this->add_points_result->get_error_data() ) {
 					// Mirror handle_exception() for a terminal error.
@@ -267,6 +280,38 @@ class QdrantMigrationTest extends WP_UnitTestCase {
 
 		// Another run's lock is never released by this one.
 		$this->assertSame( 'other-run', get_option( Qdrant_API::MIGRATE_LOCK )['token'] );
+	}
+
+	/**
+	 * An upload that outlives the lock TTL (a dripping response on a host
+	 * without cURL) lets the next run take the lock while the first is still
+	 * uploading. The overlap is harmless: both runs upsert the same stable
+	 * point ids, and every row ends up migrated exactly once.
+	 */
+	public function test_upload_outliving_lock_overlaps_without_duplicating() {
+		$a = $this->seed( 'A' );
+		$b = $this->seed( 'B' );
+
+		$this->qdrant->during_upload = function () {
+			// The first upload has been running longer than the TTL.
+			$lock         = get_option( Qdrant_API::MIGRATE_LOCK );
+			$lock['time'] = time() - Qdrant_API::MIGRATE_LOCK_TTL - 1;
+			update_option( Qdrant_API::MIGRATE_LOCK, $lock, false );
+
+			$this->qdrant->migrate_data();
+		};
+
+		$this->qdrant->migrate_data();
+
+		$this->assertCount( 2, $this->qdrant->batches );
+		$this->assertSame(
+			array_column( $this->qdrant->batches[0], 'id' ),
+			array_column( $this->qdrant->batches[1], 'id' )
+		);
+		$this->assertEquals( 'Qdrant', $this->storage_of( $a ) );
+		$this->assertEquals( 'Qdrant', $this->storage_of( $b ) );
+		$this->assertFalse( Qdrant_API::has_pending_migration() );
+		$this->assertFalse( get_option( Qdrant_API::MIGRATE_LOCK ) );
 	}
 
 	/**

@@ -60,9 +60,12 @@ class Qdrant_API {
 	public const MIGRATE_RETRY_AT = 'hyve_qdrant_migration_retry_at';
 
 	/**
-	 * Option held while a migration batch is uploading, so a second cron run
-	 * cannot upload the same rows alongside it. Claimed with INSERT IGNORE;
-	 * stale after MIGRATE_LOCK_TTL.
+	 * Option held while a migration batch is uploading, so concurrent cron
+	 * runs normally serialize. Claimed with INSERT IGNORE; stale after
+	 * MIGRATE_LOCK_TTL. An upload that outlives the TTL (a dripping response
+	 * on a host without cURL) can overlap the next run; that is harmless
+	 * because migration points carry stable ids, so the repeat upsert
+	 * overwrites the same points rather than duplicating them.
 	 *
 	 * @var string
 	 */
