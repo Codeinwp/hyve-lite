@@ -392,6 +392,8 @@ class RetrievalTest extends WP_UnitTestCase {
 		$this->assertSame( [ 'سن', 'من' ], DB_Table::query_short_words( 'سن من' ) );
 		$this->assertSame( [], DB_Table::query_segments( 'سن من' ) );
 		$this->assertSame( [ '나이' ], DB_Table::query_short_words( '나이' ) );
+		$this->assertSame( [ '내', '집' ], DB_Table::query_short_words( '내 집' ) );
+		$this->assertSame( [], DB_Table::query_short_words( '한국어' ) );
 		$this->assertSame( [], DB_Table::query_short_words( 'is ok' ) );
 		$this->assertSame( [], DB_Table::query_short_words( 'как он' ) );
 		$this->assertSame( [], DB_Table::query_short_words( 'و ممنون' ) );
@@ -408,6 +410,22 @@ class RetrievalTest extends WP_UnitTestCase {
 		$context = API::instance()->search_knowledge_base( [ 1.0, 0.0, 0.0 ], 0.25, 2000, 'سن من' );
 		$this->assertStringContainsString( 'سن من سی سال است', $context );
 		$this->assertStringNotContainsString( 'ممنون', $context );
+	}
+
+	/**
+	 * Single Hangul syllables are whole words (`내 집`, "my house"); the
+	 * chunk holding both must win over one that only contains `집` inside
+	 * another word.
+	 */
+	public function test_single_syllable_korean_words_match_as_substrings() {
+		$this->seed_text( 'Artiswar welcome', 'Welcome to the guild.', [ 1.0, 0.0, 0.0 ] );
+		$this->seed_text( 'QA Korean rent', '집세는 매달 납부합니다.', [ 0.0, 0.0, 1.0 ] );
+		$this->seed_text( 'QA Korean', '내 집 정보 안내.', [ 0.0, 1.0, 0.0 ] );
+		$this->commit_seeds();
+
+		$context = API::instance()->search_knowledge_base( [ 1.0, 0.0, 0.0 ], 0.25, 2000, '내 집' );
+		$this->assertStringContainsString( '내 집 정보 안내', $context );
+		$this->assertStringNotContainsString( '집세는', $context );
 	}
 
 	/**
