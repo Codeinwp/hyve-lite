@@ -271,19 +271,24 @@ class RetrievalTest extends WP_UnitTestCase {
 	 * only the context budget may exclude it, and the trace must show it.
 	 */
 	public function test_competing_keyword_hit_keeps_the_exact_answer() {
-		$this->seed_text( 'Overview', str_repeat( 'Silextra ', 30 ), [ 0.0, 1.0, 0.0 ] );
-		$this->seed_text( 'Price answer', 'Silextra costs 73 euros per visit.', [ 0.0, 1.0, 0.0 ] );
+		$this->seed_text( 'Overview', str_repeat( 'Silextra ', 30 ), [ 0.0, 1.0, 0.0 ], 100, 4200 );
+		$this->seed_text( 'Price answer', 'Silextra costs 73 euros per visit.', [ 0.0, 1.0, 0.0 ], 100, 4201 );
 		$this->seed_text( 'Welcome', 'Welcome to the clinic.', [ 1.0, 0.0, 0.0 ] );
 		$this->commit_seeds();
 
+		// Two question words: the answer covers both, the overview only one,
+		// so the answer alone earns a source link.
 		foreach ( [ [ 1.0, 0.0, 0.0 ], [] ] as $vector ) {
-			$context = API::instance()->search_knowledge_base( $vector, 0.25, 2000, 'silextra' );
+			$context = API::instance()->search_knowledge_base( $vector, 0.25, 2000, 'silextra costs' );
 			$this->assertStringContainsString( '73 euros', $context );
 			$chunks = API::instance()->get_last_retrieval()['chunks'];
 			$answer = array_values( array_filter( $chunks, fn( $chunk ) => 'Price answer' === $chunk['title'] ) );
 			$this->assertCount( 1, $answer );
 			$this->assertNull( $answer[0]['score'] );
 			$this->assertGreaterThan( 0, $answer[0]['lexical'] );
+			$sources = array_map( 'intval', API::instance()->get_last_retrieval()['sources'] );
+			$this->assertContains( 4201, $sources );
+			$this->assertNotContains( 4200, $sources );
 		}
 
 		$context = API::instance()->search_knowledge_base( [], 0.25, 100, 'silextra' );
@@ -292,6 +297,53 @@ class RetrievalTest extends WP_UnitTestCase {
 		$answer = array_values( array_filter( $chunks, fn( $chunk ) => 'Price answer' === $chunk['title'] ) );
 		$this->assertCount( 1, $answer );
 		$this->assertFalse( $answer[0]['included'] );
+		$this->assertNotContains( 4201, array_map( 'intval', API::instance()->get_last_retrieval()['sources'] ) );
+	}
+
+	/**
+	 * Broad keyword context must not turn partial term matches into source
+	 * links. Coverage counts prefixes, not infixes or word repetitions.
+	 */
+	public function test_keyword_source_links_require_the_best_query_coverage() {
+		$posts = self::factory()->post->create_many( 9, [ 'post_status' => 'publish' ] );
+		try {
+			$this->seed_text( 'Answer', 'Silextra pricing is 73 euros.', [ 0.0, 1.0, 0.0 ], 100, $posts[0] );
+			for ( $i = 0; $i < 8; $i++ ) {
+				$content = 0 === $i ? 'Silextra enterprisepricing guide.' : str_repeat( 'Pricing ', 3 ) . 'for other services.';
+				$this->seed_text( 'Other service ' . $i, $content, [ 0.0, 1.0, 0.0 ], 100, $posts[ $i + 1 ] );
+			}
+			$this->commit_seeds();
+
+			foreach ( [ 'silextra pricing', 'SILEXTRA pric' ] as $query ) {
+				$context = API::instance()->search_knowledge_base( [], 0.25, 2000, $query );
+				$this->assertStringContainsString( '73 euros', $context );
+				$this->assertStringContainsString( 'for other services', $context );
+				$sources = array_map( 'intval', API::instance()->get_last_retrieval()['sources'] );
+				$this->assertSame( [ $posts[0] ], $sources );
+				$response = API::instance()->maybe_append_source_link( 'Answer.', $sources );
+				$this->assertSame( 1, substr_count( $response, 'hyve-source__link' ) );
+				$this->assertStringContainsString( get_permalink( $posts[0] ), $response );
+			}
+		} finally {
+			foreach ( $posts as $post_id ) {
+				wp_delete_post( $post_id, true );
+			}
+			$this->commit_seeds();
+		}
+	}
+
+	/**
+	 * Canonically equivalent query forms count once, and accented source
+	 * text keeps the same eligibility as its decomposed equivalent.
+	 */
+	public function test_keyword_source_coverage_preserves_accented_matches() {
+		$this->seed_text( 'Precomposed', 'Café menu rates.', [ 0.0, 1.0, 0.0 ], 100, 5200 );
+		$this->seed_text( 'Decomposed', "Cafe\u{0301} menu rates.", [ 0.0, 1.0, 0.0 ], 100, 5201 );
+		$this->seed_text( 'Partial', str_repeat( 'Cafe ', 30 ), [ 0.0, 1.0, 0.0 ], 100, 5202 );
+		$this->commit_seeds();
+
+		API::instance()->search_knowledge_base( [], 0.25, 2000, "cafe\u{0301} menu" );
+		$this->assertEqualsCanonicalizing( [ 5200, 5201 ], array_map( 'intval', API::instance()->get_last_retrieval()['sources'] ) );
 	}
 
 	/**

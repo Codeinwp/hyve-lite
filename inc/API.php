@@ -2189,19 +2189,21 @@ class API extends BaseAPI {
 	 * Build the context blob from the ranked candidates, best first, within
 	 * the token budget. Every candidate is traced; the ones that did not fit
 	 * are marked so the Messages screen can show what the model never saw.
-	 * Source links rank by vector score where there is one; a chunk only the
-	 * keyword search found still links when it made the context.
+	 * Vector source links keep their score cutoff. Keyword-only source links
+	 * require the best query-term coverage among keyword candidates.
 	 *
 	 * @param array<int, FusedCandidate> $ranked           Fused candidates, best first.
 	 * @param int                        $tokens_threshold Context token budget.
+	 * @param string                     $query            The keyword query.
 	 *
 	 * @return string
 	 */
-	private function assemble_context( $ranked, $tokens_threshold ) {
-		$context       = '';
-		$used          = 0;
-		$vector_scores = [];
-		$lexical_only  = [];
+	private function assemble_context( $ranked, $tokens_threshold, string $query ) {
+		$context         = '';
+		$used            = 0;
+		$vector_scores   = [];
+		$lexical_only    = [];
+		$keyword_sources = self::keyword_source_keys( $ranked, $query );
 
 		foreach ( $ranked as $candidate ) {
 			$trace = [
@@ -2231,7 +2233,7 @@ class API extends BaseAPI {
 
 			if ( null !== $candidate['score'] ) {
 				$vector_scores[ $post_id ] = max( $vector_scores[ $post_id ] ?? 0.0, (float) $candidate['score'] );
-			} else {
+			} elseif ( isset( $keyword_sources[ $candidate['key'] ] ) ) {
 				$lexical_only[ $post_id ] = $post_id;
 			}
 		}
@@ -2239,6 +2241,55 @@ class API extends BaseAPI {
 		$this->source_post_ids = array_values( array_unique( array_merge( $this->rank_sources( $vector_scores ), array_values( array_diff_key( $lexical_only, $vector_scores ) ) ) ) );
 
 		return $context;
+	}
+
+	/**
+	 * Keyword candidates eligible for source links, independent of term frequency.
+	 * Indexed words match prefixes; segments match substrings, as in lexical_search().
+	 *
+	 * @param array<int, FusedCandidate> $candidates Fused candidates.
+	 * @param string                     $query      The keyword query.
+	 *
+	 * @return array<string, true> Candidate keys with the best positive coverage.
+	 */
+	private static function keyword_source_keys( array $candidates, string $query ): array {
+		$candidates = array_filter( $candidates, fn( $candidate ) => null !== $candidate['lexical'] );
+		if ( empty( $candidates ) ) {
+			return [];
+		}
+
+		$normalize = static function ( string $text ): string {
+			// Fold Latin accents without stripping vowel signs in other scripts.
+			$text = (string) preg_replace( '/(?<=\p{Latin})\p{M}+/u', '', $text );
+			return mb_strtolower( remove_accents( $text ) );
+		};
+		$terms     = DB_Table::query_terms( $query );
+		$segments  = DB_Table::query_segments( $query );
+		if ( empty( $terms ) ) {
+			$segments = array_merge( $segments, DB_Table::query_short_words( $query ) );
+		}
+		$terms    = array_unique( array_map( $normalize, $terms ) );
+		$segments = array_unique( array_map( $normalize, $segments ) );
+		$patterns = [];
+		foreach ( array_diff( $terms, $segments ) as $term ) {
+			$patterns[] = '/(?<![\p{L}\p{N}_])' . preg_quote( $term, '/' ) . '/u';
+		}
+		foreach ( $segments as $segment ) {
+			$patterns[] = '/' . preg_quote( $segment, '/' ) . '/u';
+		}
+
+		$coverage = [];
+		foreach ( $candidates as $candidate ) {
+			$text  = $normalize( $candidate['title'] . ' ' . $candidate['content'] );
+			$count = 0;
+			foreach ( $patterns as $pattern ) {
+				$count += 1 === preg_match( $pattern, $text ) ? 1 : 0;
+			}
+			$coverage[ $candidate['key'] ] = $count;
+		}
+		$best = max( $coverage );
+
+		return array_fill_keys( array_keys( array_filter( $coverage, fn( $count ) => $count > 0 && $count === $best ) ), true );
 	}
 
 	/**
@@ -2256,14 +2307,14 @@ class API extends BaseAPI {
 	}
 
 	/**
-	 * The minimum score a chunk must reach to share the context with the best
-	 * match for this query.
+	 * The minimum score a vector chunk must reach relative to the best vector
+	 * match. Keyword candidates do not use this cutoff.
 	 *
 	 * An absolute score cannot tell an answerable question from an
 	 * unanswerable one — a specific question about one table row scores lower
 	 * against its (correct) page than an off-topic question scores against a
-	 * tangential one. So within the absolute noise floor, chunks are kept
-	 * relative to the best match for this query, and the model judges from
+	 * tangential one. So above the vector noise floor, vector chunks are kept
+	 * relative to the best vector match for this query, and the model judges from
 	 * the retrieved text itself whether the question can be answered.
 	 *
 	 * @since 1.5.1
@@ -2274,10 +2325,10 @@ class API extends BaseAPI {
 	 */
 	private static function relative_score_cutoff( $top_score ) {
 		/**
-		 * Filters how close to the best match a chunk must score, as a ratio
-		 * of the top score (0–1), to be included in the chat context. A higher
-		 * value keeps only near-equal matches; 0 keeps everything above the
-		 * similarity score threshold.
+		 * Filters how close to the best vector match a vector chunk must score,
+		 * as a ratio (0–1). A higher value keeps only near-equal vector matches;
+		 * 0 keeps every vector hit above the similarity threshold. Keyword hits
+		 * are not cut by this ratio.
 		 *
 		 * @since 1.5.1
 		 *
@@ -2378,7 +2429,7 @@ class API extends BaseAPI {
 
 		$lexical = '' !== $query ? $this->lexical_candidates( $query, $limit ) : [];
 
-		return $this->assemble_context( $this->fuse_candidates( $vector, $lexical, $query, $settings ), $tokens_threshold );
+		return $this->assemble_context( $this->fuse_candidates( $vector, $lexical, $query, $settings ), $tokens_threshold, $query );
 	}
 
 	/**
@@ -3175,9 +3226,10 @@ class API extends BaseAPI {
 		 * Filters the similarity score threshold for knowledge base search.
 		 *
 		 * The similarity score threshold determines the minimum cosine similarity
-		 * required for an article to be considered relevant to the user's query.
-		 * This is a noise floor: within it, only chunks scoring close to the best
-		 * match are kept (see `hyve_context_score_ratio`), and the model judges
+		 * required for a vector hit to be considered relevant to the user's query.
+		 * Above this floor, only vector chunks close to the best vector match
+		 * are kept (see `hyve_context_score_ratio`). Keyword hits bypass both
+		 * vector thresholds, and the model judges
 		 * from the retrieved text whether the question can be answered. A higher
 		 * value means stricter matching, while a lower value allows for broader
 		 * results.
