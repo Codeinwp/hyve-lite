@@ -190,6 +190,24 @@ class Test_Page_Context extends WP_UnitTestCase {
 	}
 
 	/**
+	 * A loop page (home, archive) is extracted the same way as a post.
+	 */
+	public function test_loop_page_content_is_extracted_like_the_knowledge_base() {
+		add_filter(
+			'hyve_page_context_content',
+			fn() => '<h2>Contact</h2><p><a href="tel:+441274998877">Call us</a></p>' .
+				'<table><tr><td>Laundry</td><td>$32.00/hr</td></tr></table>'
+		);
+
+		$page  = Page_Context::instance()->for_request( $this->chat_request( home_url( '/' ) ) );
+		$block = Page_Context::instance()->context_block( $page );
+
+		$this->assertSame( 0, $page['id'] );
+		$this->assertStringContainsString( 'Call us (+441274998877)', $block );
+		$this->assertStringContainsString( 'Laundry | $32.00/hr', $block );
+	}
+
+	/**
 	 * Replace the encoder provider the tokenizer shares across calls.
 	 *
 	 * @param EncoderProvider|null $provider The provider, or null to rebuild on next use.

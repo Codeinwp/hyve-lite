@@ -14,6 +14,13 @@ use guttedgarden\Tiktoken\EncoderProvider;
  */
 class Tokenizer {
 	/**
+	 * Bumped when `html_to_text()` changes what it extracts, so Connect
+	 * reconcile rehashes unedited posts instead of trusting a hash of the
+	 * old text. 1 was the structured extractor; 2 folds contact links.
+	 */
+	const EXTRACTOR_VERSION = 2;
+
+	/**
 	 * Encoder provider, shared across calls.
 	 *
 	 * @var EncoderProvider|null
@@ -114,8 +121,10 @@ class Tokenizer {
 		// The body runs to the anchor's own `</a>` and stops at the next `<a`,
 		// so an unclosed link neither captures the rest of the page nor
 		// rescans it: possessive, and bounded by the next anchor.
+		// A quoted target may hold spaces ("tel:01274 998877", as some widgets
+		// print a phone field raw); an unquoted one ends at whitespace.
 		$folded = preg_replace_callback(
-			'/<a\b[^>]*?\shref\s*=\s*(["\']?)\s*((?:tel|mailto):[^"\'\s>]*)\1[^>]*>([^<]*+(?:<(?!\/a\s*>|a[\s>])[^<]*+)*+)(<\/a\s*>)/i',
+			'/<a\b[^>]*?\shref\s*=\s*(?:"\s*(?<double>(?:tel|mailto):[^"]*)"|\'\s*(?<single>(?:tel|mailto):[^\']*)\'|(?<bare>(?:tel|mailto):[^\s>]*))[^>]*>(?<body>[^<]*+(?:<(?!\/a\s*>|a[\s>])[^<]*+)*+)(?<close><\/a\s*>)/i',
 			[ self::class, 'fold_contact_link' ],
 			$content
 		);
@@ -126,12 +135,24 @@ class Tokenizer {
 	/**
 	 * Append one contact link's target to its anchor text.
 	 *
-	 * @param array<int, string> $link The tag, quote, target, body and closing tag.
+	 * @param array<int|string, string> $link The match: the tag, the target under
+	 *                                        one of `double`, `single` or `bare`,
+	 *                                        then `body` and `close`.
 	 *
 	 * @return string
 	 */
 	private static function fold_contact_link( array $link ) {
-		list( $tag, , $target, $body, $close ) = $link;
+		$tag    = $link[0];
+		$body   = $link['body'];
+		$close  = $link['close'];
+		$target = '';
+
+		foreach ( [ 'double', 'single', 'bare' ] as $quoting ) {
+			if ( '' !== ( $link[ $quoting ] ?? '' ) ) {
+				$target = $link[ $quoting ];
+				break;
+			}
+		}
 
 		$target = html_entity_decode( $target, ENT_QUOTES, 'UTF-8' );
 		$scheme = strtolower( (string) strstr( $target, ':', true ) );
@@ -149,8 +170,9 @@ class Tokenizer {
 
 		// The fold goes after the last text, inside any block the anchor wraps
 		// (a card, a button), so it stays on the label's line. An icon-only
-		// link has no text to attach to, so the target stands alone.
-		$fold     = '' === $text ? $value : ' (' . $value . ')';
+		// link has no text to attach to, so the target stands alone, spaced
+		// off whatever follows the link.
+		$fold     = '' === $text ? ' ' . $value . ' ' : ' (' . $value . ')';
 		$kept     = (string) preg_replace( '/(?:\s*<\/[a-zA-Z][a-zA-Z0-9]*\s*>)*\s*$/', '', $body );
 		$trailing = (string) substr( $body, strlen( $kept ) );
 
@@ -198,8 +220,11 @@ class Tokenizer {
 	 *
 	 * Each number-like run in the text is compared on digits, from the end,
 	 * so "01274 998877" matches `tel:+441274998877` despite the national
-	 * prefix, while an unrelated "9-5" alongside it does not get in the way.
-	 * A run written with its own "+" country code has to match in full.
+	 * prefix. A run is also tried group by group, so a neighbouring "(24
+	 * hours)" or "Mon-Fri 9-5" does not get in the way. A run written with
+	 * its own "+" country code is read from its start and must carry the
+	 * whole linked number: "+1 274 998877" is not a UK target, while "+44
+	 * 1274 998877" shows `tel:01274998877`.
 	 *
 	 * @param string $text   The anchor text.
 	 * @param string $number The `tel:` value.
@@ -214,19 +239,47 @@ class Tokenizer {
 			return false !== stripos( $text, $number );
 		}
 
-		preg_match_all( '/\+?\d[\d\s().-]*\d/', $text, $runs );
+		// "+44 (0)1274" shows a trunk prefix the international form omits.
+		preg_match_all( '/\+?\d[\d\s().-]*\d/', str_replace( '(0)', '', $text ), $runs );
 
 		foreach ( $runs[0] as $run ) {
-			// "+44 (0)1274" shows a trunk prefix the international form omits.
-			$shown  = ltrim( (string) preg_replace( [ '/\(0\)/', '/\D+/' ], '', $run ), '0' );
-			$length = '+' === $run[0] ? max( strlen( $shown ), strlen( $linked ) ) : min( strlen( $shown ), strlen( $linked ) );
+			$international = '+' === $run[0];
+			$groups        = (array) preg_split( '/\D+/', $run, -1, PREG_SPLIT_NO_EMPTY );
+			$count         = count( $groups );
 
-			if ( $length >= 7 && substr( $shown, -$length ) === substr( $linked, -$length ) ) {
-				return true;
+			for ( $start = 0; $start < ( $international ? 1 : $count ); $start++ ) {
+				$shown = '';
+
+				for ( $end = $start; $end < $count; $end++ ) {
+					$shown .= $groups[ $end ];
+
+					if ( self::same_number( ltrim( $shown, '0' ), $linked, $international ) ) {
+						return true;
+					}
+				}
 			}
 		}
 
 		return false;
+	}
+
+	/**
+	 * Whether a shown digit string is the linked number.
+	 *
+	 * @param string $shown         Digits shown in the text, leading zeros dropped.
+	 * @param string $linked        Digits of the `tel:` value, leading zeros dropped.
+	 * @param bool   $international Whether the shown digits start with a "+".
+	 *
+	 * @return bool
+	 */
+	private static function same_number( $shown, $linked, $international ) {
+		$length = min( strlen( $shown ), strlen( $linked ) );
+
+		if ( $length < 7 || ( $international && strlen( $shown ) < strlen( $linked ) ) ) {
+			return false;
+		}
+
+		return substr( $shown, -$length ) === substr( $linked, -$length );
 	}
 
 	/**

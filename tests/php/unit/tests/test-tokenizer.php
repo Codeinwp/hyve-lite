@@ -267,6 +267,10 @@ class Test_Tokenizer extends WP_UnitTestCase {
 			'unquoted'          => [ '<a href=mailto:hello@example.com>Write</a>', 'Write (hello@example.com)' ],
 			'upper-case scheme' => [ '<a href="TEL:+441274998877">Call</a>', 'Call (+441274998877)' ],
 			'icon only'         => [ '<a href="tel:+441274998877"><span class="icon"></span></a>', '+441274998877' ],
+			'icon then text'    => [ '<a href="tel:+441274998877"><i></i></a>Call us', '+441274998877 Call us' ],
+			'icon then link'    => [ '<a href="tel:+441274998877"><i></i></a><a href="tel:+441274998877">01274 998877</a>', '+441274998877 01274 998877' ],
+			'spaced target'     => [ '<a href="tel:01274 998877">Call us</a>', 'Call us (01274 998877)' ],
+			'spaced single'     => [ "<a href='tel:01274 998877'>Call us</a>", 'Call us (01274 998877)' ],
 			'empty target'      => [ '<a href="tel:">Call</a>', 'Call' ],
 			'digitless target'  => [ '<a href="tel:+">Call</a><a href="tel:#">Now</a>', 'CallNow' ],
 			'nested tags'       => [ '<a href="mailto:a@b.co"><strong>Email</strong> <em>us</em></a>', 'Email us (a@b.co)' ],
@@ -303,6 +307,9 @@ class Test_Tokenizer extends WP_UnitTestCase {
 			'trunk in brackets' => [ '<a href="tel:+441274998877">+44 (0)1274 998877</a>', '+44 (0)1274 998877' ],
 			'number in prose'   => [ '<a href="tel:+441274998877">Call 01274 998877 today</a>', 'Call 01274 998877 today' ],
 			'other digits too'  => [ '<a href="tel:+441274998877">24/7 line 01274 998877 (Mon-Fri 9-5)</a>', '24/7 line 01274 998877 (Mon-Fri 9-5)' ],
+			'digits after'      => [ '<a href="tel:+441274998877">01274 998877 (24 hours)</a>', '01274 998877 (24 hours)' ],
+			'digits before'     => [ '<a href="tel:+441274998877">Mon-Fri 9-5 01274 998877</a>', 'Mon-Fri 9-5 01274 998877' ],
+			'code in text only' => [ '<a href="tel:01274998877">+44 1274 998877</a>', '+44 1274 998877' ],
 			'shown extension'   => [ '<a href="tel:+441274998877;ext=12">01274 998877</a>', '01274 998877' ],
 			'same email'        => [ '<a href="mailto:hello@example.com">hello@example.com</a>', 'hello@example.com' ],
 			'email case'        => [ '<a href="mailto:Hello@Example.com">hello@example.com</a>', 'hello@example.com' ],
@@ -378,13 +385,17 @@ class Test_Tokenizer extends WP_UnitTestCase {
 	 * the end of the page per link.
 	 */
 	public function test_html_to_text_reads_many_unclosed_contact_links_in_linear_time(): void {
-		$html = str_repeat( '<a href="tel:+441274998877">Call ', 3000 ) . str_repeat( '<p>We are open on weekdays.</p>', 5000 );
+		$html = str_repeat( '<a href="tel:+441274998877">Call ', 6000 ) . str_repeat( '<p>We are open on weekdays.</p>', 5000 ) .
+			'<p><a href="tel:+441274998877">Ring</a></p>';
 
 		$start = microtime( true );
 		$text  = Tokenizer::html_to_text( $html );
 
-		$this->assertLessThan( 0.5, microtime( true ) - $start );
-		$this->assertStringEndsWith( 'We are open on weekdays.', $text );
+		// A rescan per unclosed link takes seconds here; one pass, milliseconds.
+		$this->assertLessThan( 1, microtime( true ) - $start );
+		// The closed link at the end is still folded, so a regex that gave up
+		// (and returned the page unfolded) fails here.
+		$this->assertStringEndsWith( 'Ring (+441274998877)', $text );
 	}
 
 	/**

@@ -358,6 +358,7 @@ class ConnectSyncTest extends WP_UnitTestCase {
 
 		$this->assertCount( 1, $shipped );
 		$this->assertSame( 'Call us (+441274998877) or email the clinic (hello@example.com).', $shipped[0]['content'] );
+		$this->assertSame( \ThemeIsle\HyveLite\Tokenizer::EXTRACTOR_VERSION, (int) get_post_meta( $post, '_hyve_connect_synced_extractor', true ) );
 
 		$self_hosted = \ThemeIsle\HyveLite\Tokenizer::tokenize(
 			[
@@ -1079,10 +1080,51 @@ class ConnectSyncTest extends WP_UnitTestCase {
 		$post = $this->source_post(
 			'Alpha content',
 			[
-				'_hyve_connect_synced_hash' => 'SENTINEL',
+				'_hyve_connect_synced_hash'      => 'SENTINEL',
+				'_hyve_connect_synced_extractor' => \ThemeIsle\HyveLite\Tokenizer::EXTRACTOR_VERSION,
 			]
 		);
 		update_post_meta( $post, '_hyve_connect_synced_modified', (int) get_post_modified_time( 'U', true, $post ) );
+
+		$this->assertSame( 'SENTINEL', $this->manifest_map()[ $post ] );
+	}
+
+	/**
+	 * A post synced before the extractor changed is rehashed even though it
+	 * was not edited: its stored hash is of text the extractor no longer
+	 * produces, so trusting it would leave the old text on the platform.
+	 */
+	public function test_manifest_rehashes_a_post_synced_by_an_older_extractor() {
+		$post = $this->source_post(
+			'<a href="tel:+441274998877">Call us</a>',
+			[
+				'_hyve_connect_synced_hash' => hash( 'sha256', 'Call us' ),
+			]
+		);
+		update_post_meta( $post, '_hyve_connect_synced_modified', (int) get_post_modified_time( 'U', true, $post ) );
+
+		$this->assertSame( hash( 'sha256', 'Call us (+441274998877)' ), $this->manifest_map()[ $post ] );
+		$this->assertSame( '', get_post_meta( $post, '_hyve_connect_synced_extractor', true ) );
+	}
+
+	/**
+	 * When the new extractor produces the same text, the post adopts the
+	 * current extractor version so later reconciles reuse its hash again.
+	 */
+	public function test_manifest_adopts_the_extractor_when_the_text_is_unchanged() {
+		$post = $this->source_post(
+			'Alpha content',
+			[
+				'_hyve_connect_synced_hash' => hash( 'sha256', 'Alpha content' ),
+			]
+		);
+		update_post_meta( $post, '_hyve_connect_synced_modified', (int) get_post_modified_time( 'U', true, $post ) );
+
+		$this->assertSame( hash( 'sha256', 'Alpha content' ), $this->manifest_map()[ $post ] );
+		$this->assertSame( \ThemeIsle\HyveLite\Tokenizer::EXTRACTOR_VERSION, (int) get_post_meta( $post, '_hyve_connect_synced_extractor', true ) );
+
+		// Now trusted: the stored hash is reused without a recompute.
+		update_post_meta( $post, '_hyve_connect_synced_hash', 'SENTINEL' );
 
 		$this->assertSame( 'SENTINEL', $this->manifest_map()[ $post ] );
 	}
