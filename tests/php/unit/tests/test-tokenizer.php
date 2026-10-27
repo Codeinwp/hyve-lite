@@ -340,6 +340,43 @@ class Test_Tokenizer extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Nor a longer foreign number that happens to end with the target's
+	 * digits: two numbers with country codes have to be the same number.
+	 */
+	public function test_html_to_text_does_not_hide_the_target_behind_a_longer_foreign_number(): void {
+		$this->assertSame(
+			'+49 441274998877 (+441274998877)',
+			Tokenizer::html_to_text( '<a href="tel:+441274998877">+49 441274998877</a>' )
+		);
+	}
+
+	/**
+	 * A national target gives no country code to contradict a label that
+	 * carries one, so the label's digits are what count: "+1 274 998877"
+	 * contains all of `tel:01274998877` and stands for it.
+	 */
+	public function test_html_to_text_takes_a_coded_label_for_a_national_target(): void {
+		$this->assertSame(
+			'+1 274 998877',
+			Tokenizer::html_to_text( '<a href="tel:01274998877">+1 274 998877</a>' )
+		);
+	}
+
+	/**
+	 * A run of thousands of digit groups is compared in bounded time; the
+	 * worst case is a repeated target, never a stall.
+	 */
+	public function test_html_to_text_bounds_the_digit_group_comparison(): void {
+		$html = '<a href="tel:+441274998877">' . str_repeat( '12 ', 5000 ) . '01274 998877</a>';
+
+		$start = microtime( true );
+		$text  = Tokenizer::html_to_text( $html );
+
+		$this->assertLessThan( 1, microtime( true ) - $start );
+		$this->assertStringEndsWith( '01274 998877 (+441274998877)', $text );
+	}
+
+	/**
 	 * Navigation, headers and footers are full of ordinary links. Their
 	 * targets stay out of the text, or every chunk would carry the menu's URLs.
 	 */

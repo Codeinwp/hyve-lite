@@ -21,6 +21,11 @@ class Tokenizer {
 	const EXTRACTOR_VERSION = 2;
 
 	/**
+	 * Most digit groups of one number-like run compared against a `tel:` target.
+	 */
+	const NUMBER_GROUP_LIMIT = 32;
+
+	/**
 	 * Encoder provider, shared across calls.
 	 *
 	 * @var EncoderProvider|null
@@ -222,9 +227,10 @@ class Tokenizer {
 	 * so "01274 998877" matches `tel:+441274998877` despite the national
 	 * prefix. A run is also tried group by group, so a neighbouring "(24
 	 * hours)" or "Mon-Fri 9-5" does not get in the way. A run written with
-	 * its own "+" country code is read from its start and must carry the
-	 * whole linked number: "+1 274 998877" is not a UK target, while "+44
-	 * 1274 998877" shows `tel:01274998877`.
+	 * its own "+" country code is read from its start: against a target that
+	 * also has one it must be the same number ("+49 441274998877" is not
+	 * `tel:+441274998877`), and against a national target it may add the
+	 * code ("+44 1274 998877" shows `tel:01274998877`).
 	 *
 	 * @param string $text   The anchor text.
 	 * @param string $number The `tel:` value.
@@ -232,7 +238,8 @@ class Tokenizer {
 	 * @return bool
 	 */
 	private static function shows_number( $text, $number ) {
-		$linked = ltrim( (string) preg_replace( '/\D+/', '', explode( ' ext.', $number, 2 )[0] ), '0' );
+		$linked       = ltrim( (string) preg_replace( '/\D+/', '', explode( ' ext.', $number, 2 )[0] ), '0' );
+		$linked_coded = '+' === substr( $number, 0, 1 );
 
 		// Too few digits to compare (a vanity number): fall back to the text.
 		if ( strlen( $linked ) < 7 ) {
@@ -243,17 +250,19 @@ class Tokenizer {
 		preg_match_all( '/\+?\d[\d\s().-]*\d/', str_replace( '(0)', '', $text ), $runs );
 
 		foreach ( $runs[0] as $run ) {
-			$international = '+' === $run[0];
-			$groups        = (array) preg_split( '/\D+/', $run, -1, PREG_SPLIT_NO_EMPTY );
-			$count         = count( $groups );
+			$shown_coded = '+' === $run[0];
+			$groups      = (array) preg_split( '/\D+/', $run, -1, PREG_SPLIT_NO_EMPTY );
+			// Spans are quadratic in the groups; a run this long is a table of
+			// numbers, not a phone number, and a miss only repeats the target.
+			$count = min( count( $groups ), self::NUMBER_GROUP_LIMIT );
 
-			for ( $start = 0; $start < ( $international ? 1 : $count ); $start++ ) {
+			for ( $start = 0; $start < ( $shown_coded ? 1 : $count ); $start++ ) {
 				$shown = '';
 
 				for ( $end = $start; $end < $count; $end++ ) {
 					$shown .= $groups[ $end ];
 
-					if ( self::same_number( ltrim( $shown, '0' ), $linked, $international ) ) {
+					if ( self::same_number( ltrim( $shown, '0' ), $linked, $shown_coded, $linked_coded ) ) {
 						return true;
 					}
 				}
@@ -266,16 +275,21 @@ class Tokenizer {
 	/**
 	 * Whether a shown digit string is the linked number.
 	 *
-	 * @param string $shown         Digits shown in the text, leading zeros dropped.
-	 * @param string $linked        Digits of the `tel:` value, leading zeros dropped.
-	 * @param bool   $international Whether the shown digits start with a "+".
+	 * @param string $shown        Digits shown in the text, leading zeros dropped.
+	 * @param string $linked       Digits of the `tel:` value, leading zeros dropped.
+	 * @param bool   $shown_coded  Whether the shown digits start with a "+".
+	 * @param bool   $linked_coded Whether the `tel:` value starts with a "+".
 	 *
 	 * @return bool
 	 */
-	private static function same_number( $shown, $linked, $international ) {
+	private static function same_number( $shown, $linked, $shown_coded, $linked_coded ) {
+		if ( $shown_coded && $linked_coded ) {
+			return $shown === $linked;
+		}
+
 		$length = min( strlen( $shown ), strlen( $linked ) );
 
-		if ( $length < 7 || ( $international && strlen( $shown ) < strlen( $linked ) ) ) {
+		if ( $length < 7 || ( $shown_coded && strlen( $shown ) < strlen( $linked ) ) ) {
 			return false;
 		}
 
