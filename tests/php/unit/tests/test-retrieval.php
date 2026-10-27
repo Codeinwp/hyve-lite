@@ -267,6 +267,34 @@ class RetrievalTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * A stronger keyword hit must not remove an exact answer before fusion;
+	 * only the context budget may exclude it, and the trace must show it.
+	 */
+	public function test_competing_keyword_hit_keeps_the_exact_answer() {
+		$this->seed_text( 'Overview', str_repeat( 'Silextra ', 30 ), [ 0.0, 1.0, 0.0 ] );
+		$this->seed_text( 'Price answer', 'Silextra costs 73 euros per visit.', [ 0.0, 1.0, 0.0 ] );
+		$this->seed_text( 'Welcome', 'Welcome to the clinic.', [ 1.0, 0.0, 0.0 ] );
+		$this->commit_seeds();
+
+		foreach ( [ [ 1.0, 0.0, 0.0 ], [] ] as $vector ) {
+			$context = API::instance()->search_knowledge_base( $vector, 0.25, 2000, 'silextra' );
+			$this->assertStringContainsString( '73 euros', $context );
+			$chunks = API::instance()->get_last_retrieval()['chunks'];
+			$answer = array_values( array_filter( $chunks, fn( $chunk ) => 'Price answer' === $chunk['title'] ) );
+			$this->assertCount( 1, $answer );
+			$this->assertNull( $answer[0]['score'] );
+			$this->assertGreaterThan( 0, $answer[0]['lexical'] );
+		}
+
+		$context = API::instance()->search_knowledge_base( [], 0.25, 100, 'silextra' );
+		$this->assertStringNotContainsString( '73 euros', $context );
+		$chunks = API::instance()->get_last_retrieval()['chunks'];
+		$answer = array_values( array_filter( $chunks, fn( $chunk ) => 'Price answer' === $chunk['title'] ) );
+		$this->assertCount( 1, $answer );
+		$this->assertFalse( $answer[0]['included'] );
+	}
+
+	/**
 	 * Case does not matter to the keyword stage: `morpheus8` finds `Morpheus8`.
 	 */
 	public function test_keyword_match_ignores_case() {
@@ -409,10 +437,11 @@ class RetrievalTest extends WP_UnitTestCase {
 		$this->seed_text( 'QA Persian short', 'سن من سی سال است', [ 0.0, 1.0, 0.0 ] );
 		$this->commit_seeds();
 
-		// `ممنون` contains `من` and scores half the target, below the 0.6 cutoff.
+		// `ممنون` contains `من` and ranks below the chunk matching both words.
 		$context = API::instance()->search_knowledge_base( [ 1.0, 0.0, 0.0 ], 0.25, 2000, 'سن من' );
 		$this->assertStringContainsString( 'سن من سی سال است', $context );
-		$this->assertStringNotContainsString( 'ممنون', $context );
+		$this->assertStringContainsString( 'ممنون', $context );
+		$this->assertLessThan( strpos( $context, 'ممنون' ), strpos( $context, 'سن من سی سال است' ) );
 	}
 
 	/**
@@ -428,7 +457,8 @@ class RetrievalTest extends WP_UnitTestCase {
 
 		$context = API::instance()->search_knowledge_base( [ 1.0, 0.0, 0.0 ], 0.25, 2000, '내 집' );
 		$this->assertStringContainsString( '내 집 정보 안내', $context );
-		$this->assertStringNotContainsString( '집세는', $context );
+		$this->assertStringContainsString( '집세는', $context );
+		$this->assertLessThan( strpos( $context, '집세는' ), strpos( $context, '내 집 정보 안내' ) );
 	}
 
 	/**
@@ -486,6 +516,7 @@ class RetrievalTest extends WP_UnitTestCase {
 		$instance->setValue( null, null );
 
 		$this->seed_text( 'Answer', $content, [ 1.0, 0.0, 0.0 ] );
+		$this->seed_text( 'Overview', str_repeat( $message . ' ', 30 ), [ 0.0, 1.0, 0.0 ] );
 		$this->commit_seeds();
 
 		add_filter(

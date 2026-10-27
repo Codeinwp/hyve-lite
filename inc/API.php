@@ -2082,9 +2082,8 @@ class API extends BaseAPI {
 
 	/**
 	 * Merge the vector and keyword lists by reciprocal rank, best first.
-	 * Each list is first cut to the chunks competitive with its own best
-	 * match (see relative_score_cutoff()), so a weak straggler in one list
-	 * cannot ride in on the other.
+	 * Vector hits keep their relative cutoff. All capped keyword hits stay
+	 * available: a lower keyword score can still carry the exact answer.
 	 *
 	 * @param array<int, Candidate> $vector   Vector candidates, best first.
 	 * @param array<int, Candidate> $lexical  Keyword candidates, best first.
@@ -2099,7 +2098,7 @@ class API extends BaseAPI {
 
 		$lists = [
 			[ self::within_cutoff( $vector, 'score' ), (float) $settings['vector_weight'], 'score' ],
-			[ self::within_cutoff( $lexical, 'lexical' ), (float) $settings['lexical_weight'], 'lexical' ],
+			[ $lexical, (float) $settings['lexical_weight'], 'lexical' ],
 		];
 
 		foreach ( $lists as list( $items, $weight, $field ) ) {
