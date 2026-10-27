@@ -278,8 +278,8 @@ class Tokenizer {
 	 *
 	 * @param string $shown        Digits shown in the text, leading zeros dropped.
 	 * @param string $linked       Digits of the `tel:` value, leading zeros dropped.
-	 * @param bool   $shown_coded  Whether the shown digits start with a "+".
-	 * @param bool   $linked_coded Whether the `tel:` value starts with a "+".
+	 * @param bool   $shown_coded  Whether the shown digits start with a "+" or "00" country code.
+	 * @param bool   $linked_coded Whether the `tel:` value starts with a "+" or "00" country code.
 	 *
 	 * @return bool
 	 */
