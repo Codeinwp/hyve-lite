@@ -321,7 +321,13 @@ class ConnectSyncTest extends WP_UnitTestCase {
 
 		add_filter(
 			'pre_http_request',
-			function ( $pre, $args ) use ( &$shipped, $post ) {
+			function ( $pre, $args, $url ) use ( &$shipped, $post ) {
+				// Only the Connect upsert: the tokenizer's vocabulary download
+				// must still go through, and remembers a failure for the run.
+				if ( false === strpos( (string) $url, '/start' ) ) {
+					return $pre;
+				}
+
 				$shipped = json_decode( (string) $args['body'], true )['documents'] ?? [];
 
 				return [
