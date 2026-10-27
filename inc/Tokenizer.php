@@ -66,6 +66,8 @@ class Tokenizer {
 		// ingest, so a failed strip would drop the page entirely.
 		$content = null === $stripped ? $content : $stripped;
 
+		$content = self::fold_contact_links( $content );
+
 		$content = (string) preg_replace(
 			[
 				// Line breaks become newlines.
@@ -93,6 +95,138 @@ class Tokenizer {
 		);
 
 		return trim( $content );
+	}
+
+	/**
+	 * Fold `tel:` and `mailto:` link targets into their anchor text.
+	 *
+	 * "Call us" and "Email the clinic" are often the only place a page keeps
+	 * its phone number and address: the fact lives in the `href`, which the
+	 * tag strip discards. The target is appended as "(…)" unless the anchor
+	 * text already shows it. Other schemes are left alone: navigation is full
+	 * of links, and their URLs would swamp every chunk.
+	 *
+	 * @param string $content HTML content.
+	 *
+	 * @return string
+	 */
+	private static function fold_contact_links( $content ) {
+		// The body runs to the anchor's own `</a>` and stops at the next `<a`,
+		// so an unclosed link neither captures the rest of the page nor
+		// rescans it: possessive, and bounded by the next anchor.
+		$folded = preg_replace_callback(
+			'/<a\b[^>]*?\shref\s*=\s*(["\']?)\s*((?:tel|mailto):[^"\'\s>]*)\1[^>]*>([^<]*+(?:<(?!\/a\s*>|a[\s>])[^<]*+)*+)(<\/a\s*>)/i',
+			[ self::class, 'fold_contact_link' ],
+			$content
+		);
+
+		return null === $folded ? $content : $folded;
+	}
+
+	/**
+	 * Append one contact link's target to its anchor text.
+	 *
+	 * @param array<int, string> $link The tag, quote, target, body and closing tag.
+	 *
+	 * @return string
+	 */
+	private static function fold_contact_link( array $link ) {
+		list( $tag, , $target, $body, $close ) = $link;
+
+		$target = html_entity_decode( $target, ENT_QUOTES, 'UTF-8' );
+		$scheme = strtolower( (string) strstr( $target, ':', true ) );
+		$value  = self::contact_value( $scheme, (string) substr( $target, strlen( $scheme ) + 1 ) );
+
+		if ( '' === $value ) {
+			return $tag;
+		}
+
+		$text = trim( html_entity_decode( wp_strip_all_tags( $body ), ENT_QUOTES, 'UTF-8' ) );
+
+		if ( 'tel' === $scheme ? self::shows_number( $text, $value ) : false !== stripos( $text, $value ) ) {
+			return $tag;
+		}
+
+		// The fold goes after the last text, inside any block the anchor wraps
+		// (a card, a button), so it stays on the label's line. An icon-only
+		// link has no text to attach to, so the target stands alone.
+		$fold     = '' === $text ? $value : ' (' . $value . ')';
+		$kept     = (string) preg_replace( '/(?:\s*<\/[a-zA-Z][a-zA-Z0-9]*\s*>)*\s*$/', '', $body );
+		$trailing = (string) substr( $body, strlen( $kept ) );
+
+		return substr( $tag, 0, strlen( $tag ) - strlen( $close ) - strlen( $trailing ) ) . $fold . $trailing . $close;
+	}
+
+	/**
+	 * The storable value of a `tel:` or `mailto:` target.
+	 *
+	 * `mailto:x@y?subject=…` carries a query; the address is before it. A
+	 * `tel:` URI carries `;ext=` and `;phone-context=` parameters, of which
+	 * the extension is kept as prose.
+	 *
+	 * @param string $scheme The scheme, `tel` or `mailto`.
+	 * @param string $target The target after the scheme.
+	 *
+	 * @return string Empty when the target carries nothing worth storing.
+	 */
+	private static function contact_value( $scheme, $target ) {
+		$value = trim( rawurldecode( explode( '?', $target, 2 )[0] ) );
+
+		if ( 'tel' !== $scheme ) {
+			return $value;
+		}
+
+		$parts = explode( ';', $value );
+		$value = trim( array_shift( $parts ) );
+
+		// A placeholder such as `tel:+` or `tel:#` has nothing to store.
+		if ( ! preg_match( '/[0-9a-zA-Z]/', $value ) ) {
+			return '';
+		}
+
+		foreach ( $parts as $part ) {
+			if ( 0 === stripos( trim( $part ), 'ext=' ) ) {
+				$value .= ' ext. ' . trim( substr( trim( $part ), 4 ) );
+			}
+		}
+
+		return $value;
+	}
+
+	/**
+	 * Whether anchor text already shows the linked phone number.
+	 *
+	 * Each number-like run in the text is compared on digits, from the end,
+	 * so "01274 998877" matches `tel:+441274998877` despite the national
+	 * prefix, while an unrelated "9-5" alongside it does not get in the way.
+	 * A run written with its own "+" country code has to match in full.
+	 *
+	 * @param string $text   The anchor text.
+	 * @param string $number The `tel:` value.
+	 *
+	 * @return bool
+	 */
+	private static function shows_number( $text, $number ) {
+		$linked = ltrim( (string) preg_replace( '/\D+/', '', explode( ' ext.', $number, 2 )[0] ), '0' );
+
+		// Too few digits to compare (a vanity number): fall back to the text.
+		if ( strlen( $linked ) < 7 ) {
+			return false !== stripos( $text, $number );
+		}
+
+		preg_match_all( '/\+?\d[\d\s().-]*\d/', $text, $runs );
+
+		foreach ( $runs[0] as $run ) {
+			// "+44 (0)1274" shows a trunk prefix the international form omits.
+			$shown  = ltrim( (string) preg_replace( [ '/\(0\)/', '/\D+/' ], '', $run ), '0' );
+			$length = '+' === $run[0] ? max( strlen( $shown ), strlen( $linked ) ) : min( strlen( $shown ), strlen( $linked ) );
+
+			if ( $length >= 7 && substr( $shown, -$length ) === substr( $linked, -$length ) ) {
+				return true;
+			}
+		}
+
+		return false;
 	}
 
 	/**

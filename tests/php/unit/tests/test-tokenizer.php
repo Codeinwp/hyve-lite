@@ -227,6 +227,167 @@ class Test_Tokenizer extends WP_UnitTestCase {
 	}
 
 	/**
+	 * A contact page often keeps its phone number and email only as link
+	 * targets. Those are the facts visitors ask for, so they are folded into
+	 * the text instead of being lost with the tag.
+	 */
+	public function test_html_to_text_keeps_tel_and_mailto_targets(): void {
+		$html = '<p><a href="tel:+441274998877">Call us</a></p>' .
+			'<p><a href="mailto:hello@example.com?subject=Appointment"><i class="fa fa-envelope"></i> Email the clinic</a></p>';
+
+		$this->assertSame(
+			"Call us (+441274998877)\nEmail the clinic (hello@example.com)",
+			Tokenizer::html_to_text( $html )
+		);
+	}
+
+	/**
+	 * Targets arrive URL-encoded, entity-encoded, single-quoted or unquoted,
+	 * and an icon-only link has no text to attach the target to.
+	 *
+	 * @dataProvider provide_contact_link_forms
+	 *
+	 * @param string $html     The link markup.
+	 * @param string $expected The stored text.
+	 */
+	public function test_html_to_text_reads_every_contact_link_form( string $html, string $expected ): void {
+		$this->assertSame( $expected, Tokenizer::html_to_text( $html ) );
+	}
+
+	/**
+	 * Link markup variants and the text each should store.
+	 *
+	 * @return array<string, array<int, string>>
+	 */
+	public function provide_contact_link_forms(): array {
+		return [
+			'url-encoded plus'  => [ '<a href="tel:%2B441274998877">Call</a>', 'Call (+441274998877)' ],
+			'entity-encoded at' => [ '<a href="mailto:hello&#64;example.com">Write</a>', 'Write (hello@example.com)' ],
+			'single quotes'     => [ "<a class='btn' href='tel:0800123456' target='_blank'>Freephone</a>", 'Freephone (0800123456)' ],
+			'unquoted'          => [ '<a href=mailto:hello@example.com>Write</a>', 'Write (hello@example.com)' ],
+			'upper-case scheme' => [ '<a href="TEL:+441274998877">Call</a>', 'Call (+441274998877)' ],
+			'icon only'         => [ '<a href="tel:+441274998877"><span class="icon"></span></a>', '+441274998877' ],
+			'empty target'      => [ '<a href="tel:">Call</a>', 'Call' ],
+			'digitless target'  => [ '<a href="tel:+">Call</a><a href="tel:#">Now</a>', 'CallNow' ],
+			'nested tags'       => [ '<a href="mailto:a@b.co"><strong>Email</strong> <em>us</em></a>', 'Email us (a@b.co)' ],
+			'extension'         => [ '<a href="tel:+441274998877;ext=12;phone-context=example.com">Call</a>', 'Call (+441274998877 ext. 12)' ],
+			'block in anchor'   => [ '<a href="tel:+441274998877"><div class="card"><h3>Call us</h3></div></a>', 'Call us (+441274998877)' ],
+			'button in anchor'  => [ '<p><a href="mailto:a@b.co"><span class="btn">Email</span></a></p><p>Next</p>', "Email (a@b.co)\nNext" ],
+		];
+	}
+
+	/**
+	 * Anchor text that already shows the number or address is not doubled,
+	 * even when the visible number is in national format and the target in
+	 * international format.
+	 *
+	 * @dataProvider provide_links_showing_their_target
+	 *
+	 * @param string $html The link markup.
+	 * @param string $text The anchor text, which is all that should be stored.
+	 */
+	public function test_html_to_text_does_not_repeat_a_shown_target( string $html, string $text ): void {
+		$this->assertSame( $text, Tokenizer::html_to_text( $html ) );
+	}
+
+	/**
+	 * Links whose text already carries the target.
+	 *
+	 * @return array<string, array<int, string>>
+	 */
+	public function provide_links_showing_their_target(): array {
+		return [
+			'same number'       => [ '<a href="tel:+441274998877">+441274998877</a>', '+441274998877' ],
+			'spaced number'     => [ '<a href="tel:+441274998877">+44 1274 998877</a>', '+44 1274 998877' ],
+			'national format'   => [ '<a href="tel:+441274998877">01274 998877</a>', '01274 998877' ],
+			'trunk in brackets' => [ '<a href="tel:+441274998877">+44 (0)1274 998877</a>', '+44 (0)1274 998877' ],
+			'number in prose'   => [ '<a href="tel:+441274998877">Call 01274 998877 today</a>', 'Call 01274 998877 today' ],
+			'other digits too'  => [ '<a href="tel:+441274998877">24/7 line 01274 998877 (Mon-Fri 9-5)</a>', '24/7 line 01274 998877 (Mon-Fri 9-5)' ],
+			'shown extension'   => [ '<a href="tel:+441274998877;ext=12">01274 998877</a>', '01274 998877' ],
+			'same email'        => [ '<a href="mailto:hello@example.com">hello@example.com</a>', 'hello@example.com' ],
+			'email case'        => [ '<a href="mailto:Hello@Example.com">hello@example.com</a>', 'hello@example.com' ],
+			'vanity number'     => [ '<a href="tel:1-800-FLOWERS">1-800-FLOWERS</a>', '1-800-FLOWERS' ],
+		];
+	}
+
+	/**
+	 * A different number in the text is not the linked one.
+	 */
+	public function test_html_to_text_adds_a_number_the_text_does_not_show(): void {
+		$this->assertSame(
+			'Call 0800 123 4567 (+441274998877)',
+			Tokenizer::html_to_text( '<a href="tel:+441274998877">Call 0800 123 4567</a>' )
+		);
+	}
+
+	/**
+	 * A number shown with its own country code is a different number unless
+	 * it matches in full: "+1 274 998877" does not stand in for a UK target
+	 * just because the last digits agree.
+	 */
+	public function test_html_to_text_does_not_take_a_foreign_number_for_the_target(): void {
+		$this->assertSame(
+			'+1 274 998877 (+441274998877)',
+			Tokenizer::html_to_text( '<a href="tel:+441274998877">+1 274 998877</a>' )
+		);
+	}
+
+	/**
+	 * Navigation, headers and footers are full of ordinary links. Their
+	 * targets stay out of the text, or every chunk would carry the menu's URLs.
+	 */
+	public function test_html_to_text_leaves_ordinary_link_targets_out(): void {
+		$html = '<nav><ul><li><a href="https://example.test/about">About</a></li>' .
+			'<li><a href="/contact" data-href="tel:+441274998877">Contact</a></li>' .
+			'<li><a href="#top">Top</a></li></ul></nav>' .
+			'<p><a href="https://maps.example.test/?q=clinic">Find us</a></p>';
+
+		$text = Tokenizer::html_to_text( $html );
+
+		$this->assertSame( "About\nContact\nTop\nFind us", $text );
+	}
+
+	/**
+	 * An unclosed contact link must not stall the extractor or take the rest of
+	 * the page with it.
+	 */
+	public function test_html_to_text_survives_an_unclosed_contact_link(): void {
+		$html = '<p><a href="tel:+441274998877">Call us</p>' . str_repeat( '<p>We are open on weekdays.</p>', 2000 ) . '<p>The end.</p>';
+
+		$text = Tokenizer::html_to_text( $html );
+
+		$this->assertStringStartsWith( 'Call us', $text );
+		$this->assertStringEndsWith( 'The end.', $text );
+	}
+
+	/**
+	 * An unclosed contact link must not borrow a later link's `</a>`: the
+	 * number would land on an unrelated label, possibly in another chunk.
+	 */
+	public function test_html_to_text_does_not_attach_an_unclosed_link_to_a_later_one(): void {
+		$html = '<p><a href="tel:+441274998877">Call us</p><p>Open daily.</p><p><a href="/about">About</a></p>';
+
+		$text = Tokenizer::html_to_text( $html );
+
+		$this->assertStringNotContainsString( 'About (+441274998877)', $text );
+		$this->assertSame( "Call us\nOpen daily.\nAbout", $text );
+	}
+
+	/**
+	 * A page of unclosed contact links is read in one pass, not one rescan to
+	 * the end of the page per link.
+	 */
+	public function test_html_to_text_reads_many_unclosed_contact_links_in_linear_time(): void {
+		$html = str_repeat( '<a href="tel:+441274998877">Call ', 3000 ) . str_repeat( '<p>We are open on weekdays.</p>', 5000 );
+
+		$start = microtime( true );
+		$text  = Tokenizer::html_to_text( $html );
+
+		$this->assertLessThan( 0.5, microtime( true ) - $start );
+		$this->assertStringEndsWith( 'We are open on weekdays.', $text );
+	}
+
+	/**
 	 * The sha256 the library expects for cl100k_base.
 	 */
 	const CL100K_HASH = '223921b76ee99bde995b7ff738513eef100fb51d18c93597a113bcffe865b2a7';
