@@ -171,6 +171,25 @@ class Test_Page_Context extends WP_UnitTestCase {
 	}
 
 	/**
+	 * An unindexed page is extracted like a knowledge base page: a contact
+	 * link keeps its number, and a table keeps its labels, instead of being
+	 * flattened by a plain tag strip.
+	 */
+	public function test_unindexed_content_is_extracted_like_the_knowledge_base() {
+		add_filter(
+			'hyve_page_context_content',
+			fn() => '<h2>Contact</h2><p><a href="tel:+441274998877">Call us</a></p>' .
+				'<table><tr><td>Laundry</td><td>$32.00/hr</td></tr></table>'
+		);
+
+		$page  = Page_Context::instance()->for_request( $this->chat_request( get_permalink( $this->post_id ) ) );
+		$block = Page_Context::instance()->context_block( $page );
+
+		$this->assertStringContainsString( 'Call us (+441274998877)', $block );
+		$this->assertStringContainsString( 'Laundry | $32.00/hr', $block );
+	}
+
+	/**
 	 * Replace the encoder provider the tokenizer shares across calls.
 	 *
 	 * @param EncoderProvider|null $provider The provider, or null to rebuild on next use.
