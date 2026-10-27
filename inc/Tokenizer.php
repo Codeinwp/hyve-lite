@@ -238,8 +238,9 @@ class Tokenizer {
 	 * @return bool
 	 */
 	private static function shows_number( $text, $number ) {
-		$linked       = ltrim( (string) preg_replace( '/\D+/', '', explode( ' ext.', $number, 2 )[0] ), '0' );
-		$linked_coded = '+' === substr( $number, 0, 1 );
+		$linked = ltrim( (string) preg_replace( '/\D+/', '', explode( ' ext.', $number, 2 )[0] ), '0' );
+		// "+" or the "00" dialling prefix: the number carries its country code.
+		$linked_coded = 1 === preg_match( '/^(?:\+|00)/', $number );
 
 		// Too few digits to compare (a vanity number): fall back to the text.
 		if ( strlen( $linked ) < 7 ) {
@@ -250,7 +251,7 @@ class Tokenizer {
 		preg_match_all( '/\+?\d[\d\s().-]*\d/', str_replace( '(0)', '', $text ), $runs );
 
 		foreach ( $runs[0] as $run ) {
-			$shown_coded = '+' === $run[0];
+			$shown_coded = 1 === preg_match( '/^(?:\+|00)/', $run );
 			$groups      = (array) preg_split( '/\D+/', $run, -1, PREG_SPLIT_NO_EMPTY );
 			// Spans are quadratic in the groups; a run this long is a table of
 			// numbers, not a phone number, and a miss only repeats the target.

@@ -351,6 +351,33 @@ class Test_Tokenizer extends WP_UnitTestCase {
 	}
 
 	/**
+	 * The "00" dialling prefix carries a country code just as "+" does, on
+	 * either side of the comparison.
+	 *
+	 * @dataProvider provide_double_zero_prefixes
+	 *
+	 * @param string $html     The link markup.
+	 * @param string $expected The stored text.
+	 */
+	public function test_html_to_text_reads_a_double_zero_prefix_as_a_country_code( string $html, string $expected ): void {
+		$this->assertSame( $expected, Tokenizer::html_to_text( $html ) );
+	}
+
+	/**
+	 * Numbers written with a "00" prefix.
+	 *
+	 * @return array<string, array<int, string>>
+	 */
+	public function provide_double_zero_prefixes(): array {
+		return [
+			'coded target, foreign label' => [ '<a href="tel:00441274998877">+49 441274998877</a>', '+49 441274998877 (00441274998877)' ],
+			'coded label, foreign target' => [ '<a href="tel:+441274998877">0049 441274998877</a>', '0049 441274998877 (+441274998877)' ],
+			'same number both ways'       => [ '<a href="tel:00441274998877">+44 1274 998877</a>', '+44 1274 998877' ],
+			'national label'              => [ '<a href="tel:00441274998877">01274 998877</a>', '01274 998877' ],
+		];
+	}
+
+	/**
 	 * A national target gives no country code to contradict a label that
 	 * carries one, so the label's digits are what count: "+1 274 998877"
 	 * contains all of `tel:01274998877` and stands for it.
