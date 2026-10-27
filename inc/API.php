@@ -2244,6 +2244,14 @@ class API extends BaseAPI {
 	}
 
 	/**
+	 * InnoDB's default FULLTEXT stopwords (INNODB_FT_DEFAULT_STOPWORD): the
+	 * keyword search never matches them, so coverage must not count them.
+	 *
+	 * @var array<int, string>
+	 */
+	const INNODB_STOPWORDS = [ 'a', 'about', 'an', 'are', 'as', 'at', 'be', 'by', 'com', 'de', 'en', 'for', 'from', 'how', 'i', 'in', 'is', 'it', 'la', 'of', 'on', 'or', 'that', 'the', 'this', 'to', 'und', 'was', 'what', 'when', 'where', 'who', 'will', 'with', 'www' ];
+
+	/**
 	 * Keyword candidates eligible for source links, independent of term frequency.
 	 * Indexed words match prefixes; segments match substrings, as in lexical_search().
 	 *
@@ -2268,7 +2276,8 @@ class API extends BaseAPI {
 		if ( empty( $terms ) ) {
 			$segments = array_merge( $segments, DB_Table::query_short_words( $query ) );
 		}
-		$terms    = array_unique( array_map( $normalize, $terms ) );
+		// The index ignores its stopwords, so they must not count here either.
+		$terms    = array_diff( array_unique( array_map( $normalize, $terms ) ), self::INNODB_STOPWORDS );
 		$segments = array_unique( array_map( $normalize, $segments ) );
 		$patterns = [];
 		foreach ( array_diff( $terms, $segments ) as $term ) {

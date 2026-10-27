@@ -333,6 +333,20 @@ class RetrievalTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * The index ignores its stopwords, so coverage must too: a chunk full of
+	 * `what`, `is` and `the` cannot take the source link from the answer.
+	 */
+	public function test_keyword_source_coverage_ignores_index_stopwords() {
+		$this->seed_text( 'Answer', 'Silextra pricing is 73 euros.', [ 0.0, 1.0, 0.0 ], 100, 5300 );
+		$this->seed_text( 'Other', 'What is the price of the other services?', [ 0.0, 1.0, 0.0 ], 100, 5301 );
+		$this->commit_seeds();
+
+		// Both chunks cover one real term (`price` is no prefix of `pricing`), so both link.
+		API::instance()->search_knowledge_base( [], 0.25, 2000, 'what is the price of silextra' );
+		$this->assertContains( 5300, array_map( 'intval', API::instance()->get_last_retrieval()['sources'] ) );
+	}
+
+	/**
 	 * Canonically equivalent query forms count once, and accented source
 	 * text keeps the same eligibility as its decomposed equivalent.
 	 */
