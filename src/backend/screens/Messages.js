@@ -773,7 +773,7 @@ const MessageDebug = ( { debug, time } ) => {
 						<DebugKey
 							label={ __( 'Sources', 'hyve-lite' ) }
 							help={ __(
-								'Knowledge base content sent to the model as context, with how closely each piece matched the question (0–1). Hover a title for its size in tokens. The best-scoring sources may also be shown to the visitor as source links.',
+								'Knowledge base content sent to the model as context, with how closely each piece matched the question (0–1) and, when the keyword search also found it, "keyword" with its rank score; a keyword-only hit shows just the keyword score. Hover a title for its size in tokens. The best-scoring sources may also be shown to the visitor as source links.',
 								'hyve-lite'
 							) }
 						/>
@@ -783,6 +783,13 @@ const MessageDebug = ( { debug, time } ) => {
 									const score =
 										'number' === typeof source.score
 											? source.score
+											: null;
+									// Rank score from the keyword search, shown
+									// beside the similarity score when both
+									// passes found the chunk.
+									const lexical =
+										'number' === typeof source.lexical
+											? source.lexical
 											: null;
 									const dropped = false === source.included;
 									const droppedClass = dropped
@@ -846,9 +853,23 @@ const MessageDebug = ( { debug, time } ) => {
 											<span
 												className={ `hyve-next-debug__score${ droppedClass }` }
 											>
-												{ null !== score
-													? score.toFixed( 2 )
-													: '—' }
+												{ null !== score &&
+													score.toFixed( 2 ) }
+												{ null !== score &&
+													null !== lexical &&
+													' · ' }
+												{ null !== lexical &&
+													sprintf(
+														/* translators: %s: the keyword search's rank score. */
+														__(
+															'keyword %s',
+															'hyve-lite'
+														),
+														lexical.toFixed( 2 )
+													) }
+												{ null === score &&
+													null === lexical &&
+													'—' }
 											</span>
 										</Fragment>
 									);

@@ -15,6 +15,9 @@ use ThemeIsle\HyveLite\OpenAI;
 
 /**
  * API class.
+ *
+ * @phpstan-type Candidate array{key: string, post_id: int, title: string, content: string, tokens: int, score: float|null, lexical: float|null}
+ * @phpstan-type FusedCandidate array{key: string, post_id: int, title: string, content: string, tokens: int, score: float|null, lexical: float|null, fused: float}
  */
 class API extends BaseAPI {
 
@@ -49,10 +52,10 @@ class API extends BaseAPI {
 	private $retrieval_trace = [];
 
 	/**
-	 * The score the last search gave each chunk it put in the context, keyed
-	 * by chunk_key(). Qdrant points carry no row id, so the content stands in.
+	 * The scores the last search gave each candidate, keyed by candidate_key().
+	 * Qdrant points carry no row id, so the content stands in.
 	 *
-	 * @var array<string, float>
+	 * @var array<string, array{score: float|null, lexical: float|null}>
 	 */
 	private $chunk_scores = [];
 
@@ -1893,109 +1896,69 @@ class API extends BaseAPI {
 	}
 
 	/**
-	 * Search knowledge base using Qdrant vector database.
+	 * Vector candidates from Qdrant: the points above the noise floor, best
+	 * first, capped.
 	 *
-	 * @param array<int, float> $message_vector The embedding vector for the user's message.
-	 * @param float             $similarity_score_threshold Minimum cosine similarity score for relevance.
-	 * @param int               $tokens_threshold Maximum tokens to include in the response.
+	 * @param array<int, float> $message_vector             The question's embedding.
+	 * @param float             $similarity_score_threshold Minimum cosine similarity.
+	 * @param int               $limit                      Most candidates to keep.
 	 *
-	 * @return string Concatenated article content.
+	 * @return array<int, Candidate>
 	 */
-	private function search_knowledge_base_qdrant( $message_vector, $similarity_score_threshold, $tokens_threshold ) {
-		$articles_embedded_data = '';
-		$current_token_count    = 0;
+	private function vector_candidates_qdrant( $message_vector, $similarity_score_threshold, $limit ) {
+		$points = Qdrant_API::instance()->search( $message_vector, $similarity_score_threshold );
 
-		$knowledge_points = Qdrant_API::instance()->search( $message_vector, $similarity_score_threshold );
-
-		if ( is_wp_error( $knowledge_points ) ) {
-			return $articles_embedded_data;
+		if ( is_wp_error( $points ) ) {
+			return [];
 		}
 
-		$source_scores = [];
-		$cutoff        = null;
+		$candidates = [];
 
-		foreach ( $knowledge_points as $point ) {
-			if ( empty( $point['post_title'] ) || empty( $point['post_content'] ) || empty( $point['token_count'] ) ) {
+		foreach ( $points as $point ) {
+			if ( empty( $point['post_title'] ) || empty( $point['post_content'] ) || empty( $point['token_count'] ) || ! isset( $point['score'] ) ) {
 				continue;
 			}
 
-			// Qdrant returns points best-first, so the first scored point is
-			// the top match; weaker stragglers below its relative cutoff stay
-			// out of the context (see relative_score_cutoff()).
-			if ( isset( $point['score'] ) ) {
-				if ( null === $cutoff ) {
-					$cutoff = self::relative_score_cutoff( (float) $point['score'] );
-				} elseif ( (float) $point['score'] < $cutoff ) {
-					break;
-				}
-			}
+			$post_id = (int) ( $point['post_id'] ?? 0 );
 
-			$tokens_count = intval( $point['token_count'] );
-
-			if ( $tokens_threshold <= ( $current_token_count + $tokens_count ) ) {
-				// Matched the query but did not fit the context budget — traced
-				// so the Messages screen can show what the model never saw.
-				$this->retrieval_trace[] = [
-					'post_id'  => isset( $point['post_id'] ) ? intval( $point['post_id'] ) : 0,
-					'title'    => (string) $point['post_title'],
-					'score'    => isset( $point['score'] ) ? round( floatval( $point['score'] ), 4 ) : null,
-					'tokens'   => $tokens_count,
-					'included' => false,
-				];
-				continue;
-			}
-
-			if ( isset( $point['post_id'], $point['score'] ) ) {
-				$post_id = (string) $point['post_id'];
-
-				if ( ! isset( $source_scores[ $post_id ] ) || $point['score'] > $source_scores[ $post_id ] ) {
-					$source_scores[ $post_id ] = $point['score'];
-				}
-			}
-
-			$articles_embedded_data .= "\n ===START POST=== " . $point['post_title'] . ' - ' . $point['post_content'] . ' ===END POST===';
-			$current_token_count    += intval( $point['token_count'] );
-
-			if ( isset( $point['score'] ) ) {
-				$this->chunk_scores[ self::chunk_key( intval( $point['post_id'] ?? 0 ), (string) $point['post_content'] ) ] = round( floatval( $point['score'] ), 4 );
-			}
-
-			$this->retrieval_trace[] = [
-				'post_id' => isset( $point['post_id'] ) ? intval( $point['post_id'] ) : 0,
+			$candidates[] = [
+				'key'     => self::candidate_key( $post_id, (string) $point['post_content'] ),
+				'post_id' => $post_id,
 				'title'   => (string) $point['post_title'],
-				'score'   => isset( $point['score'] ) ? round( floatval( $point['score'] ), 4 ) : null,
-				'tokens'  => $tokens_count,
+				'content' => (string) $point['post_content'],
+				'tokens'  => (int) $point['token_count'],
+				'score'   => (float) $point['score'],
+				'lexical' => null,
 			];
 		}
 
-		$this->source_post_ids = $this->rank_sources( $source_scores );
+		usort( $candidates, [ __CLASS__, 'compare_by_score' ] );
 
-		return $articles_embedded_data;
+		return array_slice( $candidates, 0, $limit );
 	}
 
 	/**
-	 * Search knowledge base using WordPress database storage.
+	 * Vector candidates from the local table: every processed chunk is
+	 * scored in PHP; the ones above the noise floor are kept, best first,
+	 * capped.
 	 *
-	 * @param array<int, float> $message_vector The embedding vector for the user's message.
-	 * @param float             $similarity_score_threshold Minimum cosine similarity score for relevance.
-	 * @param int               $tokens_threshold Maximum tokens to include in the response.
+	 * @param array<int, float> $message_vector             The question's embedding.
+	 * @param float             $similarity_score_threshold Minimum cosine similarity.
+	 * @param int               $limit                      Most candidates to keep.
 	 *
-	 * @return string Concatenated article content.
+	 * @return array<int, Candidate>
 	 */
-	private function search_knowledge_base_wp( $message_vector, $similarity_score_threshold, $tokens_threshold ) {
-		$articles_embedded_data = '';
-		$message_vector_mag     = Cosine_Similarity::magnitude( $message_vector );
+	private function vector_candidates_wp( $message_vector, $similarity_score_threshold, $limit ) {
+		$message_vector_mag = Cosine_Similarity::magnitude( $message_vector );
 
 		if ( 0.0 === $message_vector_mag ) {
-			return $articles_embedded_data;
+			return [];
 		}
 
-		$current_token_count = 0;
-		$offset              = 0;
-		$items_per_page      = 50;
-		$saved_embeddings    = $this->table->get_embeddings( $offset, $items_per_page );
-		$matched_articles    = [];
-		$dropped_articles    = [];
+		$offset           = 0;
+		$items_per_page   = 50;
+		$saved_embeddings = $this->table->get_embeddings( $offset, $items_per_page );
+		$matched          = [];
 
 		do {
 			foreach ( $saved_embeddings as $data ) {
@@ -2020,103 +1983,345 @@ class API extends BaseAPI {
 					continue;
 				}
 
-				$matched_articles[] = [
-					'id'          => intval( $data->id ),
-					'token_count' => intval( $data->token_count ),
-					'score'       => $score,
+				$matched[] = [
+					'id'     => intval( $data->id ),
+					'tokens' => intval( $data->token_count ),
+					'score'  => $score,
 				];
-
-				$current_token_count += intval( $data->token_count );
 				unset( $data );
 			}
 
-			if ( $current_token_count > $tokens_threshold ) {
-				// Sort by score and drop the ones that do not fit in the context.
-				usort( $matched_articles, [ __CLASS__, 'compare_by_score' ] );
-
-				while ( $current_token_count > $tokens_threshold ) {
-					$article = array_pop( $matched_articles );
-					if ( empty( $article ) ) {
-						break;
-					}
-					$current_token_count -= $article['token_count'];
-					$dropped_articles[]   = $article;
-				}
+			// Only the best matter; keep the list short on large knowledge bases.
+			if ( count( $matched ) > 4 * $limit ) {
+				usort( $matched, [ __CLASS__, 'compare_by_score' ] );
+				$matched = array_slice( $matched, 0, $limit );
 			}
 
 			$offset          += $items_per_page;
 			$saved_embeddings = $this->table->get_embeddings( $offset, $items_per_page );
 		} while ( ! empty( $saved_embeddings ) );
 
-		if ( empty( $matched_articles ) ) {
-			return $articles_embedded_data;
+		usort( $matched, [ __CLASS__, 'compare_by_score' ] );
+
+		$candidates = [];
+
+		foreach ( array_slice( $matched, 0, $limit ) as $article ) {
+			$article_data = $this->table->get_post_data( $article['id'] );
+			if ( empty( $article_data ) ) {
+				continue;
+			}
+
+			$post_id = (int) $this->table->get_post_id( $article['id'] );
+
+			$candidates[] = [
+				'key'     => self::candidate_key( $post_id, (string) $article_data['post_content'] ),
+				'post_id' => $post_id,
+				'title'   => (string) $article_data['post_title'],
+				'content' => (string) $article_data['post_content'],
+				'tokens'  => $article['tokens'],
+				'score'   => (float) $article['score'],
+				'lexical' => null,
+			];
 		}
 
-		// The strongest matches go first in the context blob even when
-		// everything fit the budget; otherwise the order is whatever the
-		// database returned, and models weight early context more.
-		usort( $matched_articles, [ __CLASS__, 'compare_by_score' ] );
+		return $candidates;
+	}
 
-		// Weak stragglers that merely cleared the noise floor stay out of the
-		// context; only chunks competitive with the best match get in.
-		$cutoff = self::relative_score_cutoff( $matched_articles[0]['score'] );
+	/**
+	 * Keyword candidates from the local table, which holds the chunks in both
+	 * storage modes (Qdrant only holds the vectors).
+	 *
+	 * @param string $query The visitor's question.
+	 * @param int    $limit Most candidates to keep.
+	 *
+	 * @return array<int, Candidate>
+	 */
+	private function lexical_candidates( $query, $limit ) {
+		$candidates = [];
 
-		$matched_articles = array_values(
+		foreach ( $this->table->lexical_search( $query, $limit ) as $row ) {
+			$post_id = (int) $row->post_id;
+
+			$candidates[] = [
+				'key'     => self::candidate_key( $post_id, (string) $row->post_content ),
+				'post_id' => $post_id,
+				'title'   => (string) $row->post_title,
+				'content' => (string) $row->post_content,
+				'tokens'  => (int) $row->token_count,
+				'score'   => null,
+				'lexical' => (float) $row->score,
+			];
+		}
+
+		return $candidates;
+	}
+
+	/**
+	 * The same chunk from either list.
+	 *
+	 * @param int    $post_id The source post.
+	 * @param string $content The chunk text.
+	 *
+	 * @return string
+	 */
+	private static function candidate_key( $post_id, $content ) {
+		return $post_id . ':' . md5( $content );
+	}
+
+	/**
+	 * Hybrid retrieval settings, in one place so the hosted platform and the
+	 * plugin can stay identical. Lists are merged by reciprocal rank: each
+	 * chunk scores `weight / (rrf_k + rank)` per list it appears in, plus a
+	 * flat `title_weight / rrf_k` when a query term is in its title.
+	 *
+	 * @since 2.1.0
+	 *
+	 * @return array{rrf_k: int, vector_weight: float, lexical_weight: float, title_weight: float, candidates: int}
+	 */
+	public static function hybrid_settings() {
+		$defaults = [
+			'rrf_k'          => 60,
+			'vector_weight'  => 1.0,
+			'lexical_weight' => 1.0,
+			'title_weight'   => 0.5,
+			'candidates'     => 20,
+		];
+
+		/**
+		 * Filters how the vector and keyword searches are merged.
+		 *
+		 * @since 2.1.0
+		 *
+		 * @param array{rrf_k: int, vector_weight: float, lexical_weight: float, title_weight: float, candidates: int} $settings Fusion settings.
+		 */
+		$settings = apply_filters( 'hyve_hybrid_retrieval', $defaults );
+
+		return array_merge( $defaults, $settings );
+	}
+
+	/**
+	 * Merge the vector and keyword lists by reciprocal rank, best first.
+	 * Vector hits keep their relative cutoff. All capped keyword hits stay
+	 * available: a lower keyword score can still carry the exact answer.
+	 *
+	 * @param array<int, Candidate> $vector   Vector candidates, best first.
+	 * @param array<int, Candidate> $lexical  Keyword candidates, best first.
+	 * @param string                $query    The visitor's question, for the title bonus.
+	 * @param array<string, mixed>  $settings See hybrid_settings().
+	 *
+	 * @return array<int, FusedCandidate>
+	 */
+	private function fuse_candidates( $vector, $lexical, $query, $settings ) {
+		$k      = max( 1, (int) $settings['rrf_k'] );
+		$merged = [];
+
+		$lists = [
+			[ self::within_cutoff( $vector, 'score' ), (float) $settings['vector_weight'], 'score' ],
+			[ $lexical, (float) $settings['lexical_weight'], 'lexical' ],
+		];
+
+		foreach ( $lists as list( $items, $weight, $field ) ) {
+			foreach ( $items as $rank => $candidate ) {
+				$key = (string) $candidate['key'];
+
+				if ( ! isset( $merged[ $key ] ) ) {
+					$merged[ $key ] = [
+						'key'     => $key,
+						'post_id' => (int) $candidate['post_id'],
+						'title'   => (string) $candidate['title'],
+						'content' => (string) $candidate['content'],
+						'tokens'  => (int) $candidate['tokens'],
+						'score'   => null,
+						'lexical' => null,
+						'fused'   => 0.0,
+					];
+				}
+
+				$merged[ $key ][ $field ] = (float) $candidate[ $field ];
+				$merged[ $key ]['fused'] += $weight / ( $k + $rank + 1 );
+			}
+		}
+
+		$terms = array_merge( DB_Table::query_terms( $query ), DB_Table::query_segments( $query ) );
+
+		foreach ( $merged as &$candidate ) {
+			if ( self::title_matches( $candidate['title'], $terms ) ) {
+				$candidate['fused'] += (float) $settings['title_weight'] / $k;
+			}
+		}
+		unset( $candidate );
+
+		usort(
+			$merged,
+			function ( $a, $b ) {
+				return $b['fused'] <=> $a['fused'];
+			}
+		);
+
+		return $merged;
+	}
+
+	/**
+	 * The candidates competitive with the list's best match.
+	 *
+	 * @param array<int, Candidate> $items Candidates, best first.
+	 * @param 'score'|'lexical'     $field The score to compare.
+	 *
+	 * @return array<int, Candidate>
+	 */
+	private static function within_cutoff( $items, $field ) {
+		if ( empty( $items ) ) {
+			return [];
+		}
+
+		$cutoff = self::relative_score_cutoff( (float) $items[0][ $field ] );
+
+		return array_values(
 			array_filter(
-				$matched_articles,
-				function ( $article ) use ( $cutoff ) {
-					return $article['score'] >= $cutoff;
+				$items,
+				function ( $candidate ) use ( $cutoff, $field ) {
+					return (float) $candidate[ $field ] >= $cutoff;
 				}
 			)
 		);
+	}
 
-		$source_scores = [];
+	/**
+	 * Whether a query term appears in a title.
+	 *
+	 * @param string             $title The chunk's title.
+	 * @param array<int, string> $terms Query words and segments.
+	 *
+	 * @return bool
+	 */
+	private static function title_matches( $title, $terms ) {
+		foreach ( $terms as $term ) {
+			if ( false !== mb_stripos( $title, $term ) ) {
+				return true;
+			}
+		}
 
-		foreach ( $matched_articles as $article ) {
-			$article_data = $this->table->get_post_data( $article['id'] );
-			if ( empty( $article_data ) ) {
+		return false;
+	}
+
+	/**
+	 * Build the context blob from the ranked candidates, best first, within
+	 * the token budget. Every candidate is traced; the ones that did not fit
+	 * are marked so the Messages screen can show what the model never saw.
+	 * Vector source links keep their score cutoff. Keyword-only source links
+	 * require the best query-term coverage among keyword candidates.
+	 *
+	 * @param array<int, FusedCandidate> $ranked           Fused candidates, best first.
+	 * @param int                        $tokens_threshold Context token budget.
+	 * @param string                     $query            The keyword query.
+	 *
+	 * @return string
+	 */
+	private function assemble_context( $ranked, $tokens_threshold, string $query ) {
+		$context         = '';
+		$used            = 0;
+		$vector_scores   = [];
+		$lexical_only    = [];
+		$keyword_sources = self::keyword_source_keys( $ranked, $query );
+
+		foreach ( $ranked as $candidate ) {
+			$trace                                   = [
+				'post_id' => (int) $candidate['post_id'],
+				'title'   => (string) $candidate['title'],
+				'score'   => null === $candidate['score'] ? null : round( (float) $candidate['score'], 4 ),
+				'lexical' => null === $candidate['lexical'] ? null : round( (float) $candidate['lexical'], 4 ),
+				'tokens'  => (int) $candidate['tokens'],
+			];
+			$this->chunk_scores[ $candidate['key'] ] = [
+				'score'   => $trace['score'],
+				'lexical' => $trace['lexical'],
+			];
+
+			if ( $used + $candidate['tokens'] > $tokens_threshold ) {
+				$trace['included']       = false;
+				$this->retrieval_trace[] = $trace;
 				continue;
 			}
 
-			$post_id = $this->table->get_post_id( $article['id'] );
+			$context .= "\n ===START POST=== " . $candidate['title'] . ' - ' . $candidate['content'] . ' ===END POST===';
+			$used    += (int) $candidate['tokens'];
 
-			if ( ! empty( $post_id ) && ( ! isset( $source_scores[ $post_id ] ) || $article['score'] > $source_scores[ $post_id ] ) ) {
-				$source_scores[ $post_id ] = $article['score'];
-			}
+			$this->retrieval_trace[] = $trace;
 
-			$articles_embedded_data .= "\n ===START POST=== " . $article_data['post_title'] . ' - ' . $article_data['post_content'] . ' ===END POST===';
+			$post_id = (int) $candidate['post_id'];
 
-			$this->chunk_scores[ self::chunk_key( intval( $post_id ), $article_data['post_content'] ) ] = round( floatval( $article['score'] ), 4 );
-
-			$this->retrieval_trace[] = [
-				'post_id' => intval( $post_id ),
-				'title'   => (string) $article_data['post_title'],
-				'score'   => round( floatval( $article['score'] ), 4 ),
-				'tokens'  => intval( $article['token_count'] ),
-			];
-		}
-
-		// Chunks that matched the query but were dropped for the context budget:
-		// traced (capped, they are already the weakest matches) so the Messages
-		// screen can show what the model never saw.
-		foreach ( array_slice( $dropped_articles, 0, 10 ) as $article ) {
-			$article_data = $this->table->get_post_data( $article['id'] );
-			if ( empty( $article_data ) ) {
+			if ( empty( $post_id ) ) {
 				continue;
 			}
 
-			$this->retrieval_trace[] = [
-				'post_id'  => intval( $this->table->get_post_id( $article['id'] ) ),
-				'title'    => (string) $article_data['post_title'],
-				'score'    => round( floatval( $article['score'] ), 4 ),
-				'tokens'   => intval( $article['token_count'] ),
-				'included' => false,
-			];
+			if ( null !== $candidate['score'] ) {
+				$vector_scores[ $post_id ] = max( $vector_scores[ $post_id ] ?? 0.0, (float) $candidate['score'] );
+			} elseif ( isset( $keyword_sources[ $candidate['key'] ] ) ) {
+				$lexical_only[ $post_id ] = $post_id;
+			}
 		}
 
-		$this->source_post_ids = $this->rank_sources( $source_scores );
+		$this->source_post_ids = array_values( array_unique( array_merge( $this->rank_sources( $vector_scores ), array_values( array_diff_key( $lexical_only, $vector_scores ) ) ) ) );
 
-		return $articles_embedded_data;
+		return $context;
+	}
+
+	/**
+	 * InnoDB's default FULLTEXT stopwords (INNODB_FT_DEFAULT_STOPWORD): the
+	 * keyword search never matches them, so coverage must not count them.
+	 *
+	 * @var array<int, string>
+	 */
+	const INNODB_STOPWORDS = [ 'a', 'about', 'an', 'are', 'as', 'at', 'be', 'by', 'com', 'de', 'en', 'for', 'from', 'how', 'i', 'in', 'is', 'it', 'la', 'of', 'on', 'or', 'that', 'the', 'this', 'to', 'und', 'was', 'what', 'when', 'where', 'who', 'will', 'with', 'www' ];
+
+	/**
+	 * Keyword candidates eligible for source links, independent of term frequency.
+	 * Indexed words match prefixes; segments match substrings, as in lexical_search().
+	 *
+	 * @param array<int, FusedCandidate> $candidates Fused candidates.
+	 * @param string                     $query      The keyword query.
+	 *
+	 * @return array<string, true> Candidate keys with the best positive coverage.
+	 */
+	private static function keyword_source_keys( array $candidates, string $query ): array {
+		$candidates = array_filter( $candidates, fn( $candidate ) => null !== $candidate['lexical'] );
+		if ( empty( $candidates ) ) {
+			return [];
+		}
+
+		$normalize = static function ( string $text ): string {
+			// Fold Latin accents without stripping vowel signs in other scripts.
+			$text = (string) preg_replace( '/(?<=\p{Latin})\p{M}+/u', '', $text );
+			return mb_strtolower( remove_accents( $text ) );
+		};
+		$terms     = DB_Table::query_terms( $query );
+		$segments  = DB_Table::query_segments( $query );
+		if ( empty( $terms ) ) {
+			$segments = array_merge( $segments, DB_Table::query_short_words( $query ) );
+		}
+		// The index ignores its stopwords, so they must not count here either.
+		$terms    = array_diff( array_unique( array_map( $normalize, $terms ) ), self::INNODB_STOPWORDS );
+		$segments = array_unique( array_map( $normalize, $segments ) );
+		$patterns = [];
+		foreach ( array_diff( $terms, $segments ) as $term ) {
+			$patterns[] = '/(?<![\p{L}\p{N}_])' . preg_quote( $term, '/' ) . '/u';
+		}
+		foreach ( $segments as $segment ) {
+			$patterns[] = '/' . preg_quote( $segment, '/' ) . '/u';
+		}
+
+		$coverage = [];
+		foreach ( $candidates as $candidate ) {
+			$text  = $normalize( $candidate['title'] . ' ' . $candidate['content'] );
+			$count = 0;
+			foreach ( $patterns as $pattern ) {
+				$count += 1 === preg_match( $pattern, $text ) ? 1 : 0;
+			}
+			$coverage[ $candidate['key'] ] = $count;
+		}
+		$best = max( $coverage );
+
+		return array_fill_keys( array_keys( array_filter( $coverage, fn( $count ) => $count > 0 && $count === $best ) ), true );
 	}
 
 	/**
@@ -2134,14 +2339,14 @@ class API extends BaseAPI {
 	}
 
 	/**
-	 * The minimum score a chunk must reach to share the context with the best
-	 * match for this query.
+	 * The minimum score a vector chunk must reach relative to the best vector
+	 * match. Keyword candidates do not use this cutoff.
 	 *
 	 * An absolute score cannot tell an answerable question from an
 	 * unanswerable one — a specific question about one table row scores lower
 	 * against its (correct) page than an off-topic question scores against a
-	 * tangential one. So within the absolute noise floor, chunks are kept
-	 * relative to the best match for this query, and the model judges from
+	 * tangential one. So above the vector noise floor, vector chunks are kept
+	 * relative to the best vector match for this query, and the model judges from
 	 * the retrieved text itself whether the question can be answered.
 	 *
 	 * @since 1.5.1
@@ -2152,10 +2357,10 @@ class API extends BaseAPI {
 	 */
 	private static function relative_score_cutoff( $top_score ) {
 		/**
-		 * Filters how close to the best match a chunk must score, as a ratio
-		 * of the top score (0–1), to be included in the chat context. A higher
-		 * value keeps only near-equal matches; 0 keeps everything above the
-		 * similarity score threshold.
+		 * Filters how close to the best vector match a vector chunk must score,
+		 * as a ratio (0–1). A higher value keeps only near-equal vector matches;
+		 * 0 keeps every vector hit above the similarity threshold. Keyword hits
+		 * are not cut by this ratio.
 		 *
 		 * @since 1.5.1
 		 *
@@ -2223,10 +2428,11 @@ class API extends BaseAPI {
 	 * @param array<int, float> $message_vector Message vector.
 	 * @param float             $similarity_score_threshold Cosine similarity score.
 	 * @param int               $tokens_threshold Tokens threshold for final data.
+	 * @param string            $query Optional. The visitor's question, for the keyword search. Default ''.
 	 *
 	 * @return string The matched chunks, or the whole knowledge base when it fits the token budget.
 	 */
-	public function search_knowledge_base( $message_vector, $similarity_score_threshold = 0.25, $tokens_threshold = 2000 ) {
+	public function search_knowledge_base( $message_vector, $similarity_score_threshold = 0.25, $tokens_threshold = 2000, $query = '' ) {
 		$this->source_post_ids = [];
 		$this->retrieval_trace = [];
 		$this->chunk_scores    = [];
@@ -2244,9 +2450,19 @@ class API extends BaseAPI {
 		 */
 		$tokens_threshold = (int) apply_filters( 'hyve_chat_context_token_limit', $tokens_threshold );
 
-		$context = Qdrant_API::is_active()
-			? $this->search_knowledge_base_qdrant( $message_vector, $similarity_score_threshold, $tokens_threshold )
-			: $this->search_knowledge_base_wp( $message_vector, $similarity_score_threshold, $tokens_threshold );
+		$settings = self::hybrid_settings();
+		$limit    = max( 1, (int) $settings['candidates'] );
+		$query    = trim( (string) $query );
+		$vector   = [];
+
+		if ( ! empty( $message_vector ) ) {
+			$vector = Qdrant_API::is_active()
+				? $this->vector_candidates_qdrant( $message_vector, $similarity_score_threshold, $limit )
+				: $this->vector_candidates_wp( $message_vector, $similarity_score_threshold, $limit );
+		}
+
+		$lexical = '' !== $query ? $this->lexical_candidates( $query, $limit ) : [];
+		$context = $this->assemble_context( $this->fuse_candidates( $vector, $lexical, $query, $settings ), $tokens_threshold, $query );
 
 		// A knowledge base that fits the budget goes in whole: same cost, and
 		// no gamble on the threshold. The scored search still picks the sources.
@@ -2287,10 +2503,12 @@ class API extends BaseAPI {
 			}
 
 			$context .= "\n ===START POST=== " . $chunk->post_title . ' - ' . $chunk->post_content . ' ===END POST===';
+			$scores   = $this->chunk_scores[ self::candidate_key( intval( $chunk->post_id ), $chunk->post_content ) ] ?? [];
 			$trace[]  = [
 				'post_id' => intval( $chunk->post_id ),
 				'title'   => (string) $chunk->post_title,
-				'score'   => $this->chunk_scores[ self::chunk_key( intval( $chunk->post_id ), $chunk->post_content ) ] ?? null,
+				'score'   => $scores['score'] ?? null,
+				'lexical' => $scores['lexical'] ?? null,
 				'tokens'  => intval( $chunk->token_count ),
 			];
 		}
@@ -2300,18 +2518,6 @@ class API extends BaseAPI {
 		}
 
 		return $context;
-	}
-
-	/**
-	 * Identify one chunk by its source and text, which both storages carry.
-	 *
-	 * @param int    $post_id The source post ID.
-	 * @param string $content The chunk text.
-	 *
-	 * @return string
-	 */
-	private static function chunk_key( int $post_id, string $content ): string {
-		return $post_id . ':' . md5( $content );
 	}
 
 	/**
@@ -3138,14 +3344,11 @@ class API extends BaseAPI {
 		// the context on its own budget.
 		$retrieval_query = $this->build_retrieval_query( $message, $record_id, $request->get_param( 'thread_id' ) );
 
-		$message_vector = $openai->create_embeddings( $retrieval_query );
-
-		if ( is_wp_error( $message_vector ) ) {
-			return new \WP_Error( 'no_embeddings', __( 'Your message could not be processed. Please try again.', 'hyve-lite' ) );
-		}
-
-		$message_vector = reset( $message_vector );
-		$message_vector = $message_vector->embedding;
+		// Without a vector the keyword search still answers from the knowledge
+		// base, so an embeddings outage degrades the turn instead of failing it.
+		$embedded         = $openai->create_embeddings( $retrieval_query );
+		$embedding_failed = is_wp_error( $embedded ) || empty( $embedded );
+		$message_vector   = $embedding_failed ? [] : (array) reset( $embedded )->embedding;
 
 		if ( $request->get_param( 'thread_id' ) ) {
 			$thread_id = $request->get_param( 'thread_id' );
@@ -3161,9 +3364,10 @@ class API extends BaseAPI {
 		 * Filters the similarity score threshold for knowledge base search.
 		 *
 		 * The similarity score threshold determines the minimum cosine similarity
-		 * required for an article to be considered relevant to the user's query.
-		 * This is a noise floor: within it, only chunks scoring close to the best
-		 * match are kept (see `hyve_context_score_ratio`), and the model judges
+		 * required for a vector hit to be considered relevant to the user's query.
+		 * Above this floor, only vector chunks close to the best vector match
+		 * are kept (see `hyve_context_score_ratio`). Keyword hits bypass both
+		 * vector thresholds, and the model judges
 		 * from the retrieved text whether the question can be answered. A higher
 		 * value means stricter matching, while a lower value allows for broader
 		 * results.
@@ -3174,7 +3378,11 @@ class API extends BaseAPI {
 		 */
 		$similarity_score_threshold = apply_filters( 'hyve_similarity_score_threshold', 0.25 );
 
-		$article_context = $this->search_knowledge_base( $message_vector, $similarity_score_threshold );
+		// The keyword pass reads a capped number of terms, so the message goes
+		// first or a long history crowds its words out.
+		$keyword_query = $message . "\n" . $retrieval_query;
+
+		$article_context = $this->search_knowledge_base( $message_vector, $similarity_score_threshold, 2000, $keyword_query );
 
 		if ( $page ) {
 			$article_context .= Page_Context::instance()->context_block( $page, $article_context );
@@ -3206,6 +3414,10 @@ class API extends BaseAPI {
 			'started'   => microtime( true ),
 		];
 
+		if ( $embedding_failed ) {
+			$this->chat_debug['embedding_failed'] = true;
+		}
+
 		if ( '' !== $page_url ) {
 			$this->chat_debug['page'] = $page_url;
 		}
@@ -3214,7 +3426,9 @@ class API extends BaseAPI {
 			$this->chat_debug['page_context'] = true;
 		}
 
-		self::cache_question_vector( $message, $message_vector );
+		if ( ! $embedding_failed ) {
+			self::cache_question_vector( $message, $message_vector );
+		}
 
 		return [
 			'thread_id' => $thread_id,

@@ -1,3 +1,11 @@
+##### [Version 2.0.4](https://github.com/Codeinwp/hyve-lite/compare/v2.0.3...v2.0.4) (2026-10-22)
+
+- Added AI agent support: let AI assistants read and change your Hyve settings [PRO]
+- Fixed Connect unanswered questions not appearing in FAQ list
+- Fixed Connect knowledge base storing page-builder markup instead of text
+- Fixed chat favoring the current page over matching knowledge answers
+- Updated dependencies
+
 ##### [Version 2.0.3](https://github.com/Codeinwp/hyve-lite/compare/v2.0.2...v2.0.3) (2026-09-28)
 
 - Enhanced Security
