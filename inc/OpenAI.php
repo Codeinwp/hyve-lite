@@ -22,6 +22,15 @@ class OpenAI {
 	const MAX_TOOL_ITERATIONS = 5;
 
 	/**
+	 * Chat models OpenAI has shut down. A stored one falls back to the default.
+	 *
+	 * @see https://platform.openai.com/docs/deprecations
+	 *
+	 * @var string[]
+	 */
+	const RETIRED_CHAT_MODELS = [ 'gpt-4.1-nano' ];
+
+	/**
 	 * Base URL.
 	 *
 	 * @var string
@@ -298,14 +307,15 @@ PROMPT;
 	 * GPT-3.5 models don't support the structured-output (`json_schema`) response
 	 * format Hyve requires, so they always error. Any stored GPT-3.5 model (no
 	 * longer offered in the UI) falls back to the default so existing sites keep
-	 * working without manual intervention.
+	 * working without manual intervention. The same applies to models listed in
+	 * `RETIRED_CHAT_MODELS`, which OpenAI has shut down.
 	 *
 	 * @param mixed $model The stored chat model.
 	 *
 	 * @return string The model to use for requests.
 	 */
 	public static function resolve_chat_model( $model ) {
-		if ( ! is_string( $model ) || '' === $model || 0 === strpos( $model, 'gpt-3.5' ) ) {
+		if ( ! is_string( $model ) || '' === $model || 0 === strpos( $model, 'gpt-3.5' ) || in_array( $model, self::RETIRED_CHAT_MODELS, true ) ) {
 			return 'gpt-5.4-nano';
 		}
 

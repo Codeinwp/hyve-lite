@@ -24,6 +24,9 @@ import FieldRow from '../components/FieldRow';
 import useSaveSettings from '../data/useSaveSettings';
 import { navigate } from '../router';
 
+// Models OpenAI has shut down. Saved ones fall back to the default.
+const RETIRED_MODELS = [ 'gpt-4.1-nano' ];
+
 /**
  * Selectable chat models.
  *
@@ -108,14 +111,6 @@ const MODEL_OPTIONS = [
 		value: 'gpt-4.1-mini',
 		description: __(
 			'Faster and cheaper than GPT-4.1, a solid all-rounder.',
-			'hyve-lite'
-		),
-	},
-	{
-		label: __( 'GPT-4.1 nano', 'hyve-lite' ),
-		value: 'gpt-4.1-nano',
-		description: __(
-			'Ultra-fast and very low cost, best for lightweight chats.',
 			'hyve-lite'
 		),
 	},
@@ -217,12 +212,15 @@ export const ProviderPanel = () => {
 		}
 	};
 
-	// GPT-3.5 is no longer offered (it errors with structured outputs); show
-	// the default instead. A still-valid but no-longer-listed saved model is
-	// appended so it isn't silently lost.
+	// GPT-3.5 is no longer offered (it errors with structured outputs), and
+	// models OpenAI has shut down always error; show the default instead. Keep
+	// RETIRED_MODELS in sync with OpenAI::RETIRED_CHAT_MODELS. A still-valid
+	// but no-longer-listed saved model is appended so it isn't silently lost.
 	const savedModel = settings.chat_model;
 	const isLegacyModel =
-		'string' === typeof savedModel && savedModel.startsWith( 'gpt-3.5' );
+		'string' === typeof savedModel &&
+		( savedModel.startsWith( 'gpt-3.5' ) ||
+			RETIRED_MODELS.includes( savedModel ) );
 	const selectedModel =
 		( isLegacyModel ? 'gpt-5.4-nano' : savedModel ) || 'gpt-5.4-nano';
 
