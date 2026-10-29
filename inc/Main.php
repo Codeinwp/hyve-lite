@@ -1192,6 +1192,8 @@ class Main {
 		$config['cta_label'] = __( 'Get Hyve Pro', 'hyve-lite' );
 		$config['message']   = __( 'Chat history, missed question tracking, appearance customization. Make your chatbot actually useful. Exclusively for existing Hyve users.', 'hyve-lite' );
 		// translators: %s is the discount percentage.
+		$config['upgrade_menu_text'] = sprintf( __( 'BF Sale - %s off', 'hyve-lite' ), '60%' );
+		// translators: %s is the discount percentage.
 		$config['plugin_meta_message'] = sprintf( __( 'Black Friday Sale - %s off', 'hyve-lite' ), '60%' );
 		$config['sale_url']            = add_query_arg(
 			[
