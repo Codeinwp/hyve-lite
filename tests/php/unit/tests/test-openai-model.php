@@ -21,6 +21,13 @@ class Test_OpenAI_Model extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Models OpenAI has shut down fall back to the default.
+	 */
+	public function test_retired_models_fall_back_to_default() {
+		$this->assertEquals( 'gpt-5.4-nano', OpenAI::resolve_chat_model( 'gpt-4.1-nano' ) );
+	}
+
+	/**
 	 * Empty or invalid values fall back to the default.
 	 */
 	public function test_empty_or_invalid_falls_back_to_default() {
