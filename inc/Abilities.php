@@ -333,9 +333,13 @@ class Abilities {
 				'output_schema'       => [
 					'type'       => 'object',
 					'properties' => [
-						'query'     => [ 'type' => 'string' ],
-						'threshold' => [ 'type' => 'number' ],
-						'sources'   => [
+						'query'            => [ 'type' => 'string' ],
+						'threshold'        => [ 'type' => 'number' ],
+						'embedding_failed' => [
+							'type'        => 'boolean',
+							'description' => 'True when the embeddings call failed and only the keyword search ran.',
+						],
+						'sources'          => [
 							'type'  => 'array',
 							'items' => [
 								'type'       => 'object',
@@ -346,7 +350,7 @@ class Abilities {
 								],
 							],
 						],
-						'chunks'    => [
+						'chunks'           => [
 							'type'  => 'array',
 							'items' => [
 								'type'       => 'object',
@@ -354,6 +358,7 @@ class Abilities {
 									'source_id' => [ 'type' => 'integer' ],
 									'title'     => [ 'type' => 'string' ],
 									'score'     => [ 'type' => 'number' ],
+									'lexical'   => [ 'type' => 'number' ],
 									'tokens'    => [ 'type' => 'integer' ],
 									'included'  => [ 'type' => 'boolean' ],
 								],
@@ -939,17 +944,11 @@ class Abilities {
 			return new \WP_Error( 'hyve_query_flagged', __( 'This message was flagged by OpenAI moderation and was not answered.', 'hyve-lite' ) );
 		}
 
-		$vector = $openai->create_embeddings( $query );
-
-		if ( is_wp_error( $vector ) ) {
-			return $this->readable_error( $vector );
-		}
-
-		$vector = reset( $vector );
-
-		if ( ! is_object( $vector ) || ! isset( $vector->embedding ) ) {
-			return new \WP_Error( 'hyve_no_embeddings', __( 'Your message could not be processed. Please try again.', 'hyve-lite' ) );
-		}
+		// As in chat, a failed embeddings call leaves the keyword pass to
+		// retrieve on its own instead of ending the search.
+		$embedded  = $openai->create_embeddings( $query );
+		$first     = is_wp_error( $embedded ) ? null : reset( $embedded );
+		$embedding = is_object( $first ) && isset( $first->embedding ) ? (array) $first->embedding : [];
 
 		if ( isset( $input['threshold'] ) && is_numeric( $input['threshold'] ) ) {
 			$threshold = min( 1, max( 0, (float) $input['threshold'] ) );
@@ -958,7 +957,7 @@ class Abilities {
 		}
 
 		$api = API::instance();
-		$api->search_knowledge_base( $vector->embedding, $threshold );
+		$api->search_knowledge_base( $embedding, $threshold, 2000, $query );
 
 		$retrieval = $api->get_last_retrieval();
 		$sources   = [];
@@ -978,16 +977,18 @@ class Abilities {
 				'source_id' => isset( $chunk['post_id'] ) ? (int) $chunk['post_id'] : 0,
 				'title'     => isset( $chunk['title'] ) ? (string) $chunk['title'] : '',
 				'score'     => isset( $chunk['score'] ) ? (float) $chunk['score'] : 0.0,
+				'lexical'   => isset( $chunk['lexical'] ) ? (float) $chunk['lexical'] : 0.0,
 				'tokens'    => isset( $chunk['tokens'] ) ? (int) $chunk['tokens'] : 0,
 				'included'  => ! isset( $chunk['included'] ) || (bool) $chunk['included'],
 			];
 		}
 
 		return [
-			'query'     => $query,
-			'threshold' => $threshold,
-			'sources'   => $sources,
-			'chunks'    => $chunks,
+			'query'            => $query,
+			'threshold'        => $threshold,
+			'embedding_failed' => [] === $embedding,
+			'sources'          => $sources,
+			'chunks'           => $chunks,
 		];
 	}
 

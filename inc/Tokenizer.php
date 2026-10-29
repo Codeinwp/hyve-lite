@@ -14,6 +14,32 @@ use guttedgarden\Tiktoken\EncoderProvider;
  */
 class Tokenizer {
 	/**
+	 * Bumped when `html_to_text()` changes what it extracts, so Connect
+	 * reconcile rehashes unedited posts instead of trusting a hash of the
+	 * old text. 1 was the structured extractor; 2 folds contact links.
+	 */
+	const EXTRACTOR_VERSION = 2;
+
+	/**
+	 * Most digit groups of one number-like run compared against a `tel:` target.
+	 */
+	const NUMBER_GROUP_LIMIT = 32;
+
+	/**
+	 * Encoder provider, shared across calls.
+	 *
+	 * @var EncoderProvider|null
+	 */
+	private static $provider = null;
+
+	/**
+	 * The vocabulary failure of this request, rethrown instead of retried.
+	 *
+	 * @var \Exception|null
+	 */
+	private static $failure = null;
+
+	/**
 	 * Convert HTML content into retrieval-friendly plain text.
 	 *
 	 * A plain tag strip destroys the structure that carries meaning: table
@@ -52,6 +78,8 @@ class Tokenizer {
 		// ingest, so a failed strip would drop the page entirely.
 		$content = null === $stripped ? $content : $stripped;
 
+		$content = self::fold_contact_links( $content );
+
 		$content = (string) preg_replace(
 			[
 				// Line breaks become newlines.
@@ -82,6 +110,194 @@ class Tokenizer {
 	}
 
 	/**
+	 * Fold `tel:` and `mailto:` link targets into their anchor text.
+	 *
+	 * "Call us" and "Email the clinic" are often the only place a page keeps
+	 * its phone number and address: the fact lives in the `href`, which the
+	 * tag strip discards. The target is appended as "(…)" unless the anchor
+	 * text already shows it. Other schemes are left alone: navigation is full
+	 * of links, and their URLs would swamp every chunk.
+	 *
+	 * @param string $content HTML content.
+	 *
+	 * @return string
+	 */
+	private static function fold_contact_links( $content ) {
+		// The body runs to the anchor's own `</a>` and stops at the next `<a`,
+		// so an unclosed link neither captures the rest of the page nor
+		// rescans it: possessive, and bounded by the next anchor.
+		// A quoted target may hold spaces ("tel:01274 998877", as some widgets
+		// print a phone field raw); an unquoted one ends at whitespace.
+		$folded = preg_replace_callback(
+			'/<a\b[^>]*?\shref\s*=\s*(?:"\s*(?<double>(?:tel|mailto):[^"]*)"|\'\s*(?<single>(?:tel|mailto):[^\']*)\'|(?<bare>(?:tel|mailto):[^\s>]*))[^>]*>(?<body>[^<]*+(?:<(?!\/a\s*>|a[\s>])[^<]*+)*+)(?<close><\/a\s*>)/i',
+			[ self::class, 'fold_contact_link' ],
+			$content
+		);
+
+		return null === $folded ? $content : $folded;
+	}
+
+	/**
+	 * Append one contact link's target to its anchor text.
+	 *
+	 * @param array<int|string, string> $link The match: the tag, the target under
+	 *                                        one of `double`, `single` or `bare`,
+	 *                                        then `body` and `close`.
+	 *
+	 * @return string
+	 */
+	private static function fold_contact_link( array $link ) {
+		$tag    = $link[0];
+		$body   = $link['body'];
+		$close  = $link['close'];
+		$target = '';
+
+		foreach ( [ 'double', 'single', 'bare' ] as $quoting ) {
+			if ( '' !== ( $link[ $quoting ] ?? '' ) ) {
+				$target = $link[ $quoting ];
+				break;
+			}
+		}
+
+		$target = html_entity_decode( $target, ENT_QUOTES, 'UTF-8' );
+		$scheme = strtolower( (string) strstr( $target, ':', true ) );
+		$value  = self::contact_value( $scheme, (string) substr( $target, strlen( $scheme ) + 1 ) );
+
+		if ( '' === $value ) {
+			return $tag;
+		}
+
+		$text = trim( html_entity_decode( wp_strip_all_tags( $body ), ENT_QUOTES, 'UTF-8' ) );
+
+		if ( 'tel' === $scheme ? self::shows_number( $text, $value ) : false !== stripos( $text, $value ) ) {
+			return $tag;
+		}
+
+		// The fold goes after the last text, inside any block the anchor wraps
+		// (a card, a button), so it stays on the label's line. An icon-only
+		// link has no text to attach to, so the target stands alone, spaced
+		// off whatever follows the link.
+		$fold     = '' === $text ? ' ' . $value . ' ' : ' (' . $value . ')';
+		$kept     = (string) preg_replace( '/(?:\s*<\/[a-zA-Z][a-zA-Z0-9]*\s*>)*\s*$/', '', $body );
+		$trailing = (string) substr( $body, strlen( $kept ) );
+
+		return substr( $tag, 0, strlen( $tag ) - strlen( $close ) - strlen( $trailing ) ) . $fold . $trailing . $close;
+	}
+
+	/**
+	 * The storable value of a `tel:` or `mailto:` target.
+	 *
+	 * `mailto:x@y?subject=…` carries a query; the address is before it. A
+	 * `tel:` URI carries `;ext=` and `;phone-context=` parameters, of which
+	 * the extension is kept as prose.
+	 *
+	 * @param string $scheme The scheme, `tel` or `mailto`.
+	 * @param string $target The target after the scheme.
+	 *
+	 * @return string Empty when the target carries nothing worth storing.
+	 */
+	private static function contact_value( $scheme, $target ) {
+		$value = trim( rawurldecode( explode( '?', $target, 2 )[0] ) );
+
+		if ( 'tel' !== $scheme ) {
+			return $value;
+		}
+
+		$parts = explode( ';', $value );
+		$value = trim( array_shift( $parts ) );
+
+		// A placeholder such as `tel:+` or `tel:#` has nothing to store.
+		if ( ! preg_match( '/[0-9a-zA-Z]/', $value ) ) {
+			return '';
+		}
+
+		foreach ( $parts as $part ) {
+			if ( 0 === stripos( trim( $part ), 'ext=' ) ) {
+				$value .= ' ext. ' . trim( substr( trim( $part ), 4 ) );
+			}
+		}
+
+		return $value;
+	}
+
+	/**
+	 * Whether anchor text already shows the linked phone number.
+	 *
+	 * Each number-like run in the text is compared on digits, from the end,
+	 * so "01274 998877" matches `tel:+441274998877` despite the national
+	 * prefix. A run is also tried group by group, so a neighbouring "(24
+	 * hours)" or "Mon-Fri 9-5" does not get in the way. A run written with
+	 * its own "+" country code is read from its start: against a target that
+	 * also has one it must be the same number ("+49 441274998877" is not
+	 * `tel:+441274998877`), and against a national target it may add the
+	 * code ("+44 1274 998877" shows `tel:01274998877`).
+	 *
+	 * @param string $text   The anchor text.
+	 * @param string $number The `tel:` value.
+	 *
+	 * @return bool
+	 */
+	private static function shows_number( $text, $number ) {
+		$linked = ltrim( (string) preg_replace( '/\D+/', '', explode( ' ext.', $number, 2 )[0] ), '0' );
+		// "+" or the "00" dialling prefix: the number carries its country code.
+		$linked_coded = 1 === preg_match( '/^(?:\+|00)/', $number );
+
+		// Too few digits to compare (a vanity number): fall back to the text.
+		if ( strlen( $linked ) < 7 ) {
+			return false !== stripos( $text, $number );
+		}
+
+		// "+44 (0)1274" shows a trunk prefix the international form omits.
+		preg_match_all( '/\+?\d[\d\s().-]*\d/', str_replace( '(0)', '', $text ), $runs );
+
+		foreach ( $runs[0] as $run ) {
+			$shown_coded = 1 === preg_match( '/^(?:\+|00)/', $run );
+			$groups      = (array) preg_split( '/\D+/', $run, -1, PREG_SPLIT_NO_EMPTY );
+			// Spans are quadratic in the groups; a run this long is a table of
+			// numbers, not a phone number, and a miss only repeats the target.
+			$count = min( count( $groups ), self::NUMBER_GROUP_LIMIT );
+
+			for ( $start = 0; $start < ( $shown_coded ? 1 : $count ); $start++ ) {
+				$shown = '';
+
+				for ( $end = $start; $end < $count; $end++ ) {
+					$shown .= $groups[ $end ];
+
+					if ( self::same_number( ltrim( $shown, '0' ), $linked, $shown_coded, $linked_coded ) ) {
+						return true;
+					}
+				}
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Whether a shown digit string is the linked number.
+	 *
+	 * @param string $shown        Digits shown in the text, leading zeros dropped.
+	 * @param string $linked       Digits of the `tel:` value, leading zeros dropped.
+	 * @param bool   $shown_coded  Whether the shown digits start with a "+" or "00" country code.
+	 * @param bool   $linked_coded Whether the `tel:` value starts with a "+" or "00" country code.
+	 *
+	 * @return bool
+	 */
+	private static function same_number( $shown, $linked, $shown_coded, $linked_coded ) {
+		if ( $shown_coded && $linked_coded ) {
+			return $shown === $linked;
+		}
+
+		$length = min( strlen( $shown ), strlen( $linked ) );
+
+		if ( $length < 7 || ( $shown_coded && strlen( $shown ) < strlen( $linked ) ) ) {
+			return false;
+		}
+
+		return substr( $shown, -$length ) === substr( $linked, -$length );
+	}
+
+	/**
 	 * Tokenize data.
 	 *
 	 * @param array<string, mixed> $post Post data.
@@ -89,10 +305,7 @@ class Tokenizer {
 	 * @return array<array<string, mixed>>
 	 */
 	public static function tokenize( $post ) {
-		$provider = new EncoderProvider();
-		$provider->setVocabCache( get_temp_dir() );
-
-		$encoder = $provider->get( 'cl100k_base' );
+		$encoder = self::encoder();
 
 		// Chunks are sized, embedded and sent to the model as this cleaned
 		// text, so sizes are measured on what is actually stored rather than
@@ -233,14 +446,31 @@ class Tokenizer {
 	}
 
 	/**
-	 * The cl100k_base encoder the chunk budgets are measured with.
+	 * The cl100k_base encoder, built once per request: loading the vocabulary
+	 * is the expensive part.
 	 *
 	 * @return \guttedgarden\Tiktoken\Encoder
+	 * @throws \RuntimeException When the vocabulary cannot be loaded.
+	 * @throws \Exception The failure remembered from earlier in the request.
 	 */
 	private static function encoder(): \guttedgarden\Tiktoken\Encoder {
-		$provider = new EncoderProvider();
-		$provider->setVocabCache( get_temp_dir() );
+		if ( null !== self::$failure ) {
+			throw self::$failure;
+		}
 
-		return $provider->get( 'cl100k_base' );
+		if ( null === self::$provider ) {
+			self::$provider = new EncoderProvider();
+			self::$provider->setVocabLoader( new Vocab_Loader() );
+		}
+
+		try {
+			return self::$provider->get( 'cl100k_base' );
+		} catch ( \Exception $e ) {
+			// Remembered for the request: a cron run over several posts must
+			// not wait out one download timeout per post.
+			self::$failure = $e;
+
+			throw $e;
+		}
 	}
 }
