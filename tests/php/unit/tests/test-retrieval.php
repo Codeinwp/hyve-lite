@@ -645,7 +645,8 @@ class RetrievalTest extends WP_UnitTestCase {
 	public function test_qdrant_path_fuses_local_keyword_hits() {
 		update_option( 'hyve_qdrant_status', 'active' );
 
-		$this->seed_text( 'Clan guide', 'ArtIsWar - cercato anche come Art Is War, ArtisWar o artiswar.', [ 0.0, 1.0, 0.0 ], 100, 4242 );
+		$id = $this->seed_text( 'Clan guide', 'ArtIsWar - cercato anche come Art Is War, ArtisWar o artiswar.', [ 0.0, 1.0, 0.0 ], 100, 4242 );
+		$this->table->update( $id, [ 'storage' => 'Qdrant' ] );
 		$this->commit_seeds();
 
 		$this->set_qdrant_instance(

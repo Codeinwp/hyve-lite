@@ -435,6 +435,47 @@ class DB_Table {
 	}
 
 	/**
+	 * Get processed rows whose vectors still live only in this table.
+	 *
+	 * Only processed rows have an embedding to migrate; scheduled ones are
+	 * sent to Qdrant when they are processed. Rows with no vector at all
+	 * (a hosted export can omit it) have nothing to move and are left out,
+	 * so they never count as pending or as moved.
+	 *
+	 * @since 2.0.5
+	 *
+	 * @param int $limit The limit.
+	 *
+	 * @return array<object{
+	 *     id: string,
+	 *     post_id: string,
+	 *     post_title: string,
+	 *     post_content: string,
+	 *     embeddings: string,
+	 *     token_count: string,
+	 *     storage: string
+	 * }>
+	 */
+	public function get_unmigrated( int $limit = 100 ): array {
+		global $wpdb;
+
+		return $wpdb->get_results( $wpdb->prepare( "SELECT * FROM %i WHERE storage = %s AND post_status = %s AND embeddings NOT IN ('', '[]', 'null') ORDER BY id ASC LIMIT %d", $this->table_name, 'WordPress', 'processed', $limit ) );
+	}
+
+	/**
+	 * Count processed rows whose vectors still live only in this table; see get_unmigrated().
+	 *
+	 * @since 2.0.5
+	 *
+	 * @return int
+	 */
+	public function get_unmigrated_count(): int {
+		global $wpdb;
+
+		return (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM %i WHERE storage = %s AND post_status = %s AND embeddings NOT IN ('', '[]', 'null')", $this->table_name, 'WordPress', 'processed' ) );
+	}
+
+	/**
 	 * Count rows held in a given storage backend.
 	 *
 	 * @param string $storage Storage backend (e.g. WordPress|Qdrant).

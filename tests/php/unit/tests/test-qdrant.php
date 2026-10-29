@@ -21,11 +21,22 @@ class QdrantTest extends WP_UnitTestCase {
 	 * @return WP_Error
 	 */
 	private function handle( $code, $message = 'Error' ) {
+		return $this->handle_throwable( new Exception( $message, $code ) );
+	}
+
+	/**
+	 * Invoke the private handle_exception() method with any throwable.
+	 *
+	 * @param Throwable $e The throwable.
+	 *
+	 * @return WP_Error
+	 */
+	private function handle_throwable( $e ) {
 		$qdrant = new Qdrant_API();
 		$method = new ReflectionMethod( $qdrant, 'handle_exception' );
 		$method->setAccessible( true );
 
-		return $method->invoke( $qdrant, new Exception( $message, $code ) );
+		return $method->invoke( $qdrant, $e );
 	}
 
 	/**
@@ -75,6 +86,23 @@ class QdrantTest extends WP_UnitTestCase {
 		$saved = get_option( Qdrant_API::ERROR_OPTION_KEY );
 
 		$this->assertEquals( 500, $saved['code'] );
+		$this->assertEquals( 'active', get_option( 'hyve_qdrant_status' ) );
+	}
+
+	/**
+	 * The Qdrant client throws a bare Error when the cluster cannot be
+	 * reached (it reads a status code off a missing response). That must
+	 * surface as a transient error with a readable message, not a fatal.
+	 */
+	public function test_connection_failure_error_is_transient_and_readable() {
+		update_option( 'hyve_qdrant_status', 'active' );
+
+		$result = $this->handle_throwable( new Error( 'Call to a member function getStatusCode() on null' ) );
+		$saved  = get_option( Qdrant_API::ERROR_OPTION_KEY );
+
+		$this->assertWPError( $result );
+		$this->assertStringNotContainsString( 'getStatusCode', $result->get_error_message() );
+		$this->assertStringNotContainsString( 'getStatusCode', $saved['message'] );
 		$this->assertEquals( 'active', get_option( 'hyve_qdrant_status' ) );
 	}
 

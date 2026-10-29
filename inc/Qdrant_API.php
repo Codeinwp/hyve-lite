@@ -9,7 +9,6 @@ namespace ThemeIsle\HyveLite;
 
 use ThemeIsle\HyveLite\Main;
 use Qdrant\Qdrant;
-use Qdrant\Http\GuzzleClient;
 use Qdrant\Endpoints\Collections;
 use Qdrant\Models\PointsStruct;
 use Qdrant\Models\PointStruct;
@@ -38,6 +37,46 @@ class Qdrant_API {
 	 * @var string
 	 */
 	public const ERROR_OPTION_KEY = 'hyve_qdrant_api_error';
+
+	/**
+	 * Cron hook that moves local vectors to Qdrant.
+	 *
+	 * @var string
+	 */
+	public const MIGRATE_HOOK = 'hyve_lite_migrate_data';
+
+	/**
+	 * Delay before a failed migration batch is tried again, in seconds.
+	 *
+	 * @var int
+	 */
+	public const MIGRATE_RETRY_DELAY = 5 * MINUTE_IN_SECONDS;
+
+	/**
+	 * Shared retry deadline, independent of WordPress's cron snapshots.
+	 *
+	 * @var string
+	 */
+	public const MIGRATE_RETRY_AT = 'hyve_qdrant_migration_retry_at';
+
+	/**
+	 * Option held while a migration batch is uploading, so concurrent cron
+	 * runs normally serialize. Claimed with INSERT IGNORE; stale after
+	 * MIGRATE_LOCK_TTL. An upload that outlives the TTL (a dripping response
+	 * on a host without cURL) can overlap the next run; that is harmless
+	 * because migration points carry stable ids, so the repeat upsert
+	 * overwrites the same points rather than duplicating them.
+	 *
+	 * @var string
+	 */
+	public const MIGRATE_LOCK = 'hyve_qdrant_migration_lock';
+
+	/**
+	 * Seconds after which a migration lock is treated as abandoned.
+	 *
+	 * @var int
+	 */
+	public const MIGRATE_LOCK_TTL = 10 * MINUTE_IN_SECONDS;
 
 	/**
 	 * Qdrant Client. Unset when the stored credentials are incomplete.
@@ -84,10 +123,10 @@ class Qdrant_API {
 		$config = new \Qdrant\Config( $endpoint );
 		$config->setApiKey( $api_key );
 
-		$transport    = new GuzzleClient( $config );
+		$transport    = new Qdrant_HTTP_Client( $config );
 		$this->client = new Qdrant( $transport );
 
-		add_action( 'hyve_lite_migrate_data', [ $this, 'migrate_data' ] );
+		add_action( self::MIGRATE_HOOK, [ $this, 'migrate_data' ] );
 	}
 
 	/**
@@ -119,21 +158,205 @@ class Qdrant_API {
 		}
 
 		update_option( 'hyve_qdrant_status', 'active' );
+		delete_option( self::MIGRATE_RETRY_AT );
 
-		$existing_chunks = DB_Table::instance()->get_count_by_storage( 'WordPress' );
+		$existing_chunks = DB_Table::instance()->get_unmigrated_count();
 
 		if ( $existing_chunks > 0 ) {
 			update_option(
 				'hyve_qdrant_migration',
 				[
-					'total'       => (int) $existing_chunks,
+					'total'       => $existing_chunks,
 					'current'     => 0,
 					'in_progress' => true,
-				] 
+				]
 			);
 
-			wp_schedule_single_event( time(), 'hyve_lite_migrate_data' );
+			self::schedule_migration();
 		}
+
+		return true;
+	}
+
+	/**
+	 * Schedule the next migration batch unless one is already pending.
+	 *
+	 * @since 2.0.5
+	 *
+	 * @param int $delay Seconds from now.
+	 *
+	 * @return void
+	 */
+	public static function schedule_migration( int $delay = 0 ) {
+		if ( false !== wp_next_scheduled( self::MIGRATE_HOOK ) ) {
+			return;
+		}
+
+		wp_schedule_single_event( time() + max( 0, $delay ), self::MIGRATE_HOOK );
+	}
+
+	/**
+	 * Re-arm a migration whose cron event was lost (a fatal mid-batch), or
+	 * run a batch at shutdown when the event is overdue because WP-Cron never
+	 * fires (blocked by HTTP auth, DISABLE_WP_CRON without a system cron).
+	 * Skipped while a batch is uploading: that run schedules the next one
+	 * itself, and a parallel run would upload the same rows.
+	 *
+	 * @since 2.0.5
+	 *
+	 * @return void
+	 */
+	private static function rearm_migration() {
+		if ( self::is_locked() ) {
+			return;
+		}
+
+		$next = wp_next_scheduled( self::MIGRATE_HOOK );
+
+		if ( false === $next ) {
+			self::schedule_migration();
+			return;
+		}
+
+		if ( $next <= time() - self::MIGRATE_RETRY_DELAY && ! has_action( 'shutdown', [ self::instance(), 'migrate_data' ] ) ) {
+			add_action( 'shutdown', [ self::instance(), 'migrate_data' ] );
+		}
+	}
+
+	/**
+	 * Whether a migration batch holds the lock and it is not stale.
+	 *
+	 * @since 2.0.5
+	 *
+	 * @return bool
+	 */
+	private static function is_locked() {
+		$lock = self::get_lock();
+
+		return false !== $lock && $lock['time'] > time() - self::MIGRATE_LOCK_TTL;
+	}
+
+	/**
+	 * Read a migration lock with a valid token and timestamp.
+	 *
+	 * @since 2.0.5
+	 *
+	 * @return array{token: string, time: int}|false
+	 */
+	private static function get_lock() {
+		$lock = get_option( self::MIGRATE_LOCK, false );
+
+		if ( ! is_array( $lock ) || ! isset( $lock['token'], $lock['time'] ) || ! is_string( $lock['token'] ) || ! is_int( $lock['time'] ) ) {
+			return false;
+		}
+
+		return [
+			'token' => $lock['token'],
+			'time'  => $lock['time'],
+		];
+	}
+
+	/**
+	 * Claim the migration lock.
+	 *
+	 * @since 2.0.5
+	 *
+	 * @return string|false The token to release it with, or false when another run holds it.
+	 */
+	private static function acquire_lock() {
+		global $wpdb;
+
+		$lock = self::get_lock();
+
+		if ( false !== $lock && $lock['time'] > time() - self::MIGRATE_LOCK_TTL ) {
+			return false;
+		}
+
+		if ( false !== $lock ) {
+			self::delete_lock( $lock );
+		}
+
+		$token = wp_generate_uuid4();
+		$value = [
+			'token' => $token,
+			'time'  => time(),
+		];
+
+		// add_option() can overwrite a concurrent insert through ON DUPLICATE KEY UPDATE.
+		$claimed = $wpdb->query(
+			$wpdb->prepare(
+				"INSERT IGNORE INTO $wpdb->options (option_name, option_value, autoload) VALUES (%s, %s, 'no')",
+				self::MIGRATE_LOCK,
+				maybe_serialize( $value )
+			)
+		);
+		wp_cache_delete( self::MIGRATE_LOCK, 'options' );
+		wp_cache_delete( 'notoptions', 'options' );
+
+		if ( 1 !== $claimed ) {
+			return false;
+		}
+
+		return $token;
+	}
+
+	/**
+	 * Release the migration lock, only if this run still holds it.
+	 *
+	 * @since 2.0.5
+	 *
+	 * @param string $token The token acquire_lock() returned.
+	 *
+	 * @return void
+	 */
+	private static function release_lock( $token ) {
+		$lock = self::get_lock();
+
+		if ( false !== $lock && $lock['token'] === $token ) {
+			self::delete_lock( $lock );
+		}
+	}
+
+	/**
+	 * Delete only the lock that was read, preserving a concurrent replacement.
+	 *
+	 * @since 2.0.5
+	 *
+	 * @param array{token: string, time: int} $lock The stored lock.
+	 *
+	 * @return void
+	 */
+	private static function delete_lock( array $lock ) {
+		global $wpdb;
+
+		$wpdb->query(
+			$wpdb->prepare(
+				"DELETE FROM $wpdb->options WHERE option_name = %s AND option_value = %s",
+				self::MIGRATE_LOCK,
+				maybe_serialize( $lock )
+			)
+		);
+		wp_cache_delete( self::MIGRATE_LOCK, 'options' );
+	}
+
+	/**
+	 * Whether local chunks are still waiting to be moved to Qdrant.
+	 *
+	 * Chat must keep answering from the local vectors until this is false:
+	 * Qdrant only holds the chunks the migration has already uploaded. A
+	 * stalled migration is re-armed here so a site recovers from chat
+	 * traffic alone.
+	 *
+	 * @since 2.0.5
+	 *
+	 * @return bool
+	 */
+	public static function has_pending_migration() {
+		if ( ! self::is_active() || DB_Table::instance()->get_unmigrated_count() < 1 ) {
+			return false;
+		}
+
+		self::rearm_migration();
 
 		return true;
 	}
@@ -183,7 +406,7 @@ class Qdrant_API {
 			}
 
 			return false;
-		} catch ( \Exception $e ) {
+		} catch ( \Throwable $e ) {
 			return $this->handle_exception( $e );
 		}
 	}
@@ -207,7 +430,7 @@ class Qdrant_API {
 			delete_option( self::ERROR_OPTION_KEY );
 
 			return $response['result'];
-		} catch ( \Exception $e ) {
+		} catch ( \Throwable $e ) {
 			return $this->handle_exception( $e );
 		}
 	}
@@ -238,7 +461,7 @@ class Qdrant_API {
 			delete_option( self::ERROR_OPTION_KEY );
 
 			return true;
-		} catch ( \Exception $e ) {
+		} catch ( \Throwable $e ) {
 			return $this->handle_exception( $e );
 		}
 	}
@@ -274,17 +497,17 @@ class Qdrant_API {
 			delete_option( self::ERROR_OPTION_KEY );
 
 			return 'completed' === $response['result']['status'];
-		} catch ( \Exception $e ) {
+		} catch ( \Throwable $e ) {
 			return $this->handle_exception( $e );
 		}
 	}
 
 
 	/**
-	 * Add point to collection.
-	 * 
-	 * @param array<array<string, mixed>> $points Points.
-	 * 
+	 * Add points to collection.
+	 *
+	 * @param array<int, array{id?: string, embeddings: array<int, float>, data: array<string, mixed>}> $points Points. A point without an id gets a random one.
+	 *
 	 * @return bool|\WP_Error
 	 */
 	public function add_points( $points ) {
@@ -300,7 +523,7 @@ class Qdrant_API {
 			foreach ( $points as $point ) {
 				$points_struct->addPoint(
 					new PointStruct(
-						self::random_hash(),
+						$point['id'] ?? self::random_hash(),
 						new VectorStruct( $point['embeddings'], 'embeddings' ),
 						$point['data']
 					)
@@ -312,7 +535,7 @@ class Qdrant_API {
 			delete_option( self::ERROR_OPTION_KEY );
 
 			return 'completed' === $response['result']['status'];
-		} catch ( \Exception $e ) {
+		} catch ( \Throwable $e ) {
 			return $this->handle_exception( $e );
 		}
 	}
@@ -341,7 +564,7 @@ class Qdrant_API {
 			delete_option( self::ERROR_OPTION_KEY );
 
 			return 'acknowledged' === $response['result']['status'];
-		} catch ( \Exception $e ) {
+		} catch ( \Throwable $e ) {
 			return $this->handle_exception( $e );
 		}
 	}
@@ -391,7 +614,7 @@ class Qdrant_API {
 			);
 
 			return $payload;
-		} catch ( \Exception $e ) {
+		} catch ( \Throwable $e ) {
 			return $this->handle_exception( $e );
 		}
 	}
@@ -418,9 +641,26 @@ class Qdrant_API {
 			);
 
 			return 'acknowledged' === $response['result']['status'];
-		} catch ( \Exception $e ) {
-			return new \WP_Error( 'collection_error', $e->getMessage() );
+		} catch ( \Throwable $e ) {
+			return new \WP_Error( 'collection_error', self::throwable_message( $e ) );
 		}
+	}
+
+	/**
+	 * Message for a caught throwable.
+	 *
+	 * The Qdrant client throws a bare Error on a response-less
+	 * RequestException (for example, a TLS verification failure), so give
+	 * a readable cause.
+	 *
+	 * @since 2.0.5
+	 *
+	 * @param \Throwable $e The throwable.
+	 *
+	 * @return string
+	 */
+	private static function throwable_message( $e ) {
+		return $e instanceof \Exception ? $e->getMessage() : __( 'Hyve could not connect to Qdrant.', 'hyve-lite' );
 	}
 
 	/**
@@ -429,25 +669,87 @@ class Qdrant_API {
 	 * @return void
 	 */
 	public function migrate_data() {
-		$db_table = DB_Table::instance();
-		$posts    = $db_table->get_by_storage( 'WordPress' );
+		$token = self::acquire_lock();
 
-		if ( empty( $posts ) ) {
-			$migration_status = get_option( 'hyve_qdrant_migration', [] );
-
-			if ( ! empty( $migration_status ) ) {
-				$migration_status['in_progress'] = false;
-				update_option( 'hyve_qdrant_migration', $migration_status );
-			}
-
+		if ( false === $token ) {
 			return;
 		}
 
-		$points = [];
+		try {
+			// A second request may still cache the overdue event in autoloaded options.
+			wp_cache_delete( 'alloptions', 'options' );
+			wp_cache_delete( 'cron', 'options' );
+			wp_cache_delete( self::MIGRATE_RETRY_AT, 'options' );
+			$next     = wp_next_scheduled( self::MIGRATE_HOOK );
+			$retry_at = (int) get_option( self::MIGRATE_RETRY_AT, 0 );
+
+			// A cron worker may already have captured the event recovered at shutdown.
+			if ( $retry_at > time() ) {
+				if ( false !== $next && $next <= time() ) {
+					wp_unschedule_event( $next, self::MIGRATE_HOOK );
+				}
+				self::schedule_migration( $retry_at - time() );
+				return;
+			}
+
+			// Another request may have recovered the event before this shutdown runs.
+			if ( 'shutdown' === current_action() && ( false === $next || $next > time() - self::MIGRATE_RETRY_DELAY ) ) {
+				return;
+			}
+
+			// WP-Cron consumes its event before dispatch; shutdown recovery must do the same.
+			if ( false !== $next && $next <= time() ) {
+				wp_unschedule_event( $next, self::MIGRATE_HOOK );
+			}
+
+			delete_option( self::MIGRATE_RETRY_AT );
+			$this->migrate_batch();
+		} finally {
+			self::release_lock( $token );
+		}
+	}
+
+	/**
+	 * Upload one batch of local vectors and schedule the next.
+	 *
+	 * @since 2.0.5
+	 *
+	 * @return void
+	 */
+	private function migrate_batch() {
+		if ( ! self::is_active() ) {
+			$this->finish_migration();
+			return;
+		}
+
+		$db_table = DB_Table::instance();
+		$posts    = $db_table->get_unmigrated();
+
+		if ( empty( $posts ) ) {
+			$this->finish_migration();
+			return;
+		}
+
+		$points   = [];
+		$uploaded = [];
 
 		foreach ( $posts as $post ) {
+			$embeddings = json_decode( $post->embeddings, true );
+
+			if ( ! is_array( $embeddings ) || empty( $embeddings ) ) {
+				// Unreadable vector: normalise it to the empty form the
+				// query excludes, so the row is neither moved nor retried.
+				$db_table->update( intval( $post->id ), [ 'embeddings' => '[]' ] );
+				continue;
+			}
+
+			$uploaded[] = intval( $post->id );
+
+			// A stable id makes a retried batch overwrite rather than duplicate
+			// points Qdrant stored before the first response was lost.
 			$points[] = [
-				'embeddings' => json_decode( $post->embeddings, true ),
+				'id'         => self::point_id( 'row-' . $post->id ),
+				'embeddings' => $embeddings,
 				'data'       => [
 					'post_id'      => $post->post_id,
 					'post_title'   => $post->post_title,
@@ -458,40 +760,63 @@ class Qdrant_API {
 			];
 		}
 
-		$qdrant = self::instance();
+		$success = empty( $points ) ? true : $this->add_points( $points );
 
-		$success = $qdrant->add_points( $points );
+		if ( is_wp_error( $success ) || true !== $success ) {
+			// A transient failure keeps the batch local and tries again later;
+			// chat keeps answering from the local vectors meanwhile. A terminal
+			// error has already marked Qdrant inactive, which ends the migration.
+			if ( ! is_wp_error( $success ) ) {
+				update_option(
+					self::ERROR_OPTION_KEY,
+					[
+						'code'     => 'incomplete',
+						'message'  => __( 'Qdrant did not confirm the upload.', 'hyve-lite' ),
+						'date'     => wp_date( 'c' ),
+						'provider' => 'Qdrant',
+					]
+				);
+			}
 
-		if ( is_wp_error( $success ) ) {
+			if ( self::is_active() ) {
+				update_option( self::MIGRATE_RETRY_AT, time() + self::MIGRATE_RETRY_DELAY, false );
+				self::schedule_migration( self::MIGRATE_RETRY_DELAY );
+			} else {
+				$this->finish_migration();
+			}
+
 			return;
 		}
 
-		foreach ( $posts as $post ) {
-			$db_table->update(
-				intval( $post->id ),
-				[
-					'storage' => 'Qdrant',
-				] 
-			);
+		foreach ( $uploaded as $id ) {
+			$db_table->update( $id, [ 'storage' => 'Qdrant' ] );
 		}
 
+		if ( $db_table->get_unmigrated_count() > 0 ) {
+			self::schedule_migration( 10 );
+			return;
+		}
+
+		$this->finish_migration();
+	}
+
+	/**
+	 * Mark the migration as no longer running.
+	 *
+	 * @since 2.0.5
+	 *
+	 * @return void
+	 */
+	private function finish_migration() {
+		delete_option( self::MIGRATE_RETRY_AT );
 		$migration_status = get_option( 'hyve_qdrant_migration', [] );
 
-		$migration_status['current'] += count( $posts );
-
-		$current  = $migration_status['current'] ?? 0;
-		$total    = $migration_status['total'] ?? 0;
-		$has_more = $current < $total;
-
-		if ( ! $has_more ) {
-			$migration_status['in_progress'] = false;
+		if ( empty( $migration_status ) ) {
+			return;
 		}
 
+		$migration_status['in_progress'] = false;
 		update_option( 'hyve_qdrant_migration', $migration_status );
-
-		if ( $has_more ) {
-			wp_schedule_single_event( time() + 10, 'hyve_lite_migrate_data' );
-		}
 	}
 
 	/**
@@ -504,18 +829,19 @@ class Qdrant_API {
 	 *
 	 * @since 1.4.2
 	 *
-	 * @param \Exception $e The caught exception.
+	 * @param \Throwable $e The caught exception.
 	 *
 	 * @return \WP_Error
 	 */
 	private function handle_exception( $e ) {
-		$code = $e->getCode();
+		$code    = $e instanceof \Exception ? $e->getCode() : 0;
+		$message = self::throwable_message( $e );
 
 		update_option(
 			self::ERROR_OPTION_KEY,
 			[
 				'code'     => $code,
-				'message'  => $e->getMessage(),
+				'message'  => $message,
 				'date'     => wp_date( 'c' ),
 				'provider' => 'Qdrant',
 			]
@@ -525,7 +851,7 @@ class Qdrant_API {
 			update_option( 'hyve_qdrant_status', 'inactive' );
 		}
 
-		return new \WP_Error( 'collection_error', $e->getMessage() );
+		return new \WP_Error( 'collection_error', $message );
 	}
 
 	/**
@@ -554,6 +880,8 @@ class Qdrant_API {
 	 *
 	 * @since 1.3.0
 	 *
+	 * @phpstan-impure
+	 *
 	 * @return bool
 	 */
 	public static function is_active() {
@@ -565,10 +893,37 @@ class Qdrant_API {
 	 * 
 	 * @since 1.3.0
 	 * 
-	 * @return array<string, mixed>
+	 * @return array{}|array{total: int, current: int, in_progress: bool, error?: string}
 	 */
 	public static function migration_status() {
-		return get_option( 'hyve_qdrant_migration', [] );
+		$status = get_option( 'hyve_qdrant_migration', [] );
+
+		if ( ! self::is_active() ) {
+			return is_array( $status ) ? $status : [];
+		}
+
+		// Report what is actually left in the table rather than a counter the
+		// cron may never have advanced.
+		$remaining = DB_Table::instance()->get_unmigrated_count();
+		$total     = max( (int) ( $status['total'] ?? 0 ), $remaining );
+
+		if ( $remaining > 0 ) {
+			self::rearm_migration();
+		}
+
+		$status = [
+			'total'       => $total,
+			'current'     => max( 0, $total - $remaining ),
+			'in_progress' => $remaining > 0,
+		];
+
+		$error = get_option( self::ERROR_OPTION_KEY, false );
+
+		if ( $remaining > 0 && is_array( $error ) && ! empty( $error['date'] ) ) {
+			$status['error'] = (string) ( $error['message'] ?? '' );
+		}
+
+		return $status;
 	}
 
 	/**
@@ -579,8 +934,30 @@ class Qdrant_API {
 	 * @return string
 	 */
 	public static function random_hash() {
-		$data = random_bytes( 16 );
+		return self::format_uuid( random_bytes( 16 ) );
+	}
 
+	/**
+	 * Stable point id for a chunk of this site.
+	 *
+	 * @since 2.0.5
+	 *
+	 * @param string $key What the point represents, e.g. the chunk row id.
+	 *
+	 * @return string
+	 */
+	public static function point_id( $key ) {
+		return self::format_uuid( md5( get_site_url() . '|' . $key, true ) );
+	}
+
+	/**
+	 * Lay 16 bytes out as a version 4 UUID, the id format Qdrant accepts.
+	 *
+	 * @param string $data 16 bytes.
+	 *
+	 * @return string
+	 */
+	private static function format_uuid( $data ) {
 		$data[6] = chr( ( ord( $data[6] ) & 0x0f ) | 0x40 );
 		$data[8] = chr( ( ord( $data[8] ) & 0x3f ) | 0x80 );
 
