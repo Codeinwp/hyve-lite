@@ -1753,7 +1753,8 @@ class DB_Table {
 
 	/**
 	 * Record the hash a source last synced to the cloud, plus the post's modified
-	 * time then, so the manifest can reuse it while the post is unchanged.
+	 * time and the extractor version then, so the manifest can reuse it while
+	 * the post and the extraction are unchanged.
 	 *
 	 * @param int    $post_id The source post id.
 	 * @param string $hash    Hash of the content that was synced.
@@ -1763,6 +1764,7 @@ class DB_Table {
 	private function connect_store_synced_hash( $post_id, $hash ) {
 		update_post_meta( (int) $post_id, '_hyve_connect_synced_hash', $hash );
 		update_post_meta( (int) $post_id, '_hyve_connect_synced_modified', (int) get_post_modified_time( 'U', true, $post_id ) );
+		update_post_meta( (int) $post_id, '_hyve_connect_synced_extractor', Tokenizer::EXTRACTOR_VERSION );
 	}
 
 	/**
@@ -1800,7 +1802,8 @@ class DB_Table {
 	}
 
 	/**
-	 * Forget a source's synced markers (its hash and cache-invalidation time).
+	 * Forget a source's synced markers (its hash, cache-invalidation time and
+	 * extractor version).
 	 *
 	 * @param int $post_id The source post id.
 	 *
@@ -1809,6 +1812,7 @@ class DB_Table {
 	public function connect_forget_sync( $post_id ) {
 		delete_post_meta( (int) $post_id, '_hyve_connect_synced_hash' );
 		delete_post_meta( (int) $post_id, '_hyve_connect_synced_modified' );
+		delete_post_meta( (int) $post_id, '_hyve_connect_synced_extractor' );
 	}
 
 	/**
@@ -1933,10 +1937,21 @@ class DB_Table {
 
 			$synced_modified  = (int) get_post_meta( $post_id, '_hyve_connect_synced_modified', true );
 			$current_modified = (int) get_post_modified_time( 'U', true, $post_id );
+			$synced_extractor = (int) get_post_meta( $post_id, '_hyve_connect_synced_extractor', true );
+			$unedited         = '' !== $synced_hash && $synced_modified === $current_modified;
 
-			$hash = ( '' !== $synced_hash && $synced_modified === $current_modified )
-				? $synced_hash
-				: $this->connect_source_hash( $post_id );
+			if ( $unedited && Tokenizer::EXTRACTOR_VERSION === $synced_extractor ) {
+				$hash = $synced_hash;
+			} else {
+				// An unedited post synced by an older extractor is rehashed: its
+				// text may read differently now. When it does not, note the
+				// extractor so the next reconcile reuses the hash again.
+				$hash = $this->connect_source_hash( $post_id );
+
+				if ( $unedited && $hash === $synced_hash ) {
+					update_post_meta( $post_id, '_hyve_connect_synced_extractor', Tokenizer::EXTRACTOR_VERSION );
+				}
+			}
 
 			$manifest[] = [
 				'id'   => $post_id,
