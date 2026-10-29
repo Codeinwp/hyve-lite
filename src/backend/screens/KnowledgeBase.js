@@ -23,7 +23,7 @@ import { addQueryArgs } from '@wordpress/url';
  * Internal dependencies.
  */
 import { getRoutes, navigate } from '../router';
-import { isLicenseActive, onProcessData, setUtm } from '../utils';
+import { chunkCount, isLicenseActive, onProcessData, setUtm } from '../utils';
 import Card from '../components/Card';
 import Chip from '../components/Chip';
 import ChunkLimitNotice from '../components/ChunkLimitNotice';
@@ -272,11 +272,13 @@ const IndexedContent = () => {
 			}
 			actions={
 				<Chip tone="muted">
-					{ sprintf(
-						/* translators: %s: number of knowledge base chunks. */
-						__( '%s chunks', 'hyve-lite' ),
-						Number( totalChunks ?? 0 ).toLocaleString()
-					) }
+					{ null === chunkCount( totalChunks )
+						? __( 'Chunk count unavailable', 'hyve-lite' )
+						: sprintf(
+								/* translators: %s: number of knowledge base chunks. */
+								__( '%s chunks', 'hyve-lite' ),
+								Number( totalChunks ).toLocaleString()
+						  ) }
 				</Chip>
 			}
 		>

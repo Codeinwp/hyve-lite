@@ -52,6 +52,24 @@ class API extends BaseAPI {
 	private $retrieval_trace = [];
 
 	/**
+	 * The scores the last search gave each candidate, keyed by candidate_key().
+	 * Qdrant points carry no row id, so the content stands in.
+	 *
+	 * @var array<string, array{score: float|null, lexical: float|null}>
+	 */
+	private $chunk_scores = [];
+
+	/**
+	 * How the last search built its context: `similarity` for the scored
+	 * search, `kb_full_context` when the whole knowledge base fit the budget.
+	 *
+	 * @since 2.1.0
+	 *
+	 * @var string
+	 */
+	private $retrieval_mode = 'similarity';
+
+	/**
 	 * Debug information collected while preparing the current chat turn (the
 	 * retrieval query, threshold and matched chunks), attached to the recorded
 	 * bot message so the history shows what led to the reply.
@@ -953,10 +971,11 @@ class API extends BaseAPI {
 			$posts_data[] = apply_filters( 'hyve_data_post', $post_data, $post_id );
 		}
 
-		// Connect mode keeps no local rows; the KB footprint is the hosted total.
+		// Connect mode keeps no local rows; the KB footprint is the hosted total,
+		// unknown (not zero) when the platform did not answer.
 		if ( Hyve_Connect::is_active() ) {
 			$connect      = Hyve_Connect::instance()->stats();
-			$total_chunks = isset( $connect['kb']['chunks'] ) ? (int) $connect['kb']['chunks'] : 0;
+			$total_chunks = isset( $connect['kb']['chunks'] ) ? (int) $connect['kb']['chunks'] : null;
 		} else {
 			$total_chunks = $this->table->get_count();
 		}
@@ -2206,12 +2225,16 @@ class API extends BaseAPI {
 		$keyword_sources = self::keyword_source_keys( $ranked, $query );
 
 		foreach ( $ranked as $candidate ) {
-			$trace = [
+			$trace                                   = [
 				'post_id' => (int) $candidate['post_id'],
 				'title'   => (string) $candidate['title'],
 				'score'   => null === $candidate['score'] ? null : round( (float) $candidate['score'], 4 ),
 				'lexical' => null === $candidate['lexical'] ? null : round( (float) $candidate['lexical'], 4 ),
 				'tokens'  => (int) $candidate['tokens'],
+			];
+			$this->chunk_scores[ $candidate['key'] ] = [
+				'score'   => $trace['score'],
+				'lexical' => $trace['lexical'],
 			];
 
 			if ( $used + $candidate['tokens'] > $tokens_threshold ) {
@@ -2407,17 +2430,19 @@ class API extends BaseAPI {
 	 * @param int               $tokens_threshold Tokens threshold for final data.
 	 * @param string            $query Optional. The visitor's question, for the keyword search. Default ''.
 	 *
-	 * @return string The articles blob data that match the given message vector.
+	 * @return string The matched chunks, or the whole knowledge base when it fits the token budget.
 	 */
 	public function search_knowledge_base( $message_vector, $similarity_score_threshold = 0.25, $tokens_threshold = 2000, $query = '' ) {
 		$this->source_post_ids = [];
 		$this->retrieval_trace = [];
+		$this->chunk_scores    = [];
 
 		/**
 		 * Filters the token budget for the knowledge base context sent with a
-		 * chat message. Matched chunks are added best-first until the budget
-		 * is full; a larger budget lets more of the knowledge base reach the
-		 * model at a higher API cost per message.
+		 * chat message. A knowledge base within the budget is sent whole, in
+		 * source order; otherwise matched chunks are added best-first until
+		 * the budget is full. A larger budget lets more of the knowledge base
+		 * reach the model at a higher API cost per message.
 		 *
 		 * @since 1.5.1
 		 *
@@ -2437,8 +2462,78 @@ class API extends BaseAPI {
 		}
 
 		$lexical = '' !== $query ? $this->lexical_candidates( $query, $limit ) : [];
+		$context = $this->assemble_context( $this->fuse_candidates( $vector, $lexical, $query, $settings ), $tokens_threshold, $query );
 
-		return $this->assemble_context( $this->fuse_candidates( $vector, $lexical, $query, $settings ), $tokens_threshold, $query );
+		// A knowledge base that fits the budget goes in whole: same cost, and
+		// no gamble on the threshold. The scored search still picks the sources.
+		$this->retrieval_mode = 'similarity';
+
+		if ( $this->table->get_total_tokens() <= $tokens_threshold ) {
+			$full = $this->full_context( $tokens_threshold );
+
+			if ( '' !== $full ) {
+				$context              = $full;
+				$this->retrieval_mode = 'kb_full_context';
+			}
+		}
+
+		return $context;
+	}
+
+	/**
+	 * Every chunk as context, in source order; nothing when the chunks add up
+	 * to more than the budget, which a stale cached total can claim they do
+	 * not. The trace lists them all as included, keeping the score the search
+	 * gave the ones it matched.
+	 *
+	 * @param int $tokens_threshold Maximum context tokens.
+	 *
+	 * @return string
+	 */
+	private function full_context( int $tokens_threshold ): string {
+		$context = '';
+		$trace   = [];
+		$tokens  = 0;
+
+		foreach ( $this->table->get_all_chunks() as $chunk ) {
+			$tokens += intval( $chunk->token_count );
+
+			if ( $tokens_threshold < $tokens ) {
+				return '';
+			}
+
+			$context .= "\n ===START POST=== " . $chunk->post_title . ' - ' . $chunk->post_content . ' ===END POST===';
+			$scores   = $this->chunk_scores[ self::candidate_key( intval( $chunk->post_id ), $chunk->post_content ) ] ?? [];
+			$trace[]  = [
+				'post_id' => intval( $chunk->post_id ),
+				'title'   => (string) $chunk->post_title,
+				'score'   => $scores['score'] ?? null,
+				'lexical' => $scores['lexical'] ?? null,
+				'tokens'  => intval( $chunk->token_count ),
+			];
+		}
+
+		if ( '' !== $context ) {
+			$this->retrieval_trace = $trace;
+		}
+
+		return $context;
+	}
+
+	/**
+	 * Whether the knowledge base has nothing to answer from.
+	 *
+	 * @return bool
+	 */
+	private function kb_is_empty(): bool {
+		if ( Hyve_Connect::is_active() ) {
+			$stats = Hyve_Connect::instance()->stats();
+
+			// An unreachable platform is not an empty knowledge base.
+			return isset( $stats['kb']['chunks'] ) && 0 === (int) $stats['kb']['chunks'];
+		}
+
+		return 0 === (int) $this->table->get_count();
 	}
 
 	/**
@@ -2624,6 +2719,17 @@ class API extends BaseAPI {
 		delete_transient( $transient_key );
 
 		return $this->maybe_append_source_link( $response, $post_ids );
+	}
+
+	/**
+	 * Whether a platform result says the knowledge base was empty.
+	 *
+	 * @param array<string, mixed> $result The platform job result.
+	 *
+	 * @return bool
+	 */
+	public static function connect_kb_empty( $result ): bool {
+		return isset( $result['retrieval'] ) && 'kb_empty' === $result['retrieval'];
 	}
 
 	/**
@@ -2962,6 +3068,20 @@ class API extends BaseAPI {
 			);
 		}
 
+		// The platform found nothing to answer from (the local count was stale).
+		if ( self::connect_kb_empty( $result ) ) {
+			$this->record_chat_failure( (string) $prepared['thread_id'], $record_id, $prepared['message'], $is_test, 'kb_empty' );
+
+			Main::add_labels_to_default_settings();
+
+			return rest_ensure_response(
+				[
+					'error' => (string) Main::get_settings()['default_message'],
+					'code'  => 'kb_empty',
+				]
+			);
+		}
+
 		// Close the latency clock here: the platform call is synchronous, and
 		// the poll hop that serves the buffered reply is not answering time.
 		$debug = $this->chat_debug;
@@ -3159,6 +3279,15 @@ class API extends BaseAPI {
 			return new \WP_Error( 'missing_message', __( 'No message was provided.', 'hyve-lite' ) );
 		}
 
+		// Nothing to answer from: no moderation, embedding or model call. The
+		// message is the site's own unanswered fallback, so the visitor sees
+		// what any other unanswered turn shows.
+		if ( $this->kb_is_empty() ) {
+			Main::add_labels_to_default_settings();
+
+			return new \WP_Error( 'kb_empty', (string) Main::get_settings()['default_message'] );
+		}
+
 		$page = Page_Context::instance()->for_request( $request );
 
 		// The page the visitor chatted from, kept for the debug trace. Sent on
@@ -3279,6 +3408,7 @@ class API extends BaseAPI {
 		$this->chat_debug = [
 			'query'     => mb_substr( $retrieval_query, 0, 2000 ),
 			'threshold' => (float) $similarity_score_threshold,
+			'retrieval' => $this->retrieval_mode,
 			'context'   => $this->retrieval_trace,
 			'model'     => $openai->get_chat_model(),
 			'started'   => microtime( true ),
@@ -3464,8 +3594,16 @@ class API extends BaseAPI {
 			return;
 		}
 
-		$event = 'content_flagged' === $code ? 'moderation_flagged' : 'chat_error';
-		$debug = [ 'code' => (string) $code ];
+		$events = [
+			'content_flagged' => 'moderation_flagged',
+			'kb_empty'        => 'kb_empty',
+		];
+		$event  = $events[ $code ] ?? 'chat_error';
+		$debug  = [ 'code' => (string) $code ];
+
+		if ( 'kb_empty' === $code ) {
+			$debug['retrieval'] = 'kb_empty';
+		}
 
 		if ( 'moderation_flagged' === $event && ! empty( $categories ) ) {
 			$debug['categories'] = array_keys( $categories );
@@ -3612,6 +3750,10 @@ class API extends BaseAPI {
 
 		if ( null !== $usage ) {
 			$debug['usage'] = $usage;
+		}
+
+		if ( isset( $result['retrieval'] ) && is_string( $result['retrieval'] ) ) {
+			$debug['retrieval'] = $result['retrieval'];
 		}
 
 		if ( empty( $result['sources'] ) || ! is_array( $result['sources'] ) ) {

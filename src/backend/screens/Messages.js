@@ -442,11 +442,24 @@ const EVENT_LABELS = {
 		'hyve-lite'
 	),
 	chat_error: __( 'The reply failed with an error', 'hyve-lite' ),
+	kb_empty: __(
+		'The knowledge base was empty — the message was not answered',
+		'hyve-lite'
+	),
 };
 
 const MODE_LABELS = {
 	self_hosted: __( 'Self-hosted', 'hyve-lite' ),
 	connect: __( 'Hyve Connect', 'hyve-lite' ),
+};
+
+const RETRIEVAL_LABELS = {
+	similarity: __( 'Similarity search', 'hyve-lite' ),
+	kb_full_context: __(
+		'Whole knowledge base (it fits the context budget)',
+		'hyve-lite'
+	),
+	kb_empty: __( 'Knowledge base empty', 'hyve-lite' ),
 };
 
 const clampPercent = ( value ) => Math.max( 0, Math.min( 100, value * 100 ) );
@@ -548,6 +561,21 @@ const MessageDebug = ( { debug, time } ) => {
 							<span className="hyve-next-debug__val">
 								{ MODE_LABELS[ debug.mode ] }
 								{ debug.transport && ` · ${ debug.transport }` }
+							</span>
+						</div>
+					) }
+
+					{ RETRIEVAL_LABELS[ debug.retrieval ] && (
+						<div className="hyve-next-debug__row">
+							<DebugKey
+								label={ __( 'Retrieval', 'hyve-lite' ) }
+								help={ __(
+									'How the context was chosen: the scored similarity search, or the whole knowledge base when it is small enough to fit the context budget.',
+									'hyve-lite'
+								) }
+							/>
+							<span className="hyve-next-debug__val">
+								{ RETRIEVAL_LABELS[ debug.retrieval ] }
 							</span>
 						</div>
 					) }

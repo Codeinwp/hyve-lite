@@ -744,14 +744,22 @@ class Main {
 		$settings = self::get_settings();
 		$stats    = $this->get_stats();
 
+		// Null when the count is unknown (the platform did not answer), which
+		// is not an empty knowledge base.
+		$total_chunks = isset( $stats['totalChunks'] ) ? intval( $stats['totalChunks'] ) : null;
+		$can_manage   = current_user_can( 'manage_options' );
+
 		/**
 		 * Filters whether the chat should be displayed.
 		 *
+		 * An empty knowledge base hides the chat from visitors; an admin still
+		 * sees it, with a notice that it has no content yet.
+		 *
 		 * @since 1.4.0
 		 *
-		 * @param bool $should_show_chat Whether to display the chat. Default true if totalChunks > 0.
+		 * @param bool $should_show_chat Whether to display the chat. Default true if totalChunks > 0, or for an admin.
 		 */
-		$should_show_chat = apply_filters( 'hyve_display_chat', 0 < intval( $stats['totalChunks'] ) );
+		$should_show_chat = apply_filters( 'hyve_display_chat', 0 < (int) $total_chunks || $can_manage );
 
 		// Inline the icon SVGs so the chat button renders instantly, without an
 		// extra runtime fetch (which causes an icon flash on load). Only the
@@ -839,9 +847,14 @@ class Main {
 					'leadRequired'      => __( 'Please fill in the required fields.', 'hyve-lite' ),
 					'leadEvent'         => __( 'You shared your contact details.', 'hyve-lite' ),
 					'leadAlready'       => __( 'We already have your details. We will get back to you as soon as possible.', 'hyve-lite' ),
+					'emptyKb'           => __( 'Your assistant has no content yet, so visitors cannot see it.', 'hyve-lite' ),
+					'emptyKbLink'       => __( 'Add content', 'hyve-lite' ),
 				],
 				'icons'         => self::get_inline_icons( $icon_slugs ),
 				'canShow'       => $should_show_chat,
+				'totalChunks'   => $total_chunks,
+				'canManage'     => $can_manage,
+				'kbUrl'         => $can_manage ? admin_url( 'admin.php?page=hyve&nav=kb' ) : '',
 			]
 		);
 
@@ -1010,9 +1023,10 @@ class Main {
 	public function get_stats() {
 		// In Connect mode the knowledge base lives on the platform, so the chunk
 		// count comes from the hosted aggregate, not the (dormant) local table.
+		// Without an answer the count is unknown, not zero.
 		if ( Hyve_Connect::is_active() ) {
 			$connect      = Hyve_Connect::instance()->stats();
-			$total_chunks = isset( $connect['kb']['chunks'] ) ? (int) $connect['kb']['chunks'] : 0;
+			$total_chunks = isset( $connect['kb']['chunks'] ) ? (int) $connect['kb']['chunks'] : null;
 		} else {
 			$total_chunks = $this->table->get_count();
 		}
@@ -1409,7 +1423,7 @@ class Main {
 				'is_qdrant_active'          => $options['isQdrantActive'],
 				'stats_messages'            => $options['stats']['messages'],
 				'stats_threads'             => $options['stats']['threads'],
-				'stats_total_chunks'        => $options['stats']['totalChunks'],
+				'stats_total_chunks'        => (int) $options['stats']['totalChunks'],
 				'openai_chat_model'         => $settings['chat_model'],
 				'chat_on_all_pages_enabled' => 'all' === $settings['display_mode'],
 				'chat_display_mode'         => $settings['display_mode'],

@@ -123,11 +123,13 @@ class RetrievalTest extends WP_UnitTestCase {
 	 *
 	 * @param string            $title       Chunk title.
 	 * @param array<int, float> $embeddings  Embedding vector.
-	 * @param int               $token_count Token count.
+	 * @param int               $token_count Token count. Large by default, so the
+	 *                                       knowledge base outgrows the context
+	 *                                       budget and the scored search runs.
 	 *
 	 * @return int Row ID.
 	 */
-	private function seed_chunk( $title, $embeddings, $token_count = 100 ) {
+	private function seed_chunk( $title, $embeddings, $token_count = 1000 ) {
 		return $this->seed_text( $title, $title . ' content.', $embeddings, $token_count );
 	}
 
@@ -182,6 +184,8 @@ class RetrievalTest extends WP_UnitTestCase {
 		$this->seed_chunk( 'StrongestMatch', [ 1.0, 0.0, 0.0 ] );
 		// Above the 0.3 floor, but below 0.6 × the top score (~0.995).
 		$this->seed_chunk( 'TangentialMatch', [ 0.4, 0.9, 0.0 ] );
+		// Keeps the knowledge base over the budget, so the scored search runs.
+		$this->seed_chunk( 'Irrelevant', [ 0.0, 0.0, 1.0 ] );
 
 		$context = API::instance()->search_knowledge_base( [ 1.0, 0.0, 0.0 ], 0.3, 2000 );
 
@@ -243,6 +247,124 @@ class RetrievalTest extends WP_UnitTestCase {
 
 		// The current question comes last, where it weighs the most.
 		$this->assertStringEndsWith( 'How difficult is it?', $query );
+	}
+
+	/**
+	 * The retrieval mode the last search recorded.
+	 *
+	 * @return string
+	 */
+	private function retrieval_mode(): string {
+		$property = new ReflectionProperty( API::instance(), 'retrieval_mode' );
+		$property->setAccessible( true );
+
+		return $property->getValue( API::instance() );
+	}
+
+	/**
+	 * A knowledge base that fits the context budget goes in whole, so a
+	 * question nothing scores for still has every chunk to be answered from.
+	 * The scored search still picks the sources.
+	 */
+	public function test_a_knowledge_base_that_fits_the_budget_is_sent_whole(): void {
+		$this->seed_chunk( 'OpeningHours', [ 1.0, 0.0, 0.0 ], 100 );
+		$this->seed_chunk( 'Pricing', [ 0.0, 1.0, 0.0 ], 100 );
+
+		$context = API::instance()->search_knowledge_base( [ 1.0, 0.0, 0.0 ], 0.3, 2000 );
+
+		$this->assertSame( 'kb_full_context', $this->retrieval_mode() );
+		$this->assertStringContainsString( 'OpeningHours', $context );
+		$this->assertStringContainsString( 'Pricing', $context );
+
+		$retrieval = API::instance()->get_last_retrieval();
+
+		$this->assertCount( 2, $retrieval['chunks'] );
+		$this->assertCount( 1, $retrieval['sources'] );
+		$this->assertSame( 1.0, round( (float) $retrieval['chunks'][0]['score'], 2 ) + round( (float) $retrieval['chunks'][1]['score'], 2 ) );
+	}
+
+	/**
+	 * The budget is the limit: a knowledge base one token over it keeps the
+	 * scored search.
+	 */
+	public function test_a_knowledge_base_over_the_budget_keeps_the_scored_search(): void {
+		$this->seed_chunk( 'OpeningHours', [ 1.0, 0.0, 0.0 ], 1001 );
+		$this->seed_chunk( 'Pricing', [ 0.0, 1.0, 0.0 ], 1000 );
+
+		$context = API::instance()->search_knowledge_base( [ 1.0, 0.0, 0.0 ], 0.3, 2000 );
+
+		$this->assertSame( 'similarity', $this->retrieval_mode() );
+		$this->assertStringNotContainsString( 'Pricing', $context );
+	}
+
+	/**
+	 * The cached total can lag a write; the chunks themselves decide. A total
+	 * that claims the knowledge base fits does not get it sent whole when it
+	 * does not.
+	 */
+	public function test_a_stale_total_does_not_send_an_oversized_knowledge_base_whole(): void {
+		$this->seed_chunk( 'OpeningHours', [ 1.0, 0.0, 0.0 ], 1001 );
+		$this->seed_chunk( 'Pricing', [ 0.0, 1.0, 0.0 ], 1000 );
+		set_transient( DB_Table::CACHE_PREFIX . 'total_tokens', 10, DAY_IN_SECONDS );
+
+		$context = API::instance()->search_knowledge_base( [ 1.0, 0.0, 0.0 ], 0.3, 2000 );
+
+		$this->assertSame( 'similarity', $this->retrieval_mode() );
+		$this->assertStringNotContainsString( 'Pricing', $context );
+	}
+
+	/**
+	 * In the whole-knowledge-base trace, a score belongs to the chunk that
+	 * earned it, not to every chunk of the same post.
+	 */
+	public function test_full_context_trace_scores_each_chunk_on_its_own(): void {
+		$post_id = 4242;
+
+		foreach ( [ [ 1.0, 0.0, 0.0 ], [ 0.0, 1.0, 0.0 ] ] as $embedding ) {
+			$this->table->insert(
+				[
+					'post_id'      => $post_id,
+					'post_title'   => 'Handbook',
+					'post_content' => 'Handbook chunk ' . wp_json_encode( $embedding ),
+					'embeddings'   => wp_json_encode( $embedding ),
+					'token_count'  => 100,
+					'post_status'  => 'processed',
+				]
+			);
+		}
+
+		API::instance()->search_knowledge_base( [ 1.0, 0.0, 0.0 ], 0.3, 2000 );
+
+		$this->assertSame( 'kb_full_context', $this->retrieval_mode() );
+
+		$scores = array_column( API::instance()->get_last_retrieval()['chunks'], 'score' );
+
+		$this->assertCount( 2, $scores );
+		$this->assertSame( 1.0, (float) $scores[0] );
+		$this->assertNull( $scores[1] );
+	}
+
+	/**
+	 * Sending the whole knowledge base preserves hybrid scores per chunk,
+	 * including keyword-only matches and chunks neither search matched.
+	 */
+	public function test_full_context_preserves_hybrid_scores(): void {
+		$this->seed_text( 'Handbook', 'Welcome to the clinic.', [ 1.0, 0.0, 0.0 ], 100, 4242 );
+		$this->seed_text( 'Handbook', 'Silextra costs 73 euros.', [ 0.0, 1.0, 0.0 ], 100, 4242 );
+		$this->seed_text( 'Handbook', 'Opening hours are nine to five.', [ 0.0, 1.0, 0.0 ], 100, 4242 );
+		$this->commit_seeds();
+
+		API::instance()->search_knowledge_base( [ 1.0, 0.0, 0.0 ], 0.25, 2000, 'silextra' );
+
+		$this->assertSame( 'kb_full_context', $this->retrieval_mode() );
+		$chunks = API::instance()->get_last_retrieval()['chunks'];
+		$this->assertCount( 3, $chunks );
+		$this->assertSame( 1.0, $chunks[0]['score'] );
+		$this->assertNull( $chunks[0]['lexical'] );
+		$this->assertNull( $chunks[1]['score'] );
+		$this->assertGreaterThan( 0, $chunks[1]['lexical'] );
+		$this->assertNull( $chunks[2]['score'] );
+		$this->assertNull( $chunks[2]['lexical'] );
 	}
 
 	/**
@@ -379,6 +501,7 @@ class RetrievalTest extends WP_UnitTestCase {
 	public function test_title_match_outranks_a_body_match() {
 		$this->seed_text( 'Studio news', 'We now offer Morpheus8 alongside our other treatments.', [ 1.0, 0.0, 0.0 ] );
 		$this->seed_text( 'Morpheus8', 'A fractional radiofrequency skin treatment.', [ 1.0, 0.0, 0.0 ] );
+		$this->seed_text( 'Unrelated', 'Unrelated content.', [ 0.0, 1.0, 0.0 ], 2001 );
 		$this->commit_seeds();
 
 		$context = API::instance()->search_knowledge_base( [ 1.0, 0.0, 0.0 ], 0.25, 2000, 'morpheus8' );
@@ -501,6 +624,7 @@ class RetrievalTest extends WP_UnitTestCase {
 		$this->seed_text( 'QA welcome', 'Welcome to our shop.', [ 1.0, 0.0, 0.0 ] );
 		$this->seed_text( 'QA Persian thanks', 'ممنون از شما', [ 0.0, 0.0, 1.0 ] );
 		$this->seed_text( 'QA Persian short', 'سن من سی سال است', [ 0.0, 1.0, 0.0 ] );
+		$this->seed_text( 'Unrelated', 'Unrelated content.', [ 0.0, 0.0, 1.0 ], 2001 );
 		$this->commit_seeds();
 
 		// `ممنون` contains `من` and ranks below the chunk matching both words.
@@ -519,6 +643,7 @@ class RetrievalTest extends WP_UnitTestCase {
 		$this->seed_text( 'Artiswar welcome', 'Welcome to the guild.', [ 1.0, 0.0, 0.0 ] );
 		$this->seed_text( 'QA Korean rent', '집세는 매달 납부합니다.', [ 0.0, 0.0, 1.0 ] );
 		$this->seed_text( 'QA Korean', '내 집 정보 안내.', [ 0.0, 1.0, 0.0 ] );
+		$this->seed_text( 'Unrelated', 'Unrelated content.', [ 0.0, 0.0, 1.0 ], 2001 );
 		$this->commit_seeds();
 
 		$context = API::instance()->search_knowledge_base( [ 1.0, 0.0, 0.0 ], 0.25, 2000, '내 집' );
@@ -646,6 +771,7 @@ class RetrievalTest extends WP_UnitTestCase {
 		update_option( 'hyve_qdrant_status', 'active' );
 
 		$this->seed_text( 'Clan guide', 'ArtIsWar - cercato anche come Art Is War, ArtisWar o artiswar.', [ 0.0, 1.0, 0.0 ], 100, 4242 );
+		$this->seed_text( 'Welcome', 'Welcome to our gaming community site.', [ 1.0, 0.0, 0.0 ], 10, 7 );
 		$this->commit_seeds();
 
 		$this->set_qdrant_instance(
@@ -676,6 +802,13 @@ class RetrievalTest extends WP_UnitTestCase {
 
 		$this->assertStringContainsString( 'Welcome to our gaming', $context );
 		$this->assertStringContainsString( 'ArtIsWar - cercato', $context );
+		$this->assertSame( 'kb_full_context', $this->retrieval_mode() );
+		$chunks  = API::instance()->get_last_retrieval()['chunks'];
+		$welcome = array_values( array_filter( $chunks, fn( $chunk ) => 7 === $chunk['post_id'] ) );
+		$clan    = array_values( array_filter( $chunks, fn( $chunk ) => 4242 === $chunk['post_id'] ) );
+		$this->assertSame( 0.9, $welcome[0]['score'] );
+		$this->assertNull( $clan[0]['score'] );
+		$this->assertGreaterThan( 0, $clan[0]['lexical'] );
 		// Vector sources first, then the posts only the keyword pass found.
 		$this->assertSame( [ 7, 4242 ], array_map( 'intval', API::instance()->get_last_retrieval()['sources'] ) );
 	}
@@ -734,6 +867,7 @@ class RetrievalTest extends WP_UnitTestCase {
 	public function test_hybrid_settings_filter_caps_each_list() {
 		$this->seed_text( 'Returns policy', 'Returns are accepted within 30 days with a receipt.', [ 0.0, 1.0, 0.0 ] );
 		$this->seed_text( 'Returns note', 'Mentions returns once.', [ 0.0, 0.0, 1.0 ] );
+		$this->seed_text( 'Unrelated', 'Unrelated content.', [ 0.0, 1.0, 0.0 ], 2001 );
 		$this->commit_seeds();
 
 		add_filter( 'hyve_hybrid_retrieval', fn() => [ 'candidates' => 1 ] );
