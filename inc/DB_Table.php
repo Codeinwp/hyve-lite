@@ -30,7 +30,7 @@ class DB_Table {
 	 * @since 1.2.0
 	 * @var string
 	 */
-	public $version = '1.2.0';
+	public $version = '1.3.0';
 
 	/**
 	 * Cache prefix.
@@ -189,7 +189,8 @@ class DB_Table {
 		token_count int(11) NOT NULL DEFAULT 0,
 		post_status VARCHAR(255) NOT NULL DEFAULT "scheduled",
         storage VARCHAR(255) NOT NULL DEFAULT "WordPress",
-		PRIMARY KEY (id)
+		PRIMARY KEY (id),
+		FULLTEXT KEY content_search (post_title,post_content)
 		) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;';
 
 		dbDelta( $sql );
@@ -524,6 +525,146 @@ class DB_Table {
 		$this->set_cache( 'cached_embeddings', $cached_embeddings );
 
 		return $posts;
+	}
+
+	/**
+	 * Keyword search over processed chunks: the terms the question shares
+	 * with a chunk, whatever its vector score. Word scripts go through the
+	 * FULLTEXT index (each term as a prefix, so `morpheus8` finds
+	 * `Morpheus8`); scripts without word boundaries (Thai, CJK) are matched
+	 * as substrings instead, since the index tokenizes those as whole runs.
+	 * Words with combining marks also use substrings (FULLTEXT can split
+	 * at vowel signs and viramas within a word). When no word reaches the
+	 * index at all, two-character Arabic, Hebrew and Hangul words (`سن من`)
+	 * are matched as substrings too; alongside indexed terms they would
+	 * outrank them, since index scores scale with the corpus and a
+	 * substring hit does not.
+	 *
+	 * @since 2.1.0
+	 *
+	 * @param string $query The visitor's question.
+	 * @param int    $limit Most matches to return.
+	 *
+	 * @return array<object{id: string, post_id: string, post_title: string, post_content: string, token_count: string, score: string}> Best first.
+	 */
+	public function lexical_search( string $query, int $limit = 20 ): array {
+		$terms    = self::query_terms( $query );
+		$segments = self::query_segments( $query );
+
+		if ( empty( $terms ) ) {
+			$segments = array_values( array_unique( array_merge( $segments, self::query_short_words( $query ) ) ) );
+		}
+
+		if ( empty( $terms ) && empty( $segments ) ) {
+			return [];
+		}
+
+		global $wpdb;
+
+		$score    = [];
+		$bindings = [];
+
+		if ( ! empty( $terms ) ) {
+			$score[]    = 'MATCH( post_title, post_content ) AGAINST( %s IN BOOLEAN MODE )';
+			$bindings[] = implode( ' ', array_map( fn( $term ) => $term . '*', $terms ) );
+		}
+
+		foreach ( $segments as $segment ) {
+			// A title hit counts double: proper nouns live there.
+			$score[]    = '( CASE WHEN post_title LIKE %s THEN 2 ELSE 0 END ) + ( CASE WHEN post_content LIKE %s THEN 1 ELSE 0 END )';
+			$like       = '%' . $wpdb->esc_like( $segment ) . '%';
+			$bindings[] = $like;
+			$bindings[] = $like;
+		}
+
+		$bindings[] = $this->table_name;
+		$bindings[] = 'processed';
+		$bindings[] = $limit;
+
+		$sql = 'SELECT id, post_id, post_title, post_content, token_count, ( ' . implode( ' + ', $score ) . ' ) AS score FROM %i WHERE post_status = %s HAVING score > 0 ORDER BY score DESC, id ASC LIMIT %d';
+
+		// phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- the score clause and its bindings are built together above.
+		return $wpdb->get_results( $wpdb->prepare( $sql, ...$bindings ) );
+	}
+
+	/**
+	 * The question's words for the FULLTEXT index: letters, digits and marks,
+	 * at least three characters (InnoDB indexes nothing shorter), at most
+	 * ten of them. A Latin word carrying marks also adds its mark-free form,
+	 * after the whole words, so decomposed input (`gia` + U+0301 from a
+	 * Vietnamese keyboard) still reaches precomposed `giá` through the
+	 * collation. Other scripts keep their marks: they belong to the word.
+	 *
+	 * @param string $query The visitor's question.
+	 *
+	 * @return array<int, string>
+	 */
+	public static function query_terms( string $query ): array {
+		$words = preg_split( '/[^\p{L}\p{N}\p{M}]+/u', mb_strtolower( $query ), -1, PREG_SPLIT_NO_EMPTY );
+		$terms = [];
+		$bare  = [];
+
+		if ( false === $words ) {
+			return [];
+		}
+
+		foreach ( $words as $word ) {
+			if ( mb_strlen( $word ) < 3 || 1 === preg_match( '/^[\p{Han}\p{Hiragana}\p{Katakana}\p{Thai}\p{Lao}\p{Khmer}\p{Myanmar}]+$/u', $word ) ) {
+				continue;
+			}
+
+			$terms[ $word ] = $word;
+
+			if ( 1 === preg_match( '/^[\p{Latin}\p{N}\p{M}]*\p{M}[\p{Latin}\p{N}\p{M}]*$/u', $word ) ) {
+				$stripped = (string) preg_replace( '/\p{M}+/u', '', $word );
+
+				if ( mb_strlen( $stripped ) >= 3 ) {
+					$bare[ $stripped ] = $stripped;
+				}
+			}
+		}
+
+		return array_slice( array_values( $terms + $bare ), 0, 10 );
+	}
+
+	/**
+	 * Words containing combining marks and runs from scripts without word
+	 * boundaries, matched as substrings. At least two characters, at most
+	 * five segments. A marked word must start with a letter or digit.
+	 *
+	 * @param string $query The visitor's question.
+	 *
+	 * @return array<int, string>
+	 */
+	public static function query_segments( string $query ): array {
+		preg_match_all( '/[\p{Han}\p{Hiragana}\p{Katakana}\p{Thai}\p{Lao}\p{Khmer}\p{Myanmar}]{2,}/u', $query, $matches );
+		preg_match_all( '/[\p{L}\p{N}][\p{L}\p{N}\p{M}]*/u', $query, $words );
+
+		foreach ( $words[0] as $word ) {
+			if ( 1 === preg_match( '/\p{M}/u', $word ) ) {
+				$matches[0][] = $word;
+			}
+		}
+
+		return array_slice( array_values( array_unique( $matches[0] ) ), 0, 5 );
+	}
+
+	/**
+	 * Short words in scripts where those are content words below the
+	 * index's three-character minimum: two letters of Arabic or Hebrew
+	 * (`سن من`), one or two Hangul syllables (`내 집`, each syllable a
+	 * whole morpheme). Latin and Cyrillic two-letter words are stopwords
+	 * and stay out, as do single Arabic and Hebrew letters and lone jamo.
+	 * At most five.
+	 *
+	 * @param string $query The visitor's question.
+	 *
+	 * @return array<int, string>
+	 */
+	public static function query_short_words( string $query ): array {
+		preg_match_all( '/(?<![\p{L}\p{N}\p{M}])(?:(?:(?=\p{L})[\p{Arabic}\p{Hebrew}\x{AC00}-\x{D7A3}]){2}|[\x{AC00}-\x{D7A3}])(?![\p{L}\p{N}\p{M}])/u', $query, $matches );
+
+		return array_slice( array_values( array_unique( $matches[0] ) ), 0, 5 );
 	}
 
 	/**
@@ -1794,7 +1935,8 @@ class DB_Table {
 
 	/**
 	 * Record the hash a source last synced to the cloud, plus the post's modified
-	 * time then, so the manifest can reuse it while the post is unchanged.
+	 * time and the extractor version then, so the manifest can reuse it while
+	 * the post and the extraction are unchanged.
 	 *
 	 * @param int    $post_id The source post id.
 	 * @param string $hash    Hash of the content that was synced.
@@ -1804,6 +1946,7 @@ class DB_Table {
 	private function connect_store_synced_hash( $post_id, $hash ) {
 		update_post_meta( (int) $post_id, '_hyve_connect_synced_hash', $hash );
 		update_post_meta( (int) $post_id, '_hyve_connect_synced_modified', (int) get_post_modified_time( 'U', true, $post_id ) );
+		update_post_meta( (int) $post_id, '_hyve_connect_synced_extractor', Tokenizer::EXTRACTOR_VERSION );
 	}
 
 	/**
@@ -1841,7 +1984,8 @@ class DB_Table {
 	}
 
 	/**
-	 * Forget a source's synced markers (its hash and cache-invalidation time).
+	 * Forget a source's synced markers (its hash, cache-invalidation time and
+	 * extractor version).
 	 *
 	 * @param int $post_id The source post id.
 	 *
@@ -1850,6 +1994,7 @@ class DB_Table {
 	public function connect_forget_sync( $post_id ) {
 		delete_post_meta( (int) $post_id, '_hyve_connect_synced_hash' );
 		delete_post_meta( (int) $post_id, '_hyve_connect_synced_modified' );
+		delete_post_meta( (int) $post_id, '_hyve_connect_synced_extractor' );
 	}
 
 	/**
@@ -1974,10 +2119,21 @@ class DB_Table {
 
 			$synced_modified  = (int) get_post_meta( $post_id, '_hyve_connect_synced_modified', true );
 			$current_modified = (int) get_post_modified_time( 'U', true, $post_id );
+			$synced_extractor = (int) get_post_meta( $post_id, '_hyve_connect_synced_extractor', true );
+			$unedited         = '' !== $synced_hash && $synced_modified === $current_modified;
 
-			$hash = ( '' !== $synced_hash && $synced_modified === $current_modified )
-				? $synced_hash
-				: $this->connect_source_hash( $post_id );
+			if ( $unedited && Tokenizer::EXTRACTOR_VERSION === $synced_extractor ) {
+				$hash = $synced_hash;
+			} else {
+				// An unedited post synced by an older extractor is rehashed: its
+				// text may read differently now. When it does not, note the
+				// extractor so the next reconcile reuses the hash again.
+				$hash = $this->connect_source_hash( $post_id );
+
+				if ( $unedited && $hash === $synced_hash ) {
+					update_post_meta( $post_id, '_hyve_connect_synced_extractor', Tokenizer::EXTRACTOR_VERSION );
+				}
+			}
 
 			$manifest[] = [
 				'id'   => $post_id,

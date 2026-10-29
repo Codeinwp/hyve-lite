@@ -456,7 +456,9 @@ class Page_Context {
 		 * @param string        $url     The page URL to extract.
 		 */
 		$content = (string) apply_filters( 'hyve_page_context_content', '', $post, (string) get_permalink( $post ) );
-		$content = $this->trim_to_limit( wp_strip_all_tags( $content ) );
+		// The same extraction as the knowledge base, so the page reads the
+		// same whether it is pinned from the index or scraped on the spot.
+		$content = $this->trim_to_limit( Tokenizer::html_to_text( $content ) );
 
 		set_transient(
 			self::CACHE_PREFIX . $post_id,
@@ -491,7 +493,7 @@ class Page_Context {
 
 		/** This filter is documented in inc/Page_Context.php */
 		$content = (string) apply_filters( 'hyve_page_context_content', '', null, $url );
-		$content = $this->trim_to_limit( wp_strip_all_tags( $content ) );
+		$content = $this->trim_to_limit( Tokenizer::html_to_text( $content ) );
 
 		set_transient(
 			$key,
