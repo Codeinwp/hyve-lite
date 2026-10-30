@@ -522,9 +522,12 @@ class ConnectSyncTest extends WP_UnitTestCase {
 	 */
 	public function test_invalid_document_fails_alone() {
 		$this->enable_connect();
-		$a = $this->indexed_post();
-		$b = $this->indexed_post();
-		$c = $this->indexed_post();
+		$this->indexed_post();
+		$this->indexed_post();
+		$this->indexed_post();
+		// Posts created in the same second have no stable query order, so take
+		// the batch order the sync will use and reject the document in the middle.
+		list( $a, $b, $c ) = array_map( 'intval', DB_Table::instance()->connect_pending_posts() );
 		$this->intercept(
 			wp_json_encode(
 				[
