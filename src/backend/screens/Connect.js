@@ -278,11 +278,19 @@ export const ConnectPanel = () => {
 			? Math.round( ( syncCurrent / syncTotal ) * 100 )
 			: 0;
 
+		// A paused job (credentials, outage) carries its own reason; a plan
+		// block explains the limit that applies.
+		const isPaused = [ 'auth', 'unavailable' ].includes(
+			connectSync?.quota?.kind
+		);
+
 		let blockedReason = __(
 			'It goes over the free plan limit. Upgrade to Pro to sync everything.',
 			'hyve-lite'
 		);
-		if ( isLicenseExpired ) {
+		if ( isPaused ) {
+			blockedReason = connectSync?.message ?? '';
+		} else if ( isLicenseExpired ) {
 			blockedReason = __(
 				'It goes over the free plan limit that applies while your license is expired.',
 				'hyve-lite'

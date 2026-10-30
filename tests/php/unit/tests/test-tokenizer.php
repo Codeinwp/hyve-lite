@@ -17,6 +17,64 @@ use ThemeIsle\HyveLite\Vocab_Loader;
  */
 class Test_Tokenizer extends WP_UnitTestCase {
 	/**
+	 * Real failing input: three individually padded raw HTML blocks used to
+	 * become one invalid base64 string after stripping shortcode boundaries.
+	 */
+	public function test_wpbakery_raw_html_blocks_extract_useful_text() {
+		$content = file_get_contents( dirname( __DIR__ ) . '/fixtures/wpbakery-raw-html.txt' );
+		$text    = Tokenizer::html_to_text( $content );
+
+		$this->assertStringContainsString( 'iPad Screen Repairs Prices', $text );
+		$this->assertStringContainsString( '(02) 8739 2050', $text );
+		$this->assertStringContainsString( 'dependable iPad repair services', $text );
+		$this->assertStringNotContainsString( 'JTNDZGl2', $text );
+		$this->assertStringNotContainsString( '[products', $text );
+		$this->assertLessThan( 6500, strlen( $text ) );
+	}
+
+	/**
+	 * Decode only the known storage boundary; ordinary encoded prose survives.
+	 */
+	public function test_raw_html_decoding_is_limited_to_known_blocks() {
+		// phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode -- Fixture for WPBakery's format.
+		$payload = base64_encode( rawurlencode( '<h2>Repair + care</h2><p>Open today</p>' ) );
+		$this->assertSame( $payload, Tokenizer::html_to_text( $payload ) );
+		$this->assertSame( 'invalid%%payload', Tokenizer::html_to_text( '[vc_raw_html]invalid%%payload[/vc_raw_html]' ) );
+		$this->assertSame( $payload, Tokenizer::html_to_text( '[other_raw_html]' . $payload . '[/other_raw_html]' ) );
+		$this->assertSame( $payload, Tokenizer::html_to_text( '[vc_raw_html]' . $payload ) );
+		$this->assertSame( "Repair + care\nOpen today", Tokenizer::html_to_text( '[vc_raw_html el_id="repair"]<p>' . chunk_split( $payload, 32, '<br />' ) . '</p>[/vc_raw_html]' ) );
+	}
+
+	/**
+	 * A legacy block's single-byte escapes must not leave invalid UTF-8 in the
+	 * text, or the platform's hash of it could never match ours.
+	 */
+	public function test_raw_html_decoding_keeps_the_text_valid_utf8() {
+		// phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode -- Fixture for WPBakery's format.
+		$payload = base64_encode( '%3Cp%3ECaf%E9%20is%20open%3C%2Fp%3E' );
+		$text    = Tokenizer::html_to_text( '[vc_raw_html]' . $payload . '[/vc_raw_html]' );
+
+		$this->assertSame( 1, preg_match( '//u', $text ) );
+		$this->assertStringContainsString( 'is open', $text );
+		$this->assertStringNotContainsString( $payload, $text );
+
+		if ( function_exists( 'mb_convert_encoding' ) ) {
+			$this->assertStringContainsString( 'Café is open', $text );
+		}
+	}
+
+	/**
+	 * Raw JS blocks use the same encoding; scripts hold nothing worth indexing.
+	 */
+	public function test_wpbakery_raw_js_blocks_are_dropped() {
+		// phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode -- Fixture for WPBakery's format.
+		$script = base64_encode( rawurlencode( '<script>window.dataLayer=window.dataLayer||[];gtag("config","G-1");</script>' ) );
+		$text   = Tokenizer::html_to_text( '<p>Call us today.</p>[vc_raw_js el_class="tag"]' . $script . '[/vc_raw_js]<p>Open daily.</p>' );
+
+		$this->assertSame( "Call us today.\nOpen daily.", $text );
+	}
+
+	/**
 	 * Test tokenize method with short content.
 	 */
 	public function testTokenizeShortContent() {
