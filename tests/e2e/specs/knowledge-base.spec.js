@@ -305,6 +305,76 @@ test.describe( 'Knowledge Base', () => {
 		).toBeVisible();
 	} );
 
+	test( 'Connect mode labels unsynced rows with the sync state and its reason', async ( {
+		page,
+		admin,
+	} ) => {
+		await mockDataApi( page, {
+			included: () => ( {
+				posts: [
+					{
+						ID: 1001,
+						title: 'Unsynced Post',
+						type: 'post',
+						chunks: 0,
+						synced: false,
+					},
+				],
+				more: false,
+				total: 1,
+				per_page: 20,
+				totalChunks: '0',
+			} ),
+		} );
+
+		await admin.visitAdminPage( `${ HYVE_ADMIN }&nav=kb` );
+		await expect(
+			page.getByText( 'Unsynced Post', { exact: true } )
+		).toBeVisible();
+
+		// Drive the store the way the sync status endpoint does, so the
+		// screen reacts without the hosted platform.
+		const reason =
+			'Hyve Connect could not be reached. Syncing resumes once it is available again.';
+		await page.evaluate( ( message ) => {
+			window.wp.data.dispatch( 'hyve' ).setAiMode( 'hyve_connect' );
+			window.wp.data.dispatch( 'hyve' ).setConnectSync( {
+				blocked: true,
+				quota: { kind: 'unavailable' },
+				message,
+			} );
+		}, reason );
+
+		await expect(
+			page.getByText( 'Sync paused', { exact: true } )
+		).toBeVisible();
+		await expect( page.getByText( reason ) ).toBeVisible();
+
+		await page.evaluate( () =>
+			window.wp.data.dispatch( 'hyve' ).setConnectSync( {
+				blocked: true,
+				quota: { kind: 'storage', limit: 100, used: 100 },
+				message: 'Over the free limit',
+			} )
+		);
+
+		await expect(
+			page.getByText( 'Over plan limit', { exact: true } )
+		).toBeVisible();
+		await expect( page.getByText( reason ) ).toBeHidden();
+
+		await page.evaluate( () =>
+			window.wp.data.dispatch( 'hyve' ).setConnectSync( {
+				blocked: false,
+				in_progress: true,
+			} )
+		);
+
+		await expect(
+			page.getByText( 'Waiting to sync', { exact: true } )
+		).toBeVisible();
+	} );
+
 	test( 'removing indexed content asks for confirmation first', async ( {
 		page,
 		admin,

@@ -163,6 +163,9 @@ const IndexedContent = () => {
 		select( 'hyve' ).getConnectSync()
 	);
 	const isSyncBlocked = Boolean( connectSync?.blocked );
+	const isSyncPaused =
+		isSyncBlocked &&
+		[ 'auth', 'unavailable' ].includes( connectSync?.quota?.kind );
 
 	const { setTotalChunks, setAttentionCount } = useDispatch( 'hyve' );
 	const { createNotice } = useDispatch( 'core/notices' );
@@ -289,6 +292,15 @@ const IndexedContent = () => {
 				</p>
 			</div>
 
+			{ isSyncPaused && (
+				<div className="hyve-next-notice is-warn is-flush">
+					<div className="hyve-next-notice__body">
+						<strong>{ __( 'Sync paused.', 'hyve-lite' ) }</strong>{ ' ' }
+						{ connectSync?.message ?? '' }
+					</div>
+				</div>
+			) }
+
 			<div className="hyve-next-card__body">
 				<div className="hyve-next-toolbar">
 					<SelectControl
@@ -374,21 +386,22 @@ const IndexedContent = () => {
 							}
 
 							// Indexed locally but not on the platform:
-							// mid-sync, or skipped over the plan limit.
+							// mid-sync, paused, or skipped over the plan limit.
 							if ( isConnectActive && false === row.synced ) {
-								return (
-									<Chip tone="warn">
-										{ isSyncBlocked
-											? __(
-													'Over plan limit',
-													'hyve-lite'
-											  )
-											: __(
-													'Waiting to sync',
-													'hyve-lite'
-											  ) }
-									</Chip>
+								let chipText = __(
+									'Waiting to sync',
+									'hyve-lite'
 								);
+								if ( isSyncPaused ) {
+									chipText = __( 'Sync paused', 'hyve-lite' );
+								} else if ( isSyncBlocked ) {
+									chipText = __(
+										'Over plan limit',
+										'hyve-lite'
+									);
+								}
+
+								return <Chip tone="warn">{ chipText }</Chip>;
 							}
 
 							return (
