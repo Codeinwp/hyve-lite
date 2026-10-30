@@ -62,6 +62,7 @@ class Main {
 		add_action( 'before_delete_post', [ $this, 'delete_post' ] );
 		add_action( DB_Table::CONNECT_SYNC_HOOK, [ $this->table, 'connect_run_sync' ] );
 		add_action( DB_Table::CONNECT_DELETE_HOOK, [ $this->table, 'connect_run_deletes' ] );
+		add_action( DB_Table::CONNECT_RESUME_HOOK, [ $this->table, 'connect_maybe_resume_blocked' ] );
 		add_filter( 'themeisle_sdk_enable_telemetry', '__return_true' );
 		add_filter( 'pre_option_hyve_lite_logger_flag', [ $this, 'force_connect_telemetry' ] );
 

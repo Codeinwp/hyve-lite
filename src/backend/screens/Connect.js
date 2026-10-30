@@ -383,10 +383,12 @@ export const ConnectPanel = () => {
 						<div className="hyve-next-notice is-warn is-flush">
 							<div className="hyve-next-notice__body">
 								<strong>
-									{ __(
-										"Some content couldn't be synced.",
-										'hyve-lite'
-									) }
+									{ isPaused
+										? __( 'Sync paused.', 'hyve-lite' )
+										: __(
+												"Some content couldn't be synced.",
+												'hyve-lite'
+										  ) }
 								</strong>{ ' ' }
 								{ blockedReason }
 							</div>

@@ -103,13 +103,19 @@ class DB_Table {
 	const CONNECT_SYNC_STALL = 300;
 
 	/**
-	 * How long a sync paused for an outage or rate limit waits before an admin
-	 * load may resume it, so a persistent refusal is not replayed on every
-	 * page view.
+	 * How long a sync paused for an outage or rate limit waits before it may
+	 * resume, so a persistent refusal is not replayed on every page view.
 	 *
 	 * @var int
 	 */
 	const CONNECT_PAUSE_RESUME = 5 * MINUTE_IN_SECONDS;
+
+	/**
+	 * Cron hook that re-checks a paused sync once its wait has passed.
+	 *
+	 * @var string
+	 */
+	const CONNECT_RESUME_HOOK = 'hyve_lite_connect_resume';
 
 	/**
 	 * How long a post may carry the `_hyve_post_processing` flag before it is
@@ -1556,14 +1562,12 @@ class DB_Table {
 			return;
 		}
 
-		// An edit arriving while the request runs re-flags its post; a terminal
-		// failure must not swallow that flag along with the stale attempt.
-		$flagged_before = [];
+		// An edit arriving while the request runs changes its post; a terminal
+		// failure must not write off the new content along with the stale attempt.
+		$marks_before = [];
 
 		foreach ( array_keys( $documents ) as $post_id ) {
-			if ( '' !== (string) get_post_meta( $post_id, '_hyve_needs_update', true ) ) {
-				$flagged_before[] = $post_id;
-			}
+			$marks_before[ $post_id ] = $this->connect_edit_mark( $post_id );
 		}
 
 		$result = Hyve_Connect::instance()->kb_upsert( $documents );
@@ -1572,11 +1576,10 @@ class DB_Table {
 		// process cached it before the call.
 		wp_cache_delete( 'hyve_settings', 'options' );
 		wp_cache_delete( 'alloptions', 'options' );
-		$live_settings = get_option( 'hyve_settings', [] );
-		$live_mode     = is_array( $live_settings ) ? ( $live_settings['ai_mode'] ?? '' ) : '';
+		$live_settings = Main::get_settings();
 
 		// Disconnected while the request ran: nothing here applies anymore.
-		if ( Hyve_Connect::MODE_CONNECT !== $live_mode ) {
+		if ( Hyve_Connect::MODE_CONNECT !== ( $live_settings['ai_mode'] ?? '' ) ) {
 			$this->connect_finish_sync();
 			return;
 		}
@@ -1596,7 +1599,7 @@ class DB_Table {
 				return;
 			}
 
-			$this->connect_handle_sync_error( $result, array_keys( $documents ), $empty, $flagged_before );
+			$this->connect_handle_sync_error( $result, array_keys( $documents ), $empty, $marks_before );
 			return;
 		}
 
@@ -1690,14 +1693,14 @@ class DB_Table {
 	 * terminal for the batch. Synced markers stay untouched and failed sources
 	 * stay in the manifest so a manual reconcile can recover them.
 	 *
-	 * @param \WP_Error $error          Batch error.
-	 * @param int[]     $post_ids       Sources sent in the failed request, in request order.
-	 * @param int       $empty_count    Empty sources already handled in this pass.
-	 * @param int[]     $flagged_before Sources already flagged for re-indexing when the batch was built.
+	 * @param \WP_Error          $error        Batch error.
+	 * @param int[]              $post_ids     Sources sent in the failed request, in request order.
+	 * @param int                $empty_count  Empty sources already handled in this pass.
+	 * @param array<int, string> $marks_before Each source's edit mark when the batch was built.
 	 *
 	 * @return void
 	 */
-	private function connect_handle_sync_error( $error, $post_ids, $empty_count, $flagged_before = [] ) {
+	private function connect_handle_sync_error( $error, $post_ids, $empty_count, $marks_before = [] ) {
 		$status   = $this->connect_sync_status();
 		$attempts = (int) ( $status['attempts'] ?? 0 ) + 1;
 		$data     = $error->get_error_data();
@@ -1706,7 +1709,7 @@ class DB_Table {
 		$rejected = 422 === $http ? $this->connect_rejected_documents( $data['errors'] ?? [], $post_ids ) : [];
 
 		if ( ! empty( $rejected ) ) {
-			$this->connect_fail_sources( array_keys( $rejected ), $error, $flagged_before, $empty_count, $rejected );
+			$this->connect_fail_sources( array_keys( $rejected ), $error, $marks_before, $empty_count, $rejected );
 			return;
 		}
 
@@ -1768,7 +1771,7 @@ class DB_Table {
 			return;
 		}
 
-		$this->connect_fail_sources( $post_ids, $error, $flagged_before, $empty_count );
+		$this->connect_fail_sources( $post_ids, $error, $marks_before, $empty_count );
 	}
 
 	/**
@@ -1801,22 +1804,25 @@ class DB_Table {
 	/**
 	 * Mark sources failed for this round and move the job past them.
 	 *
-	 * A source re-flagged during the request was edited meanwhile: leave it
-	 * pending so the new content gets its own attempt.
+	 * A source whose edit mark moved during the request was edited meanwhile:
+	 * leave it pending so the new content gets its own attempt. The edit came
+	 * from another request, so the mark is re-read past this process's cache.
 	 *
-	 * @param int[]              $post_ids       Sources to fail.
-	 * @param \WP_Error          $error          Why they failed.
-	 * @param int[]              $flagged_before Sources already flagged when the batch was built.
-	 * @param int                $empty_count    Empty sources already handled in this pass.
-	 * @param array<int, string> $messages       Per-source messages that replace the batch message.
+	 * @param int[]              $post_ids     Sources to fail.
+	 * @param \WP_Error          $error        Why they failed.
+	 * @param array<int, string> $marks_before Each source's edit mark when the batch was built.
+	 * @param int                $empty_count  Empty sources already handled in this pass.
+	 * @param array<int, string> $messages     Per-source messages that replace the batch message.
 	 *
 	 * @return void
 	 */
-	private function connect_fail_sources( $post_ids, $error, $flagged_before, $empty_count, $messages = [] ) {
+	private function connect_fail_sources( $post_ids, $error, $marks_before, $empty_count, $messages = [] ) {
 		$failed = 0;
 
 		foreach ( $post_ids as $post_id ) {
-			if ( ! in_array( $post_id, $flagged_before, true ) && '' !== (string) get_post_meta( $post_id, '_hyve_needs_update', true ) ) {
+			clean_post_cache( $post_id );
+
+			if ( isset( $marks_before[ $post_id ] ) && $marks_before[ $post_id ] !== $this->connect_edit_mark( $post_id ) ) {
 				continue;
 			}
 
@@ -1828,6 +1834,20 @@ class DB_Table {
 		}
 
 		$this->connect_advance_sync( $failed + $empty_count );
+	}
+
+	/**
+	 * A value that changes whenever a source is edited: its last save time plus
+	 * the re-index flag, which builders set without saving the post.
+	 *
+	 * @param int $post_id The source post id.
+	 *
+	 * @return string
+	 */
+	private function connect_edit_mark( $post_id ) {
+		$post = get_post( $post_id );
+
+		return ( $post instanceof \WP_Post ? $post->post_modified_gmt : '' ) . '|' . (string) get_post_meta( $post_id, '_hyve_needs_update', true );
 	}
 
 	/**
@@ -1908,13 +1928,14 @@ class DB_Table {
 	}
 
 	/**
-	 * Stop the sync job because the plan's limit was hit, recording the reason
-	 * and the quota numbers at block time (so auto-resume can tell "something
-	 * changed" from "still does not fit").
+	 * Stop the sync job with its sources still pending: the plan's limit was
+	 * hit, the credentials were rejected or the platform is unavailable. Records
+	 * why, and for a plan block the quota numbers at block time (so auto-resume
+	 * can tell "something changed" from "still does not fit").
 	 *
-	 * @param string               $message      The platform's limit message.
-	 * @param array<string, mixed> $quota        The platform's quota snapshot ({kind, limit, used}).
-	 * @param int                  $resume_after Earliest time an admin load may resume the job; 0 for no wait.
+	 * @param string               $message      Why the job stopped, as shown to the admin.
+	 * @param array<string, mixed> $quota        `kind` is storage, indexing, auth or unavailable; a storage block adds the platform's {limit, used}.
+	 * @param int                  $resume_after Earliest time the job may resume; 0 for no wait. A cron event re-checks it then.
 	 *
 	 * @return void
 	 */
@@ -1929,6 +1950,12 @@ class DB_Table {
 
 		update_option( self::CONNECT_SYNC_OPTION, $status );
 		Hyve_Connect::flush_stats();
+
+		wp_clear_scheduled_hook( self::CONNECT_RESUME_HOOK );
+
+		if ( $resume_after > 0 ) {
+			wp_schedule_single_event( (int) $resume_after, self::CONNECT_RESUME_HOOK );
+		}
 	}
 
 	/**
@@ -1963,15 +1990,18 @@ class DB_Table {
 	}
 
 	/**
-	 * Resume a plan-blocked sync once the quota numbers have actually changed
-	 * (upgrade, freed space on another site, a new usage window).
+	 * Resume a blocked sync once its cause has lifted: a plan block when the
+	 * quota numbers have actually changed (upgrade, freed space on another
+	 * site, a new usage window), a credential or outage pause when the
+	 * platform answers the stats call again after the wait.
 	 *
-	 * Cheap on every admin load: reads the cached stats, so the platform is
-	 * consulted at most once per cache window. Both storage and the indexing
-	 * windows must have headroom, or resuming would immediately re-block. For
-	 * a storage block the numbers must also have MOVED since the block (cap
-	 * raised or space freed): leftover room alone means the knowledge base
-	 * simply does not fit, and resuming would retry-loop against the cap.
+	 * Cheap on every admin load, and run once by cron when a pause's wait
+	 * ends: reads the cached stats, so the platform is consulted at most once
+	 * per cache window. Both storage and the indexing windows must have
+	 * headroom, or resuming would immediately re-block. For a storage block
+	 * the numbers must also have MOVED since the block (cap raised or space
+	 * freed): leftover room alone means the knowledge base simply does not
+	 * fit, and resuming would retry-loop against the cap.
 	 *
 	 * @return void
 	 */

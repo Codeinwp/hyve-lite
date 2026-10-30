@@ -292,6 +292,15 @@ const IndexedContent = () => {
 				</p>
 			</div>
 
+			{ isSyncPaused && (
+				<div className="hyve-next-notice is-warn is-flush">
+					<div className="hyve-next-notice__body">
+						<strong>{ __( 'Sync paused.', 'hyve-lite' ) }</strong>{ ' ' }
+						{ connectSync?.message ?? '' }
+					</div>
+				</div>
+			) }
+
 			<div className="hyve-next-card__body">
 				<div className="hyve-next-toolbar">
 					<SelectControl

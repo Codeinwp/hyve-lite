@@ -24,10 +24,12 @@ class ConnectSyncTest extends WP_UnitTestCase {
 	public function test_reconcile_checks_current_builder_text_before_confirming() {
 		$this->enable_connect();
 		$post = $this->indexed_post();
+		$kept = $this->indexed_post();
 		update_post_meta( $post, '_hyve_processing_error', 'Response lost' );
+		update_post_meta( $kept, '_hyve_processing_error', 'Response lost' );
 		update_post_meta( $post, 'builder_text', 'Original builder text' );
-		$render = static function () use ( $post ) {
-			return get_post_meta( $post, 'builder_text', true );
+		$render = static function ( $content ) use ( $post ) {
+			return get_the_ID() === $post ? get_post_meta( $post, 'builder_text', true ) : $content;
 		};
 		add_filter( 'the_content', $render );
 		add_filter(
@@ -44,6 +46,9 @@ class ConnectSyncTest extends WP_UnitTestCase {
 			$this->assertTrue( DB_Table::instance()->connect_reconcile() );
 			$this->assertSame( '', get_post_meta( $post, '_hyve_connect_synced_hash', true ) );
 			$this->assertSame( 'Response lost', get_post_meta( $post, '_hyve_processing_error', true ) );
+			// The unchanged batch mate is confirmed by the same answer.
+			$this->assertSame( DB_Table::instance()->connect_source_hash( $kept ), get_post_meta( $kept, '_hyve_connect_synced_hash', true ) );
+			$this->assertSame( '', get_post_meta( $kept, '_hyve_processing_error', true ) );
 		} finally {
 			remove_filter( 'the_content', $render );
 		}
@@ -109,7 +114,9 @@ class ConnectSyncTest extends WP_UnitTestCase {
 	public function test_reconcile_does_not_acknowledge_a_concurrent_edit() {
 		$this->enable_connect();
 		$post = $this->indexed_post();
+		$kept = $this->indexed_post();
 		update_post_meta( $post, '_hyve_processing_error', 'Response lost' );
+		update_post_meta( $kept, '_hyve_processing_error', 'Response lost' );
 		add_filter(
 			'pre_http_request',
 			function () use ( $post ) {
@@ -129,6 +136,9 @@ class ConnectSyncTest extends WP_UnitTestCase {
 		$this->assertTrue( DB_Table::instance()->connect_reconcile() );
 		$this->assertSame( '', get_post_meta( $post, '_hyve_connect_synced_hash', true ) );
 		$this->assertSame( '1', get_post_meta( $post, '_hyve_needs_update', true ) );
+		// The untouched batch mate is confirmed by the same answer.
+		$this->assertSame( DB_Table::instance()->connect_source_hash( $kept ), get_post_meta( $kept, '_hyve_connect_synced_hash', true ) );
+		$this->assertSame( '', get_post_meta( $kept, '_hyve_processing_error', true ) );
 	}
 
 	/**
@@ -138,7 +148,9 @@ class ConnectSyncTest extends WP_UnitTestCase {
 	public function test_reconcile_preserves_and_restarts_a_failed_source() {
 		$this->enable_connect();
 		$post = $this->indexed_post();
+		$kept = $this->indexed_post();
 		update_post_meta( $post, '_hyve_processing_error', 'Embedding failed' );
+		update_post_meta( $kept, '_hyve_processing_error', 'Response lost' );
 		// Local rows outlive the failure until the platform confirms it holds the source.
 		$row    = DB_Table::instance()->insert(
 			[
@@ -149,7 +161,7 @@ class ConnectSyncTest extends WP_UnitTestCase {
 		$scoped = [];
 		add_filter(
 			'pre_http_request',
-			function ( $pre, $args ) use ( $post, &$scoped ) {
+			function ( $pre, $args ) use ( $post, $kept, &$scoped ) {
 				$payload = json_decode( $args['body'], true );
 				if ( ! empty( $payload['manifest'] ) ) {
 					$scoped = $payload['manifest'];
@@ -159,7 +171,7 @@ class ConnectSyncTest extends WP_UnitTestCase {
 						'deleted' => [],
 					];
 				} elseif ( ! empty( $payload['bucket_hashes'] ) ) {
-					$result = [ 'differing_buckets' => [ Hyve_Connect::kb_bucket_of( $post ) ] ];
+					$result = [ 'differing_buckets' => array_values( array_unique( [ Hyve_Connect::kb_bucket_of( $post ), Hyve_Connect::kb_bucket_of( $kept ) ] ) ) ];
 				} else {
 					$result = [ 'in_sync' => false ];
 				}
@@ -173,19 +185,24 @@ class ConnectSyncTest extends WP_UnitTestCase {
 		);
 
 		$this->assertTrue( DB_Table::instance()->connect_reconcile() );
-		$this->assertSame(
-			[
-				[
-					'id'   => $post,
-					'hash' => DB_Table::instance()->connect_source_hash( $post ),
-				],
-			],
-			$scoped
-		);
+		$sent = [];
+		foreach ( $scoped as $entry ) {
+			$sent[ (int) $entry['id'] ] = $entry['hash'];
+		}
+		ksort( $sent );
+		$expected = [
+			$post => DB_Table::instance()->connect_source_hash( $post ),
+			$kept => DB_Table::instance()->connect_source_hash( $kept ),
+		];
+		ksort( $expected );
+		$this->assertSame( $expected, $sent );
 		$this->assertSame( '', get_post_meta( $post, '_hyve_processing_error', true ) );
 		$this->assertNotNull( DB_Table::instance()->get( $row ) );
-		$this->assertSame( 1, DB_Table::instance()->connect_pending_count() );
+		$this->assertSame( [ $post ], array_map( 'intval', DB_Table::instance()->connect_pending_posts() ) );
 		$this->assertTrue( DB_Table::instance()->connect_sync_status()['in_progress'] );
+		// The source the platform still holds is confirmed, not re-pushed.
+		$this->assertSame( $expected[ $kept ], get_post_meta( $kept, '_hyve_connect_synced_hash', true ) );
+		$this->assertSame( '', get_post_meta( $kept, '_hyve_processing_error', true ) );
 	}
 
 	/**
@@ -445,6 +462,83 @@ class ConnectSyncTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * A paused job resumes by cron once its wait has passed: nobody needs to
+	 * open wp-admin for the outage to be re-checked.
+	 */
+	public function test_paused_sync_resumes_by_cron_without_an_admin_load() {
+		$this->enable_connect();
+		$post    = $this->indexed_post();
+		$healthy = false;
+		add_filter(
+			'pre_http_request',
+			function ( $pre, $args, $url ) use ( $post, &$healthy ) {
+				if ( false !== strpos( $url, Hyve_Connect::PATH_QUOTA ) ) {
+					return [
+						'response' => [ 'code' => 200 ],
+						'body'     => wp_json_encode(
+							[
+								'kb' => [
+									'storage' => [
+										'used'  => 1,
+										'limit' => 1000,
+									],
+								],
+							]
+						),
+					];
+				}
+				if ( ! $healthy ) {
+					return [
+						'response' => [ 'code' => 404 ],
+						'body'     => '{"message":"Workflow not found"}',
+					];
+				}
+				return [
+					'response' => [ 'code' => 200 ],
+					'body'     => $this->sse(
+						[
+							[
+								'job_complete',
+								[
+									'results' => [
+										[
+											'id'     => $post,
+											'status' => 'stored',
+										],
+									],
+								],
+							],
+						]
+					),
+				];
+			},
+			10,
+			3
+		);
+		DB_Table::instance()->connect_start_sync();
+		wp_clear_scheduled_hook( DB_Table::CONNECT_SYNC_HOOK );
+		DB_Table::instance()->connect_run_sync();
+
+		$status = DB_Table::instance()->connect_sync_status();
+		$this->assertTrue( $status['blocked'] );
+		$this->assertSame( $status['resume_after'], wp_next_scheduled( DB_Table::CONNECT_RESUME_HOOK ) );
+
+		// The wait ends and the platform is back: the cron event restarts the job.
+		$healthy                = true;
+		$status['resume_after'] = time() - 1;
+		update_option( DB_Table::CONNECT_SYNC_OPTION, $status );
+		delete_transient( 'hyve_connect_stats' );
+		do_action( DB_Table::CONNECT_RESUME_HOOK );
+
+		$this->assertEmpty( DB_Table::instance()->connect_sync_status()['blocked'] );
+		$this->assertNotFalse( wp_next_scheduled( DB_Table::CONNECT_SYNC_HOOK ) );
+		wp_clear_scheduled_hook( DB_Table::CONNECT_SYNC_HOOK );
+		DB_Table::instance()->connect_run_sync();
+		$this->assertNotSame( '', get_post_meta( $post, '_hyve_connect_synced_hash', true ) );
+		$this->assertSame( 0, DB_Table::instance()->connect_pending_count() );
+	}
+
+	/**
 	 * Queueing more work during a retry delay folds into the job: the attempt
 	 * counter and the single scheduled pass are kept.
 	 */
@@ -581,6 +675,74 @@ class ConnectSyncTest extends WP_UnitTestCase {
 		$this->assertStringContainsString( 'Bad request', get_post_meta( $other, '_hyve_processing_error', true ) );
 		$this->assertSame( [ $post ], array_map( 'intval', DB_Table::instance()->connect_pending_posts() ) );
 		$this->assertSame( 1, DB_Table::instance()->connect_sync_status()['current'] );
+	}
+
+	/**
+	 * An edit saved by another request while the upload runs only reaches the
+	 * database; this process's meta cache still shows the post unflagged.
+	 */
+	public function test_edit_from_another_request_during_a_failed_upload_stays_pending() {
+		global $wpdb;
+
+		$this->enable_connect();
+		$post = $this->indexed_post();
+		add_filter(
+			'pre_http_request',
+			function () use ( $post, $wpdb ) {
+				$wpdb->insert(
+					$wpdb->postmeta,
+					[
+						'post_id'    => $post,
+						'meta_key'   => '_hyve_needs_update', // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key -- simulates another request's write.
+						'meta_value' => '1', // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_value -- simulates another request's write.
+					]
+				);
+				return [
+					'response' => [ 'code' => 400 ],
+					'body'     => '{"message":"Bad request"}',
+				];
+			}
+		);
+		DB_Table::instance()->connect_start_sync();
+		wp_clear_scheduled_hook( DB_Table::CONNECT_SYNC_HOOK );
+		DB_Table::instance()->connect_run_sync();
+
+		$this->assertSame( '', get_post_meta( $post, '_hyve_processing_error', true ) );
+		$this->assertSame( '1', get_post_meta( $post, '_hyve_needs_update', true ) );
+		$this->assertSame( [ $post ], array_map( 'intval', DB_Table::instance()->connect_pending_posts() ) );
+	}
+
+	/**
+	 * A post already flagged when the batch was built, then saved again while
+	 * the upload runs, is edited content too and stays pending.
+	 */
+	public function test_resave_of_a_flagged_post_during_a_failed_upload_stays_pending() {
+		global $wpdb;
+
+		$this->enable_connect();
+		$post = $this->indexed_post();
+		update_post_meta( $post, '_hyve_needs_update', 1 );
+		add_filter(
+			'pre_http_request',
+			function () use ( $post, $wpdb ) {
+				$wpdb->update(
+					$wpdb->posts,
+					[ 'post_modified_gmt' => '2030-01-01 00:00:00' ],
+					[ 'ID' => $post ]
+				);
+				return [
+					'response' => [ 'code' => 400 ],
+					'body'     => '{"message":"Bad request"}',
+				];
+			}
+		);
+		DB_Table::instance()->connect_start_sync();
+		wp_clear_scheduled_hook( DB_Table::CONNECT_SYNC_HOOK );
+		DB_Table::instance()->connect_run_sync();
+
+		$this->assertSame( '', get_post_meta( $post, '_hyve_processing_error', true ) );
+		$this->assertSame( '1', get_post_meta( $post, '_hyve_needs_update', true ) );
+		$this->assertSame( [ $post ], array_map( 'intval', DB_Table::instance()->connect_pending_posts() ) );
 	}
 
 	/**
@@ -1415,6 +1577,49 @@ class ConnectSyncTest extends WP_UnitTestCase {
 		// The block-time snapshot lets auto-resume tell "changed" from "still full".
 		$this->assertSame( 100, $status['quota']['limit'] );
 		$this->assertSame( 1, DB_Table::instance()->connect_pending_count() );
+	}
+
+	/**
+	 * A site whose Connect mode comes from the settings defaults, with nothing
+	 * stored, is still in Connect mode after the request: its errors are handled.
+	 */
+	public function test_run_sync_reads_the_live_mode_through_the_defaults() {
+		delete_option( 'hyve_settings' );
+		$defaults = static function ( $settings ) {
+			$settings['ai_mode'] = Hyve_Connect::MODE_CONNECT;
+			return $settings;
+		};
+		add_filter( 'hyve_default_settings', $defaults );
+		$this->indexed_post( false );
+		$this->intercept(
+			$this->sse(
+				[
+					[
+						'error',
+						[
+							'code'    => 'quota_exceeded',
+							'message' => 'Over the free limit',
+							'quota'   => [
+								'kind'  => 'storage',
+								'limit' => 100,
+								'used'  => 100,
+							],
+						],
+					],
+				]
+			)
+		);
+
+		try {
+			DB_Table::instance()->connect_start_sync();
+			DB_Table::instance()->connect_run_sync();
+
+			$status = DB_Table::instance()->connect_sync_status();
+			$this->assertTrue( $status['blocked'] );
+			$this->assertSame( 'Over the free limit', $status['message'] );
+		} finally {
+			remove_filter( 'hyve_default_settings', $defaults );
+		}
 	}
 
 	/**
