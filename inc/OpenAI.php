@@ -22,6 +22,33 @@ class OpenAI {
 	const MAX_TOOL_ITERATIONS = 5;
 
 	/**
+	 * The chat model used when none is stored or the stored one can't be used.
+	 *
+	 * @var string
+	 */
+	const DEFAULT_CHAT_MODEL = 'gpt-5.4-nano';
+
+	/**
+	 * Chat models Hyve can no longer use, mapped to the nearest model still
+	 * offered. A key also covers its snapshots (`gpt-4o-2024-08-06`,
+	 * `gpt-3.5-turbo-0125`). GPT-3.5 lacks the structured outputs Hyve
+	 * requires; the rest OpenAI has shut down or scheduled for shutdown.
+	 *
+	 * @see https://platform.openai.com/docs/deprecations
+	 *
+	 * @var array<string, string>
+	 */
+	const RETIRED_CHAT_MODELS = [
+		'gpt-5'         => 'gpt-5.4-mini',
+		'gpt-4.1'       => 'gpt-5.4-mini',
+		'gpt-4.1-mini'  => 'gpt-5.4-nano',
+		'gpt-4.1-nano'  => 'gpt-5.4-nano',
+		'gpt-4o'        => 'gpt-5.4-mini',
+		'gpt-4o-mini'   => 'gpt-5.4-nano',
+		'gpt-3.5-turbo' => 'gpt-5.4-nano',
+	];
+
+	/**
 	 * Base URL.
 	 *
 	 * @var string
@@ -33,7 +60,7 @@ class OpenAI {
 	 * 
 	 * @var string
 	 */
-	private $chat_model = 'gpt-4o-mini';
+	private $chat_model = self::DEFAULT_CHAT_MODEL;
 
 	/**
 	 * API Key.
@@ -341,21 +368,28 @@ PROMPT;
 	/**
 	 * Resolve the effective chat model.
 	 *
-	 * GPT-3.5 models don't support the structured-output (`json_schema`) response
-	 * format Hyve requires, so they always error. Any stored GPT-3.5 model (no
-	 * longer offered in the UI) falls back to the default so existing sites keep
-	 * working without manual intervention.
+	 * A model in `RETIRED_CHAT_MODELS` errors on every request, so a stored one
+	 * is replaced by its successor and existing sites keep working without
+	 * manual intervention.
 	 *
 	 * @param mixed $model The stored chat model.
 	 *
 	 * @return string The model to use for requests.
 	 */
 	public static function resolve_chat_model( $model ) {
-		if ( ! is_string( $model ) || '' === $model || 0 === strpos( $model, 'gpt-3.5' ) ) {
-			return 'gpt-5.4-nano';
+		if ( ! is_string( $model ) || '' === $model ) {
+			return self::DEFAULT_CHAT_MODEL;
 		}
 
-		return $model;
+		if ( isset( self::RETIRED_CHAT_MODELS[ $model ] ) ) {
+			return self::RETIRED_CHAT_MODELS[ $model ];
+		}
+
+		// A snapshot (gpt-4o-2024-08-06, gpt-3.5-turbo-0125, gpt-3.5-turbo-16k)
+		// retires with its base model; a sibling family (gpt-5-mini) does not.
+		$base = (string) preg_replace( '/(-(\d{4}-\d{2}-\d{2}|\d{4}|\d+k))+$/', '', $model );
+
+		return self::RETIRED_CHAT_MODELS[ $base ] ?? $model;
 	}
 
 	/**
