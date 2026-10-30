@@ -469,9 +469,13 @@ class ConnectSyncTest extends WP_UnitTestCase {
 		$this->enable_connect();
 		$post    = $this->indexed_post();
 		$healthy = false;
+		$down    = false;
 		add_filter(
 			'pre_http_request',
-			function ( $pre, $args, $url ) use ( $post, &$healthy ) {
+			function ( $pre, $args, $url ) use ( $post, &$healthy, &$down ) {
+				if ( $down ) {
+					return new \WP_Error( 'http_request_failed', 'Connection refused' );
+				}
 				if ( false !== strpos( $url, Hyve_Connect::PATH_QUOTA ) ) {
 					return [
 						'response' => [ 'code' => 200 ],
@@ -523,7 +527,21 @@ class ConnectSyncTest extends WP_UnitTestCase {
 		$this->assertTrue( $status['blocked'] );
 		$this->assertSame( $status['resume_after'], wp_next_scheduled( DB_Table::CONNECT_RESUME_HOOK ) );
 
+		// The wait ends but the platform is still down: another wait is armed.
+		$down                   = true;
+		$status['resume_after'] = time() - 1;
+		update_option( DB_Table::CONNECT_SYNC_OPTION, $status );
+		delete_transient( 'hyve_connect_stats' );
+		do_action( DB_Table::CONNECT_RESUME_HOOK );
+
+		$status = DB_Table::instance()->connect_sync_status();
+		$this->assertTrue( $status['blocked'] );
+		$this->assertEqualsWithDelta( time() + DB_Table::CONNECT_PAUSE_RESUME, $status['resume_after'], 2 );
+		$this->assertSame( $status['resume_after'], wp_next_scheduled( DB_Table::CONNECT_RESUME_HOOK ) );
+		$this->assertFalse( wp_next_scheduled( DB_Table::CONNECT_SYNC_HOOK ) );
+
 		// The wait ends and the platform is back: the cron event restarts the job.
+		$down                   = false;
 		$healthy                = true;
 		$status['resume_after'] = time() - 1;
 		update_option( DB_Table::CONNECT_SYNC_OPTION, $status );
@@ -714,21 +732,28 @@ class ConnectSyncTest extends WP_UnitTestCase {
 
 	/**
 	 * A post already flagged when the batch was built, then saved again while
-	 * the upload runs, is edited content too and stays pending.
+	 * the upload runs, is edited content too and stays pending. Its unedited
+	 * batch mate is failed.
 	 */
 	public function test_resave_of_a_flagged_post_during_a_failed_upload_stays_pending() {
-		global $wpdb;
-
 		$this->enable_connect();
 		$post = $this->indexed_post();
-		update_post_meta( $post, '_hyve_needs_update', 1 );
+		$mate = $this->indexed_post();
+		wp_update_post(
+			[
+				'ID'           => $post,
+				'post_content' => 'First edit',
+			]
+		);
+		$this->assertSame( '1', get_post_meta( $post, '_hyve_needs_update', true ) );
 		add_filter(
 			'pre_http_request',
-			function () use ( $post, $wpdb ) {
-				$wpdb->update(
-					$wpdb->posts,
-					[ 'post_modified_gmt' => '2030-01-01 00:00:00' ],
-					[ 'ID' => $post ]
+			function () use ( $post ) {
+				wp_update_post(
+					[
+						'ID'           => $post,
+						'post_content' => 'Second edit',
+					]
 				);
 				return [
 					'response' => [ 'code' => 400 ],
@@ -742,7 +767,26 @@ class ConnectSyncTest extends WP_UnitTestCase {
 
 		$this->assertSame( '', get_post_meta( $post, '_hyve_processing_error', true ) );
 		$this->assertSame( '1', get_post_meta( $post, '_hyve_needs_update', true ) );
+		$this->assertStringContainsString( 'Bad request', get_post_meta( $mate, '_hyve_processing_error', true ) );
 		$this->assertSame( [ $post ], array_map( 'intval', DB_Table::instance()->connect_pending_posts() ) );
+	}
+
+	/**
+	 * A flag set before the batch was built describes content the batch
+	 * already carries; it does not shield the source from a terminal failure.
+	 */
+	public function test_a_flag_older_than_the_batch_does_not_shield_a_failed_upload() {
+		$this->enable_connect();
+		$post = $this->indexed_post();
+		update_post_meta( $post, '_hyve_needs_update', 1 );
+		$this->intercept( '{"message":"Bad request"}', 400 );
+		DB_Table::instance()->connect_start_sync();
+		wp_clear_scheduled_hook( DB_Table::CONNECT_SYNC_HOOK );
+		DB_Table::instance()->connect_run_sync();
+
+		$this->assertStringContainsString( 'Bad request', get_post_meta( $post, '_hyve_processing_error', true ) );
+		$this->assertSame( '', get_post_meta( $post, '_hyve_needs_update', true ) );
+		$this->assertSame( 0, DB_Table::instance()->connect_pending_count() );
 	}
 
 	/**
@@ -1590,33 +1634,15 @@ class ConnectSyncTest extends WP_UnitTestCase {
 			return $settings;
 		};
 		add_filter( 'hyve_default_settings', $defaults );
-		$this->indexed_post( false );
-		$this->intercept(
-			$this->sse(
-				[
-					[
-						'error',
-						[
-							'code'    => 'quota_exceeded',
-							'message' => 'Over the free limit',
-							'quota'   => [
-								'kind'  => 'storage',
-								'limit' => 100,
-								'used'  => 100,
-							],
-						],
-					],
-				]
-			)
-		);
+		$post = $this->indexed_post( false );
+		$this->intercept( '{"message":"Bad request"}', 400 );
 
 		try {
 			DB_Table::instance()->connect_start_sync();
 			DB_Table::instance()->connect_run_sync();
 
-			$status = DB_Table::instance()->connect_sync_status();
-			$this->assertTrue( $status['blocked'] );
-			$this->assertSame( 'Over the free limit', $status['message'] );
+			$this->assertStringContainsString( 'Bad request', get_post_meta( $post, '_hyve_processing_error', true ) );
+			$this->assertSame( 0, DB_Table::instance()->connect_pending_count() );
 		} finally {
 			remove_filter( 'hyve_default_settings', $defaults );
 		}
@@ -1630,6 +1656,9 @@ class ConnectSyncTest extends WP_UnitTestCase {
 		$this->enable_connect();
 		$a = $this->indexed_post( false );
 		$b = $this->indexed_post( false );
+		// Both were edited since indexing; only the stored one is up to date now.
+		update_post_meta( $a, '_hyve_needs_update', 1 );
+		update_post_meta( $b, '_hyve_needs_update', 1 );
 
 		$this->intercept(
 			$this->sse(
@@ -1664,7 +1693,9 @@ class ConnectSyncTest extends WP_UnitTestCase {
 		DB_Table::instance()->connect_run_sync();
 
 		$this->assertNotSame( '', get_post_meta( $a, '_hyve_connect_synced_hash', true ) );
+		$this->assertSame( '', get_post_meta( $a, '_hyve_needs_update', true ) );
 		$this->assertSame( '', get_post_meta( $b, '_hyve_connect_synced_hash', true ) );
+		$this->assertSame( '1', get_post_meta( $b, '_hyve_needs_update', true ) );
 		$this->assertSame( 1, DB_Table::instance()->connect_pending_count() );
 		$this->assertEmpty( DB_Table::instance()->connect_sync_status()['blocked'] );
 	}
