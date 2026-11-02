@@ -1377,23 +1377,27 @@ class DB_Table {
 	 *
 	 * Called when a site with indexed content switches into Connect mode, and by
 	 * the purge auto-recovery path. Seeds the progress option and schedules the
-	 * first cron run; a no-op when there is nothing pending.
+	 * first cron run. With nothing pending it schedules nothing, and writes the
+	 * status only to carry an outage probe for the update cron's edited pages.
 	 *
-	 * @param bool $probe Resuming after an outage: the first rate-limit or
-	 *                    maintenance answer pauses again at once, until an
-	 *                    upload goes through. Seeded before the job is runnable.
+	 * @param bool $probe Resuming after an outage: a rate-limit or maintenance
+	 *                    answer pauses again at once while the probe lasts. It
+	 *                    lasts one pause wait at most, and ends sooner on any
+	 *                    other upload answer, on batch progress, or when the
+	 *                    update cron finds nothing to send. Seeded in the same
+	 *                    write that makes the job runnable.
 	 *
 	 * @return void
 	 */
 	public function connect_start_sync( $probe = false ) {
 		$this->connect_clear_processing_errors();
 
-		$pending = $this->connect_pending_count();
+		$pending     = $this->connect_pending_count();
+		$probe_until = $probe ? time() + self::CONNECT_PAUSE_RESUME : 0;
 
 		if ( 0 === $pending ) {
-			// Edited pages still probe the outage through the update cron.
 			if ( $probe ) {
-				update_option( self::CONNECT_SYNC_OPTION, [ 'probe' => true ] );
+				update_option( self::CONNECT_SYNC_OPTION, [ 'probe_until' => $probe_until ] );
 			}
 			return;
 		}
@@ -1407,7 +1411,7 @@ class DB_Table {
 				'blocked'     => false,
 				'message'     => '',
 				'heartbeat'   => time(),
-				'probe'       => (bool) $probe,
+				'probe_until' => $probe_until,
 			]
 		);
 
@@ -1731,6 +1735,12 @@ class DB_Table {
 		if ( $this->connect_may_retry( $scope, $attempts ) ) {
 			$status['attempts']  = $attempts;
 			$status['heartbeat'] = time();
+
+			// The upload route answered with something other than the outage.
+			if ( 'later' !== $scope ) {
+				$status['probe_until'] = 0;
+			}
+
 			update_option( self::CONNECT_SYNC_OPTION, $status );
 			wp_schedule_single_event( time() + ( MINUTE_IN_SECONDS * $attempts ), self::CONNECT_SYNC_HOOK );
 			return [];
@@ -1798,22 +1808,29 @@ class DB_Table {
 			return false;
 		}
 
-		return 'later' !== $scope || empty( $this->connect_sync_status()['probe'] );
+		return 'later' !== $scope || (int) ( $this->connect_sync_status()['probe_until'] ?? 0 ) <= time();
 	}
 
 	/**
-	 * End an outage resume's probe: an upload went through.
+	 * End an outage resume's probe once the upload route has answered with
+	 * something other than the outage, or nothing is left to send.
+	 *
+	 * Rereads the stored status past this request's option cache and changes
+	 * only the probe: an upload can outlast the cron lock, and another cron
+	 * process may have paused or advanced the job meanwhile.
 	 *
 	 * @return void
 	 */
 	private function connect_end_probe() {
+		wp_cache_delete( self::CONNECT_SYNC_OPTION, 'options' );
+		wp_cache_delete( 'alloptions', 'options' );
 		$status = $this->connect_sync_status();
 
-		if ( empty( $status['probe'] ) ) {
+		if ( empty( $status['probe_until'] ) ) {
 			return;
 		}
 
-		$status['probe'] = false;
+		$status['probe_until'] = 0;
 		update_option( self::CONNECT_SYNC_OPTION, $status );
 	}
 
@@ -1957,7 +1974,7 @@ class DB_Table {
 
 		$status['current']     = (int) ( $status['current'] ?? 0 ) + (int) $done;
 		$status['attempts']    = 0;
-		$status['probe']       = false;
+		$status['probe_until'] = 0;
 		$has_more              = $this->connect_pending_count() > 0;
 		$status['in_progress'] = $has_more;
 		$status['heartbeat']   = time();
@@ -2852,6 +2869,10 @@ class DB_Table {
 		$query = new \WP_Query( $args );
 
 		if ( ! $query->have_posts() ) {
+			// Nothing left to probe an outage with, unless a batch still runs.
+			if ( $connect && empty( $this->connect_sync_status()['in_progress'] ) ) {
+				$this->connect_end_probe();
+			}
 			return;
 		}
 
@@ -2928,6 +2949,11 @@ class DB_Table {
 	private function connect_update_failed( $post_id, \WP_Error $error ) {
 		$code = $error->get_error_code();
 		$data = $error->get_error_data();
+
+		// The upload route answered with something other than the outage.
+		if ( 'later' !== $this->connect_error_scope( $error ) ) {
+			$this->connect_end_probe();
+		}
 
 		// A removal or a newer edit supersedes this result and its retry budget.
 		if ( $this->connect_update_superseded( $post_id ) ) {

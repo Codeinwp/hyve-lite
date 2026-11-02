@@ -1579,7 +1579,7 @@ class ConnectSyncTest extends WP_UnitTestCase {
 	/**
 	 * Answer uploads by the current mode and the quota route as healthy.
 	 *
-	 * @param string $answer  `outage` (503), `error` (500) or `ok` (stored), read by reference.
+	 * @param string $answer  `outage` (503), `error` (500), `refused` (422) or `ok` (stored), read by reference.
 	 * @param int    $uploads Upload counter, incremented by reference.
 	 *
 	 * @return void
@@ -1616,6 +1616,12 @@ class ConnectSyncTest extends WP_UnitTestCase {
 					return [
 						'response' => [ 'code' => 200 ],
 						'body'     => $this->sse( [ [ 'job_complete', [ 'results' => $results ] ] ] ),
+					];
+				}
+				if ( 'refused' === $answer ) {
+					return [
+						'response' => [ 'code' => 422 ],
+						'body'     => '{"message":"Validation failed"}',
 					];
 				}
 				return 'error' === $answer
@@ -1702,6 +1708,7 @@ class ConnectSyncTest extends WP_UnitTestCase {
 		$this->assertTrue( $status['in_progress'] );
 		$this->assertEmpty( $status['blocked'] ?? null );
 		$this->assertSame( 1, $status['attempts'] );
+		$this->assertEmpty( $status['probe_until'] ?? null );
 		$this->assertNotFalse( wp_next_scheduled( DB_Table::CONNECT_SYNC_HOOK ) );
 	}
 
@@ -1740,7 +1747,7 @@ class ConnectSyncTest extends WP_UnitTestCase {
 		}
 
 		$this->assertIsArray( $seen );
-		$this->assertTrue( $seen['probe'] );
+		$this->assertGreaterThan( time(), $seen['probe_until'] );
 		$this->assertTrue( $seen['in_progress'] );
 		$this->assertSame( $seen, DB_Table::instance()->connect_sync_status() );
 	}
@@ -1762,7 +1769,7 @@ class ConnectSyncTest extends WP_UnitTestCase {
 			DB_Table::instance()->connect_run_sync();
 		}
 		$this->resume_after_the_wait();
-		$this->assertTrue( DB_Table::instance()->connect_sync_status()['probe'] );
+		$this->assertGreaterThan( time(), DB_Table::instance()->connect_sync_status()['probe_until'] ?? 0 );
 
 		$answer = 'ok';
 		wp_clear_scheduled_hook( DB_Table::CONNECT_SYNC_HOOK );
@@ -1770,7 +1777,152 @@ class ConnectSyncTest extends WP_UnitTestCase {
 
 		$this->assertSame( DB_Table::MAX_PROCESS_ATTEMPTS + 1, $uploads );
 		$this->assertSame( 0, DB_Table::instance()->connect_pending_count() );
-		$this->assertEmpty( DB_Table::instance()->connect_sync_status()['probe'] ?? null );
+		$this->assertEmpty( DB_Table::instance()->connect_sync_status()['probe_until'] ?? null );
+	}
+
+	/**
+	 * Pause syncing on a lasting outage of an edited page, then resume with
+	 * healthy stats. Nothing is pending for the batch, so only the update
+	 * cron carries the probe.
+	 *
+	 * @param int    $post    The edited, synced page.
+	 * @param string $answer  Upload mode, by reference (see intercept_uploads()).
+	 * @param int    $uploads Upload counter, by reference.
+	 *
+	 * @return void
+	 */
+	private function pause_and_resume_an_edit( $post, &$answer, &$uploads ) {
+		update_post_meta( $post, '_hyve_needs_update', 1 );
+		$answer = 'outage';
+		$this->intercept_uploads( $answer, $uploads );
+
+		for ( $run = 0; $run < DB_Table::MAX_PROCESS_ATTEMPTS; $run++ ) {
+			DB_Table::instance()->update_posts();
+		}
+		$this->resume_after_the_wait();
+		$this->assertGreaterThan( time(), DB_Table::instance()->connect_sync_status()['probe_until'] ?? 0 );
+	}
+
+	/**
+	 * A refusal of one page after the resume shows the upload route is back:
+	 * it ends the probe, so another page's maintenance answer gets retries.
+	 */
+	public function test_a_refused_page_after_an_outage_resume_ends_the_probe() {
+		$this->enable_connect();
+		$first   = $this->indexed_post( true );
+		$second  = $this->indexed_post( true );
+		$answer  = 'outage';
+		$uploads = 0;
+		$this->pause_and_resume_an_edit( $first, $answer, $uploads );
+
+		$answer = 'refused';
+		DB_Table::instance()->update_posts();
+		$this->assertEmpty( DB_Table::instance()->connect_sync_status()['probe_until'] ?? null );
+
+		$answer = 'outage';
+		update_post_meta( $second, '_hyve_needs_update', 1 );
+		DB_Table::instance()->update_posts();
+
+		$this->assertSame( '1', get_post_meta( $second, '_hyve_connect_update_attempts', true ) );
+		$this->assertEmpty( DB_Table::instance()->connect_sync_status()['blocked'] ?? null );
+	}
+
+	/**
+	 * A resume that finds nothing to send ends the probe, so a much later
+	 * maintenance answer on another edit is not mistaken for the old outage.
+	 */
+	public function test_a_resume_with_nothing_to_send_ends_the_probe() {
+		$this->enable_connect();
+		$first   = $this->indexed_post( true );
+		$second  = $this->indexed_post( true );
+		$answer  = 'outage';
+		$uploads = 0;
+		update_post_meta( $first, '_hyve_needs_update', 1 );
+		$this->intercept_uploads( $answer, $uploads );
+
+		for ( $run = 0; $run < DB_Table::MAX_PROCESS_ATTEMPTS; $run++ ) {
+			DB_Table::instance()->update_posts();
+		}
+		// The page leaves the knowledge base during the pause.
+		delete_post_meta( $first, '_hyve_added' );
+		delete_post_meta( $first, '_hyve_needs_update' );
+		$this->resume_after_the_wait();
+
+		// The update run the resume schedules finds nothing to send.
+		DB_Table::instance()->update_posts();
+		$this->assertEmpty( DB_Table::instance()->connect_sync_status()['probe_until'] ?? null );
+
+		update_post_meta( $second, '_hyve_needs_update', 1 );
+		DB_Table::instance()->update_posts();
+
+		$this->assertSame( '1', get_post_meta( $second, '_hyve_connect_update_attempts', true ) );
+		$this->assertEmpty( DB_Table::instance()->connect_sync_status()['blocked'] ?? null );
+	}
+
+	/**
+	 * The probe lasts one pause wait at most: a maintenance answer after it
+	 * expired gets its retries.
+	 */
+	public function test_the_outage_probe_expires() {
+		$this->enable_connect();
+		$post    = $this->indexed_post( true );
+		$answer  = 'outage';
+		$uploads = 0;
+		$this->pause_and_resume_an_edit( $post, $answer, $uploads );
+
+		$status                = DB_Table::instance()->connect_sync_status();
+		$status['probe_until'] = time() - 1;
+		update_option( DB_Table::CONNECT_SYNC_OPTION, $status );
+		DB_Table::instance()->update_posts();
+
+		$this->assertSame( '1', get_post_meta( $post, '_hyve_connect_update_attempts', true ) );
+		$this->assertEmpty( DB_Table::instance()->connect_sync_status()['blocked'] ?? null );
+	}
+
+	/**
+	 * Ending the probe after a stored upload rereads the status: a pause
+	 * another cron process stored during the upload survives.
+	 */
+	public function test_ending_the_probe_keeps_a_pause_stored_meanwhile() {
+		global $wpdb;
+
+		$this->enable_connect();
+		$post    = $this->indexed_post( true );
+		$answer  = 'outage';
+		$uploads = 0;
+		$this->pause_and_resume_an_edit( $post, $answer, $uploads );
+
+		$paused = [
+			'blocked'      => true,
+			'in_progress'  => false,
+			'message'      => 'Hyve Connect could not be reached.',
+			'quota'        => [ 'kind' => 'unavailable' ],
+			'resume_after' => time() + DB_Table::CONNECT_PAUSE_RESUME,
+			'probe_until'  => time() + DB_Table::CONNECT_PAUSE_RESUME,
+		];
+		add_filter(
+			'pre_http_request',
+			static function ( $pre ) use ( $wpdb, $paused ) {
+				// Another process stores a pause, past this request's option cache.
+				$wpdb->update(
+					$wpdb->options,
+					[ 'option_value' => maybe_serialize( $paused ) ],
+					[ 'option_name' => DB_Table::CONNECT_SYNC_OPTION ]
+				);
+				return $pre;
+			},
+			5
+		);
+
+		$answer = 'ok';
+		DB_Table::instance()->update_posts();
+
+		wp_cache_delete( DB_Table::CONNECT_SYNC_OPTION, 'options' );
+		wp_cache_delete( 'alloptions', 'options' );
+		$status = DB_Table::instance()->connect_sync_status();
+		$this->assertTrue( $status['blocked'] ?? false );
+		$this->assertSame( 'unavailable', $status['quota']['kind'] ?? null );
+		$this->assertEmpty( $status['probe_until'] ?? null );
 	}
 
 	/**
@@ -1790,11 +1942,11 @@ class ConnectSyncTest extends WP_UnitTestCase {
 			DB_Table::instance()->update_posts();
 		}
 		$this->resume_after_the_wait();
-		$this->assertTrue( DB_Table::instance()->connect_sync_status()['probe'] );
+		$this->assertGreaterThan( time(), DB_Table::instance()->connect_sync_status()['probe_until'] ?? 0 );
 
 		$answer = 'ok';
 		DB_Table::instance()->update_posts();
-		$this->assertEmpty( DB_Table::instance()->connect_sync_status()['probe'] ?? null );
+		$this->assertEmpty( DB_Table::instance()->connect_sync_status()['probe_until'] ?? null );
 
 		// A new outage on another edit is retried, not paused at once.
 		$answer = 'outage';
