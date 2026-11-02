@@ -109,11 +109,13 @@ class OpenAI {
 	public const REWRITE_MODEL = 'gpt-5.4-nano';
 
 	/**
-	 * Longest rewritten query kept; anything past it is not a question any more.
+	 * Most characters kept from a rewrite: room for a short follow-up expanded
+	 * with the subject of a long earlier question. Mirrors the platform's
+	 * RetrievalQuery::MAX_CHARS.
 	 *
 	 * @var int
 	 */
-	public const REWRITE_MAX_CHARS = 300;
+	public const REWRITE_MAX_CHARS = 800;
 
 	/**
 	 * Instructions for the retrieval query rewrite. Mirrored by the platform's

@@ -375,7 +375,27 @@ class RetrievalTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * A long message without spaces keeps details beyond the rewrite's cap.
+	 * A short follow-up can expand past 300 characters with the subject of a
+	 * long earlier question. The rewrite comes back whole and is searched
+	 * alone, and only a rewrite past the 800-character cap is cut.
+	 */
+	public function test_short_follow_up_keeps_a_long_rewrite_whole() {
+		$rewritten = 'For the pro plan, ' . str_repeat( 'does the annual subscription include priority support, onboarding and data migration? ', 4 );
+		$this->assertGreaterThan( API::REWRITE_LONG_CHARS, mb_strlen( trim( $rewritten ) ) );
+
+		$this->intercept_rewrite( $rewritten );
+		$record_id = $this->seed_pickleball_thread();
+
+		$this->assertSame( trim( $rewritten ), $this->build_query( 'and for the pro plan?', $record_id ) );
+
+		$capped = \ThemeIsle\HyveLite\OpenAI::clean_rewritten_query( str_repeat( 'a', \ThemeIsle\HyveLite\OpenAI::REWRITE_MAX_CHARS + 50 ) );
+		$this->assertSame( \ThemeIsle\HyveLite\OpenAI::REWRITE_MAX_CHARS, mb_strlen( $capped ) );
+	}
+
+	/**
+	 * A message past the long-message character threshold keeps its own
+	 * wording ahead of the rewrite, even without spaces, and the threshold
+	 * is exclusive: 300 characters is short, 301 is long.
 	 */
 	public function test_long_message_without_spaces_keeps_its_trailing_details() {
 		$message   = str_repeat( '測', 333 ) . 'ZX7-2291-B';
@@ -384,6 +404,9 @@ class RetrievalTest extends WP_UnitTestCase {
 		$record_id = $this->seed_pickleball_thread();
 
 		$this->assertSame( $message . "\n" . $rewritten, $this->build_query( $message, $record_id ) );
+
+		$this->assertSame( 'r', API::rewritten_retrieval_text( str_repeat( '測', API::REWRITE_LONG_CHARS ), 'r' ) );
+		$this->assertSame( str_repeat( '測', API::REWRITE_LONG_CHARS + 1 ) . "\nr", API::rewritten_retrieval_text( str_repeat( '測', API::REWRITE_LONG_CHARS + 1 ), 'r' ) );
 	}
 
 	/**

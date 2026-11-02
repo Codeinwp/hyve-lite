@@ -72,14 +72,25 @@ class API extends BaseAPI {
 	private $query_rewritten = false;
 
 	/**
-	 * A rewritten message longer than this many words is searched with its own
-	 * wording ahead of the rewrite, so a condensing rewrite cannot drop its details.
+	 * A rewritten message longer than this many words, or this many characters,
+	 * is searched with its own wording ahead of the rewrite, so a condensing
+	 * rewrite cannot drop its details. Mirrors the platform's
+	 * RetrievalQuery::LONG_WORDS and LONG_CHARS.
 	 *
 	 * @since 2.1.0
 	 *
 	 * @var int
 	 */
 	const REWRITE_LONG_WORDS = 12;
+
+	/**
+	 * See REWRITE_LONG_WORDS.
+	 *
+	 * @since 2.1.0
+	 *
+	 * @var int
+	 */
+	const REWRITE_LONG_CHARS = 300;
 
 	/**
 	 * Ensures only one instance of the class is loaded.
@@ -2527,7 +2538,7 @@ class API extends BaseAPI {
 	public static function rewritten_retrieval_text( $message, $rewritten ) {
 		$words = preg_split( '/\s+/u', trim( (string) $message ) );
 
-		if ( ( is_array( $words ) && count( $words ) > self::REWRITE_LONG_WORDS ) || mb_strlen( trim( (string) $message ) ) > OpenAI::REWRITE_MAX_CHARS ) {
+		if ( ( is_array( $words ) && count( $words ) > self::REWRITE_LONG_WORDS ) || mb_strlen( trim( (string) $message ) ) > self::REWRITE_LONG_CHARS ) {
 			return $message . "\n" . $rewritten;
 		}
 
@@ -3670,7 +3681,8 @@ class API extends BaseAPI {
 	 * Build the debug trace for a Hyve Connect turn from the platform result.
 	 *
 	 * Retrieval runs remotely in Connect mode, so the recorded trace is limited
-	 * to what the platform reports back: the sources behind the answer.
+	 * to what the platform reports back: the query it searched for, the sources
+	 * behind the answer, and the token usage.
 	 *
 	 * @since 2.1.0
 	 *

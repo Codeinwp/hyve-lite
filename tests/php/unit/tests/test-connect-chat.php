@@ -154,19 +154,28 @@ class ConnectChatTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * A platform that reports no query (an older deploy) leaves the trace
-	 * without one rather than inventing it.
+	 * A query the platform searched as sent is recorded without the rewritten
+	 * flag, and an empty one is left out rather than recorded.
 	 */
-	public function test_connect_debug_without_a_platform_query() {
+	public function test_connect_debug_records_an_unrewritten_platform_query() {
 		$debug = API::instance()->connect_debug(
+			[
+				'reply'           => 'Hi',
+				'retrieval_query' => 'Do you sell gift cards?',
+			]
+		);
+
+		$this->assertSame( 'Do you sell gift cards?', $debug['query'] );
+		$this->assertArrayNotHasKey( 'query_rewritten', $debug );
+
+		$empty = API::instance()->connect_debug(
 			[
 				'reply'           => 'Hi',
 				'retrieval_query' => '',
 			]
 		);
 
-		$this->assertArrayNotHasKey( 'query', $debug );
-		$this->assertArrayNotHasKey( 'query_rewritten', $debug );
+		$this->assertArrayNotHasKey( 'query', $empty );
 	}
 
 	/**
