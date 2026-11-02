@@ -1446,6 +1446,137 @@ class ConnectSyncTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * A lasting upload outage on an edited page spends its retries, then
+	 * pauses without asking the quota route. After a resume with healthy
+	 * stats, one upload probes the outage and the job pauses again.
+	 *
+	 * @dataProvider temporary_update_answers
+	 * @param int    $status HTTP status of every upload answer.
+	 * @param string $body   Its body.
+	 */
+	public function test_edited_synced_page_lasting_outage_stays_paused( $status, $body ) {
+		$this->enable_connect();
+		$post    = $this->indexed_post( true );
+		$uploads = 0;
+		$probes  = 0;
+		update_post_meta( $post, '_hyve_needs_update', 1 );
+		add_filter(
+			'pre_http_request',
+			function ( $pre, $args, $url ) use ( $status, $body, &$uploads, &$probes ) {
+				if ( false !== strpos( $url, Hyve_Connect::PATH_QUOTA ) ) {
+					++$probes;
+					return [
+						'response' => [ 'code' => 200 ],
+						'body'     => wp_json_encode(
+							[
+								'kb' => [
+									'storage' => [
+										'used'  => 1,
+										'limit' => 1000,
+									],
+								],
+							]
+						),
+					];
+				}
+				++$uploads;
+				return [
+					'response' => [ 'code' => $status ],
+					'body'     => $body,
+				];
+			},
+			10,
+			3
+		);
+
+		for ( $run = 0; $run < DB_Table::MAX_PROCESS_ATTEMPTS; $run++ ) {
+			DB_Table::instance()->update_posts();
+		}
+
+		$this->assertSame( DB_Table::MAX_PROCESS_ATTEMPTS, $uploads );
+		$this->assertSame( 0, $probes );
+		$this->assertSame( '1', get_post_meta( $post, '_hyve_needs_update', true ) );
+		$status_after = DB_Table::instance()->connect_sync_status();
+		$this->assertTrue( $status_after['blocked'] ?? false );
+		$this->assertSame( 'unavailable', $status_after['quota']['kind'] ?? null );
+
+		// The wait ends and stats answer, but uploads still fail.
+		$status_after['resume_after'] = time() - 1;
+		update_option( DB_Table::CONNECT_SYNC_OPTION, $status_after );
+		wp_clear_scheduled_hook( DB_Table::CONNECT_RESUME_HOOK );
+		delete_transient( 'hyve_connect_stats' );
+		DB_Table::instance()->connect_maybe_resume_blocked();
+		$this->assertEmpty( DB_Table::instance()->connect_sync_status()['blocked'] ?? null );
+
+		DB_Table::instance()->update_posts();
+
+		$this->assertSame( DB_Table::MAX_PROCESS_ATTEMPTS + 1, $uploads );
+		$this->assertSame( '1', get_post_meta( $post, '_hyve_needs_update', true ) );
+		$this->assertTrue( DB_Table::instance()->connect_sync_status()['blocked'] ?? false );
+	}
+
+	/**
+	 * The batch path keeps an outage's spent budget across a resume too: one
+	 * batch probes the upload route, then the job pauses again.
+	 */
+	public function test_batch_lasting_outage_probes_once_after_a_resume() {
+		$this->enable_connect();
+		$this->indexed_post();
+		$uploads = 0;
+		add_filter(
+			'pre_http_request',
+			function ( $pre, $args, $url ) use ( &$uploads ) {
+				if ( false !== strpos( $url, Hyve_Connect::PATH_QUOTA ) ) {
+					return [
+						'response' => [ 'code' => 200 ],
+						'body'     => wp_json_encode(
+							[
+								'kb' => [
+									'storage' => [
+										'used'  => 1,
+										'limit' => 1000,
+									],
+								],
+							]
+						),
+					];
+				}
+				++$uploads;
+				return [
+					'response' => [ 'code' => 503 ],
+					'body'     => 'Service unavailable',
+				];
+			},
+			10,
+			3
+		);
+		DB_Table::instance()->connect_start_sync();
+
+		for ( $run = 0; $run < DB_Table::MAX_PROCESS_ATTEMPTS; $run++ ) {
+			wp_clear_scheduled_hook( DB_Table::CONNECT_SYNC_HOOK );
+			DB_Table::instance()->connect_run_sync();
+		}
+
+		$this->assertSame( DB_Table::MAX_PROCESS_ATTEMPTS, $uploads );
+		$status = DB_Table::instance()->connect_sync_status();
+		$this->assertTrue( $status['blocked'] );
+
+		$status['resume_after'] = time() - 1;
+		update_option( DB_Table::CONNECT_SYNC_OPTION, $status );
+		wp_clear_scheduled_hook( DB_Table::CONNECT_RESUME_HOOK );
+		delete_transient( 'hyve_connect_stats' );
+		DB_Table::instance()->connect_maybe_resume_blocked();
+		$this->assertTrue( DB_Table::instance()->connect_sync_status()['in_progress'] );
+
+		wp_clear_scheduled_hook( DB_Table::CONNECT_SYNC_HOOK );
+		DB_Table::instance()->connect_run_sync();
+
+		$this->assertSame( DB_Table::MAX_PROCESS_ATTEMPTS + 1, $uploads );
+		$this->assertTrue( DB_Table::instance()->connect_sync_status()['blocked'] );
+		$this->assertSame( 1, DB_Table::instance()->connect_pending_count() );
+	}
+
+	/**
 	 * Temporary answers the batch path retries before pausing.
 	 *
 	 * @return array<string, array{int, string}>

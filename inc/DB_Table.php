@@ -2104,6 +2104,19 @@ class DB_Table {
 
 		delete_option( self::CONNECT_SYNC_OPTION );
 		$this->connect_start_sync();
+
+		// An outage pause keeps its spent budget: the first batch probes the
+		// upload route once, and pauses again if it still fails. A stored
+		// batch resets the count.
+		if ( 'unavailable' === ( $snapshot['kind'] ?? '' ) ) {
+			$restarted = $this->connect_sync_status();
+
+			if ( ! empty( $restarted['in_progress'] ) ) {
+				$restarted['attempts'] = self::MAX_PROCESS_ATTEMPTS - 1;
+				update_option( self::CONNECT_SYNC_OPTION, $restarted );
+			}
+		}
+
 		// Edits held back while the job was paused go out again.
 		wp_schedule_single_event( time(), 'hyve_update_posts' );
 	}
@@ -2921,8 +2934,16 @@ class DB_Table {
 			return false;
 		}
 
-		delete_post_meta( $post_id, '_hyve_connect_update_attempts' );
 		$scope = $this->connect_settle_unknown_scope( $error );
+
+		// An outage keeps its spent budget across the pause, so after a resume
+		// one upload probes the platform before the job pauses again. Only a
+		// successful upload or a new edit clears it.
+		if ( 'later' === $scope && $this->connect_requeue_update( $post_id ) ) {
+			update_post_meta( $post_id, '_hyve_connect_update_attempts', self::MAX_PROCESS_ATTEMPTS - 1 );
+		} else {
+			delete_post_meta( $post_id, '_hyve_connect_update_attempts' );
+		}
 
 		if ( 'batch' !== $scope ) {
 			// Not this source's fault: the pause carries the reason instead.
