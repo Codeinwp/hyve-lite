@@ -527,29 +527,30 @@ class ConnectSyncTest extends WP_UnitTestCase {
 		$this->assertTrue( $status['blocked'] );
 		$this->assertSame( $status['resume_after'], wp_next_scheduled( DB_Table::CONNECT_RESUME_HOOK ) );
 
-		// The wait ends but the platform is still down: another wait is armed.
+		// The wait ends but the platform is still down: another check is armed
+		// without touching the status.
 		$down                   = true;
 		$status['resume_after'] = time() - 1;
 		update_option( DB_Table::CONNECT_SYNC_OPTION, $status );
+		wp_clear_scheduled_hook( DB_Table::CONNECT_RESUME_HOOK );
 		delete_transient( 'hyve_connect_stats' );
 		do_action( DB_Table::CONNECT_RESUME_HOOK );
 
-		$status = DB_Table::instance()->connect_sync_status();
-		$this->assertTrue( $status['blocked'] );
-		$this->assertEqualsWithDelta( time() + DB_Table::CONNECT_PAUSE_RESUME, $status['resume_after'], 2 );
-		$this->assertSame( $status['resume_after'], wp_next_scheduled( DB_Table::CONNECT_RESUME_HOOK ) );
+		$this->assertSame( $status, DB_Table::instance()->connect_sync_status() );
+		$this->assertEqualsWithDelta( time() + DB_Table::CONNECT_PAUSE_RESUME, wp_next_scheduled( DB_Table::CONNECT_RESUME_HOOK ), 2 );
 		$this->assertFalse( wp_next_scheduled( DB_Table::CONNECT_SYNC_HOOK ) );
 
-		// The wait ends and the platform is back: the cron event restarts the job.
-		$down                   = false;
-		$healthy                = true;
-		$status['resume_after'] = time() - 1;
-		update_option( DB_Table::CONNECT_SYNC_OPTION, $status );
+		// The wait ends and the platform is back: the cron event restarts the
+		// job and lets held-back edits go out.
+		$down    = false;
+		$healthy = true;
+		wp_clear_scheduled_hook( 'hyve_update_posts' );
 		delete_transient( 'hyve_connect_stats' );
 		do_action( DB_Table::CONNECT_RESUME_HOOK );
 
 		$this->assertEmpty( DB_Table::instance()->connect_sync_status()['blocked'] );
 		$this->assertNotFalse( wp_next_scheduled( DB_Table::CONNECT_SYNC_HOOK ) );
+		$this->assertNotFalse( wp_next_scheduled( 'hyve_update_posts' ) );
 		wp_clear_scheduled_hook( DB_Table::CONNECT_SYNC_HOOK );
 		DB_Table::instance()->connect_run_sync();
 		$this->assertNotSame( '', get_post_meta( $post, '_hyve_connect_synced_hash', true ) );
@@ -787,6 +788,321 @@ class ConnectSyncTest extends WP_UnitTestCase {
 		$this->assertStringContainsString( 'Bad request', get_post_meta( $post, '_hyve_processing_error', true ) );
 		$this->assertSame( '', get_post_meta( $post, '_hyve_needs_update', true ) );
 		$this->assertSame( 0, DB_Table::instance()->connect_pending_count() );
+	}
+
+	/**
+	 * A timed check that finds the plan full, or a job dropped while the stats
+	 * call ran, re-arms the check and writes nothing back.
+	 */
+	public function test_timed_pause_check_rearms_without_rewriting_the_status() {
+		$this->enable_connect();
+		$this->indexed_post();
+		$answer = 'window';
+		add_filter(
+			'pre_http_request',
+			function ( $pre, $args, $url ) use ( &$answer ) {
+				if ( false === strpos( $url, Hyve_Connect::PATH_QUOTA ) ) {
+					return [
+						'response' => [ 'code' => 404 ],
+						'body'     => '{"message":"Workflow not found"}',
+					];
+				}
+				if ( 'dropped' === $answer ) {
+					delete_option( DB_Table::CONNECT_SYNC_OPTION );
+					return new \WP_Error( 'http_request_failed', 'Connection refused' );
+				}
+				return [
+					'response' => [ 'code' => 200 ],
+					'body'     => wp_json_encode(
+						[
+							'kb'       => [
+								'storage' => [
+									'used'  => 'storage' === $answer ? 1000 : 1,
+									'limit' => 1000,
+								],
+							],
+							'indexing' => [ 'windows' => [ [ 'remaining' => 'window' === $answer ? 0 : 50 ] ] ],
+						]
+					),
+				];
+			},
+			10,
+			3
+		);
+		DB_Table::instance()->connect_start_sync();
+		wp_clear_scheduled_hook( DB_Table::CONNECT_SYNC_HOOK );
+		DB_Table::instance()->connect_run_sync();
+
+		$status                 = DB_Table::instance()->connect_sync_status();
+		$status['resume_after'] = time() - 1;
+		update_option( DB_Table::CONNECT_SYNC_OPTION, $status );
+
+		foreach ( [ 'window', 'storage' ] as $answer ) {
+			wp_clear_scheduled_hook( DB_Table::CONNECT_RESUME_HOOK );
+			delete_transient( 'hyve_connect_stats' );
+			do_action( DB_Table::CONNECT_RESUME_HOOK );
+
+			$this->assertSame( $status, DB_Table::instance()->connect_sync_status() );
+			$this->assertEqualsWithDelta( time() + DB_Table::CONNECT_PAUSE_RESUME, wp_next_scheduled( DB_Table::CONNECT_RESUME_HOOK ), 2 );
+			$this->assertFalse( wp_next_scheduled( DB_Table::CONNECT_SYNC_HOOK ) );
+		}
+
+		$answer = 'dropped';
+		delete_transient( 'hyve_connect_stats' );
+		do_action( DB_Table::CONNECT_RESUME_HOOK );
+
+		$this->assertSame( [], DB_Table::instance()->connect_sync_status() );
+	}
+
+	/**
+	 * A flag set while the batch renders another source arrives after that
+	 * source's content was read: it survives the request either way.
+	 */
+	public function test_edit_while_the_batch_renders_keeps_its_flag() {
+		$this->enable_connect();
+		$this->indexed_post();
+		$this->indexed_post();
+		list( $a, $b ) = array_map( 'intval', DB_Table::instance()->connect_pending_posts() );
+		// An edit of A lands while the batch is rendering: after A's own flag
+		// was lifted, whichever source is being read at the time.
+		$render = static function ( $content ) use ( $a ) {
+			update_post_meta( $a, '_hyve_needs_update', 1 );
+			return $content;
+		};
+		add_filter( 'the_content', $render );
+		$this->intercept( '{"message":"Bad request"}', 400 );
+
+		try {
+			DB_Table::instance()->connect_start_sync();
+			wp_clear_scheduled_hook( DB_Table::CONNECT_SYNC_HOOK );
+			DB_Table::instance()->connect_run_sync();
+
+			$this->assertSame( '', get_post_meta( $a, '_hyve_processing_error', true ) );
+			$this->assertSame( '1', get_post_meta( $a, '_hyve_needs_update', true ) );
+			$this->assertStringContainsString( 'Bad request', get_post_meta( $b, '_hyve_processing_error', true ) );
+			$this->assertSame( [ $a ], array_map( 'intval', DB_Table::instance()->connect_pending_posts() ) );
+
+			// Stored: the old content's hash is kept, and the flag re-sends the edit.
+			remove_all_filters( 'pre_http_request' );
+			$this->intercept(
+				$this->sse(
+					[
+						[
+							'job_complete',
+							[
+								'results' => [
+									[
+										'id'     => $a,
+										'status' => 'stored',
+									],
+								],
+							],
+						],
+					]
+				)
+			);
+			delete_post_meta( $a, '_hyve_needs_update' );
+			DB_Table::instance()->connect_run_sync();
+
+			$this->assertNotSame( '', get_post_meta( $a, '_hyve_connect_synced_hash', true ) );
+			$this->assertSame( '1', get_post_meta( $a, '_hyve_needs_update', true ) );
+		} finally {
+			remove_filter( 'the_content', $render );
+		}
+	}
+
+	/**
+	 * An edited, already synced page goes through the update cron. Rejected
+	 * credentials pause syncing after one upload instead of re-sending the
+	 * page every minute, and the pause holds further edits back.
+	 */
+	public function test_edited_synced_page_pauses_on_rejected_credentials() {
+		$this->enable_connect();
+		$post    = $this->indexed_post( true );
+		$uploads = 0;
+		update_post_meta( $post, '_hyve_needs_update', 1 );
+		add_filter(
+			'pre_http_request',
+			function ( $pre, $args, $url ) use ( &$uploads ) {
+				if ( false === strpos( $url, Hyve_Connect::PATH_QUOTA ) ) {
+					++$uploads;
+				}
+				return [
+					'response' => [ 'code' => 401 ],
+					'body'     => '{"message":"Unauthenticated."}',
+				];
+			},
+			10,
+			3
+		);
+		wp_clear_scheduled_hook( 'hyve_update_posts' );
+		DB_Table::instance()->update_posts();
+		DB_Table::instance()->update_posts();
+
+		$this->assertSame( 1, $uploads );
+		$this->assertSame( '1', get_post_meta( $post, '_hyve_needs_update', true ) );
+		$this->assertSame( '', get_post_meta( $post, '_hyve_processing_error', true ) );
+		$this->assertFalse( wp_next_scheduled( 'hyve_update_posts' ) );
+		$status = DB_Table::instance()->connect_sync_status();
+		$this->assertTrue( $status['blocked'] );
+		$this->assertSame( 'auth', $status['quota']['kind'] );
+	}
+
+	/**
+	 * An edited, already synced page the platform refuses keeps its error and
+	 * drops its flag, so the update cron does not re-send it every minute.
+	 */
+	public function test_edited_synced_page_fails_once_on_a_refused_document() {
+		$this->enable_connect();
+		$post    = $this->indexed_post( true );
+		$uploads = 0;
+		update_post_meta( $post, '_hyve_needs_update', 1 );
+		add_filter(
+			'pre_http_request',
+			function ( $pre, $args, $url ) use ( &$uploads ) {
+				if ( false === strpos( $url, Hyve_Connect::PATH_QUOTA ) ) {
+					++$uploads;
+				}
+				return [
+					'response' => [ 'code' => 400 ],
+					'body'     => '{"message":"Bad request"}',
+				];
+			},
+			10,
+			3
+		);
+		DB_Table::instance()->update_posts();
+		DB_Table::instance()->update_posts();
+
+		$this->assertSame( 1, $uploads );
+		$this->assertSame( '', get_post_meta( $post, '_hyve_needs_update', true ) );
+		$this->assertStringContainsString( 'Bad request', get_post_meta( $post, '_hyve_processing_error', true ) );
+		$this->assertEmpty( DB_Table::instance()->connect_sync_status()['blocked'] ?? null );
+	}
+
+	/**
+	 * An edit saved from another request while the update cron re-sends a
+	 * synced page supersedes a refusal of the older content: the page keeps
+	 * its flag and sheds the stale error. Its unedited neighbour is failed.
+	 */
+	public function test_edit_during_a_refused_update_keeps_the_newer_edit_pending() {
+		global $wpdb;
+
+		$this->enable_connect();
+		$edited  = $this->indexed_post( true );
+		$settled = $this->indexed_post( true );
+		$uploads = 0;
+		update_post_meta( $edited, '_hyve_needs_update', 1 );
+		update_post_meta( $settled, '_hyve_needs_update', 1 );
+		add_filter(
+			'pre_http_request',
+			function ( $pre, $args, $url ) use ( $edited, $wpdb, &$uploads ) {
+				if ( false !== strpos( $url, Hyve_Connect::PATH_QUOTA ) ) {
+					return $pre;
+				}
+				++$uploads;
+				$payload = json_decode( $args['body'], true );
+				if ( (int) $payload['documents'][0]['id'] === $edited ) {
+					$wpdb->insert(
+						$wpdb->postmeta,
+						[
+							'post_id'    => $edited,
+							'meta_key'   => '_hyve_needs_update', // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key -- simulates another request's write.
+							'meta_value' => '1', // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_value -- simulates another request's write.
+						]
+					);
+				}
+				return [
+					'response' => [ 'code' => 400 ],
+					'body'     => '{"message":"Bad request"}',
+				];
+			},
+			10,
+			3
+		);
+		DB_Table::instance()->update_posts();
+
+		$this->assertSame( 2, $uploads );
+		$this->assertSame( '1', get_post_meta( $edited, '_hyve_needs_update', true ) );
+		$this->assertSame( '', get_post_meta( $edited, '_hyve_processing_error', true ) );
+		$this->assertSame( '', get_post_meta( $settled, '_hyve_needs_update', true ) );
+		$this->assertStringContainsString( 'Bad request', get_post_meta( $settled, '_hyve_processing_error', true ) );
+
+		// The next run re-sends only the newer edit.
+		DB_Table::instance()->update_posts();
+		$this->assertSame( 3, $uploads );
+	}
+
+	/**
+	 * A server failure on an edited synced page is settled by asking the
+	 * platform: down pauses the site with the flag kept, up fails the page.
+	 *
+	 * @dataProvider update_probe_answers
+	 * @param bool $down Whether the quota route fails too.
+	 */
+	public function test_edited_synced_page_server_failure_is_settled_by_the_platform( $down ) {
+		$this->enable_connect();
+		$post    = $this->indexed_post( true );
+		$uploads = 0;
+		update_post_meta( $post, '_hyve_needs_update', 1 );
+		add_filter(
+			'pre_http_request',
+			function ( $pre, $args, $url ) use ( $down, &$uploads ) {
+				if ( false !== strpos( $url, Hyve_Connect::PATH_QUOTA ) ) {
+					return $down
+						? new \WP_Error( 'http_request_failed', 'Connection refused' )
+						: [
+							'response' => [ 'code' => 200 ],
+							'body'     => wp_json_encode(
+								[
+									'kb' => [
+										'storage' => [
+											'used'  => 1,
+											'limit' => 1000,
+										],
+									],
+								]
+							),
+						];
+				}
+				++$uploads;
+				return [
+					'response' => [ 'code' => 500 ],
+					'body'     => '{"message":"Server error"}',
+				];
+			},
+			10,
+			3
+		);
+		DB_Table::instance()->update_posts();
+		DB_Table::instance()->update_posts();
+
+		$this->assertSame( 1, $uploads );
+		$status = DB_Table::instance()->connect_sync_status();
+
+		if ( $down ) {
+			$this->assertSame( '1', get_post_meta( $post, '_hyve_needs_update', true ) );
+			$this->assertSame( '', get_post_meta( $post, '_hyve_processing_error', true ) );
+			$this->assertTrue( $status['blocked'] );
+			$this->assertSame( 'unavailable', $status['quota']['kind'] );
+			return;
+		}
+
+		$this->assertSame( '', get_post_meta( $post, '_hyve_needs_update', true ) );
+		$this->assertStringContainsString( 'Server error', get_post_meta( $post, '_hyve_processing_error', true ) );
+		$this->assertEmpty( $status['blocked'] ?? null );
+	}
+
+	/**
+	 * Whether the platform answers its quota route during an update failure.
+	 *
+	 * @return array<string, array{bool}>
+	 */
+	public function update_probe_answers() {
+		return [
+			'down' => [ true ],
+			'up'   => [ false ],
+		];
 	}
 
 	/**
