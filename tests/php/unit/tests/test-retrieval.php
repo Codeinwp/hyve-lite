@@ -244,11 +244,12 @@ class RetrievalTest extends WP_UnitTestCase {
 	 * Answer the rewrite completion with the given text and record what was
 	 * sent, so a test can assert on the prompt (or on no call at all).
 	 *
-	 * @param string|null $reply The rewritten question; null makes the request fail.
+	 * @param string|null $reply         The rewritten question; null makes the request fail.
+	 * @param string      $finish_reason Why the completion stopped.
 	 *
 	 * @return array<int, array<string, mixed>> The decoded request bodies, by reference.
 	 */
-	private function &intercept_rewrite( $reply ): array {
+	private function &intercept_rewrite( $reply, string $finish_reason = 'stop' ): array {
 		$requests = [];
 
 		update_option(
@@ -265,7 +266,7 @@ class RetrievalTest extends WP_UnitTestCase {
 
 		add_filter(
 			'pre_http_request',
-			function ( $pre, $args, $url ) use ( &$requests, $reply ) {
+			function ( $pre, $args, $url ) use ( &$requests, $reply, $finish_reason ) {
 				if ( false === strpos( $url, '/chat/completions' ) ) {
 					return new WP_Error( 'unexpected_request', 'Unfaked outbound request: ' . $url );
 				}
@@ -278,7 +279,16 @@ class RetrievalTest extends WP_UnitTestCase {
 
 				return [
 					'response' => [ 'code' => 200 ],
-					'body'     => wp_json_encode( [ 'choices' => [ [ 'message' => [ 'content' => $reply ] ] ] ] ),
+					'body'     => wp_json_encode(
+						[
+							'choices' => [
+								[
+									'message'       => [ 'content' => $reply ],
+									'finish_reason' => $finish_reason,
+								],
+							],
+						]
+					),
 				];
 			},
 			10,
@@ -513,6 +523,17 @@ class RetrievalTest extends WP_UnitTestCase {
 
 		remove_all_filters( 'pre_http_request' );
 		$this->intercept_rewrite( '   ' );
+
+		$this->assertSame( 'How difficult is it?', $this->build_query( 'How difficult is it?', $record_id ) );
+	}
+
+	/**
+	 * A rewrite cut by the token limit can stop before the subject it was
+	 * meant to add, so the message is searched as sent instead.
+	 */
+	public function test_rewrite_cut_by_the_token_limit_falls_back_to_the_message() {
+		$this->intercept_rewrite( 'How difficult are the', 'length' );
+		$record_id = $this->seed_pickleball_thread();
 
 		$this->assertSame( 'How difficult is it?', $this->build_query( 'How difficult is it?', $record_id ) );
 	}

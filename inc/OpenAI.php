@@ -584,6 +584,12 @@ PROMPT;
 			return $response;
 		}
 
+		// A completion cut by the token limit can stop before the subject it was
+		// meant to add; the caller then searches the message as sent.
+		if ( isset( $response->choices[0]->finish_reason ) && 'length' === $response->choices[0]->finish_reason ) {
+			return new \WP_Error( 'rewrite_failed', __( 'The query could not be rewritten.', 'hyve-lite' ) );
+		}
+
 		$content = isset( $response->choices[0]->message->content ) && is_string( $response->choices[0]->message->content ) ? $response->choices[0]->message->content : '';
 		$query   = self::clean_rewritten_query( $content );
 
