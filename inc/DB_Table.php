@@ -2793,6 +2793,14 @@ class DB_Table {
 			],
 		];
 
+		// A flag left on a removed source must not upload it to the platform.
+		if ( $connect ) {
+			$args['meta_query'][] = [
+				'key'     => '_hyve_added',
+				'compare' => 'EXISTS',
+			];
+		}
+
 		$query = new \WP_Query( $args );
 
 		if ( ! $query->have_posts() ) {
@@ -2849,15 +2857,24 @@ class DB_Table {
 
 	/**
 	 * Settle a Connect failure for an edited, already synced source whose
-	 * flag update_posts() lifted: pause the whole site's syncing for a failure
-	 * it shares, with the flag put back, or leave this source failed so the
-	 * cron does not re-send it every minute. A newer edit, flagged during the
-	 * upload, keeps its flag and sheds the stale error.
+	 * flag update_posts() lifted. Outcomes:
+	 *
+	 * - Superseded: a removal or a newer edit made during the upload drops
+	 *   the stale error; a newer edit keeps its own flag.
+	 * - Bounded retry: a rate limit, maintenance answer or server failure
+	 *   puts the flag back for the next cron run, up to MAX_PROCESS_ATTEMPTS.
+	 * - Pause or block: credentials, the site's setup, a plan limit, or an
+	 *   outage that outlasts the retries stops the whole site's syncing with
+	 *   the flag kept.
+	 * - Failed: content the platform refuses keeps its error and loses its
+	 *   flag, so the cron does not re-send it.
+	 *
+	 * A flag is put back only while the source is still in the knowledge base.
 	 *
 	 * @param int       $post_id The edited source.
 	 * @param \WP_Error $error   The update failure.
 	 *
-	 * @return bool Whether syncing was paused, so the cron run should stop.
+	 * @return bool Whether syncing was paused or blocked, so the cron run should stop.
 	 */
 	private function connect_update_failed( $post_id, \WP_Error $error ) {
 		$code = $error->get_error_code();
@@ -2885,7 +2902,7 @@ class DB_Table {
 			}
 
 			delete_post_meta( $post_id, '_hyve_processing_error' );
-			update_post_meta( $post_id, '_hyve_needs_update', 1 );
+			$this->connect_requeue_update( $post_id );
 			$this->connect_block_sync( $error->get_error_message(), $data['quota'] );
 			return true;
 		}
@@ -2893,12 +2910,14 @@ class DB_Table {
 		$scope    = $this->connect_error_scope( $error );
 		$attempts = (int) get_post_meta( $post_id, '_hyve_connect_update_attempts', true ) + 1;
 
-		// A failure that may be either side's gets the same bounded retries as
-		// a batch, one cron run apart, before the platform is asked to settle it.
-		if ( 'unknown' === $scope && $attempts < self::MAX_PROCESS_ATTEMPTS ) {
-			update_post_meta( $post_id, '_hyve_connect_update_attempts', $attempts );
-			$this->record_processing_error( $post_id, $error, true );
-			update_post_meta( $post_id, '_hyve_needs_update', 1 );
+		// Temporary or unexplained failures get the same bounded retries as a
+		// batch, one cron run apart, before the job pauses or the platform is
+		// asked to settle them.
+		if ( in_array( $scope, [ 'later', 'unknown' ], true ) && $attempts < self::MAX_PROCESS_ATTEMPTS ) {
+			if ( $this->connect_requeue_update( $post_id ) ) {
+				update_post_meta( $post_id, '_hyve_connect_update_attempts', $attempts );
+				$this->record_processing_error( $post_id, $error, true );
+			}
 			return false;
 		}
 
@@ -2908,7 +2927,7 @@ class DB_Table {
 		if ( 'batch' !== $scope ) {
 			// Not this source's fault: the pause carries the reason instead.
 			delete_post_meta( $post_id, '_hyve_processing_error' );
-			update_post_meta( $post_id, '_hyve_needs_update', 1 );
+			$this->connect_requeue_update( $post_id );
 			$this->connect_pause_sync( $scope, $error );
 			return true;
 		}
@@ -2936,6 +2955,29 @@ class DB_Table {
 
 		return '' === (string) get_post_meta( $post_id, '_hyve_added', true )
 			|| '' !== (string) get_post_meta( $post_id, '_hyve_needs_update', true );
+	}
+
+	/**
+	 * Put an edited source's flag back for the next cron run, unless it left
+	 * the knowledge base meanwhile: a removal can finish during the stats call
+	 * that settles a failure, and a stray flag would upload the page again.
+	 *
+	 * @param int $post_id The edited source.
+	 *
+	 * @return bool Whether the source is still in the knowledge base.
+	 */
+	private function connect_requeue_update( $post_id ) {
+		clean_post_cache( $post_id );
+
+		if ( '' === (string) get_post_meta( $post_id, '_hyve_added', true ) ) {
+			delete_post_meta( $post_id, '_hyve_processing_error' );
+			delete_post_meta( $post_id, '_hyve_connect_update_attempts' );
+			return false;
+		}
+
+		update_post_meta( $post_id, '_hyve_needs_update', 1 );
+
+		return true;
 	}
 
 	/**

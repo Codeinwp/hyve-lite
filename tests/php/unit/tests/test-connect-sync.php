@@ -1333,6 +1333,131 @@ class ConnectSyncTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * A removal that lands while the platform probe settles a failure must not
+	 * put the removed page back: no flag is restored and nothing is uploaded.
+	 */
+	public function test_removal_during_the_settling_probe_does_not_requeue() {
+		$this->enable_connect();
+		$post = $this->indexed_post( true );
+		update_post_meta( $post, '_hyve_needs_update', 1 );
+		update_post_meta( $post, '_hyve_connect_update_attempts', DB_Table::MAX_PROCESS_ATTEMPTS - 1 );
+		$uploads = 0;
+		add_filter(
+			'pre_http_request',
+			function ( $pre, $args, $url ) use ( $post, &$uploads ) {
+				$payload = json_decode( (string) ( $args['body'] ?? '' ), true );
+				if ( 'delete' === ( $payload['action'] ?? '' ) ) {
+					return [
+						'response' => [ 'code' => 200 ],
+						'body'     => $this->sse( [ [ 'job_complete', [ 'deleted' => [ $post ] ] ] ] ),
+					];
+				}
+				if ( false !== strpos( $url, Hyve_Connect::PATH_QUOTA ) ) {
+					// The page is removed while the probe is in flight; the platform is down.
+					$request = new WP_REST_Request( 'DELETE', '/hyve/v1/data' );
+					$request->set_param( 'id', $post );
+					\ThemeIsle\HyveLite\API::instance()->delete_data( $request );
+					return new \WP_Error( 'http_request_failed', 'Connection refused' );
+				}
+				++$uploads;
+				return [
+					'response' => [ 'code' => 500 ],
+					'body'     => '{"message":"Server error"}',
+				];
+			},
+			10,
+			3
+		);
+		DB_Table::instance()->update_posts();
+
+		$this->assertSame( 1, $uploads );
+		$this->assertSame( '', get_post_meta( $post, '_hyve_added', true ) );
+		$this->assertSame( '', get_post_meta( $post, '_hyve_needs_update', true ) );
+		$this->assertSame( '', get_post_meta( $post, '_hyve_processing_error', true ) );
+
+		// Even a flag set by something else never uploads a removed page.
+		update_post_meta( $post, '_hyve_needs_update', 1 );
+		delete_option( DB_Table::CONNECT_SYNC_OPTION );
+		DB_Table::instance()->update_posts();
+		$this->assertSame( 1, $uploads );
+	}
+
+	/**
+	 * A maintenance answer or rate limit on an edited synced page is retried
+	 * by the next cron run like a batch, not paused at once: the edit goes out
+	 * when the platform recovers.
+	 *
+	 * @dataProvider temporary_update_answers
+	 * @param int    $status HTTP status of the first answer.
+	 * @param string $body   Its body.
+	 */
+	public function test_edited_synced_page_temporary_failure_is_retried( $status, $body ) {
+		$this->enable_connect();
+		$post    = $this->indexed_post( true );
+		$uploads = 0;
+		update_post_meta( $post, '_hyve_needs_update', 1 );
+		add_filter(
+			'pre_http_request',
+			function ( $pre, $args, $url ) use ( $post, $status, $body, &$uploads ) {
+				if ( false !== strpos( $url, Hyve_Connect::PATH_QUOTA ) ) {
+					return $pre;
+				}
+				++$uploads;
+				if ( 1 === $uploads ) {
+					return [
+						'response' => [ 'code' => $status ],
+						'body'     => $body,
+					];
+				}
+				return [
+					'response' => [ 'code' => 200 ],
+					'body'     => $this->sse(
+						[
+							[
+								'job_complete',
+								[
+									'results' => [
+										[
+											'id'     => $post,
+											'status' => 'stored',
+										],
+									],
+								],
+							],
+						]
+					),
+				];
+			},
+			10,
+			3
+		);
+		DB_Table::instance()->update_posts();
+
+		$this->assertSame( 1, $uploads );
+		$this->assertSame( '1', get_post_meta( $post, '_hyve_needs_update', true ) );
+		$this->assertEmpty( DB_Table::instance()->connect_sync_status()['blocked'] ?? null );
+
+		DB_Table::instance()->update_posts();
+
+		$this->assertSame( 2, $uploads );
+		$this->assertSame( '', get_post_meta( $post, '_hyve_needs_update', true ) );
+		$this->assertSame( '', get_post_meta( $post, '_hyve_processing_error', true ) );
+		$this->assertEmpty( DB_Table::instance()->connect_sync_status()['blocked'] ?? null );
+	}
+
+	/**
+	 * Temporary answers the batch path retries before pausing.
+	 *
+	 * @return array<string, array{int, string}>
+	 */
+	public function temporary_update_answers() {
+		return [
+			'maintenance' => [ 503, '{"message":"Service unavailable"}' ],
+			'rate limit'  => [ 429, '{"error":"Too many requests"}' ],
+		];
+	}
+
+	/**
 	 * A worker's selected list may be stale when another worker settles a post.
 	 */
 	public function test_stale_update_worker_does_not_restart_exhausted_budget() {
