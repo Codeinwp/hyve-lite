@@ -305,6 +305,98 @@ test.describe( 'Knowledge Base', () => {
 		).toBeVisible();
 	} );
 
+	test( 'a background import shows its progress and refreshes until done', async ( {
+		page,
+		admin,
+	} ) => {
+		let polls = 0;
+
+		await mockDataApi( page, {
+			included: () => {
+				polls++;
+
+				return {
+					posts: [
+						{
+							ID: 1001,
+							title: 'Large Import',
+							type: 'post',
+							chunks: polls > 1 ? 13 : 0,
+							...( polls > 1
+								? {}
+								: {
+										ingestion: {
+											status: 'queued',
+											phase: 'moderation',
+											completed: 2,
+											total: 13,
+											retry_at: 0,
+										},
+								  } ),
+						},
+					],
+					more: false,
+					total: 1,
+					per_page: 20,
+					totalChunks: polls > 1 ? '13' : '0',
+				};
+			},
+		} );
+
+		await admin.visitAdminPage( `${ HYVE_ADMIN }&nav=kb` );
+
+		const progress = page.getByText( 'Checking 2 of 13', { exact: true } );
+
+		await expect( progress ).toBeVisible();
+
+		// The next poll, five seconds later, reports the import as done.
+		await expect( progress ).toBeHidden( { timeout: 10000 } );
+		await expect( page.getByText( '13 chunks' ) ).toBeVisible();
+
+		// No active import is left, so polling stops.
+		const settledPolls = polls;
+		await page.waitForTimeout( 6000 );
+		expect( polls ).toBe( settledPolls );
+	} );
+
+	test( 'an add handed to the background queue says so', async ( {
+		page,
+		admin,
+	} ) => {
+		await mockDataApi( page, {
+			listing: {
+				posts: MOCK_POSTS,
+				more: false,
+				total: 3,
+				per_page: 20,
+				totalChunks: '0',
+			},
+			addResponse: {
+				success: true,
+				queued: true,
+				ingestion: {
+					status: 'queued',
+					phase: 'moderation',
+					completed: 0,
+					total: 13,
+					retry_at: 0,
+				},
+			},
+		} );
+		await openWordPressDrill( page, admin );
+
+		await page
+			.getByRole( 'button', { name: 'Add', exact: true } )
+			.nth( 0 )
+			.click();
+
+		await expect(
+			page
+				.getByTestId( 'snackbar' )
+				.getByText( 'Content is queued for indexing.' )
+		).toBeVisible();
+	} );
+
 	test( 'removing indexed content asks for confirmation first', async ( {
 		page,
 		admin,

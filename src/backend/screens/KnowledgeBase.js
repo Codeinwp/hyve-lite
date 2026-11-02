@@ -15,7 +15,7 @@ import {
 
 import { useDispatch, useSelect } from '@wordpress/data';
 
-import { useEffect, useRef, useState } from '@wordpress/element';
+import { useCallback, useEffect, useRef, useState } from '@wordpress/element';
 
 import { addQueryArgs } from '@wordpress/url';
 
@@ -186,6 +186,41 @@ const ingestionLabel = ( ingestion ) => {
 		  );
 };
 
+/**
+ * Refresh a listing every five seconds while a background import runs,
+ * without the spinner, so the table does not flicker. The timer re-arms when
+ * a fetch settles, success or failure: a slow response is applied before the
+ * next poll, and a failed poll does not end the updates.
+ *
+ * @param {boolean}  isActive   Whether any row is still being imported.
+ * @param {boolean}  isLoading  Whether a user-visible fetch is running.
+ * @param {Function} setRefresh State setter that triggers a fetch.
+ * @return {{silentRef: Object, markSettled: Function}} Read `silentRef` in the
+ *         fetch to skip the spinner; call `markSettled` when it completes.
+ */
+const useIngestionPolling = ( isActive, isLoading, setRefresh ) => {
+	const silentRef = useRef( false );
+	const [ settled, setSettled ] = useState( 0 );
+
+	useEffect( () => {
+		if ( ! isActive || isLoading ) {
+			return undefined;
+		}
+		const timer = setTimeout( () => {
+			silentRef.current = true;
+			setRefresh( ( value ) => value + 1 );
+		}, 5000 );
+		return () => clearTimeout( timer );
+	}, [ isActive, isLoading, settled, setRefresh ] );
+
+	const markSettled = useCallback(
+		() => setSettled( ( value ) => value + 1 ),
+		[]
+	);
+
+	return { silentRef, markSettled };
+};
+
 const IndexedContent = () => {
 	const [ rows, setRows ] = useState( [] );
 	const [ hasMore, setHasMore ] = useState( false );
@@ -200,8 +235,6 @@ const IndexedContent = () => {
 
 	// Guards against out-of-order responses when the query changes mid-fetch.
 	const requestRef = useRef( 0 );
-	const silentRef = useRef( false );
-	const [ settled, setSettled ] = useState( 0 );
 	const queryKeyRef = useRef( '' );
 
 	// Page size comes from the endpoint.
@@ -225,21 +258,11 @@ const IndexedContent = () => {
 	const { createNotice } = useDispatch( 'core/notices' );
 	const hasActiveIngestion = rows.some( ( row ) => isIngesting( row ) );
 
-	// Background polls refresh the rows without the spinner, so the table
-	// does not flicker every five seconds while an import runs.
-	useEffect( () => {
-		if ( ! hasActiveIngestion || isLoading ) {
-			return undefined;
-		}
-		// Re-armed when a fetch settles, success or failure, so a slow
-		// response is applied before the next poll and a failed poll does
-		// not end the updates.
-		const timer = setTimeout( () => {
-			silentRef.current = true;
-			setRefresh( ( value ) => value + 1 );
-		}, 5000 );
-		return () => clearTimeout( timer );
-	}, [ hasActiveIngestion, isLoading, settled ] );
+	const { silentRef, markSettled } = useIngestionPolling(
+		hasActiveIngestion,
+		isLoading,
+		setRefresh
+	);
 
 	useEffect( () => {
 		const request = ++requestRef.current;
@@ -293,11 +316,19 @@ const IndexedContent = () => {
 			}
 
 			setLoading( false );
-			setSettled( ( value ) => value + 1 );
+			markSettled();
 		}, 500 );
 
 		return () => clearTimeout( handler );
-	}, [ page, refresh, search, sourceType, setTotalChunks ] );
+	}, [
+		page,
+		refresh,
+		search,
+		sourceType,
+		setTotalChunks,
+		silentRef,
+		markSettled,
+	] );
 
 	const onDelete = async ( id ) => {
 		setDeleting( ( prev ) => [ ...prev, id ] );
@@ -1374,22 +1405,11 @@ const AttentionPanel = () => {
 	const [ refresh, setRefresh ] = useState( 0 );
 	const hasActiveIngestion = rows.some( ( row ) => isIngesting( row ) );
 
-	const silentRef = useRef( false );
-	const [ settled, setSettled ] = useState( 0 );
-
-	useEffect( () => {
-		if ( ! hasActiveIngestion || isLoading ) {
-			return undefined;
-		}
-		// Re-armed when a fetch settles, success or failure, so a slow
-		// response is applied before the next poll and a failed poll does
-		// not end the updates.
-		const timer = setTimeout( () => {
-			silentRef.current = true;
-			setRefresh( ( value ) => value + 1 );
-		}, 5000 );
-		return () => clearTimeout( timer );
-	}, [ hasActiveIngestion, isLoading, settled ] );
+	const { silentRef, markSettled } = useIngestionPolling(
+		hasActiveIngestion,
+		isLoading,
+		setRefresh
+	);
 
 	const { setTotalChunks, setAttentionCount } = useDispatch( 'hyve' );
 	const { createNotice } = useDispatch( 'core/notices' );
@@ -1454,7 +1474,7 @@ const AttentionPanel = () => {
 				return;
 			}
 			setLoading( false );
-			setSettled( ( value ) => value + 1 );
+			markSettled();
 		};
 
 		fetchLists();
@@ -1462,7 +1482,7 @@ const AttentionPanel = () => {
 		return () => {
 			isStale = true;
 		};
-	}, [ refresh, setTotalChunks, setAttentionCount ] );
+	}, [ refresh, setTotalChunks, setAttentionCount, silentRef, markSettled ] );
 
 	const pendingRows = rows.filter(
 		( row ) => 'pending' === row.issue && ! isIngesting( row )

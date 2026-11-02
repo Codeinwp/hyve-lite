@@ -143,7 +143,14 @@ class Ingestion_Queue {
 				);
 				if ( ! $id ) {
 					$this->delete_staging( $post_id );
-					return new \WP_Error( 'storage_error', __( 'The indexed content could not be saved.', 'hyve-lite' ) );
+					$error = new \WP_Error( 'storage_error', __( 'The indexed content could not be saved.', 'hyve-lite' ) );
+					// A source this call created would otherwise be invisible:
+					// the caller has no post ID to record the failure on.
+					if ( isset( $created ) ) {
+						update_post_meta( $post_id, '_hyve_added', 1 );
+						update_post_meta( $post_id, '_hyve_processing_error', $error->get_error_message() . ' ' . __( 'Fix the reported issue and re-add this content.', 'hyve-lite' ) );
+					}
+					return $error;
 				}
 				$row_ids[] = $id;
 			}
@@ -598,7 +605,14 @@ class Ingestion_Queue {
 		$text = OpenAI::get_error_message_for_code( $code ) ?? $error->get_error_message();
 		$data = $error->get_error_data();
 		if ( is_array( $data ) && ! empty( $data['endpoint'] ) ) {
-			$text .= ' (' . $data['endpoint'] . ', ' . ( $data['model'] ?? '' ) . ', HTTP ' . ( $data['http_status'] ?? '' ) . ')';
+			$details = [ $data['endpoint'], $data['model'] ?? '', 'HTTP ' . ( $data['http_status'] ?? '' ) ];
+			// The account's limit is what the admin needs to raise or wait for.
+			foreach ( [ 'x-ratelimit-limit-tokens', 'x-ratelimit-remaining-tokens', 'x-ratelimit-reset-tokens' ] as $header ) {
+				if ( isset( $data['headers'][ $header ] ) ) {
+					$details[] = $header . ': ' . $data['headers'][ $header ];
+				}
+			}
+			$text .= ' (' . implode( ', ', array_filter( $details ) ) . ')';
 		}
 		wp_clear_scheduled_hook( self::HOOK, [ $post_id ] );
 		if ( $retry ) {

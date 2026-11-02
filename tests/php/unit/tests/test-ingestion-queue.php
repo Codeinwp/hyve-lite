@@ -780,12 +780,18 @@ class IngestionQueueTest extends WP_UnitTestCase {
 	 * The update cron's page is never filled by sources a job already owns.
 	 */
 	public function test_update_cron_reaches_posts_behind_active_jobs() {
+		// Oldest, so the five newer active jobs would fill an unfiltered page.
+		$edited = self::factory()->post->create(
+			[
+				'post_content' => 'Short edited content.',
+				'post_date'    => '2020-01-01 00:00:00',
+			]
+		);
+		update_post_meta( $edited, '_hyve_added', 1 );
+		update_post_meta( $edited, '_hyve_needs_update', 1 );
 		for ( $index = 0; $index < 5; $index++ ) {
 			$this->queue();
 		}
-		$edited = self::factory()->post->create( [ 'post_content' => 'Short edited content.' ] );
-		update_post_meta( $edited, '_hyve_added', 1 );
-		update_post_meta( $edited, '_hyve_needs_update', 1 );
 		DB_Table::instance()->update_posts();
 		$this->assertEmpty( get_post_meta( $edited, '_hyve_needs_update', true ) );
 	}
@@ -839,18 +845,26 @@ class IngestionQueueTest extends WP_UnitTestCase {
 		$this->response = function () {
 			return [
 				'response' => [ 'code' => 429 ],
-				'headers'  => [],
+				'headers'  => [
+					'x-ratelimit-limit-tokens'     => '20000',
+					'x-ratelimit-remaining-tokens' => '0',
+					'x-ratelimit-reset-tokens'     => '1m2s',
+				],
 				'body'     => wp_json_encode(
 					[
 						'error' => [
 							'code'    => null,
 							'message' => 'Too Many Requests',
 						],
-					] 
+					]
 				),
 			];
 		};
 		$this->step( $post_id, Ingestion_Queue::MAX_RATE_WAITS + 5 );
+		$error = get_post_meta( $post_id, '_hyve_processing_error', true );
+		$this->assertStringContainsString( 'x-ratelimit-limit-tokens: 20000', $error, 'The admin sees the limit to raise.' );
+		$this->assertStringContainsString( 'x-ratelimit-remaining-tokens: 0', $error );
+		$this->assertStringContainsString( 'x-ratelimit-reset-tokens: 1m2s', $error );
 		$this->assertCount( Ingestion_Queue::MAX_RATE_WAITS, $this->calls );
 		$this->assertFalse( Ingestion_Queue::instance()->is_active( $post_id ) );
 		$this->assertSame( 'failed', get_post_meta( $post_id, '_hyve_ingestion', true )['status'] );
@@ -1027,6 +1041,95 @@ class IngestionQueueTest extends WP_UnitTestCase {
 		$this->assertArrayHasKey( 'old', $points, 'The stale generation is left for the next re-index to prune.' );
 		$this->assertEmpty( get_post_meta( $post_id, '_hyve_processing_error', true ) );
 		$this->assertSame( 'complete', get_post_meta( $post_id, '_hyve_ingestion', true )['status'] );
+	}
+
+	/**
+	 * A different document for a source that is still importing is refused,
+	 * leaves the running job alone and is not recorded as a failure.
+	 */
+	public function test_different_document_during_a_job_is_refused_quietly() {
+		$post_id = $this->queue();
+		$job     = get_post_meta( $post_id, Ingestion_Queue::JOB, true );
+		$source  = get_post_meta( $post_id, Ingestion_Queue::SOURCE, true );
+		$result  = DB_Table::instance()->ingest_document(
+			[
+				'title'   => 'Other',
+				'content' => str_repeat( 'Different content about delivery times. ', 1500 ),
+			],
+			[ 'post_id' => $post_id ]
+		);
+		$this->assertWPError( $result );
+		$this->assertSame( 'ingestion_in_progress', $result->get_error_code() );
+		$this->assertSame( $job, get_post_meta( $post_id, Ingestion_Queue::JOB, true ) );
+		$this->assertSame( $source, get_post_meta( $post_id, Ingestion_Queue::SOURCE, true ) );
+		$this->assertEmpty( get_post_meta( $post_id, '_hyve_processing_error', true ) );
+		$this->assertCount( 0, $this->calls );
+	}
+
+	/**
+	 * A source created by a failed enqueue is listed with its reason rather
+	 * than left as an invisible post.
+	 */
+	public function test_failed_staging_of_a_created_source_is_visible() {
+		global $wpdb;
+		add_filter(
+			'query',
+			function ( $sql ) {
+				return false !== strpos( $sql, "'staging'" ) && 0 === strpos( ltrim( $sql ), 'INSERT' ) ? 'INSERT INTO hyve_missing_table VALUES (1)' : $sql;
+			}
+		);
+		$wpdb->suppress_errors( true );
+		$result = Ingestion_Queue::instance()->enqueue(
+			[
+				'title'   => 'Import',
+				'content' => 'Body',
+			],
+			[ 'create' => true ],
+			[
+				[
+					'post_content' => 'Body',
+					'token_count'  => 2,
+				],
+			]
+		);
+		$wpdb->suppress_errors( false );
+		$this->assertWPError( $result );
+		$this->assertSame( 'storage_error', $result->get_error_code() );
+		$posts = get_posts(
+			[
+				'post_type'   => 'hyve_docs',
+				'post_status' => 'publish',
+				'fields'      => 'ids',
+			]
+		);
+		$this->assertCount( 1, $posts );
+		$this->assertSame( '1', get_post_meta( $posts[0], '_hyve_added', true ) );
+		$this->assertStringContainsString( 'could not be saved', get_post_meta( $posts[0], '_hyve_processing_error', true ) );
+	}
+
+	/**
+	 * A recovered Qdrant call clears the service warning a failure stored.
+	 */
+	public function test_recovered_qdrant_publish_clears_the_service_error() {
+		$post_id = $this->queue( 6 );
+		$points  = [];
+		$failed  = 0;
+		$this->qdrant(
+			$points,
+			function ( $path ) use ( &$failed ) {
+				if ( false !== strpos( $path, '/payload' ) && 0 === $failed ) {
+					$failed++;
+					return new GuzzleHttp\Psr7\Response( 500, [ 'Content-Type' => 'application/json' ], '{"status":{"error":"Unavailable"}}' );
+				}
+				return null;
+			}
+		);
+		$this->step( $post_id, 5 );
+		$this->assertSame( 1, $failed );
+		$this->assertNotEmpty( get_option( Qdrant_API::ERROR_OPTION_KEY ) );
+		$this->drain( $post_id );
+		$this->assertFalse( get_option( Qdrant_API::ERROR_OPTION_KEY ) );
+		$this->assertSame( 6, $this->indexed( $post_id ) );
 	}
 
 	/**

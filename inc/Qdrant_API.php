@@ -594,6 +594,7 @@ class Qdrant_API {
 				$filter->addMust( $match );
 			}
 			$response = $client->collections( self::COLLECTION_NAME )->points()->deleteByFilter( $filter );
+			delete_option( self::ERROR_OPTION_KEY );
 			return 'acknowledged' === $response['result']['status'];
 		} catch ( \Throwable $error ) {
 			return $this->handle_exception( $error );
@@ -613,6 +614,7 @@ class Qdrant_API {
 		}
 		try {
 			$response = $client->collections( self::COLLECTION_NAME )->points()->payload()->set( $ids, [ '_hyve_ingestion_pending' => 'no' ], [ 'wait' => 'true' ] );
+			delete_option( self::ERROR_OPTION_KEY );
 			return 'completed' === $response['result']['status'];
 		} catch ( \Throwable $error ) {
 			return $this->handle_exception( $error );
