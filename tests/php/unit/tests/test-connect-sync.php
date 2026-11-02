@@ -1577,6 +1577,234 @@ class ConnectSyncTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Answer uploads by the current mode and the quota route as healthy.
+	 *
+	 * @param string $answer  `outage` (503), `error` (500) or `ok` (stored), read by reference.
+	 * @param int    $uploads Upload counter, incremented by reference.
+	 *
+	 * @return void
+	 */
+	private function intercept_uploads( &$answer, &$uploads ) {
+		add_filter(
+			'pre_http_request',
+			function ( $pre, $args, $url ) use ( &$answer, &$uploads ) {
+				if ( false !== strpos( $url, Hyve_Connect::PATH_QUOTA ) ) {
+					return [
+						'response' => [ 'code' => 200 ],
+						'body'     => wp_json_encode(
+							[
+								'kb' => [
+									'storage' => [
+										'used'  => 1,
+										'limit' => 1000,
+									],
+								],
+							]
+						),
+					];
+				}
+				++$uploads;
+				if ( 'ok' === $answer ) {
+					$payload = json_decode( (string) $args['body'], true );
+					$results = [];
+					foreach ( $payload['documents'] ?? [] as $document ) {
+						$results[] = [
+							'id'     => (int) $document['id'],
+							'status' => 'stored',
+						];
+					}
+					return [
+						'response' => [ 'code' => 200 ],
+						'body'     => $this->sse( [ [ 'job_complete', [ 'results' => $results ] ] ] ),
+					];
+				}
+				return 'error' === $answer
+					? [
+						'response' => [ 'code' => 500 ],
+						'body'     => '{"message":"Server error"}',
+					]
+					: [
+						'response' => [ 'code' => 503 ],
+						'body'     => 'Service unavailable',
+					];
+			},
+			10,
+			3
+		);
+	}
+
+	/**
+	 * End a timed pause's wait and run the resume check with healthy stats.
+	 *
+	 * @return void
+	 */
+	private function resume_after_the_wait() {
+		$status = DB_Table::instance()->connect_sync_status();
+		$this->assertTrue( $status['blocked'] ?? false );
+		$status['resume_after'] = time() - 1;
+		update_option( DB_Table::CONNECT_SYNC_OPTION, $status );
+		wp_clear_scheduled_hook( DB_Table::CONNECT_RESUME_HOOK );
+		delete_transient( 'hyve_connect_stats' );
+		DB_Table::instance()->connect_maybe_resume_blocked();
+		$this->assertEmpty( DB_Table::instance()->connect_sync_status()['blocked'] ?? null );
+	}
+
+	/**
+	 * After an outage resume, a server error on an edited page keeps its
+	 * normal retries: only a repeat of the outage answer pauses at once.
+	 */
+	public function test_server_error_after_an_outage_resume_is_retried_on_an_edited_page() {
+		$this->enable_connect();
+		$post    = $this->indexed_post( true );
+		$answer  = 'outage';
+		$uploads = 0;
+		update_post_meta( $post, '_hyve_needs_update', 1 );
+		$this->intercept_uploads( $answer, $uploads );
+
+		for ( $run = 0; $run < DB_Table::MAX_PROCESS_ATTEMPTS; $run++ ) {
+			DB_Table::instance()->update_posts();
+		}
+		$this->resume_after_the_wait();
+
+		$answer = 'error';
+		DB_Table::instance()->update_posts();
+
+		$this->assertSame( DB_Table::MAX_PROCESS_ATTEMPTS + 1, $uploads );
+		$this->assertSame( '1', get_post_meta( $post, '_hyve_needs_update', true ) );
+		$this->assertSame( '1', get_post_meta( $post, '_hyve_connect_update_attempts', true ) );
+		$this->assertEmpty( DB_Table::instance()->connect_sync_status()['blocked'] ?? null );
+	}
+
+	/**
+	 * After an outage resume, a server error on a batch keeps its normal
+	 * retries too.
+	 */
+	public function test_server_error_after_an_outage_resume_is_retried_on_a_batch() {
+		$this->enable_connect();
+		$this->indexed_post();
+		$answer  = 'outage';
+		$uploads = 0;
+		$this->intercept_uploads( $answer, $uploads );
+		DB_Table::instance()->connect_start_sync();
+
+		for ( $run = 0; $run < DB_Table::MAX_PROCESS_ATTEMPTS; $run++ ) {
+			wp_clear_scheduled_hook( DB_Table::CONNECT_SYNC_HOOK );
+			DB_Table::instance()->connect_run_sync();
+		}
+		$this->resume_after_the_wait();
+
+		$answer = 'error';
+		wp_clear_scheduled_hook( DB_Table::CONNECT_SYNC_HOOK );
+		DB_Table::instance()->connect_run_sync();
+
+		$status = DB_Table::instance()->connect_sync_status();
+		$this->assertSame( DB_Table::MAX_PROCESS_ATTEMPTS + 1, $uploads );
+		$this->assertTrue( $status['in_progress'] );
+		$this->assertEmpty( $status['blocked'] ?? null );
+		$this->assertSame( 1, $status['attempts'] );
+		$this->assertNotFalse( wp_next_scheduled( DB_Table::CONNECT_SYNC_HOOK ) );
+	}
+
+	/**
+	 * The outage probe is part of the status the resume writes before the
+	 * sync event exists, so no run can start with a full retry budget, and
+	 * no second write can restore a stale copy.
+	 */
+	public function test_outage_resume_seeds_the_probe_before_the_sync_runs() {
+		$this->enable_connect();
+		$this->indexed_post();
+		$answer  = 'outage';
+		$uploads = 0;
+		$this->intercept_uploads( $answer, $uploads );
+		DB_Table::instance()->connect_start_sync();
+
+		for ( $run = 0; $run < DB_Table::MAX_PROCESS_ATTEMPTS; $run++ ) {
+			wp_clear_scheduled_hook( DB_Table::CONNECT_SYNC_HOOK );
+			DB_Table::instance()->connect_run_sync();
+		}
+		wp_clear_scheduled_hook( DB_Table::CONNECT_SYNC_HOOK );
+
+		$seen  = null;
+		$watch = static function ( $event ) use ( &$seen ) {
+			if ( is_object( $event ) && DB_Table::CONNECT_SYNC_HOOK === $event->hook ) {
+				$seen = get_option( DB_Table::CONNECT_SYNC_OPTION );
+			}
+			return $event;
+		};
+		add_filter( 'schedule_event', $watch );
+
+		try {
+			$this->resume_after_the_wait();
+		} finally {
+			remove_filter( 'schedule_event', $watch );
+		}
+
+		$this->assertIsArray( $seen );
+		$this->assertTrue( $seen['probe'] );
+		$this->assertTrue( $seen['in_progress'] );
+		$this->assertSame( $seen, DB_Table::instance()->connect_sync_status() );
+	}
+
+	/**
+	 * A stored batch after an outage resume ends the probe, so a later
+	 * maintenance answer gets its full retries again.
+	 */
+	public function test_a_stored_batch_ends_the_outage_probe() {
+		$this->enable_connect();
+		$this->indexed_post();
+		$answer  = 'outage';
+		$uploads = 0;
+		$this->intercept_uploads( $answer, $uploads );
+		DB_Table::instance()->connect_start_sync();
+
+		for ( $run = 0; $run < DB_Table::MAX_PROCESS_ATTEMPTS; $run++ ) {
+			wp_clear_scheduled_hook( DB_Table::CONNECT_SYNC_HOOK );
+			DB_Table::instance()->connect_run_sync();
+		}
+		$this->resume_after_the_wait();
+		$this->assertTrue( DB_Table::instance()->connect_sync_status()['probe'] );
+
+		$answer = 'ok';
+		wp_clear_scheduled_hook( DB_Table::CONNECT_SYNC_HOOK );
+		DB_Table::instance()->connect_run_sync();
+
+		$this->assertSame( DB_Table::MAX_PROCESS_ATTEMPTS + 1, $uploads );
+		$this->assertSame( 0, DB_Table::instance()->connect_pending_count() );
+		$this->assertEmpty( DB_Table::instance()->connect_sync_status()['probe'] ?? null );
+	}
+
+	/**
+	 * A stored upload ends the outage probe: a later rate-limit or
+	 * maintenance answer gets its full retries again.
+	 */
+	public function test_a_stored_upload_ends_the_outage_probe() {
+		$this->enable_connect();
+		$post    = $this->indexed_post( true );
+		$other   = $this->indexed_post( true );
+		$answer  = 'outage';
+		$uploads = 0;
+		update_post_meta( $post, '_hyve_needs_update', 1 );
+		$this->intercept_uploads( $answer, $uploads );
+
+		for ( $run = 0; $run < DB_Table::MAX_PROCESS_ATTEMPTS; $run++ ) {
+			DB_Table::instance()->update_posts();
+		}
+		$this->resume_after_the_wait();
+		$this->assertTrue( DB_Table::instance()->connect_sync_status()['probe'] );
+
+		$answer = 'ok';
+		DB_Table::instance()->update_posts();
+		$this->assertEmpty( DB_Table::instance()->connect_sync_status()['probe'] ?? null );
+
+		// A new outage on another edit is retried, not paused at once.
+		$answer = 'outage';
+		update_post_meta( $other, '_hyve_needs_update', 1 );
+		DB_Table::instance()->update_posts();
+		$this->assertSame( '1', get_post_meta( $other, '_hyve_needs_update', true ) );
+		$this->assertEmpty( DB_Table::instance()->connect_sync_status()['blocked'] ?? null );
+	}
+
+	/**
 	 * Temporary answers the batch path retries before pausing.
 	 *
 	 * @return array<string, array{int, string}>

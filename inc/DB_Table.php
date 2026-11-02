@@ -1379,14 +1379,22 @@ class DB_Table {
 	 * the purge auto-recovery path. Seeds the progress option and schedules the
 	 * first cron run; a no-op when there is nothing pending.
 	 *
+	 * @param bool $probe Resuming after an outage: the first rate-limit or
+	 *                    maintenance answer pauses again at once, until an
+	 *                    upload goes through. Seeded before the job is runnable.
+	 *
 	 * @return void
 	 */
-	public function connect_start_sync() {
+	public function connect_start_sync( $probe = false ) {
 		$this->connect_clear_processing_errors();
 
 		$pending = $this->connect_pending_count();
 
 		if ( 0 === $pending ) {
+			// Edited pages still probe the outage through the update cron.
+			if ( $probe ) {
+				update_option( self::CONNECT_SYNC_OPTION, [ 'probe' => true ] );
+			}
 			return;
 		}
 
@@ -1399,6 +1407,7 @@ class DB_Table {
 				'blocked'     => false,
 				'message'     => '',
 				'heartbeat'   => time(),
+				'probe'       => (bool) $probe,
 			]
 		);
 
@@ -1719,7 +1728,7 @@ class DB_Table {
 
 		$scope = $this->connect_error_scope( $error );
 
-		if ( in_array( $scope, [ 'later', 'unknown' ], true ) && $attempts < self::MAX_PROCESS_ATTEMPTS ) {
+		if ( $this->connect_may_retry( $scope, $attempts ) ) {
 			$status['attempts']  = $attempts;
 			$status['heartbeat'] = time();
 			update_option( self::CONNECT_SYNC_OPTION, $status );
@@ -1771,6 +1780,41 @@ class DB_Table {
 		}
 
 		return 'unknown';
+	}
+
+	/**
+	 * Whether a failed upload gets another try before the job pauses or the
+	 * platform is asked to settle it. Temporary and unexplained failures get
+	 * MAX_PROCESS_ATTEMPTS tries, except a rate-limit or maintenance answer
+	 * while an outage resume is still probing: that outage is not over.
+	 *
+	 * @param string $scope    The failure's scope, from connect_error_scope().
+	 * @param int    $attempts Tries so far, this one included.
+	 *
+	 * @return bool
+	 */
+	private function connect_may_retry( $scope, $attempts ) {
+		if ( ! in_array( $scope, [ 'later', 'unknown' ], true ) || $attempts >= self::MAX_PROCESS_ATTEMPTS ) {
+			return false;
+		}
+
+		return 'later' !== $scope || empty( $this->connect_sync_status()['probe'] );
+	}
+
+	/**
+	 * End an outage resume's probe: an upload went through.
+	 *
+	 * @return void
+	 */
+	private function connect_end_probe() {
+		$status = $this->connect_sync_status();
+
+		if ( empty( $status['probe'] ) ) {
+			return;
+		}
+
+		$status['probe'] = false;
+		update_option( self::CONNECT_SYNC_OPTION, $status );
 	}
 
 	/**
@@ -1913,6 +1957,7 @@ class DB_Table {
 
 		$status['current']     = (int) ( $status['current'] ?? 0 ) + (int) $done;
 		$status['attempts']    = 0;
+		$status['probe']       = false;
 		$has_more              = $this->connect_pending_count() > 0;
 		$status['in_progress'] = $has_more;
 		$status['heartbeat']   = time();
@@ -2103,19 +2148,9 @@ class DB_Table {
 		}
 
 		delete_option( self::CONNECT_SYNC_OPTION );
-		$this->connect_start_sync();
-
-		// An outage pause keeps its spent budget: the first batch probes the
-		// upload route once, and pauses again if it still fails. A stored
-		// batch resets the count.
-		if ( 'unavailable' === ( $snapshot['kind'] ?? '' ) ) {
-			$restarted = $this->connect_sync_status();
-
-			if ( ! empty( $restarted['in_progress'] ) ) {
-				$restarted['attempts'] = self::MAX_PROCESS_ATTEMPTS - 1;
-				update_option( self::CONNECT_SYNC_OPTION, $restarted );
-			}
-		}
+		// The stats route answering does not prove uploads are back: an outage
+		// resume probes them once before it may pause again.
+		$this->connect_start_sync( 'unavailable' === ( $snapshot['kind'] ?? '' ) );
 
 		// Edits held back while the job was paused go out again.
 		wp_schedule_single_event( time(), 'hyve_update_posts' );
@@ -2840,6 +2875,7 @@ class DB_Table {
 			if ( ! is_wp_error( $result ) ) {
 				if ( $connect ) {
 					delete_post_meta( (int) $post_id, '_hyve_connect_update_attempts' );
+					$this->connect_end_probe();
 				}
 				continue;
 			}
@@ -2926,7 +2962,7 @@ class DB_Table {
 		// Temporary or unexplained failures get the same bounded retries as a
 		// batch, one cron run apart, before the job pauses or the platform is
 		// asked to settle them.
-		if ( in_array( $scope, [ 'later', 'unknown' ], true ) && $attempts < self::MAX_PROCESS_ATTEMPTS ) {
+		if ( $this->connect_may_retry( $scope, $attempts ) ) {
 			if ( $this->connect_requeue_update( $post_id ) ) {
 				update_post_meta( $post_id, '_hyve_connect_update_attempts', $attempts );
 				$this->record_processing_error( $post_id, $error, true );
@@ -2934,16 +2970,8 @@ class DB_Table {
 			return false;
 		}
 
+		delete_post_meta( $post_id, '_hyve_connect_update_attempts' );
 		$scope = $this->connect_settle_unknown_scope( $error );
-
-		// An outage keeps its spent budget across the pause, so after a resume
-		// one upload probes the platform before the job pauses again. Only a
-		// successful upload or a new edit clears it.
-		if ( 'later' === $scope && $this->connect_requeue_update( $post_id ) ) {
-			update_post_meta( $post_id, '_hyve_connect_update_attempts', self::MAX_PROCESS_ATTEMPTS - 1 );
-		} else {
-			delete_post_meta( $post_id, '_hyve_connect_update_attempts' );
-		}
 
 		if ( 'batch' !== $scope ) {
 			// Not this source's fault: the pause carries the reason instead.
