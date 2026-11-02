@@ -171,16 +171,23 @@ class OpenAI {
 			return;
 		}
 		// A malformed header must not park a job for days.
-		$reset = min( HOUR_IN_SECONDS, $this->retry_seconds( $headers['x-ratelimit-reset-tokens'] ?? '' ) );
-		$delay = min( HOUR_IN_SECONDS, max( $this->retry_seconds( $headers['retry-after'] ?? '' ), $reset, $this->retry_seconds( $headers['x-ratelimit-reset-requests'] ?? '' ) ) );
+		$reset   = min( HOUR_IN_SECONDS, $this->retry_seconds( $headers['x-ratelimit-reset-tokens'] ?? '' ) );
+		$delay   = min( HOUR_IN_SECONDS, max( $this->retry_seconds( $headers['retry-after'] ?? '' ), $reset, $this->retry_seconds( $headers['x-ratelimit-reset-requests'] ?? '' ) ) );
+		$blocked = 429 === $status ? time() + max( 60, $delay ) : 0;
+		// Only a success proves the limit has lifted; another error must not
+		// end a cooldown an earlier 429 started.
+		if ( $status < 200 || $status >= 300 ) {
+			$previous = get_transient( $this->rate_limit_key( $endpoint ) );
+			$blocked  = max( $blocked, is_array( $previous ) ? (int) ( $previous['blocked_until'] ?? 0 ) : 0 );
+		}
 		$state = [
-			'blocked_until' => 429 === $status ? time() + max( 60, $delay ) : 0,
+			'blocked_until' => $blocked,
 			'reset_at'      => time() + $reset,
 		];
 		if ( isset( $headers['x-ratelimit-remaining-tokens'] ) ) {
 			$state['remaining'] = (int) $headers['x-ratelimit-remaining-tokens'];
 		}
-		set_transient( $this->rate_limit_key( $endpoint ), $state, max( 60, $delay ) + MINUTE_IN_SECONDS );
+		set_transient( $this->rate_limit_key( $endpoint ), $state, max( 60, $delay, $blocked - time() ) + MINUTE_IN_SECONDS );
 	}
 
 	/**

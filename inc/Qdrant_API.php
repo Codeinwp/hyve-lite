@@ -39,10 +39,11 @@ class Qdrant_API {
 	public const ERROR_OPTION_KEY = 'hyve_qdrant_api_error';
 
 	/**
-	 * Post meta naming the only generation search may return for a source,
-	 * set while an older generation is still waiting to be pruned.
+	 * Sources whose older Qdrant points could not be pruned yet, mapped to
+	 * the only generation search may return for them. Kept in one option so
+	 * every search can exclude the rest without a lookup per hit.
 	 */
-	public const CURRENT_GENERATION = '_hyve_qdrant_generation';
+	public const PENDING_PRUNES = 'hyve_qdrant_pending_prunes';
 
 	/**
 	 * Cron hook that moves local vectors to Qdrant.
@@ -573,7 +574,7 @@ class Qdrant_API {
 			delete_option( self::ERROR_OPTION_KEY );
 
 			// Every generation is gone, so no older one is left to hide.
-			delete_post_meta( (int) $id, self::CURRENT_GENERATION );
+			self::set_current_generation( (int) $id, null );
 
 			return 'acknowledged' === $response['result']['status'];
 		} catch ( \Throwable $e ) {
@@ -631,6 +632,66 @@ class Qdrant_API {
 	}
 
 	/**
+	 * Exclude staged points, and the older generations of any source whose
+	 * prune is still pending. Filtering in the query keeps the result limit
+	 * applied to visible points only.
+	 *
+	 * @return Filter
+	 */
+	private function visible_points_filter() {
+		$filter = ( new Filter() )->addMustNot( new MatchString( '_hyve_ingestion_pending', 'yes' ) );
+
+		foreach ( self::pending_prunes() as $post_id => $generation ) {
+			$filter->addMustNot(
+				( new Filter() )
+					->addMust( new MatchString( 'post_id', (string) $post_id ) )
+					->addMustNot( new MatchString( '_hyve_ingestion_generation', $generation ) )
+			);
+		}
+
+		return $filter;
+	}
+
+	/**
+	 * Sources waiting for an older generation to be pruned.
+	 *
+	 * @return array<int, string> Generation to keep, by source ID.
+	 */
+	public static function pending_prunes() {
+		$pending = get_option( self::PENDING_PRUNES, [] );
+
+		return is_array( $pending ) ? array_filter( $pending, 'is_string' ) : [];
+	}
+
+	/**
+	 * Record which generation search may return for a source, or clear it.
+	 *
+	 * @param int         $post_id    Source ID.
+	 * @param string|null $generation Generation to keep, or null when nothing older remains.
+	 *
+	 * @return void
+	 */
+	public static function set_current_generation( $post_id, $generation ) {
+		$pending = self::pending_prunes();
+
+		if ( null === $generation ) {
+			if ( ! isset( $pending[ $post_id ] ) ) {
+				return;
+			}
+			unset( $pending[ $post_id ] );
+		} else {
+			$pending[ $post_id ] = $generation;
+		}
+
+		if ( empty( $pending ) ) {
+			delete_option( self::PENDING_PRUNES );
+			return;
+		}
+
+		update_option( self::PENDING_PRUNES, $pending, false );
+	}
+
+	/**
 	 * Search collection.
 	 * 
 	 * @param array<float> $embeddings Embeddings.
@@ -652,7 +713,7 @@ class Qdrant_API {
 				)
 			)
 			->setLimit( 10 )
-			->setFilter( ( new Filter() )->addMustNot( new MatchString( '_hyve_ingestion_pending', 'yes' ) ) )
+			->setFilter( $this->visible_points_filter() )
 			->setScoreThreshold( $score_threshold )
 			->setWithPayload( true );
 			$response = $client->collections( self::COLLECTION_NAME )->points()->search( $search );
@@ -666,21 +727,14 @@ class Qdrant_API {
 
 			$results = $response['result'];
 
-			$payload = [];
-
-			foreach ( $results as $result ) {
-				// A source whose old generation could not be pruned yet answers
-				// only from its current one.
-				$current = isset( $result['payload']['post_id'] ) ? get_post_meta( (int) $result['payload']['post_id'], self::CURRENT_GENERATION, true ) : '';
-
-				if ( '' !== $current && ( $result['payload']['_hyve_ingestion_generation'] ?? '' ) !== $current ) {
-					continue;
-				}
-
-				$item          = $result['payload'];
-				$item['score'] = $result['score'];
-				$payload[]     = $item;
-			}
+			$payload = array_map(
+				function ( $result ) {
+					$payload          = $result['payload'];
+					$payload['score'] = $result['score'];
+					return $payload;
+				},
+				$results
+			);
 
 			return $payload;
 		} catch ( \Throwable $e ) {

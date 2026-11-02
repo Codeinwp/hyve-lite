@@ -1070,14 +1070,121 @@ class IngestionQueueTest extends WP_UnitTestCase {
 		$job['remote_activated'] = time() - DAY_IN_SECONDS - 1;
 		update_post_meta( $post_id, Ingestion_Queue::JOB, $job );
 		$this->step( $post_id );
-		$this->assertSame( $job['id'], get_post_meta( $post_id, Qdrant_API::CURRENT_GENERATION, true ) );
+		$this->assertSame( $job['id'], Qdrant_API::pending_prunes()[ $post_id ] ?? null );
 		Ingestion_Queue::instance()->watchdog();
 		$this->assertArrayHasKey( 'old', $points, 'A failing prune keeps its marker.' );
 		$failing = false;
 		Ingestion_Queue::instance()->watchdog();
 		$this->assertArrayNotHasKey( 'old', $points );
-		$this->assertEmpty( get_post_meta( $post_id, Qdrant_API::CURRENT_GENERATION, true ) );
+		$this->assertArrayNotHasKey( $post_id, Qdrant_API::pending_prunes() );
 		$this->assertCount( 6, Qdrant_API::instance()->search( [ 0.1 ], 0.0 ) );
+	}
+
+	/**
+	 * A pending prune from an older import must never delete the points of
+	 * a newer import of the same source.
+	 */
+	public function test_a_pending_prune_spares_a_newer_import() {
+		$post_id = $this->queue( 6 );
+		$points  = [
+			'g0' => [
+				'payload' => [
+					'post_id'                    => (string) $post_id,
+					'_hyve_ingestion_generation' => 'g0',
+				],
+			],
+		];
+		$this->qdrant( $points );
+		// An earlier import left `g0`'s neighbours unpruned and named `g0` current.
+		Qdrant_API::set_current_generation( $post_id, 'g0' );
+		$job = get_post_meta( $post_id, Ingestion_Queue::JOB, true );
+		// Moderation, embedding, and the hidden upload of the new generation.
+		$this->step( $post_id, 4 );
+		$this->assertCount( 7, $points );
+		Ingestion_Queue::instance()->watchdog();
+		$this->assertCount( 7, $points, 'The watchdog leaves a source with an active import alone.' );
+		$this->drain( $post_id );
+		$found = Qdrant_API::instance()->search( [ 0.1 ], 0.0 );
+		$this->assertCount( 6, $found );
+		foreach ( $found as $hit ) {
+			$this->assertSame( $job['id'], $hit['_hyve_ingestion_generation'] );
+		}
+		$this->assertArrayNotHasKey( 'g0', $points );
+		$this->assertArrayNotHasKey( $post_id, Qdrant_API::pending_prunes() );
+	}
+
+	/**
+	 * Stale points are excluded by the query itself, so ten of them ranked
+	 * first cannot crowd the current ones out of the result limit.
+	 */
+	public function test_stale_points_cannot_fill_the_search_limit() {
+		$post_id = self::factory()->post->create();
+		$points  = [];
+		for ( $index = 0; $index < 10; $index++ ) {
+			$points[ "old-{$index}" ] = [
+				'payload' => [
+					'post_id'                    => (string) $post_id,
+					'_hyve_ingestion_generation' => 'old',
+				],
+			];
+		}
+		$points['new'] = [
+			'payload' => [
+				'post_id'                    => (string) $post_id,
+				'_hyve_ingestion_generation' => 'new',
+			],
+		];
+		$this->qdrant( $points );
+		Qdrant_API::set_current_generation( $post_id, 'new' );
+		$found = Qdrant_API::instance()->search( [ 0.1 ], 0.0 );
+		$this->assertCount( 1, $found );
+		$this->assertSame( 'new', $found[0]['_hyve_ingestion_generation'] );
+	}
+
+	/**
+	 * Removing every point of a source drops its marker, so a later
+	 * re-index is not hidden behind an old generation.
+	 */
+	public function test_deleting_a_source_clears_its_pending_prune() {
+		$post_id = self::factory()->post->create();
+		$points  = [ 'p' => [ 'payload' => [ 'post_id' => (string) $post_id ] ] ];
+		$this->qdrant( $points );
+		Qdrant_API::set_current_generation( $post_id, 'old' );
+		$this->assertTrue( Qdrant_API::instance()->delete_point( $post_id ) );
+		$this->assertArrayNotHasKey( $post_id, Qdrant_API::pending_prunes() );
+	}
+
+	/**
+	 * A later error without rate-limit headers must not end the cooldown an
+	 * earlier 429 started; only a success proves the limit lifted.
+	 */
+	public function test_an_error_does_not_end_a_rate_limit_cooldown() {
+		$status         = 429;
+		$this->response = function () use ( &$status ) {
+			return [
+				'response' => [ 'code' => $status ],
+				'headers'  => 429 === $status ? [ 'retry-after' => '120' ] : [],
+				'body'     => wp_json_encode(
+					[
+						'error' => [
+							'code'    => 429 === $status ? null : 'server_error',
+							'message' => 'Failure',
+						],
+					]
+				),
+			];
+		};
+		$openai         = OpenAI::instance();
+		$openai->pace_requests( true );
+		$openai->create_embeddings( 'hello' );
+		$this->assertGreaterThanOrEqual( 119, $openai->rate_limit_delay( 'embeddings' ) );
+		$status = 500;
+		$openai->create_embeddings( 'hello' );
+		$this->assertGreaterThanOrEqual( 118, $openai->rate_limit_delay( 'embeddings' ), 'A server error keeps the cooldown.' );
+		$this->response = null;
+		$openai->create_embeddings( 'hello' );
+		$openai->pace_requests( false );
+		$this->assertSame( 0, $openai->rate_limit_delay( 'embeddings' ), 'A success ends it.' );
 	}
 
 	/**
@@ -1263,20 +1370,33 @@ class IngestionQueueTest extends WP_UnitTestCase {
 				$indexes[] = $body['field_name'];
 				return new GuzzleHttp\Promise\FulfilledPromise( new GuzzleHttp\Psr7\Response( 200, [ 'Content-Type' => 'application/json' ], wp_json_encode( [ 'result' => [ 'status' => 'completed' ] ] ) ) );
 			}
-			// Hosted clusters refuse a filter on a field without a payload index.
-			foreach ( array_merge( $body['filter']['must'] ?? [], $body['filter']['must_not'] ?? [] ) as $condition ) {
-				if ( ! in_array( $condition['key'], $indexes, true ) ) {
-					return new GuzzleHttp\Promise\FulfilledPromise( new GuzzleHttp\Psr7\Response( 400, [ 'Content-Type' => 'application/json' ], wp_json_encode( [ 'status' => [ 'error' => 'Index required but not found for "' . $condition['key'] . '"' ] ] ) ) );
+			// Hosted clusters refuse a filter on a field without a payload index,
+			// at any nesting depth.
+			$keys = function ( $filter ) use ( &$keys ) {
+				$found = [];
+				foreach ( array_merge( $filter['must'] ?? [], $filter['must_not'] ?? [] ) as $condition ) {
+					$found = array_merge( $found, isset( $condition['key'] ) ? [ $condition['key'] ] : $keys( $condition ) );
+				}
+				return $found;
+			};
+			foreach ( $keys( $body['filter'] ?? [] ) as $key ) {
+				if ( ! in_array( $key, $indexes, true ) ) {
+					return new GuzzleHttp\Promise\FulfilledPromise( new GuzzleHttp\Psr7\Response( 400, [ 'Content-Type' => 'application/json' ], wp_json_encode( [ 'status' => [ 'error' => 'Index required but not found for "' . $key . '"' ] ] ) ) );
 				}
 			}
-			$matches = function ( $point, $filter ) {
+			$matches = function ( $point, $filter ) use ( &$matches ) {
+				$holds = function ( $condition ) use ( $point, &$matches ) {
+					return isset( $condition['key'] )
+						? ( $point['payload'][ $condition['key'] ] ?? null ) === $condition['match']['value']
+						: $matches( $point, $condition );
+				};
 				foreach ( $filter['must'] ?? [] as $condition ) {
-					if ( ( $point['payload'][ $condition['key'] ] ?? null ) !== $condition['match']['value'] ) {
+					if ( ! $holds( $condition ) ) {
 						return false;
 					}
 				}
 				foreach ( $filter['must_not'] ?? [] as $condition ) {
-					if ( ( $point['payload'][ $condition['key'] ] ?? null ) === $condition['match']['value'] ) {
+					if ( $holds( $condition ) ) {
 						return false;
 					}
 				}
@@ -1299,6 +1419,8 @@ class IngestionQueueTest extends WP_UnitTestCase {
 				}
 				$result = [ 'status' => 'acknowledged' ];
 			} elseif ( false !== strpos( $path, '/search' ) ) {
+				// Insertion order stands in for rank; the limit applies after
+				// the filter, as in Qdrant.
 				$result = [];
 				foreach ( $points as $point ) {
 					if ( $matches( $point, $body['filter'] ) ) {
@@ -1308,6 +1430,7 @@ class IngestionQueueTest extends WP_UnitTestCase {
 						];
 					}
 				}
+				$result = array_slice( $result, 0, $body['limit'] ?? 10 );
 			}
 			return new GuzzleHttp\Promise\FulfilledPromise( new GuzzleHttp\Psr7\Response( 200, [ 'Content-Type' => 'application/json' ], wp_json_encode( [ 'result' => $result ] ) ) );
 		};

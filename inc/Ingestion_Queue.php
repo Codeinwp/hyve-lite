@@ -256,10 +256,22 @@ class Ingestion_Queue {
 		if ( ! Qdrant_API::is_active() ) {
 			return;
 		}
-		foreach ( $this->ids_with_meta( Qdrant_API::CURRENT_GENERATION, 'any' ) as $id ) {
-			$generation = (string) get_post_meta( $id, Qdrant_API::CURRENT_GENERATION, true );
-			if ( '' !== $generation && true === Qdrant_API::instance()->delete_ingestion_points( $id, $generation, true ) ) {
-				delete_post_meta( $id, Qdrant_API::CURRENT_GENERATION );
+		foreach ( Qdrant_API::pending_prunes() as $id => $generation ) {
+			// A running import owns the source's points: pruning around an
+			// older generation would delete the newer one it is uploading.
+			if ( $this->is_active( $id ) ) {
+				continue;
+			}
+			$lease = $this->lock( $id );
+			if ( false === $lease ) {
+				continue;
+			}
+			try {
+				if ( ! $this->is_active( $id ) && true === Qdrant_API::instance()->delete_ingestion_points( $id, $generation, true ) ) {
+					Qdrant_API::set_current_generation( $id, null );
+				}
+			} finally {
+				$this->unlock( $id, $lease );
 			}
 		}
 	}
@@ -571,6 +583,11 @@ class Ingestion_Queue {
 			}
 			$job['remote_activated'] = time();
 			$this->save( $post_id, $job, 'processing' );
+			// An older prune is still pending: search must now answer from
+			// this generation, not from the one the marker named.
+			if ( isset( Qdrant_API::pending_prunes()[ $post_id ] ) ) {
+				Qdrant_API::set_current_generation( $post_id, $job['id'] );
+			}
 		}
 		if ( $qdrant ) {
 			$result = Qdrant_API::instance()->delete_ingestion_points( $post_id, $job['id'], true );
@@ -584,11 +601,7 @@ class Ingestion_Queue {
 			}
 			// After a day of trying, finish locally. Search answers only from
 			// this generation and the watchdog keeps pruning the old one.
-			if ( $pruned ) {
-				delete_post_meta( $post_id, Qdrant_API::CURRENT_GENERATION );
-			} else {
-				update_post_meta( $post_id, Qdrant_API::CURRENT_GENERATION, $job['id'] );
-			}
+			Qdrant_API::set_current_generation( $post_id, $pruned ? null : $job['id'] );
 		}
 		// Reveal the staged rows, then drop the previous ones: a brief overlap
 		// beats a gap in answers.
