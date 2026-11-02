@@ -480,7 +480,7 @@ class Main {
 				'api_key'                    => '',
 				'qdrant_api_key'             => '',
 				'qdrant_endpoint'            => '',
-				'chat_model'                 => 'gpt-5.4-nano',
+				'chat_model'                 => OpenAI::DEFAULT_CHAT_MODEL,
 				'welcome_message'            => '',
 				'default_message'            => '',
 				'similarity_score_threshold' => 0.25,
@@ -523,6 +523,9 @@ class Main {
 		$settings['telemetry_enabled'] = 'yes' === get_option( 'hyve_lite_logger_flag', 'no' );
 
 		$settings = wp_parse_args( $settings, self::get_default_settings() );
+
+		// A retired model would error on every message; report its successor.
+		$settings['chat_model'] = OpenAI::resolve_chat_model( $settings['chat_model'] ?? '' );
 
 		/*
 		 * Backward compatibility: derive the visibility mode from the legacy
