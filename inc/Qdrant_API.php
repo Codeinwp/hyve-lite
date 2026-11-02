@@ -39,6 +39,12 @@ class Qdrant_API {
 	public const ERROR_OPTION_KEY = 'hyve_qdrant_api_error';
 
 	/**
+	 * Post meta naming the only generation search may return for a source,
+	 * set while an older generation is still waiting to be pruned.
+	 */
+	public const CURRENT_GENERATION = '_hyve_qdrant_generation';
+
+	/**
 	 * Cron hook that moves local vectors to Qdrant.
 	 *
 	 * @var string
@@ -566,6 +572,9 @@ class Qdrant_API {
 
 			delete_option( self::ERROR_OPTION_KEY );
 
+			// Every generation is gone, so no older one is left to hide.
+			delete_post_meta( (int) $id, self::CURRENT_GENERATION );
+
 			return 'acknowledged' === $response['result']['status'];
 		} catch ( \Throwable $e ) {
 			return $this->handle_exception( $e );
@@ -657,14 +666,21 @@ class Qdrant_API {
 
 			$results = $response['result'];
 
-			$payload = array_map(
-				function ( $result ) {
-					$payload          = $result['payload'];
-					$payload['score'] = $result['score'];
-					return $payload;
-				},
-				$results
-			);
+			$payload = [];
+
+			foreach ( $results as $result ) {
+				// A source whose old generation could not be pruned yet answers
+				// only from its current one.
+				$current = isset( $result['payload']['post_id'] ) ? get_post_meta( (int) $result['payload']['post_id'], self::CURRENT_GENERATION, true ) : '';
+
+				if ( '' !== $current && ( $result['payload']['_hyve_ingestion_generation'] ?? '' ) !== $current ) {
+					continue;
+				}
+
+				$item          = $result['payload'];
+				$item['score'] = $result['score'];
+				$payload[]     = $item;
+			}
 
 			return $payload;
 		} catch ( \Throwable $e ) {

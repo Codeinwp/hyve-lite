@@ -197,16 +197,7 @@ class Ingestion_Queue {
 	 */
 	public function watchdog() {
 		$connect = Hyve_Connect::is_active();
-		$ids     = get_posts(
-			[
-				'post_type'      => array_values( get_post_types() ),
-				'post_status'    => [ 'publish', 'private' ],
-				'fields'         => 'ids',
-				'posts_per_page' => 100,
-				'meta_key'       => self::JOB, // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key -- Recovery only visits active jobs.
-			]
-		);
-		foreach ( $ids as $id ) {
+		foreach ( $this->ids_with_meta( self::JOB, [ 'publish', 'private' ] ) as $id ) {
 			$job = get_post_meta( $id, self::JOB, true );
 			if ( ! is_array( $job ) ) {
 				continue;
@@ -217,6 +208,59 @@ class Ingestion_Queue {
 				continue;
 			}
 			$this->schedule( $id, max( time(), (int) $job['retry_at'] ) );
+		}
+		if ( ! $connect ) {
+			$this->retry_prunes();
+		}
+	}
+
+	/**
+	 * Every source carrying a meta key, read a page at a time and collected
+	 * before any is changed, so acting on one cannot shift the pages.
+	 *
+	 * @param string          $key Meta key.
+	 * @param string|string[] $status Post statuses.
+	 * @return int[]
+	 */
+	private function ids_with_meta( $key, $status ) {
+		$ids = [];
+		for ( $page = 1; $page <= 100; $page++ ) {
+			$batch = get_posts(
+				[
+					'post_type'      => array_values( get_post_types() ),
+					'post_status'    => $status,
+					'fields'         => 'ids',
+					'posts_per_page' => 100,
+					'paged'          => $page,
+					'orderby'        => 'ID',
+					'order'          => 'ASC',
+					'no_found_rows'  => true,
+					'meta_key'       => $key, // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key -- Only sources the queue owns.
+				]
+			);
+			$ids   = array_merge( $ids, array_map( 'intval', $batch ) );
+			if ( count( $batch ) < 100 ) {
+				break;
+			}
+		}
+		return $ids;
+	}
+
+	/**
+	 * Keep pruning generations an import had to leave behind in Qdrant.
+	 * Search hides them meanwhile (see Qdrant_API::search()).
+	 *
+	 * @return void
+	 */
+	private function retry_prunes() {
+		if ( ! Qdrant_API::is_active() ) {
+			return;
+		}
+		foreach ( $this->ids_with_meta( Qdrant_API::CURRENT_GENERATION, 'any' ) as $id ) {
+			$generation = (string) get_post_meta( $id, Qdrant_API::CURRENT_GENERATION, true );
+			if ( '' !== $generation && true === Qdrant_API::instance()->delete_ingestion_points( $id, $generation, true ) ) {
+				delete_post_meta( $id, Qdrant_API::CURRENT_GENERATION );
+			}
 		}
 	}
 
@@ -534,10 +578,16 @@ class Ingestion_Queue {
 				Qdrant_API::instance()->delete_ingestion_points( $post_id, $job['id'] );
 				return true;
 			}
-			// After a day of trying, finish locally: the next re-index or
-			// removal prunes the stale points by post ID anyway.
-			if ( ( is_wp_error( $result ) || ! $result ) && time() - (int) $job['remote_activated'] < DAY_IN_SECONDS ) {
+			$pruned = ! is_wp_error( $result ) && $result;
+			if ( ! $pruned && time() - (int) $job['remote_activated'] < DAY_IN_SECONDS ) {
 				return is_wp_error( $result ) ? $result : new \WP_Error( 'qdrant_error', __( 'The old Qdrant index could not be replaced.', 'hyve-lite' ) );
+			}
+			// After a day of trying, finish locally. Search answers only from
+			// this generation and the watchdog keeps pruning the old one.
+			if ( $pruned ) {
+				delete_post_meta( $post_id, Qdrant_API::CURRENT_GENERATION );
+			} else {
+				update_post_meta( $post_id, Qdrant_API::CURRENT_GENERATION, $job['id'] );
 			}
 		}
 		// Reveal the staged rows, then drop the previous ones: a brief overlap
@@ -602,18 +652,7 @@ class Ingestion_Queue {
 		if ( ! $fatal && ! empty( $job['remote_activated'] ) ) {
 			$retry = true;
 		}
-		$text = OpenAI::get_error_message_for_code( $code ) ?? $error->get_error_message();
-		$data = $error->get_error_data();
-		if ( is_array( $data ) && ! empty( $data['endpoint'] ) ) {
-			$details = [ $data['endpoint'], $data['model'] ?? '', 'HTTP ' . ( $data['http_status'] ?? '' ) ];
-			// The account's limit is what the admin needs to raise or wait for.
-			foreach ( [ 'x-ratelimit-limit-tokens', 'x-ratelimit-remaining-tokens', 'x-ratelimit-reset-tokens' ] as $header ) {
-				if ( isset( $data['headers'][ $header ] ) ) {
-					$details[] = $header . ': ' . $data['headers'][ $header ];
-				}
-			}
-			$text .= ' (' . implode( ', ', array_filter( $details ) ) . ')';
-		}
+		$text = OpenAI::describe_error( $error );
 		wp_clear_scheduled_hook( self::HOOK, [ $post_id ] );
 		if ( $retry ) {
 			update_post_meta( $post_id, '_hyve_processing_error', $text . ' ' . __( 'This content will be retried automatically.', 'hyve-lite' ) );

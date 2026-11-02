@@ -1038,9 +1038,63 @@ class IngestionQueueTest extends WP_UnitTestCase {
 		$this->step( $post_id );
 		$this->assertFalse( Ingestion_Queue::instance()->is_active( $post_id ) );
 		$this->assertSame( 6, $this->indexed( $post_id ) );
-		$this->assertArrayHasKey( 'old', $points, 'The stale generation is left for the next re-index to prune.' );
+		$this->assertArrayHasKey( 'old', $points, 'The prune is still failing.' );
 		$this->assertEmpty( get_post_meta( $post_id, '_hyve_processing_error', true ) );
 		$this->assertSame( 'complete', get_post_meta( $post_id, '_hyve_ingestion', true )['status'] );
+		$found = Qdrant_API::instance()->search( [ 0.1 ], 0.0 );
+		$this->assertCount( 6, $found, 'Search answers only from the current generation.' );
+		foreach ( $found as $hit ) {
+			$this->assertSame( $job['id'], $hit['_hyve_ingestion_generation'] );
+		}
+	}
+
+	/**
+	 * Once Qdrant accepts deletes again, the watchdog finishes the prune and
+	 * search no longer needs to filter the source.
+	 */
+	public function test_watchdog_finishes_a_prune_left_behind() {
+		$post_id = $this->queue( 6 );
+		$points  = [ 'old' => [ 'payload' => [ 'post_id' => (string) $post_id ] ] ];
+		$failing = true;
+		$this->qdrant(
+			$points,
+			function ( $path, $body ) use ( &$failing ) {
+				if ( $failing && false !== strpos( $path, '/delete' ) && ! empty( $body['filter']['must_not'] ) ) {
+					return new GuzzleHttp\Psr7\Response( 500, [ 'Content-Type' => 'application/json' ], '{"status":{"error":"Unavailable"}}' );
+				}
+				return null;
+			}
+		);
+		$this->step( $post_id, 5 );
+		$job                     = get_post_meta( $post_id, Ingestion_Queue::JOB, true );
+		$job['remote_activated'] = time() - DAY_IN_SECONDS - 1;
+		update_post_meta( $post_id, Ingestion_Queue::JOB, $job );
+		$this->step( $post_id );
+		$this->assertSame( $job['id'], get_post_meta( $post_id, Qdrant_API::CURRENT_GENERATION, true ) );
+		Ingestion_Queue::instance()->watchdog();
+		$this->assertArrayHasKey( 'old', $points, 'A failing prune keeps its marker.' );
+		$failing = false;
+		Ingestion_Queue::instance()->watchdog();
+		$this->assertArrayNotHasKey( 'old', $points );
+		$this->assertEmpty( get_post_meta( $post_id, Qdrant_API::CURRENT_GENERATION, true ) );
+		$this->assertCount( 6, Qdrant_API::instance()->search( [ 0.1 ], 0.0 ) );
+	}
+
+	/**
+	 * Every active job is recovered, not only the newest page of them.
+	 */
+	public function test_watchdog_recovers_every_active_job() {
+		$ids = [];
+		for ( $index = 0; $index < 101; $index++ ) {
+			$ids[] = $this->queue( 1 );
+		}
+		foreach ( $ids as $id ) {
+			wp_clear_scheduled_hook( Ingestion_Queue::HOOK, [ $id ] );
+		}
+		Ingestion_Queue::instance()->watchdog();
+		foreach ( $ids as $id ) {
+			$this->assertNotFalse( wp_next_scheduled( Ingestion_Queue::HOOK, [ $id ] ), "Job {$id} was not rescheduled." );
+		}
 	}
 
 	/**

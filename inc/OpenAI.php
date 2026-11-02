@@ -1516,6 +1516,35 @@ PROMPT;
 	}
 
 	/**
+	 * Describe a failed request for the Knowledge Base listing: the actionable
+	 * message, then the endpoint, model, HTTP status and the account's token
+	 * limit headers when the provider sent them.
+	 *
+	 * @param \WP_Error $error The failure.
+	 *
+	 * @return string
+	 */
+	public static function describe_error( $error ) {
+		$text = self::get_error_message_for_code( $error->get_error_code() ) ?? $error->get_error_message();
+		$data = $error->get_error_data();
+
+		if ( ! is_array( $data ) || empty( $data['endpoint'] ) ) {
+			return $text;
+		}
+
+		$details = [ $data['endpoint'], $data['model'] ?? '', 'HTTP ' . ( $data['http_status'] ?? '' ) ];
+
+		// The account's limit is what the admin needs to raise or wait for.
+		foreach ( [ 'x-ratelimit-limit-tokens', 'x-ratelimit-remaining-tokens', 'x-ratelimit-reset-tokens' ] as $header ) {
+			if ( isset( $data['headers'][ $header ] ) ) {
+				$details[] = $header . ': ' . $data['headers'][ $header ];
+			}
+		}
+
+		return $text . ' (' . implode( ', ', array_filter( $details ) ) . ')';
+	}
+
+	/**
 	 * Translate an OpenAI error code into an actionable, user-facing message.
 	 *
 	 * This is the single source of truth for OpenAI error copy. Callers that

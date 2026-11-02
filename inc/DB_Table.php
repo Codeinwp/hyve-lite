@@ -2428,11 +2428,7 @@ class DB_Table {
 			return;
 		}
 
-		$message = OpenAI::get_error_message_for_code( $error->get_error_code() );
-
-		if ( null === $message ) {
-			$message = $error->get_error_message();
-		}
+		$message = OpenAI::describe_error( $error );
 
 		// translators: both sentences are appended after the error message that caused the failure.
 		$suffix = $will_retry
