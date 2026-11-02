@@ -83,26 +83,28 @@ class ConnectChatTest extends WP_UnitTestCase {
 
 	/**
 	 * A Connect reply records its debug trace: mode and transport, the latency
-	 * measured around the platform call, the visitor's page, and the sources
-	 * and usage the platform reported. Retrieval details (query, threshold)
-	 * stay platform-side and are absent by design.
+	 * measured around the platform call, the visitor's page, the query the
+	 * platform searched for, and the sources and usage it reported. The
+	 * threshold stays platform-side and is absent by design.
 	 */
 	public function test_connect_poll_chat_records_debug_trace() {
 		update_option( 'hyve_settings', [ 'ai_mode' => Hyve_Connect::MODE_CONNECT ] );
 
 		$this->intercept_job_complete(
 			[
-				'thread_id' => 'th-2',
-				'answered'  => true,
-				'reply'     => 'Laundry is $32.00/hr.',
-				'sources'   => [
+				'thread_id'       => 'th-2',
+				'answered'        => true,
+				'reply'           => 'Laundry is $32.00/hr.',
+				'retrieval_query' => 'How much does laundry cost?',
+				'query_rewritten' => true,
+				'sources'         => [
 					[
 						'id'    => 42,
 						'title' => 'Services & Rates',
 						'score' => 0.6123,
 					],
 				],
-				'usage'     => [
+				'usage'           => [
 					'input_tokens'  => 900,
 					'output_tokens' => 40,
 				],
@@ -144,9 +146,27 @@ class ConnectChatTest extends WP_UnitTestCase {
 			$debug['usage']
 		);
 
-		// Platform-side retrieval details are not knowable plugin-side.
-		$this->assertArrayNotHasKey( 'query', $debug );
+		$this->assertSame( 'How much does laundry cost?', $debug['query'] );
+		$this->assertTrue( $debug['query_rewritten'] );
+
+		// The platform's threshold is not knowable plugin-side.
 		$this->assertArrayNotHasKey( 'threshold', $debug );
+	}
+
+	/**
+	 * A platform that reports no query (an older deploy) leaves the trace
+	 * without one rather than inventing it.
+	 */
+	public function test_connect_debug_without_a_platform_query() {
+		$debug = API::instance()->connect_debug(
+			[
+				'reply'           => 'Hi',
+				'retrieval_query' => '',
+			]
+		);
+
+		$this->assertArrayNotHasKey( 'query', $debug );
+		$this->assertArrayNotHasKey( 'query_rewritten', $debug );
 	}
 
 	/**

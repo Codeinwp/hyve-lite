@@ -101,6 +101,48 @@ class OpenAI {
 	public const EMBEDDING_MODEL = 'text-embedding-3-small';
 
 	/**
+	 * The model that rewrites follow-ups into standalone retrieval queries: the
+	 * cheapest tier is enough for a one-line rewrite.
+	 *
+	 * @var string
+	 */
+	public const REWRITE_MODEL = 'gpt-5.4-nano';
+
+	/**
+	 * Longest rewritten query kept; anything past it is not a question any more.
+	 *
+	 * @var int
+	 */
+	public const REWRITE_MAX_CHARS = 300;
+
+	/**
+	 * Instructions for the retrieval query rewrite. Mirrored by the platform's
+	 * OpenRouterQueryRewriter.
+	 *
+	 * @var string
+	 */
+	public const REWRITE_INSTRUCTIONS = <<<'PROMPT'
+You rewrite the latest visitor message of a website chat into one standalone question that will be used to search the site's content. The search sees only your question, never the conversation, so the question must name what the visitor is talking about.
+
+Rules:
+- Replace every pronoun or vague reference (it, he, she, they, that, this one, there) with the name or thing it refers to in the conversation.
+- Expand a fragment ("fees?", "what about this month", "and on weekends?") into the full question, carrying over the subject of the visitor's previous question.
+- Keep the visitor's language. Copy names, products, numbers and codes exactly as the visitor wrote them.
+- Do not answer, add facts, or change what is being asked.
+- Do not shorten or summarise. Keep every detail the visitor gave and change only the references you resolve.
+- Return the message unchanged when it already names its subject, when it starts a new topic, or when it is not a question (a greeting, thanks). Never attach the earlier subject to a question about something else.
+- Reply with the question only: one line, no quotes, no explanation.
+
+Examples (earlier visitor question → latest message → reply):
+- "where is DJ Nova playing next" → "how long has she been djing" → How long has DJ Nova been DJing?
+- "what does DJ Nova charge per event" → "Fees?" → What are DJ Nova's fees per event?
+- "where is DJ Nova playing next" → "what about this month" → Where is DJ Nova playing this month?
+- "Aveți lecții de tenis?" → "Cât costă?" → Cât costă lecțiile de tenis?
+- "do you ship to Canada" → "Do you offer gift wrapping?" → Do you offer gift wrapping?
+- "Que couvre la garantie ?" → "Quels sont vos horaires le samedi ?" → Quels sont vos horaires le samedi ?
+PROMPT;
+
+	/**
 	 * Base support-assistant instructions shared by the reply flows.
 	 *
 	 * Authored as readable paragraphs and kept in sync with the platform's
@@ -480,6 +522,93 @@ PROMPT;
 		}
 
 		return new \WP_Error( 'unknown_error', __( 'An error occurred while creating the embeddings.', 'hyve-lite' ) );
+	}
+
+	/**
+	 * Rewrite a follow-up into a standalone question for knowledge base retrieval.
+	 *
+	 * One small completion resolves pronouns and fragments ("how long has he
+	 * been djing") against the recent turns ("How long has RUCA been DJing?").
+	 * The instructions are kept in sync with the platform's
+	 * OpenRouterQueryRewriter so both modes search the same way.
+	 *
+	 * @since 2.1.0
+	 *
+	 * @param string                                              $message The visitor's latest message.
+	 * @param list<array{role: 'user'|'assistant', text: string}> $turns   Recent turns, oldest first.
+	 *
+	 * @return string|\WP_Error The rewritten question, or an error when the model gave none.
+	 */
+	public function rewrite_query( $message, $turns ) {
+		$lines = [];
+
+		foreach ( $turns as $turn ) {
+			$lines[] = ( 'assistant' === $turn['role'] ? 'Assistant: ' : 'Visitor: ' ) . $turn['text'];
+		}
+
+		$input = "Conversation:\n" . implode( "\n", $lines ) . "\n\nLatest visitor message: " . $message;
+
+		/**
+		 * Filters the model that rewrites follow-ups into standalone retrieval queries.
+		 *
+		 * @since 2.1.0
+		 *
+		 * @param string $model The OpenAI model. Default `gpt-5.4-nano`.
+		 */
+		$model = (string) apply_filters( 'hyve_retrieval_rewrite_model', self::REWRITE_MODEL );
+
+		$response = $this->request(
+			'chat/completions',
+			[
+				'model'                 => $model,
+				'messages'              => [
+					[
+						'role'    => 'system',
+						'content' => self::REWRITE_INSTRUCTIONS,
+					],
+					[
+						'role'    => 'user',
+						'content' => $input,
+					],
+				],
+				// Room for a reasoning model's hidden tokens; the visible answer is one line.
+				'max_completion_tokens' => 400,
+			],
+			'POST',
+			10
+		);
+
+		if ( is_wp_error( $response ) ) {
+			return $response;
+		}
+
+		$content = isset( $response->choices[0]->message->content ) && is_string( $response->choices[0]->message->content ) ? $response->choices[0]->message->content : '';
+		$query   = self::clean_rewritten_query( $content );
+
+		if ( '' === $query ) {
+			return new \WP_Error( 'rewrite_failed', __( 'The query could not be rewritten.', 'hyve-lite' ) );
+		}
+
+		return $query;
+	}
+
+	/**
+	 * Reduce a rewrite completion to the one-line question it should be.
+	 *
+	 * @since 2.1.0
+	 *
+	 * @param string $content The model output.
+	 *
+	 * @return string The question, or '' when the output is unusable.
+	 */
+	public static function clean_rewritten_query( $content ) {
+		$lines = preg_split( '/\R/u', trim( $content ) );
+		$query = is_array( $lines ) && isset( $lines[0] ) ? trim( $lines[0] ) : '';
+		// trim() works on bytes and would eat the lead byte of Cyrillic and
+		// other letters that share one with the curly quotes.
+		$query = (string) preg_replace( '/^[\s"\'“”‘’]+|[\s"\'“”‘’]+$/u', '', $query );
+
+		return mb_substr( $query, 0, self::REWRITE_MAX_CHARS );
 	}
 
 	/**
