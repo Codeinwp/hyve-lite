@@ -139,6 +139,7 @@ class DB_Table {
 	public function __construct() {
 		global $wpdb;
 		$this->table_name = $wpdb->prefix . 'hyve';
+		Ingestion_Queue::instance();
 
 		add_action(
 			'hyve_process_post',
@@ -356,6 +357,7 @@ class DB_Table {
 	 */
 	public function delete_by_post_id( $post_id ) {
 		global $wpdb;
+		Ingestion_Queue::instance()->cancel( (int) $post_id );
 
 		$rows_affected = $wpdb->delete( $this->table_name, [ 'post_id' => $post_id ], [ '%d' ] );
 
@@ -759,7 +761,7 @@ class DB_Table {
 		$limit = apply_filters( 'hyve_chunks_limit', 500 );
 
 		global $wpdb;
-		$posts = $wpdb->get_results( $wpdb->prepare( 'SELECT post_id FROM %i ORDER BY id DESC LIMIT %d, %d', $this->table_name, $limit, $this->get_count() ) );
+		$posts = $wpdb->get_results( $wpdb->prepare( 'SELECT post_id FROM %i WHERE post_status <> %s ORDER BY id DESC LIMIT %d, %d', $this->table_name, 'staging', $limit, $this->get_count() ) );
 
 		if ( ! $posts ) {
 			return [];
@@ -847,15 +849,20 @@ class DB_Table {
 	 * @throws \Exception If Qdrant API fails.
 	 */
 	public function ingest_document( $doc, $args = [] ) {
-		$result = $this->run_ingest( $doc, $args );
+		$result  = $this->run_ingest( $doc, $args );
+		$post_id = (int) ( $args['post_id'] ?? 0 );
 
-		// The row reports the latest attempt. Moderation has its own meta.
+		// The row reports the latest attempt. Moderation has its own meta, and
+		// a busy source is not a failure.
 		if ( is_wp_error( $result ) ) {
-			if ( 'content_failed_moderation' === $result->get_error_code() ) {
-				delete_post_meta( (int) ( $args['post_id'] ?? 0 ), '_hyve_processing_error' );
+			if ( in_array( $result->get_error_code(), [ 'content_failed_moderation', 'ingestion_in_progress' ], true ) ) {
+				delete_post_meta( $post_id, '_hyve_processing_error' );
 			} else {
-				$this->record_processing_error( (int) ( $args['post_id'] ?? 0 ), $result, false );
+				$this->record_processing_error( $post_id, $result, false );
 			}
+		} elseif ( $post_id && ! Ingestion_Queue::instance()->is_active( $post_id ) ) {
+			// Indexed synchronously: an older background verdict no longer applies.
+			delete_post_meta( $post_id, '_hyve_ingestion' );
 		}
 
 		return $result;
@@ -915,11 +922,21 @@ class DB_Table {
 		}
 
 		$chunks = array_column( $data, 'post_content' );
+		$queued = Ingestion_Queue::instance();
+		if ( $queued->is_active( (int) $post_id ) ) {
+			return $queued->enqueue( $doc, $args, $data );
+		}
+		if ( count( $data ) > max( 1, (int) apply_filters( 'hyve_sync_ingestion_chunks', 5 ) ) ) {
+			return $queued->enqueue( $doc, $args, $data );
+		}
 		// Only reuse the per-post moderation cache for an existing WP post
 		// (the posts source). Freshly submitted content is always re-moderated.
 		$moderation = OpenAI::instance()->moderate_chunks( $chunks, $persist_moderation ? $post_id : null );
 
 		if ( is_wp_error( $moderation ) ) {
+			if ( 'rate_limit_exceeded' === $moderation->get_error_code() ) {
+				return $queued->enqueue( $doc, $args, $data );
+			}
 			return $moderation;
 		}
 
@@ -2449,6 +2466,11 @@ class DB_Table {
 					'key'     => '_hyve_moderation_failed',
 					'compare' => 'NOT EXISTS',
 				],
+				// Owned by a background import; it must not fill this page.
+				[
+					'key'     => Ingestion_Queue::JOB,
+					'compare' => 'NOT EXISTS',
+				],
 			],
 		];
 
@@ -2466,6 +2488,10 @@ class DB_Table {
 			 *
 			 * @var int $post_id
 			 */
+			// A background import already owns this source.
+			if ( Ingestion_Queue::instance()->is_active( $post_id ) ) {
+				continue;
+			}
 			$result = $this->add_post( $post_id, 'update' );
 
 			if ( ! is_wp_error( $result ) ) {
@@ -2540,11 +2566,22 @@ class DB_Table {
 
 		global $wpdb;
 
-		$count = $wpdb->get_var( $wpdb->prepare( 'SELECT COUNT(*) FROM %i', $this->table_name ) );
+		$count = $wpdb->get_var( $wpdb->prepare( 'SELECT COUNT(*) FROM %i WHERE post_status <> %s', $this->table_name, 'staging' ) );
 
 		$this->set_cache( 'entries_count', $count );
 
 		return $count;
+	}
+
+	/**
+	 * Invalidate derived data after a staged index is published.
+	 *
+	 * @return void
+	 */
+	public function invalidate_ingestion_cache() {
+		foreach ( [ 'entries', 'entries_processed', 'entries_count', 'chunk_counts', 'cached_embeddings' ] as $key ) {
+			$this->delete_cache( $key );
+		}
 	}
 
 	/**
@@ -2571,7 +2608,7 @@ class DB_Table {
 		if ( ! is_array( $counts ) ) {
 			global $wpdb;
 
-			$results = $wpdb->get_results( $wpdb->prepare( 'SELECT post_id, COUNT(*) AS chunks FROM %i GROUP BY post_id', $this->table_name ) );
+			$results = $wpdb->get_results( $wpdb->prepare( 'SELECT post_id, COUNT(*) AS chunks FROM %i WHERE post_status <> %s GROUP BY post_id', $this->table_name, 'staging' ) );
 
 			$counts = [];
 

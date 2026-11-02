@@ -455,9 +455,12 @@ class Qdrant_API {
 		}
 
 		try {
-			$client->collections( self::COLLECTION_NAME )->index()->create(
-				new CreateIndex( 'post_id', 'keyword' )
-			);
+			// Every field a filter names: hosted clusters refuse unindexed filters.
+			foreach ( [ 'post_id', '_hyve_ingestion_generation', '_hyve_ingestion_pending' ] as $field ) {
+				$client->collections( self::COLLECTION_NAME )->index()->create(
+					new CreateIndex( $field, 'keyword' )
+				);
+			}
 			delete_option( self::ERROR_OPTION_KEY );
 
 			return true;
@@ -570,6 +573,53 @@ class Qdrant_API {
 	}
 
 	/**
+	 * Remove an unpublished generation, or prune older ones after publication.
+	 *
+	 * @param int    $post_id Source ID.
+	 * @param string $generation Ingestion generation.
+	 * @param bool   $keep Keep this generation and delete older points instead.
+	 * @return bool|\WP_Error
+	 */
+	public function delete_ingestion_points( $post_id, $generation, $keep = false ) {
+		$client = $this->ensure_client();
+		if ( is_wp_error( $client ) ) {
+			return $client;
+		}
+		try {
+			$filter = ( new Filter() )->addMust( new MatchString( 'post_id', (string) $post_id ) );
+			$match  = new MatchString( '_hyve_ingestion_generation', $generation );
+			if ( $keep ) {
+				$filter->addMustNot( $match );
+			} else {
+				$filter->addMust( $match );
+			}
+			$response = $client->collections( self::COLLECTION_NAME )->points()->deleteByFilter( $filter );
+			return 'acknowledged' === $response['result']['status'];
+		} catch ( \Throwable $error ) {
+			return $this->handle_exception( $error );
+		}
+	}
+
+	/**
+	 * Make a fully uploaded generation searchable in one payload operation.
+	 *
+	 * @param array<string> $ids Deterministic point IDs.
+	 * @return bool|\WP_Error
+	 */
+	public function publish_ingestion_points( $ids ) {
+		$client = $this->ensure_client();
+		if ( is_wp_error( $client ) ) {
+			return $client;
+		}
+		try {
+			$response = $client->collections( self::COLLECTION_NAME )->points()->payload()->set( $ids, [ '_hyve_ingestion_pending' => 'no' ], [ 'wait' => 'true' ] );
+			return 'completed' === $response['result']['status'];
+		} catch ( \Throwable $error ) {
+			return $this->handle_exception( $error );
+		}
+	}
+
+	/**
 	 * Search collection.
 	 * 
 	 * @param array<float> $embeddings Embeddings.
@@ -591,6 +641,7 @@ class Qdrant_API {
 				)
 			)
 			->setLimit( 10 )
+			->setFilter( ( new Filter() )->addMustNot( new MatchString( '_hyve_ingestion_pending', 'yes' ) ) )
 			->setScoreThreshold( $score_threshold )
 			->setWithPayload( true );
 			$response = $client->collections( self::COLLECTION_NAME )->points()->search( $search );

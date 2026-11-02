@@ -203,6 +203,9 @@ class IngestContentTest extends WP_UnitTestCase {
 	 * keeps the content it had.
 	 */
 	public function test_self_hosted_stores_the_same_rendered_text(): void {
+		$instance = new ReflectionProperty( OpenAI::class, 'instance' );
+		$instance->setAccessible( true );
+		$instance->setValue( null, new OpenAI( 'ingest-test-key' ) );
 		$post_id = $this->factory()->post->create(
 			[
 				'post_title'   => 'Clinic Opening Hours',

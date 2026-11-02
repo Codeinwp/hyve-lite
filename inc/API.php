@@ -771,6 +771,7 @@ class API extends BaseAPI {
 	 * @return \WP_REST_Response
 	 */
 	public function get_data( $request ) {
+		Ingestion_Queue::instance()->watchdog();
 		$args = [
 			'post_type'   => $request->get_param( 'type' ),
 			'post_status' => [ 'publish', 'private' ],
@@ -840,7 +841,7 @@ class API extends BaseAPI {
 		// The unified "Indexed content" listing includes the plugin-owned sources,
 		// so a site without Pro can still see and remove them. hyve_docs must
 		// be named explicitly: it is exclude_from_search, which `any` skips.
-		if ( 'included' === $status && 'any' === $request->get_param( 'type' ) ) {
+		if ( in_array( $status, [ 'included', 'pending', 'moderation' ], true ) && in_array( $request->get_param( 'type' ), [ null, 'any' ], true ) ) {
 			$args['post_type'] = $this->table->connect_indexed_post_types();
 		}
 
@@ -938,6 +939,10 @@ class API extends BaseAPI {
 			}
 
 			$processing_error = get_post_meta( $post_id, '_hyve_processing_error', true );
+			$ingestion        = get_post_meta( $post_id, '_hyve_ingestion', true );
+			if ( is_array( $ingestion ) ) {
+				$post_data['ingestion'] = $ingestion;
+			}
 
 			// Shown whether or not the source made it into the index: a document
 			// refused for having no text is never added, and that refusal is
@@ -1054,7 +1059,7 @@ class API extends BaseAPI {
 	private function count_posts_by_meta( $meta_query ) {
 		$query = new \WP_Query(
 			[
-				'post_type'      => 'any',
+				'post_type'      => $this->table->connect_indexed_post_types(),
 				'post_status'    => [ 'publish', 'private' ],
 				'fields'         => 'ids',
 				'posts_per_page' => 1,
@@ -1072,6 +1077,7 @@ class API extends BaseAPI {
 	 * @return \WP_REST_Response
 	 */
 	public function get_data_counts() {
+		Ingestion_Queue::instance()->watchdog();
 		$pending = $this->count_posts_by_meta(
 			[
 				'relation' => 'AND',
@@ -1162,6 +1168,16 @@ class API extends BaseAPI {
 		// The content was stored, but the synchronous indexing attempt may have
 		// failed (e.g. rate limit, no credits). Surface that as a non-blocking
 		// warning so the admin sees it immediately, not only as a list badge.
+		$ingestion = get_post_meta( $post_id, '_hyve_ingestion', true );
+		if ( ! Hyve_Connect::is_active() && is_array( $ingestion ) && in_array( $ingestion['status'], [ 'queued', 'processing' ], true ) ) {
+			return rest_ensure_response(
+				[
+					'success'   => true,
+					'queued'    => true,
+					'ingestion' => $ingestion,
+				]
+			);
+		}
 		$processing_error = get_post_meta( $post_id, '_hyve_processing_error', true );
 
 		if ( ! empty( $processing_error ) ) {
@@ -1221,6 +1237,7 @@ class API extends BaseAPI {
 	 */
 	public function delete_data( $request ) {
 		$id = $request->get_param( 'id' );
+		Ingestion_Queue::instance()->cancel( (int) $id );
 
 		if ( Hyve_Connect::is_active() ) {
 			$deleted = Hyve_Connect::instance()->kb_delete( [ (int) $id ] );

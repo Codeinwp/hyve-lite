@@ -132,6 +132,60 @@ const IndexingError = ( { error } ) =>
 		</span>
 	) : null;
 
+/**
+ * Whether a background import still owns the source.
+ *
+ * @param {Object} row A listing row.
+ * @return {boolean} True while queued or processing.
+ */
+const isIngesting = ( row ) =>
+	[ 'queued', 'processing' ].includes( row.ingestion?.status );
+
+/**
+ * Progress of a background import, by phase, so the count never looks like
+ * it went backwards when embedding starts after moderation.
+ *
+ * @param {Object} ingestion The public job summary.
+ * @return {string} Chip label.
+ */
+const ingestionLabel = ( ingestion ) => {
+	const waiting = ingestion.retry_at > Date.now() / 1000;
+	if ( 'moderation' === ingestion.phase ) {
+		return waiting
+			? sprintf(
+					/* translators: 1: checked chunks, 2: total chunks. */
+					__(
+						'Checking %1$d of %2$d, waiting for the API limit',
+						'hyve-lite'
+					),
+					ingestion.completed,
+					ingestion.total
+			  )
+			: sprintf(
+					/* translators: 1: checked chunks, 2: total chunks. */
+					__( 'Checking %1$d of %2$d', 'hyve-lite' ),
+					ingestion.completed,
+					ingestion.total
+			  );
+	}
+	return waiting
+		? sprintf(
+				/* translators: 1: embedded chunks, 2: total chunks. */
+				__(
+					'Embedding %1$d of %2$d, waiting for the API limit',
+					'hyve-lite'
+				),
+				ingestion.completed,
+				ingestion.total
+		  )
+		: sprintf(
+				/* translators: 1: embedded chunks, 2: total chunks. */
+				__( 'Embedding %1$d of %2$d', 'hyve-lite' ),
+				ingestion.completed,
+				ingestion.total
+		  );
+};
+
 const IndexedContent = () => {
 	const [ rows, setRows ] = useState( [] );
 	const [ hasMore, setHasMore ] = useState( false );
@@ -146,6 +200,9 @@ const IndexedContent = () => {
 
 	// Guards against out-of-order responses when the query changes mid-fetch.
 	const requestRef = useRef( 0 );
+	const silentRef = useRef( false );
+	const [ settled, setSettled ] = useState( 0 );
+	const queryKeyRef = useRef( '' );
 
 	// Page size comes from the endpoint.
 	const perPageRef = useRef( 20 );
@@ -166,11 +223,35 @@ const IndexedContent = () => {
 
 	const { setTotalChunks, setAttentionCount } = useDispatch( 'hyve' );
 	const { createNotice } = useDispatch( 'core/notices' );
+	const hasActiveIngestion = rows.some( ( row ) => isIngesting( row ) );
+
+	// Background polls refresh the rows without the spinner, so the table
+	// does not flicker every five seconds while an import runs.
+	useEffect( () => {
+		if ( ! hasActiveIngestion || isLoading ) {
+			return undefined;
+		}
+		// Re-armed when a fetch settles, success or failure, so a slow
+		// response is applied before the next poll and a failed poll does
+		// not end the updates.
+		const timer = setTimeout( () => {
+			silentRef.current = true;
+			setRefresh( ( value ) => value + 1 );
+		}, 5000 );
+		return () => clearTimeout( timer );
+	}, [ hasActiveIngestion, isLoading, settled ] );
 
 	useEffect( () => {
 		const request = ++requestRef.current;
+		const key = `${ page }|${ search }|${ sourceType }`;
 
-		setLoading( true );
+		// A user's change always shows the spinner, even if a poll fired in
+		// the same render.
+		if ( ! silentRef.current || key !== queryKeyRef.current ) {
+			setLoading( true );
+		}
+		queryKeyRef.current = key;
+		silentRef.current = false;
 
 		const handler = setTimeout( async () => {
 			try {
@@ -212,6 +293,7 @@ const IndexedContent = () => {
 			}
 
 			setLoading( false );
+			setSettled( ( value ) => value + 1 );
 		}, 500 );
 
 		return () => clearTimeout( handler );
@@ -365,6 +447,13 @@ const IndexedContent = () => {
 						key: 'status',
 						label: __( 'Status', 'hyve-lite' ),
 						render: ( row ) => {
+							if ( isIngesting( row ) ) {
+								return (
+									<Chip tone="warn">
+										{ ingestionLabel( row.ingestion ) }
+									</Chip>
+								);
+							}
 							if ( row.error ) {
 								return (
 									<Chip tone="warn">
@@ -1283,6 +1372,24 @@ const AttentionPanel = () => {
 	const [ reviewPost, setReviewPost ] = useState( null );
 	const [ bulkUpdate, setBulkUpdate ] = useState( null );
 	const [ refresh, setRefresh ] = useState( 0 );
+	const hasActiveIngestion = rows.some( ( row ) => isIngesting( row ) );
+
+	const silentRef = useRef( false );
+	const [ settled, setSettled ] = useState( 0 );
+
+	useEffect( () => {
+		if ( ! hasActiveIngestion || isLoading ) {
+			return undefined;
+		}
+		// Re-armed when a fetch settles, success or failure, so a slow
+		// response is applied before the next poll and a failed poll does
+		// not end the updates.
+		const timer = setTimeout( () => {
+			silentRef.current = true;
+			setRefresh( ( value ) => value + 1 );
+		}, 5000 );
+		return () => clearTimeout( timer );
+	}, [ hasActiveIngestion, isLoading, settled ] );
 
 	const { setTotalChunks, setAttentionCount } = useDispatch( 'hyve' );
 	const { createNotice } = useDispatch( 'core/notices' );
@@ -1324,7 +1431,10 @@ const AttentionPanel = () => {
 		};
 
 		const fetchLists = async () => {
-			setLoading( true );
+			if ( ! silentRef.current ) {
+				setLoading( true );
+			}
+			silentRef.current = false;
 
 			try {
 				const [ pending, moderation ] = await Promise.all( [
@@ -1340,7 +1450,11 @@ const AttentionPanel = () => {
 				setAttentionCount( pending.length + moderation.length );
 			} catch {}
 
+			if ( isStale ) {
+				return;
+			}
 			setLoading( false );
+			setSettled( ( value ) => value + 1 );
 		};
 
 		fetchLists();
@@ -1350,7 +1464,9 @@ const AttentionPanel = () => {
 		};
 	}, [ refresh, setTotalChunks, setAttentionCount ] );
 
-	const pendingRows = rows.filter( ( row ) => 'pending' === row.issue );
+	const pendingRows = rows.filter(
+		( row ) => 'pending' === row.issue && ! isIngesting( row )
+	);
 
 	const removeRow = ( id ) => {
 		setRows( ( prev ) => prev.filter( ( row ) => row.ID !== id ) );
@@ -1367,8 +1483,12 @@ const AttentionPanel = () => {
 			params: {
 				action: 'update',
 			},
-			onSuccess: () => {
-				removeRow( id );
+			onSuccess: ( response ) => {
+				if ( response.queued ) {
+					setRefresh( ( value ) => value + 1 );
+				} else {
+					removeRow( id );
+				}
 			},
 			onError: ( error ) => {
 				if (
@@ -1503,6 +1623,7 @@ const AttentionPanel = () => {
 									<span className="hyve-next-table__title">
 										{ row.title }
 									</span>
+									<IndexingError error={ row.error } />
 								</div>
 							),
 						},
@@ -1513,7 +1634,14 @@ const AttentionPanel = () => {
 						{
 							key: 'issue',
 							label: __( 'Issue', 'hyve-lite' ),
-							render: ( row ) => ISSUE_CHIPS[ row.issue ],
+							render: ( row ) =>
+								isIngesting( row ) ? (
+									<Chip tone="warn">
+										{ ingestionLabel( row.ingestion ) }
+									</Chip>
+								) : (
+									ISSUE_CHIPS[ row.issue ]
+								),
 						},
 						{
 							key: 'actions',
@@ -1526,6 +1654,7 @@ const AttentionPanel = () => {
 										isBusy={ isUpdating.includes( row.ID ) }
 										disabled={
 											isUpdating.includes( row.ID ) ||
+											isIngesting( row ) ||
 											Boolean( bulkUpdate )
 										}
 										onClick={ () => onUpdate( row.ID ) }
