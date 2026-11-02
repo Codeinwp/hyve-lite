@@ -1419,6 +1419,9 @@ class API extends BaseAPI {
 		delete_option( Qdrant_API::MIGRATE_RETRY_AT );
 		wp_clear_scheduled_hook( Qdrant_API::MIGRATE_HOOK );
 		delete_option( Qdrant_API::ERROR_OPTION_KEY );
+		// A marker would hide, then prune, the points a later migration
+		// uploads without a generation.
+		delete_post_meta_by_key( Qdrant_API::CURRENT_GENERATION );
 
 		return rest_ensure_response( __( 'Qdrant deactivated.', 'hyve-lite' ) );
 	}

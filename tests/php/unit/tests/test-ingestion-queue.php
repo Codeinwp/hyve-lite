@@ -1298,19 +1298,85 @@ class IngestionQueueTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * The scan has no page cap: a backlog larger than any fixed number of
+	 * The scan has no page cap: a backlog longer than any fixed number of
 	 * pages is still read to the end.
 	 */
 	public function test_the_job_scan_reads_every_page() {
-		$ids = [];
-		for ( $index = 0; $index < 101; $index++ ) {
-			$ids[] = $this->queue( 1 );
-		}
+		$pages = 0;
+		add_filter(
+			'posts_pre_query',
+			function ( $posts, $query ) use ( &$pages ) {
+				if ( Ingestion_Queue::JOB !== $query->get( 'meta_key' ) ) {
+					return $posts;
+				}
+				$page  = (int) $query->get( 'paged' );
+				$pages = max( $pages, $page );
+				// 101 full pages, then a short one.
+				$size = $page <= 101 ? 100 : 3;
+				return range( ( $page - 1 ) * 100 + 1, ( $page - 1 ) * 100 + $size );
+			},
+			10,
+			2
+		);
 		$scan = new ReflectionMethod( Ingestion_Queue::class, 'ids_with_meta' );
 		$scan->setAccessible( true );
-		// One ID per page makes the scan need 101 full pages.
-		$found = $scan->invoke( Ingestion_Queue::instance(), Ingestion_Queue::JOB, [ 'publish', 'private' ], 1 );
-		$this->assertSame( $ids, $found );
+		$found = $scan->invoke( Ingestion_Queue::instance(), Ingestion_Queue::JOB, [ 'publish', 'private' ] );
+		$this->assertSame( 102, $pages );
+		$this->assertCount( 101 * 100 + 3, $found );
+		$this->assertSame( range( 1, 101 * 100 + 3 ), $found );
+	}
+
+	/**
+	 * A marker cleared while the watchdog was busy elsewhere leaves nothing
+	 * to prune: an empty generation must not delete every point.
+	 */
+	public function test_a_prune_retry_skips_a_marker_cleared_meanwhile() {
+		$first   = self::factory()->post->create();
+		$second  = self::factory()->post->create();
+		$points  = [
+			'first-old'   => [
+				'payload' => [
+					'post_id'                    => (string) $first,
+					'_hyve_ingestion_generation' => 'f0',
+				],
+			],
+			'second-live' => [
+				'payload' => [
+					'post_id'                    => (string) $second,
+					'_hyve_ingestion_generation' => 'g2',
+				],
+			],
+		];
+		$cleared = false;
+		$this->qdrant(
+			$points,
+			function ( $path ) use ( $second, &$cleared ) {
+				if ( ! $cleared && false !== strpos( $path, '/delete' ) ) {
+					$cleared = true;
+					Qdrant_API::set_current_generation( $second, null );
+				}
+				return null;
+			}
+		);
+		Qdrant_API::set_current_generation( $first, 'f1' );
+		Qdrant_API::set_current_generation( $second, 'g1' );
+		Ingestion_Queue::instance()->watchdog();
+		$this->assertTrue( $cleared );
+		$this->assertArrayHasKey( 'second-live', $points );
+	}
+
+	/**
+	 * Deactivating Qdrant drops every marker, so points a later migration
+	 * uploads are neither hidden nor pruned.
+	 */
+	public function test_deactivating_qdrant_clears_pending_prunes() {
+		wp_set_current_user( self::factory()->user->create( [ 'role' => 'administrator' ] ) );
+		$post_id = self::factory()->post->create();
+		Qdrant_API::set_current_generation( $post_id, 'old' );
+		$request = new WP_REST_Request( 'POST', '/hyve/v1/qdrant/deactivate' );
+		$request->set_param( 'force', true );
+		\ThemeIsle\HyveLite\API::instance()->qdrant_deactivate( $request );
+		$this->assertSame( [], Qdrant_API::pending_prunes() );
 	}
 
 	/**

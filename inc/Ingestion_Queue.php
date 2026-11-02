@@ -220,11 +220,11 @@ class Ingestion_Queue {
 	 *
 	 * @param string          $key Meta key.
 	 * @param string|string[] $status Post statuses.
-	 * @param int             $per_page IDs read per query.
 	 * @return int[]
 	 */
-	private function ids_with_meta( $key, $status, $per_page = 100 ) {
-		$ids = [];
+	private function ids_with_meta( $key, $status ) {
+		$per_page = 100;
+		$ids      = [];
 		for ( $page = 1; ; $page++ ) {
 			$batch = get_posts(
 				[
