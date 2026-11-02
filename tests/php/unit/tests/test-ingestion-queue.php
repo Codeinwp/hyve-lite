@@ -1235,6 +1235,7 @@ class IngestionQueueTest extends WP_UnitTestCase {
 	 * never drop another's.
 	 */
 	public function test_pending_prunes_for_different_sources_are_independent() {
+		update_option( 'hyve_qdrant_status', 'active' );
 		$first  = self::factory()->post->create();
 		$second = self::factory()->post->create();
 		add_action(
@@ -1371,11 +1372,66 @@ class IngestionQueueTest extends WP_UnitTestCase {
 	 */
 	public function test_deactivating_qdrant_clears_pending_prunes() {
 		wp_set_current_user( self::factory()->user->create( [ 'role' => 'administrator' ] ) );
+		update_option( 'hyve_qdrant_status', 'active' );
 		$post_id = self::factory()->post->create();
 		Qdrant_API::set_current_generation( $post_id, 'old' );
+		$this->assertNotEmpty( Qdrant_API::pending_prunes() );
 		$request = new WP_REST_Request( 'POST', '/hyve/v1/qdrant/deactivate' );
 		$request->set_param( 'force', true );
 		\ThemeIsle\HyveLite\API::instance()->qdrant_deactivate( $request );
+		$this->assertSame( [], Qdrant_API::pending_prunes() );
+	}
+
+	/**
+	 * Qdrant deactivated while an import waits on its prune: the import must
+	 * not write a marker afterwards.
+	 */
+	public function test_deactivation_during_a_prune_leaves_no_marker() {
+		wp_set_current_user( self::factory()->user->create( [ 'role' => 'administrator' ] ) );
+		$post_id     = $this->queue( 6 );
+		$points      = [ 'old' => [ 'payload' => [ 'post_id' => (string) $post_id ] ] ];
+		$deactivated = false;
+		$this->qdrant(
+			$points,
+			function ( $path, $body ) use ( &$deactivated ) {
+				if ( false === strpos( $path, '/delete' ) || empty( $body['filter']['must_not'] ) ) {
+					return null;
+				}
+				if ( ! $deactivated ) {
+					$deactivated = true;
+					$request     = new WP_REST_Request( 'POST', '/hyve/v1/qdrant/deactivate' );
+					$request->set_param( 'force', true );
+					\ThemeIsle\HyveLite\API::instance()->qdrant_deactivate( $request );
+				}
+				return new GuzzleHttp\Psr7\Response( 500, [ 'Content-Type' => 'application/json' ], '{"status":{"error":"Unavailable"}}' );
+			}
+		);
+		$this->step( $post_id, 4 );
+		$job                     = get_post_meta( $post_id, Ingestion_Queue::JOB, true );
+		$job['remote_activated'] = time() - DAY_IN_SECONDS - 1;
+		update_post_meta( $post_id, Ingestion_Queue::JOB, $job );
+		// The cron run started before the deactivation, so its option cache
+		// still says Qdrant is active; only the database knows otherwise.
+		$options                       = wp_load_alloptions();
+		$options['hyve_qdrant_status'] = 'active';
+		wp_cache_set( 'alloptions', $options, 'options' );
+		wp_cache_set( 'hyve_qdrant_status', 'active', 'options' );
+		$this->assertTrue( Qdrant_API::is_active() );
+		$this->step( $post_id );
+		$this->assertTrue( $deactivated );
+		$this->assertSame( [], Qdrant_API::pending_prunes() );
+	}
+
+	/**
+	 * Connecting Qdrant drops markers left from an earlier connection.
+	 */
+	public function test_connecting_qdrant_clears_old_markers() {
+		$post_id = self::factory()->post->create();
+		$points  = [];
+		$qdrant  = $this->qdrant( $points );
+		Qdrant_API::set_current_generation( $post_id, 'old' );
+		$this->assertNotEmpty( Qdrant_API::pending_prunes() );
+		$qdrant->init();
 		$this->assertSame( [], Qdrant_API::pending_prunes() );
 	}
 

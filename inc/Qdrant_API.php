@@ -165,6 +165,10 @@ class Qdrant_API {
 			return $payload_index;
 		}
 
+		// A marker from an earlier connection would hide, then prune, the
+		// points this connection's migration uploads without a generation.
+		delete_post_meta_by_key( self::CURRENT_GENERATION );
+
 		update_option( 'hyve_qdrant_status', 'active' );
 		delete_option( self::MIGRATE_RETRY_AT );
 
@@ -683,8 +687,19 @@ class Qdrant_API {
 	 * @return void
 	 */
 	public static function set_current_generation( $post_id, $generation ) {
+		global $wpdb;
+
 		if ( null === $generation ) {
 			delete_post_meta( $post_id, self::CURRENT_GENERATION );
+			return;
+		}
+
+		// Read past this request's option cache: an import can still be
+		// running when another request deactivates Qdrant, and a marker
+		// written after that would hide the next connection's migrated points.
+		$status = $wpdb->get_var( $wpdb->prepare( "SELECT option_value FROM $wpdb->options WHERE option_name = %s", 'hyve_qdrant_status' ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Must see a concurrent deactivation.
+
+		if ( 'active' !== $status ) {
 			return;
 		}
 
