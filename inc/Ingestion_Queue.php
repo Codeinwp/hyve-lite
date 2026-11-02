@@ -220,17 +220,18 @@ class Ingestion_Queue {
 	 *
 	 * @param string          $key Meta key.
 	 * @param string|string[] $status Post statuses.
+	 * @param int             $per_page IDs read per query.
 	 * @return int[]
 	 */
-	private function ids_with_meta( $key, $status ) {
+	private function ids_with_meta( $key, $status, $per_page = 100 ) {
 		$ids = [];
-		for ( $page = 1; $page <= 100; $page++ ) {
+		for ( $page = 1; ; $page++ ) {
 			$batch = get_posts(
 				[
 					'post_type'      => array_values( get_post_types() ),
 					'post_status'    => $status,
 					'fields'         => 'ids',
-					'posts_per_page' => 100,
+					'posts_per_page' => $per_page,
 					'paged'          => $page,
 					'orderby'        => 'ID',
 					'order'          => 'ASC',
@@ -239,7 +240,7 @@ class Ingestion_Queue {
 				]
 			);
 			$ids   = array_merge( $ids, array_map( 'intval', $batch ) );
-			if ( count( $batch ) < 100 ) {
+			if ( count( $batch ) < $per_page ) {
 				break;
 			}
 		}
@@ -256,7 +257,7 @@ class Ingestion_Queue {
 		if ( ! Qdrant_API::is_active() ) {
 			return;
 		}
-		foreach ( Qdrant_API::pending_prunes() as $id => $generation ) {
+		foreach ( array_keys( Qdrant_API::pending_prunes() ) as $id ) {
 			// A running import owns the source's points: pruning around an
 			// older generation would delete the newer one it is uploading.
 			if ( $this->is_active( $id ) ) {
@@ -267,7 +268,11 @@ class Ingestion_Queue {
 				continue;
 			}
 			try {
-				if ( ! $this->is_active( $id ) && true === Qdrant_API::instance()->delete_ingestion_points( $id, $generation, true ) ) {
+				// Read again under the lease: an import may have finished and
+				// moved or cleared the marker since the list was read.
+				wp_cache_delete( $id, 'post_meta' );
+				$generation = (string) get_post_meta( $id, Qdrant_API::CURRENT_GENERATION, true );
+				if ( '' !== $generation && ! $this->is_active( $id ) && true === Qdrant_API::instance()->delete_ingestion_points( $id, $generation, true ) ) {
 					Qdrant_API::set_current_generation( $id, null );
 				}
 			} finally {
@@ -581,13 +586,14 @@ class Ingestion_Queue {
 			if ( is_wp_error( $result ) || ! $result ) {
 				return is_wp_error( $result ) ? $result : new \WP_Error( 'qdrant_error', __( 'The Qdrant index could not be published.', 'hyve-lite' ) );
 			}
-			$job['remote_activated'] = time();
-			$this->save( $post_id, $job, 'processing' );
 			// An older prune is still pending: search must now answer from
-			// this generation, not from the one the marker named.
-			if ( isset( Qdrant_API::pending_prunes()[ $post_id ] ) ) {
+			// this generation. Moved before the reveal is recorded, so a
+			// resumed run never skips it.
+			if ( '' !== (string) get_post_meta( $post_id, Qdrant_API::CURRENT_GENERATION, true ) ) {
 				Qdrant_API::set_current_generation( $post_id, $job['id'] );
 			}
+			$job['remote_activated'] = time();
+			$this->save( $post_id, $job, 'processing' );
 		}
 		if ( $qdrant ) {
 			$result = Qdrant_API::instance()->delete_ingestion_points( $post_id, $job['id'], true );

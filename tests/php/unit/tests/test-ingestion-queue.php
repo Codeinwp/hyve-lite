@@ -1188,6 +1188,132 @@ class IngestionQueueTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * The marker is read again under the source's lease: an import that
+	 * finished while the watchdog was busy with another source must not be
+	 * pruned around the generation it replaced.
+	 */
+	public function test_a_prune_retry_rereads_the_marker_under_the_lease() {
+		$first  = self::factory()->post->create();
+		$second = self::factory()->post->create();
+		$points = [
+			'first-old'  => [
+				'payload' => [
+					'post_id'                    => (string) $first,
+					'_hyve_ingestion_generation' => 'f0',
+				],
+			],
+			'second-new' => [
+				'payload' => [
+					'post_id'                    => (string) $second,
+					'_hyve_ingestion_generation' => 'g2',
+				],
+			],
+		];
+		$moved  = false;
+		$this->qdrant(
+			$points,
+			function ( $path ) use ( $second, &$moved ) {
+				// While the first source is pruned, the second one's import
+				// publishes generation g2 and moves its marker.
+				if ( ! $moved && false !== strpos( $path, '/delete' ) ) {
+					$moved = true;
+					Qdrant_API::set_current_generation( $second, 'g2' );
+				}
+				return null;
+			}
+		);
+		Qdrant_API::set_current_generation( $first, 'f1' );
+		Qdrant_API::set_current_generation( $second, 'g1' );
+		Ingestion_Queue::instance()->watchdog();
+		$this->assertTrue( $moved );
+		$this->assertArrayHasKey( 'second-new', $points, 'The newer generation survives.' );
+		$this->assertArrayNotHasKey( 'first-old', $points );
+	}
+
+	/**
+	 * Markers for different sources are separate rows, so clearing one can
+	 * never drop another's.
+	 */
+	public function test_pending_prunes_for_different_sources_are_independent() {
+		$first  = self::factory()->post->create();
+		$second = self::factory()->post->create();
+		add_action(
+			'added_post_meta',
+			function ( $meta_id, $id, $key ) use ( $first, $second ) {
+				if ( $id === $first && Qdrant_API::CURRENT_GENERATION === $key ) {
+					// Another request records its own source meanwhile.
+					Qdrant_API::set_current_generation( $second, 'b' );
+				}
+			},
+			10,
+			3
+		);
+		Qdrant_API::set_current_generation( $first, 'a' );
+		$this->assertSame(
+			[
+				$first  => 'a',
+				$second => 'b',
+			],
+			Qdrant_API::pending_prunes()
+		);
+		Qdrant_API::set_current_generation( $first, null );
+		$this->assertSame( [ $second => 'b' ], Qdrant_API::pending_prunes() );
+	}
+
+	/**
+	 * A run that stops right after recording the reveal has already moved
+	 * the marker, so search never names a generation that is gone.
+	 */
+	public function test_the_marker_moves_before_the_reveal_is_recorded() {
+		global $wpdb;
+		$post_id = $this->queue( 6 );
+		$points  = [
+			'g0' => [
+				'payload' => [
+					'post_id'                    => (string) $post_id,
+					'_hyve_ingestion_generation' => 'g0',
+				],
+			],
+		];
+		$this->qdrant( $points );
+		Qdrant_API::set_current_generation( $post_id, 'g0' );
+		$job     = get_post_meta( $post_id, Ingestion_Queue::JOB, true );
+		$crashed = false;
+		add_filter(
+			'query',
+			function ( $sql ) use ( &$crashed, $wpdb ) {
+				// The job row write that records the reveal.
+				if ( ! $crashed && 0 === strpos( ltrim( $sql ), "UPDATE `{$wpdb->postmeta}`" ) && false !== strpos( $sql, 'remote_activated' ) ) {
+					$crashed = true;
+					throw new RuntimeException( 'Simulated stop while recording the reveal' );
+				}
+				return $sql;
+			}
+		);
+		for ( $step = 0; $step < 10 && ! $crashed; $step++ ) {
+			$this->step( $post_id );
+		}
+		$this->assertTrue( $crashed );
+		$this->assertSame( $job['id'], Qdrant_API::pending_prunes()[ $post_id ] ?? null );
+	}
+
+	/**
+	 * The scan has no page cap: a backlog larger than any fixed number of
+	 * pages is still read to the end.
+	 */
+	public function test_the_job_scan_reads_every_page() {
+		$ids = [];
+		for ( $index = 0; $index < 101; $index++ ) {
+			$ids[] = $this->queue( 1 );
+		}
+		$scan = new ReflectionMethod( Ingestion_Queue::class, 'ids_with_meta' );
+		$scan->setAccessible( true );
+		// One ID per page makes the scan need 101 full pages.
+		$found = $scan->invoke( Ingestion_Queue::instance(), Ingestion_Queue::JOB, [ 'publish', 'private' ], 1 );
+		$this->assertSame( $ids, $found );
+	}
+
+	/**
 	 * Every active job is recovered, not only the newest page of them.
 	 */
 	public function test_watchdog_recovers_every_active_job() {

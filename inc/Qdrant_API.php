@@ -39,11 +39,12 @@ class Qdrant_API {
 	public const ERROR_OPTION_KEY = 'hyve_qdrant_api_error';
 
 	/**
-	 * Sources whose older Qdrant points could not be pruned yet, mapped to
-	 * the only generation search may return for them. Kept in one option so
-	 * every search can exclude the rest without a lookup per hit.
+	 * Post meta naming the only generation search may return for a source
+	 * whose older Qdrant points could not be pruned yet. One row per source,
+	 * so concurrent updates for different sources cannot overwrite each
+	 * other; search reads them all in one query.
 	 */
-	public const PENDING_PRUNES = 'hyve_qdrant_pending_prunes';
+	public const CURRENT_GENERATION = '_hyve_qdrant_generation';
 
 	/**
 	 * Cron hook that moves local vectors to Qdrant.
@@ -658,9 +659,19 @@ class Qdrant_API {
 	 * @return array<int, string> Generation to keep, by source ID.
 	 */
 	public static function pending_prunes() {
-		$pending = get_option( self::PENDING_PRUNES, [] );
+		global $wpdb;
 
-		return is_array( $pending ) ? array_filter( $pending, 'is_string' ) : [];
+		$rows = $wpdb->get_results( $wpdb->prepare( "SELECT post_id, meta_value FROM $wpdb->postmeta WHERE meta_key = %s", self::CURRENT_GENERATION ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Read fresh on every search; normally no rows.
+
+		$pending = [];
+
+		foreach ( (array) $rows as $row ) {
+			if ( '' !== (string) $row->meta_value ) {
+				$pending[ (int) $row->post_id ] = (string) $row->meta_value;
+			}
+		}
+
+		return $pending;
 	}
 
 	/**
@@ -672,23 +683,12 @@ class Qdrant_API {
 	 * @return void
 	 */
 	public static function set_current_generation( $post_id, $generation ) {
-		$pending = self::pending_prunes();
-
 		if ( null === $generation ) {
-			if ( ! isset( $pending[ $post_id ] ) ) {
-				return;
-			}
-			unset( $pending[ $post_id ] );
-		} else {
-			$pending[ $post_id ] = $generation;
-		}
-
-		if ( empty( $pending ) ) {
-			delete_option( self::PENDING_PRUNES );
+			delete_post_meta( $post_id, self::CURRENT_GENERATION );
 			return;
 		}
 
-		update_option( self::PENDING_PRUNES, $pending, false );
+		update_post_meta( $post_id, self::CURRENT_GENERATION, $generation );
 	}
 
 	/**
