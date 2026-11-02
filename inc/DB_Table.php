@@ -1383,9 +1383,9 @@ class DB_Table {
 	 * @param bool $probe Resuming after an outage: a rate-limit or maintenance
 	 *                    answer pauses again at once while the probe lasts. It
 	 *                    lasts one pause wait at most, and ends sooner on any
-	 *                    other upload answer, on batch progress, or when the
-	 *                    update cron finds nothing to send. Seeded in the same
-	 *                    write that makes the job runnable.
+	 *                    other failure or a stored upload, on batch progress, or
+	 *                    when the update cron finds nothing to send. Seeded in
+	 *                    the same write that makes the job runnable.
 	 *
 	 * @return void
 	 */
@@ -1736,7 +1736,7 @@ class DB_Table {
 			$status['attempts']  = $attempts;
 			$status['heartbeat'] = time();
 
-			// The upload route answered with something other than the outage.
+			// Any failure but a rate-limit or maintenance answer ends the probe.
 			if ( 'later' !== $scope ) {
 				$status['probe_until'] = 0;
 			}
@@ -1812,8 +1812,8 @@ class DB_Table {
 	}
 
 	/**
-	 * End an outage resume's probe once the upload route has answered with
-	 * something other than the outage, or nothing is left to send.
+	 * End an outage resume's probe after any failure but a rate-limit or
+	 * maintenance answer, a stored upload, or when nothing is left to send.
 	 *
 	 * Rereads the stored status past this request's option cache and changes
 	 * only the probe: an upload can outlast the cron lock, and another cron
@@ -2950,7 +2950,7 @@ class DB_Table {
 		$code = $error->get_error_code();
 		$data = $error->get_error_data();
 
-		// The upload route answered with something other than the outage.
+		// Any failure but a rate-limit or maintenance answer ends the probe.
 		if ( 'later' !== $this->connect_error_scope( $error ) ) {
 			$this->connect_end_probe();
 		}
