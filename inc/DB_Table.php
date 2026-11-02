@@ -2059,6 +2059,12 @@ class DB_Table {
 			return;
 		}
 
+		// A timed pause with its cron check still ahead leaves the probing to
+		// that check, so admin loads do not poll the platform meanwhile.
+		if ( (int) ( $status['resume_after'] ?? 0 ) > 0 && (int) wp_next_scheduled( self::CONNECT_RESUME_HOOK ) > time() ) {
+			return;
+		}
+
 		$stats = Hyve_Connect::instance()->stats();
 
 		// Still down, or no room yet: a paused job checks again after another wait.
@@ -2801,21 +2807,30 @@ class DB_Table {
 			 *
 			 * @var int $post_id
 			 */
+			$generation = '';
 			if ( $connect ) {
 				// The upload is about to read the current content, so the flag is
 				// lifted first: a flag found afterwards was set by a newer edit.
-				delete_post_meta( (int) $post_id, '_hyve_needs_update' );
+				if ( ! delete_post_meta( (int) $post_id, '_hyve_needs_update', 1 ) ) {
+					continue;
+				}
+				add_post_meta( (int) $post_id, '_hyve_connect_edit_generation', wp_generate_uuid4(), true );
+				$generation = (string) get_post_meta( (int) $post_id, '_hyve_connect_edit_generation', true );
 			}
 
 			$result = $this->add_post( $post_id, 'update' );
 
 			if ( ! is_wp_error( $result ) ) {
+				if ( $connect ) {
+					delete_post_meta( (int) $post_id, '_hyve_connect_update_attempts' );
+				}
 				continue;
 			}
 
 			// Terminal until the post is edited again, so surface the error and
 			// stop re-queueing; an edit clears the error and re-flags the post.
 			if ( 'empty_content' === $result->get_error_code() ) {
+				delete_post_meta( (int) $post_id, '_hyve_connect_update_attempts' );
 				$this->record_processing_error( (int) $post_id, $result, false );
 				delete_post_meta( (int) $post_id, '_hyve_needs_update' );
 				continue;
@@ -2828,7 +2843,7 @@ class DB_Table {
 				continue;
 			}
 
-			if ( $connect && $this->connect_update_failed( (int) $post_id, $result ) ) {
+			if ( $connect && $this->connect_update_failed( (int) $post_id, $result, $generation ) ) {
 				return;
 			}
 		}
@@ -2845,18 +2860,55 @@ class DB_Table {
 	 *
 	 * @param int       $post_id The edited source.
 	 * @param \WP_Error $error   The update failure.
+	 * @param string    $generation Edit generation captured before upload.
 	 *
 	 * @return bool Whether syncing was paused, so the cron run should stop.
 	 */
-	private function connect_update_failed( $post_id, \WP_Error $error ) {
+	private function connect_update_failed( $post_id, \WP_Error $error, $generation ) {
 		$code = $error->get_error_code();
+		$data = $error->get_error_data();
 
-		// Already settled by the ingest path: a plan limit queued the source
-		// for the sync job, a moderation rejection keeps it out of this cron.
-		if ( in_array( $code, [ 'hyve_connect_quota_exceeded', 'content_failed_moderation' ], true ) ) {
+		// The request described the edit whose flag was claimed before upload.
+		// A removal or a newer edit supersedes that result and its retry budget.
+		if ( $this->connect_update_superseded( $post_id ) || (string) get_post_meta( $post_id, '_hyve_connect_edit_generation', true ) !== $generation ) {
+			delete_post_meta( $post_id, '_hyve_processing_error' );
 			return false;
 		}
 
+		// A moderation rejection keeps the source out of this cron on its own.
+		if ( 'content_failed_moderation' === $code ) {
+			delete_post_meta( $post_id, '_hyve_connect_update_attempts' );
+			return false;
+		}
+
+		if ( is_string( $code ) && false !== strpos( $code, 'quota_exceeded' ) ) {
+			delete_post_meta( $post_id, '_hyve_connect_update_attempts' );
+			// The platform skipped the source: the ingest path already queued
+			// it for the sync job. A refused upload carries the plan's numbers:
+			// keep the edit and block, as a batch does.
+			if ( ! is_array( $data ) || ! isset( $data['quota'] ) || ! is_array( $data['quota'] ) ) {
+				return false;
+			}
+
+			delete_post_meta( $post_id, '_hyve_processing_error' );
+			update_post_meta( $post_id, '_hyve_needs_update', 1 );
+			$this->connect_block_sync( $error->get_error_message(), $data['quota'] );
+			return true;
+		}
+
+		$scope    = $this->connect_error_scope( $error );
+		$attempts = (int) get_post_meta( $post_id, '_hyve_connect_update_attempts', true ) + 1;
+
+		// A failure that may be either side's gets the same bounded retries as
+		// a batch, one cron run apart, before the platform is asked to settle it.
+		if ( 'unknown' === $scope && $attempts < self::MAX_PROCESS_ATTEMPTS ) {
+			update_post_meta( $post_id, '_hyve_connect_update_attempts', $attempts );
+			$this->record_processing_error( $post_id, $error, true );
+			update_post_meta( $post_id, '_hyve_needs_update', 1 );
+			return false;
+		}
+
+		delete_post_meta( $post_id, '_hyve_connect_update_attempts' );
 		$scope = $this->connect_settle_unknown_scope( $error );
 
 		if ( 'batch' !== $scope ) {
@@ -2876,6 +2928,20 @@ class DB_Table {
 		}
 
 		return false;
+	}
+
+	/**
+	 * Whether the claimed edit was removed or superseded during its upload.
+	 *
+	 * @param int $post_id Source post ID.
+	 *
+	 * @return bool
+	 */
+	private function connect_update_superseded( $post_id ) {
+		clean_post_cache( $post_id );
+
+		return '' === (string) get_post_meta( $post_id, '_hyve_added', true )
+			|| '' !== (string) get_post_meta( $post_id, '_hyve_needs_update', true );
 	}
 
 	/**
@@ -2899,6 +2965,8 @@ class DB_Table {
 	
 			delete_post_meta( $id, '_hyve_added' );
 			delete_post_meta( $id, '_hyve_needs_update' );
+			delete_post_meta( $id, '_hyve_connect_update_attempts' );
+			delete_post_meta( $id, '_hyve_connect_edit_generation' );
 			delete_post_meta( $id, '_hyve_moderation_failed' );
 			delete_post_meta( $id, '_hyve_moderation_review' );
 		}
