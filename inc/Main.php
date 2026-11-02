@@ -1143,7 +1143,6 @@ class Main {
 		}
 
 		update_post_meta( $post_id, '_hyve_needs_update', 1 );
-		update_post_meta( $post_id, '_hyve_connect_edit_generation', wp_generate_uuid4() );
 		delete_post_meta( $post_id, '_hyve_connect_update_attempts' );
 		delete_post_meta( $post_id, '_hyve_moderation_failed' );
 		delete_post_meta( $post_id, '_hyve_moderation_review' );

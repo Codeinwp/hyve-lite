@@ -2807,15 +2807,11 @@ class DB_Table {
 			 *
 			 * @var int $post_id
 			 */
-			$generation = '';
-			if ( $connect ) {
-				// The upload is about to read the current content, so the flag is
-				// lifted first: a flag found afterwards was set by a newer edit.
-				if ( ! delete_post_meta( (int) $post_id, '_hyve_needs_update', 1 ) ) {
-					continue;
-				}
-				add_post_meta( (int) $post_id, '_hyve_connect_edit_generation', wp_generate_uuid4(), true );
-				$generation = (string) get_post_meta( (int) $post_id, '_hyve_connect_edit_generation', true );
+			// The upload is about to read the current content, so the flag is
+			// lifted first: a flag found afterwards was set by a newer edit. A
+			// flag already gone was claimed by an overlapping run.
+			if ( $connect && ! delete_post_meta( (int) $post_id, '_hyve_needs_update', 1 ) ) {
+				continue;
 			}
 
 			$result = $this->add_post( $post_id, 'update' );
@@ -2843,7 +2839,7 @@ class DB_Table {
 				continue;
 			}
 
-			if ( $connect && $this->connect_update_failed( (int) $post_id, $result, $generation ) ) {
+			if ( $connect && $this->connect_update_failed( (int) $post_id, $result ) ) {
 				return;
 			}
 		}
@@ -2860,17 +2856,15 @@ class DB_Table {
 	 *
 	 * @param int       $post_id The edited source.
 	 * @param \WP_Error $error   The update failure.
-	 * @param string    $generation Edit generation captured before upload.
 	 *
 	 * @return bool Whether syncing was paused, so the cron run should stop.
 	 */
-	private function connect_update_failed( $post_id, \WP_Error $error, $generation ) {
+	private function connect_update_failed( $post_id, \WP_Error $error ) {
 		$code = $error->get_error_code();
 		$data = $error->get_error_data();
 
-		// The request described the edit whose flag was claimed before upload.
-		// A removal or a newer edit supersedes that result and its retry budget.
-		if ( $this->connect_update_superseded( $post_id ) || (string) get_post_meta( $post_id, '_hyve_connect_edit_generation', true ) !== $generation ) {
+		// A removal or a newer edit supersedes this result and its retry budget.
+		if ( $this->connect_update_superseded( $post_id ) ) {
 			delete_post_meta( $post_id, '_hyve_processing_error' );
 			return false;
 		}
@@ -2966,7 +2960,6 @@ class DB_Table {
 			delete_post_meta( $id, '_hyve_added' );
 			delete_post_meta( $id, '_hyve_needs_update' );
 			delete_post_meta( $id, '_hyve_connect_update_attempts' );
-			delete_post_meta( $id, '_hyve_connect_edit_generation' );
 			delete_post_meta( $id, '_hyve_moderation_failed' );
 			delete_post_meta( $id, '_hyve_moderation_review' );
 		}

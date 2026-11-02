@@ -1234,9 +1234,11 @@ class ConnectSyncTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * The newer edit may already have finished before an older failure returns.
+	 * An overlapping run can sync the newer edit before an older failure
+	 * returns. The old failure re-queues the page once; the next run re-sends
+	 * the current content and leaves the page clean, without a loop.
 	 */
-	public function test_old_failure_does_not_requeue_an_already_synced_edit() {
+	public function test_old_failure_after_an_overlapping_sync_settles_after_one_resend() {
 		$this->enable_connect();
 		$post = $this->indexed_post( true );
 		update_post_meta( $post, '_hyve_needs_update', 1 );
@@ -1281,6 +1283,12 @@ class ConnectSyncTest extends WP_UnitTestCase {
 		DB_Table::instance()->update_posts();
 
 		$this->assertSame( 2, $uploads );
+		$this->assertSame( '1', get_post_meta( $post, '_hyve_needs_update', true ) );
+
+		DB_Table::instance()->update_posts();
+		DB_Table::instance()->update_posts();
+
+		$this->assertSame( 3, $uploads );
 		$this->assertSame( '', get_post_meta( $post, '_hyve_needs_update', true ) );
 		$this->assertSame( '', get_post_meta( $post, '_hyve_connect_update_attempts', true ) );
 		$this->assertSame( '', get_post_meta( $post, '_hyve_processing_error', true ) );

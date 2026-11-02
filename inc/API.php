@@ -1245,7 +1245,6 @@ class API extends BaseAPI {
 		delete_post_meta( $id, '_hyve_added' );
 		delete_post_meta( $id, '_hyve_needs_update' );
 		delete_post_meta( $id, '_hyve_connect_update_attempts' );
-		delete_post_meta( $id, '_hyve_connect_edit_generation' );
 		delete_post_meta( $id, '_hyve_moderation_failed' );
 		delete_post_meta( $id, '_hyve_moderation_review' );
 		delete_post_meta( $id, '_hyve_processing_error' );
@@ -1702,7 +1701,6 @@ class API extends BaseAPI {
 		$this->table->connect_forget_sync( $post_id );
 		delete_post_meta( $post_id, '_hyve_needs_update' );
 		delete_post_meta( $post_id, '_hyve_connect_update_attempts' );
-		delete_post_meta( $post_id, '_hyve_connect_edit_generation' );
 		delete_post_meta( $post_id, '_hyve_moderation_failed' );
 		delete_post_meta( $post_id, '_hyve_moderation_review' );
 		delete_post_meta( $post_id, '_hyve_processing_error' );
