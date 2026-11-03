@@ -539,6 +539,104 @@ class RetrievalTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Fake the rewrite completion per model: a model listed in $errors answers
+	 * with that OpenAI error code, any other with $reply.
+	 *
+	 * @param string                $chat_model The site's chat model.
+	 * @param array<string, string> $errors     Error code by model.
+	 * @param string                $reply      The rewritten question.
+	 *
+	 * @return array<int, array<string, mixed>> The decoded request bodies, by reference.
+	 */
+	private function &intercept_rewrite_by_model( string $chat_model, array $errors, string $reply ): array {
+		$requests = [];
+
+		update_option(
+			'hyve_settings',
+			[
+				'ai_mode'    => \ThemeIsle\HyveLite\Hyve_Connect::MODE_SELF,
+				'api_key'    => 'sk-test',
+				'chat_model' => $chat_model,
+			]
+		);
+
+		$instance = new ReflectionProperty( \ThemeIsle\HyveLite\OpenAI::class, 'instance' );
+		$instance->setAccessible( true );
+		$instance->setValue( null, null );
+
+		add_filter(
+			'pre_http_request',
+			function ( $pre, $args, $url ) use ( &$requests, $errors, $reply ) {
+				if ( false === strpos( $url, '/chat/completions' ) ) {
+					return new WP_Error( 'unexpected_request', 'Unfaked outbound request: ' . $url );
+				}
+
+				$body       = json_decode( $args['body'], true );
+				$requests[] = $body;
+
+				if ( isset( $errors[ $body['model'] ] ) ) {
+					return [
+						'response' => [ 'code' => 403 ],
+						'body'     => wp_json_encode(
+							[
+								'error' => [
+									'code'    => $errors[ $body['model'] ],
+									'message' => 'No access to ' . $body['model'],
+								],
+							]
+						),
+					];
+				}
+
+				return [
+					'response' => [ 'code' => 200 ],
+					'body'     => wp_json_encode( [ 'choices' => [ [ 'message' => [ 'content' => $reply ] ] ] ] ),
+				];
+			},
+			10,
+			3
+		);
+
+		return $requests;
+	}
+
+	/**
+	 * A key barred from the rewrite model retries once with the chat model,
+	 * and the error that model never hit leaves no dashboard notice.
+	 *
+	 * @testWith ["model_not_found"]
+	 *           ["permission_denied"]
+	 *
+	 * @param string $code The OpenAI error code for the rewrite model.
+	 */
+	public function test_rewrite_model_without_access_retries_with_the_chat_model( string $code ) {
+		$requests  = &$this->intercept_rewrite_by_model( 'gpt-5.4-mini', [ \ThemeIsle\HyveLite\OpenAI::REWRITE_MODEL => $code ], 'How difficult are the pickleball lessons?' );
+		$record_id = $this->seed_pickleball_thread();
+
+		$this->assertSame( 'How difficult are the pickleball lessons?', $this->build_query( 'How difficult is it?', $record_id ) );
+		$this->assertSame( [ \ThemeIsle\HyveLite\OpenAI::REWRITE_MODEL, 'gpt-5.4-mini' ], array_column( $requests, 'model' ) );
+		$this->assertSame( $requests[0]['messages'], $requests[1]['messages'] );
+		$this->assertFalse( get_option( \ThemeIsle\HyveLite\OpenAI::ERROR_OPTION_KEY ) );
+	}
+
+	/**
+	 * Only a model-access error retries, and never with the same model.
+	 */
+	public function test_rewrite_does_not_retry_other_errors_or_the_same_model() {
+		$requests  = &$this->intercept_rewrite_by_model( 'gpt-5.4-mini', [ \ThemeIsle\HyveLite\OpenAI::REWRITE_MODEL => 'rate_limit_exceeded' ], 'unused' );
+		$record_id = $this->seed_pickleball_thread();
+
+		$this->assertSame( 'How difficult is it?', $this->build_query( 'How difficult is it?', $record_id ) );
+		$this->assertCount( 1, $requests );
+
+		remove_all_filters( 'pre_http_request' );
+		$requests = &$this->intercept_rewrite_by_model( \ThemeIsle\HyveLite\OpenAI::REWRITE_MODEL, [ \ThemeIsle\HyveLite\OpenAI::REWRITE_MODEL => 'model_not_found' ], 'unused' );
+
+		$this->assertSame( 'How difficult is it?', $this->build_query( 'How difficult is it?', $record_id ) );
+		$this->assertCount( 1, $requests );
+	}
+
+	/**
 	 * A zero history count disables the rewrite, and the final query filter
 	 * still has the last word.
 	 */

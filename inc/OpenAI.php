@@ -109,6 +109,19 @@ class OpenAI {
 	public const REWRITE_MODEL = 'gpt-5.4-nano';
 
 	/**
+	 * Error codes meaning the key cannot use the rewrite model; the rewrite then
+	 * retries once with the chat model.
+	 *
+	 * @since 2.1.0
+	 *
+	 * @var string[]
+	 */
+	public const REWRITE_MODEL_UNAVAILABLE_CODES = [
+		'model_not_found',
+		'permission_denied',
+	];
+
+	/**
 	 * Most characters kept from a rewrite: room for a short follow-up expanded
 	 * with the subject of a long earlier question. Mirrors the platform's
 	 * RetrievalQuery::MAX_CHARS.
@@ -559,26 +572,17 @@ PROMPT;
 		 */
 		$model = (string) apply_filters( 'hyve_retrieval_rewrite_model', self::REWRITE_MODEL );
 
-		$response = $this->request(
-			'chat/completions',
-			[
-				'model'                 => $model,
-				'messages'              => [
-					[
-						'role'    => 'system',
-						'content' => self::REWRITE_INSTRUCTIONS,
-					],
-					[
-						'role'    => 'user',
-						'content' => $input,
-					],
-				],
-				// Room for a reasoning model's hidden tokens; the visible answer is one line.
-				'max_completion_tokens' => 400,
-			],
-			'POST',
-			10
-		);
+		$response = $this->request_rewrite( $model, $input );
+
+		// A project or key can be barred from the rewrite model while the chat
+		// model, which every turn already uses, works.
+		if (
+			is_wp_error( $response )
+			&& in_array( $response->get_error_code(), self::REWRITE_MODEL_UNAVAILABLE_CODES, true )
+			&& $model !== $this->chat_model
+		) {
+			$response = $this->request_rewrite( $this->chat_model, $input );
+		}
 
 		if ( is_wp_error( $response ) ) {
 			return $response;
@@ -598,6 +602,39 @@ PROMPT;
 		}
 
 		return $query;
+	}
+
+	/**
+	 * Send one rewrite completion.
+	 *
+	 * @since 2.1.0
+	 *
+	 * @param string $model The OpenAI model.
+	 * @param string $input The conversation and latest message.
+	 *
+	 * @return mixed The decoded response, or a WP_Error.
+	 */
+	private function request_rewrite( $model, $input ) {
+		return $this->request(
+			'chat/completions',
+			[
+				'model'                 => $model,
+				'messages'              => [
+					[
+						'role'    => 'system',
+						'content' => self::REWRITE_INSTRUCTIONS,
+					],
+					[
+						'role'    => 'user',
+						'content' => $input,
+					],
+				],
+				// Room for a reasoning model's hidden tokens; the visible answer is one line.
+				'max_completion_tokens' => 400,
+			],
+			'POST',
+			10
+		);
 	}
 
 	/**
