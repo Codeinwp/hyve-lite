@@ -241,6 +241,29 @@ class RetrievalTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Switch to self-hosted mode with a test key and drop the cached OpenAI
+	 * client, so the next call reads these settings.
+	 *
+	 * @param array<string, string> $settings Extra Hyve settings.
+	 */
+	private function use_self_hosted_openai( array $settings = [] ): void {
+		update_option(
+			'hyve_settings',
+			array_merge(
+				[
+					'ai_mode' => \ThemeIsle\HyveLite\Hyve_Connect::MODE_SELF,
+					'api_key' => 'sk-test',
+				],
+				$settings
+			)
+		);
+
+		$instance = new ReflectionProperty( \ThemeIsle\HyveLite\OpenAI::class, 'instance' );
+		$instance->setAccessible( true );
+		$instance->setValue( null, null );
+	}
+
+	/**
 	 * Answer the rewrite completion with the given text and record what was
 	 * sent, so a test can assert on the prompt (or on no call at all).
 	 *
@@ -252,17 +275,7 @@ class RetrievalTest extends WP_UnitTestCase {
 	private function &intercept_rewrite( $reply, string $finish_reason = 'stop' ): array {
 		$requests = [];
 
-		update_option(
-			'hyve_settings',
-			[
-				'ai_mode' => \ThemeIsle\HyveLite\Hyve_Connect::MODE_SELF,
-				'api_key' => 'sk-test',
-			]
-		);
-
-		$instance = new ReflectionProperty( \ThemeIsle\HyveLite\OpenAI::class, 'instance' );
-		$instance->setAccessible( true );
-		$instance->setValue( null, null );
+		$this->use_self_hosted_openai();
 
 		add_filter(
 			'pre_http_request',
@@ -424,17 +437,7 @@ class RetrievalTest extends WP_UnitTestCase {
 	 * the keyword pass still matches a term only the visitor's own message has.
 	 */
 	public function test_self_hosted_turn_records_the_rewrite_and_keeps_the_visitor_words() {
-		update_option(
-			'hyve_settings',
-			[
-				'ai_mode' => \ThemeIsle\HyveLite\Hyve_Connect::MODE_SELF,
-				'api_key' => 'sk-test',
-			]
-		);
-
-		$instance = new ReflectionProperty( \ThemeIsle\HyveLite\OpenAI::class, 'instance' );
-		$instance->setAccessible( true );
-		$instance->setValue( null, null );
+		$this->use_self_hosted_openai();
 
 		$this->seed_text( 'Treatments', 'We offer Morpheus8 skin tightening on Fridays.', [ 0.0, 1.0, 0.0 ] );
 		$this->commit_seeds();
@@ -551,18 +554,7 @@ class RetrievalTest extends WP_UnitTestCase {
 	private function &intercept_rewrite_by_model( string $chat_model, array $errors, string $reply ): array {
 		$requests = [];
 
-		update_option(
-			'hyve_settings',
-			[
-				'ai_mode'    => \ThemeIsle\HyveLite\Hyve_Connect::MODE_SELF,
-				'api_key'    => 'sk-test',
-				'chat_model' => $chat_model,
-			]
-		);
-
-		$instance = new ReflectionProperty( \ThemeIsle\HyveLite\OpenAI::class, 'instance' );
-		$instance->setAccessible( true );
-		$instance->setValue( null, null );
+		$this->use_self_hosted_openai( [ 'chat_model' => $chat_model ] );
 
 		add_filter(
 			'pre_http_request',
@@ -982,17 +974,7 @@ class RetrievalTest extends WP_UnitTestCase {
 	 * @param string $content Matching chunk content.
 	 */
 	public function test_embedding_failure_degrades_to_keyword_retrieval( string $message, string $content ) {
-		update_option(
-			'hyve_settings',
-			[
-				'ai_mode' => \ThemeIsle\HyveLite\Hyve_Connect::MODE_SELF,
-				'api_key' => 'sk-test',
-			] 
-		);
-
-		$instance = new ReflectionProperty( \ThemeIsle\HyveLite\OpenAI::class, 'instance' );
-		$instance->setAccessible( true );
-		$instance->setValue( null, null );
+		$this->use_self_hosted_openai();
 
 		$this->seed_text( 'Answer', $content, [ 1.0, 0.0, 0.0 ] );
 		$this->seed_text( 'Overview', str_repeat( $message . ' ', 30 ), [ 0.0, 1.0, 0.0 ] );
@@ -1099,17 +1081,7 @@ class RetrievalTest extends WP_UnitTestCase {
 	 * keeps going on it when the embeddings call fails.
 	 */
 	public function test_retrieval_ability_includes_keyword_only_chunks() {
-		update_option(
-			'hyve_settings',
-			[
-				'ai_mode' => \ThemeIsle\HyveLite\Hyve_Connect::MODE_SELF,
-				'api_key' => 'sk-test',
-			]
-		);
-
-		$instance = new ReflectionProperty( \ThemeIsle\HyveLite\OpenAI::class, 'instance' );
-		$instance->setAccessible( true );
-		$instance->setValue( null, null );
+		$this->use_self_hosted_openai();
 
 		$this->seed_text( 'Clan guide', 'ArtIsWar - cercato anche come artiswar.', [ 0.0, 1.0, 0.0 ], 100, 4242 );
 		$this->commit_seeds();
@@ -1166,17 +1138,7 @@ class RetrievalTest extends WP_UnitTestCase {
 	 * words out, and the embeddings outage still degrades to keywords.
 	 */
 	public function test_keyword_pass_keeps_the_current_question_after_a_long_history() {
-		update_option(
-			'hyve_settings',
-			[
-				'ai_mode' => \ThemeIsle\HyveLite\Hyve_Connect::MODE_SELF,
-				'api_key' => 'sk-test',
-			]
-		);
-
-		$instance = new ReflectionProperty( \ThemeIsle\HyveLite\OpenAI::class, 'instance' );
-		$instance->setAccessible( true );
-		$instance->setValue( null, null );
+		$this->use_self_hosted_openai();
 
 		$this->seed_text( 'Treatments', 'We offer Morpheus8 skin tightening on Fridays.', [ 0.0, 1.0, 0.0 ] );
 		$this->commit_seeds();
