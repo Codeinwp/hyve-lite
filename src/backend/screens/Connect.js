@@ -319,12 +319,13 @@ export const ConnectPanel = () => {
 		}
 
 		let chip = <Chip tone="ok">{ __( 'Connected', 'hyve-lite' ) }</Chip>;
-		if ( isOffline ) {
-			chip = <Chip tone="bad">{ __( 'Offline', 'hyve-lite' ) }</Chip>;
-		} else if ( isBlocked && isPaused ) {
+		// A pause outranks Offline: an outage pause also fails the stats call.
+		if ( isBlocked && isPaused ) {
 			chip = (
 				<Chip tone="warn">{ __( 'Sync paused', 'hyve-lite' ) }</Chip>
 			);
+		} else if ( isOffline ) {
+			chip = <Chip tone="bad">{ __( 'Offline', 'hyve-lite' ) }</Chip>;
 		}
 
 		return (
