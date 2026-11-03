@@ -1454,6 +1454,59 @@ class IngestionQueueTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * An import reconnected to a new Qdrant target mid-publish uploads its
+	 * generation again there, instead of pruning a target that never got it.
+	 */
+	public function test_a_reconnection_mid_publish_uploads_again() {
+		wp_set_current_user( self::factory()->user->create( [ 'role' => 'administrator' ] ) );
+		$post_id = $this->queue( 6 );
+		$points  = [];
+		$failed  = false;
+		$qdrant  = $this->qdrant(
+			$points,
+			function ( $path, $body ) use ( &$failed ) {
+				// The first prune fails, leaving the job waiting to retry.
+				if ( ! $failed && false !== strpos( $path, '/delete' ) && ! empty( $body['filter']['must_not'] ) ) {
+					$failed = true;
+					return new GuzzleHttp\Psr7\Response( 500, [ 'Content-Type' => 'application/json' ], '{"status":{"error":"Unavailable"}}' );
+				}
+				return null;
+			}
+		);
+		$this->step( $post_id, 5 );
+		$this->assertTrue( $failed );
+		$job = get_post_meta( $post_id, Ingestion_Queue::JOB, true );
+		$this->assertNotEmpty( $job['remote_activated'] );
+		// Reconnect to an empty target; migration then uploads the old rows
+		// without a generation.
+		$request = new WP_REST_Request( 'POST', '/hyve/v1/qdrant/deactivate' );
+		$request->set_param( 'force', true );
+		\ThemeIsle\HyveLite\API::instance()->qdrant_deactivate( $request );
+		$points = [];
+		$qdrant->init();
+		$points['migrated'] = [ 'payload' => [ 'post_id' => (string) $post_id ] ];
+		$this->drain( $post_id );
+		$found = $qdrant->search( [ 0.1 ], 0.0 );
+		$this->assertCount( 6, $found, 'The new target answers for the source.' );
+		foreach ( $found as $hit ) {
+			$this->assertSame( $job['id'], $hit['_hyve_ingestion_generation'] );
+		}
+		$this->assertArrayNotHasKey( 'migrated', $points, 'The older content is pruned once the new upload is live.' );
+	}
+
+	/**
+	 * A marker written for another connection is ignored.
+	 */
+	public function test_a_marker_for_another_connection_is_ignored() {
+		update_option( 'hyve_qdrant_status', 'active' );
+		$post_id = self::factory()->post->create();
+		$this->assertNotSame( '', Qdrant_API::connection_id() );
+		update_post_meta( $post_id, Qdrant_API::CURRENT_GENERATION, 'other|gen' );
+		$this->assertSame( [], Qdrant_API::pending_prunes() );
+		$this->assertSame( '', Qdrant_API::current_generation( $post_id ) );
+	}
+
+	/**
 	 * Every active job is recovered, not only the newest page of them.
 	 */
 	public function test_watchdog_recovers_every_active_job() {

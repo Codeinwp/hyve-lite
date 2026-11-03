@@ -536,6 +536,13 @@ class Ingestion_Queue {
 		global $wpdb;
 		$table  = DB_Table::instance();
 		$qdrant = Qdrant_API::is_active();
+		// Qdrant was reconnected since this upload began, possibly to a new
+		// target that never received it: upload again on the current one
+		// before revealing or pruning anything there.
+		if ( $qdrant && ! empty( $job['remote_started'] ) && ( $job['qdrant_connection'] ?? '' ) !== Qdrant_API::connection_id() ) {
+			$job['offset'] = 0;
+			unset( $job['remote_started'], $job['remote_activated'], $job['qdrant_connection'] );
+		}
 		if ( $qdrant && $job['offset'] < $job['total'] ) {
 			$rows = $this->rows( $job, $job['offset'], self::REMOTE_BATCH );
 			if ( is_wp_error( $rows ) ) {
