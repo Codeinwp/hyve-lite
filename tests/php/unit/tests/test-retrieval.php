@@ -416,6 +416,23 @@ class RetrievalTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * A follow-up longer than the cap, with its pronoun at the end, keeps the
+	 * subject its rewrite resolves, and the token limit grows with it.
+	 */
+	public function test_long_follow_up_keeps_the_subject_resolved_at_its_end() {
+		$details   = str_repeat( 'The unit rattles at night and the display flickers after a power cut. ', 12 );
+		$message   = $details . 'Is it covered?';
+		$rewritten = $details . 'Is the Zorblax7 compressor covered by the warranty?';
+		$this->assertGreaterThan( \ThemeIsle\HyveLite\OpenAI::REWRITE_MAX_CHARS, mb_strlen( $message ) );
+
+		$requests  = &$this->intercept_rewrite( $rewritten );
+		$record_id = $this->seed_pickleball_thread();
+
+		$this->assertSame( $message . "\n" . trim( $rewritten ), $this->build_query( $message, $record_id ) );
+		$this->assertSame( \ThemeIsle\HyveLite\OpenAI::REWRITE_MAX_TOKENS + mb_strlen( $message ), $requests[0]['max_completion_tokens'] );
+	}
+
+	/**
 	 * A message past the long-message character threshold keeps its own
 	 * wording ahead of the rewrite, even without spaces, and the threshold
 	 * is exclusive: 300 characters is short, 301 is long.

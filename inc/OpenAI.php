@@ -122,13 +122,25 @@ class OpenAI {
 	];
 
 	/**
-	 * Most characters kept from a rewrite: room for a short follow-up expanded
-	 * with the subject of a long earlier question. Mirrors the platform's
+	 * Most characters a rewrite may add to the message: room for a short
+	 * follow-up expanded with the subject of a long earlier question. A long
+	 * message keeps its own length on top. Mirrors the platform's
 	 * RetrievalQuery::MAX_CHARS.
 	 *
 	 * @var int
 	 */
 	public const REWRITE_MAX_CHARS = 800;
+
+	/**
+	 * Completion tokens for a short message's rewrite: room for a reasoning
+	 * model's hidden tokens, as the visible answer is one line. A long message
+	 * adds its own length. Mirrors the platform's OpenRouterQueryRewriter.
+	 *
+	 * @since 2.1.0
+	 *
+	 * @var int
+	 */
+	public const REWRITE_MAX_TOKENS = 400;
 
 	/**
 	 * Instructions for the retrieval query rewrite. Mirrored by the platform's
@@ -572,7 +584,10 @@ PROMPT;
 		 */
 		$model = (string) apply_filters( 'hyve_retrieval_rewrite_model', self::REWRITE_MODEL );
 
-		$response = $this->request_rewrite( $model, $input );
+		// A long message comes back at its own length plus the resolved
+		// subject; one token per character covers it in any script.
+		$max_tokens = self::REWRITE_MAX_TOKENS + mb_strlen( trim( $message ) );
+		$response   = $this->request_rewrite( $model, $input, $max_tokens );
 
 		// A project or key can be barred from the rewrite model while the chat
 		// model, which every turn already uses, works.
@@ -581,7 +596,7 @@ PROMPT;
 			&& in_array( $response->get_error_code(), self::REWRITE_MODEL_UNAVAILABLE_CODES, true )
 			&& $model !== $this->chat_model
 		) {
-			$response = $this->request_rewrite( $this->chat_model, $input );
+			$response = $this->request_rewrite( $this->chat_model, $input, $max_tokens );
 		}
 
 		if ( is_wp_error( $response ) ) {
@@ -595,7 +610,7 @@ PROMPT;
 		}
 
 		$content = isset( $response->choices[0]->message->content ) && is_string( $response->choices[0]->message->content ) ? $response->choices[0]->message->content : '';
-		$query   = self::clean_rewritten_query( $content );
+		$query   = self::clean_rewritten_query( $content, $message );
 
 		if ( '' === $query ) {
 			return new \WP_Error( 'rewrite_failed', __( 'The query could not be rewritten.', 'hyve-lite' ) );
@@ -609,12 +624,13 @@ PROMPT;
 	 *
 	 * @since 2.1.0
 	 *
-	 * @param string $model The OpenAI model.
-	 * @param string $input The conversation and latest message.
+	 * @param string $model      The OpenAI model.
+	 * @param string $input      The conversation and latest message.
+	 * @param int    $max_tokens The completion token limit.
 	 *
 	 * @return mixed The decoded response, or a WP_Error.
 	 */
-	private function request_rewrite( $model, $input ) {
+	private function request_rewrite( $model, $input, $max_tokens ) {
 		return $this->request(
 			'chat/completions',
 			[
@@ -629,8 +645,7 @@ PROMPT;
 						'content' => $input,
 					],
 				],
-				// Room for a reasoning model's hidden tokens; the visible answer is one line.
-				'max_completion_tokens' => 400,
+				'max_completion_tokens' => $max_tokens,
 			],
 			'POST',
 			10
@@ -643,17 +658,18 @@ PROMPT;
 	 * @since 2.1.0
 	 *
 	 * @param string $content The model output.
+	 * @param string $message The visitor's message, whose length the rewrite may keep.
 	 *
 	 * @return string The question, or '' when the output is unusable.
 	 */
-	public static function clean_rewritten_query( $content ) {
+	public static function clean_rewritten_query( $content, $message = '' ) {
 		$lines = preg_split( '/\R/u', trim( $content ) );
 		$query = is_array( $lines ) && isset( $lines[0] ) ? trim( $lines[0] ) : '';
 		// trim() works on bytes and would eat the lead byte of Cyrillic and
 		// other letters that share one with the curly quotes.
 		$query = (string) preg_replace( '/^[\s"\'“”‘’]+|[\s"\'“”‘’]+$/u', '', $query );
 
-		return mb_substr( $query, 0, self::REWRITE_MAX_CHARS );
+		return mb_substr( $query, 0, self::REWRITE_MAX_CHARS + mb_strlen( trim( $message ) ) );
 	}
 
 	/**
