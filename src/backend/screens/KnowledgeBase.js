@@ -150,68 +150,47 @@ const isIngesting = ( row ) =>
  * @return {string} Chip label.
  */
 const ingestionLabel = ( ingestion ) => {
-	const { completed, total } = ingestion;
 	const waiting = ingestion.retry_at > Date.now() / 1000;
-	const reason = waiting ? ingestion.wait || 'rate_limit' : '';
-
-	if ( 'moderation' === ingestion.phase ) {
-		if ( 'rate_limit' === reason ) {
-			return sprintf(
-				/* translators: 1: checked chunks, 2: total chunks. */
-				__(
-					'Checking %1$d of %2$d, waiting for the API limit',
-					'hyve-lite'
-				),
-				completed,
-				total
-			);
-		}
-		if ( 'retry' === reason ) {
-			return sprintf(
-				/* translators: 1: checked chunks, 2: total chunks. */
-				__(
-					'Checking %1$d of %2$d, retrying after an error',
-					'hyve-lite'
-				),
-				completed,
-				total
-			);
-		}
-		return sprintf(
+	const reason = waiting ? ingestion.wait || 'rate_limit' : 'none';
+	const phase = 'moderation' === ingestion.phase ? 'moderation' : 'embedding';
+	const labels = {
+		moderation: {
 			/* translators: 1: checked chunks, 2: total chunks. */
-			__( 'Checking %1$d of %2$d', 'hyve-lite' ),
-			completed,
-			total
-		);
-	}
-
-	if ( 'rate_limit' === reason ) {
-		return sprintf(
+			none: __( 'Checking %1$d of %2$d', 'hyve-lite' ),
+			/* translators: 1: checked chunks, 2: total chunks. */
+			rate_limit: __(
+				'Checking %1$d of %2$d, waiting for the API limit',
+				'hyve-lite'
+			),
+			/* translators: 1: checked chunks, 2: total chunks. */
+			retry: __(
+				'Checking %1$d of %2$d, retrying after an error',
+				'hyve-lite'
+			),
+		},
+		embedding: {
 			/* translators: 1: embedded chunks, 2: total chunks. */
-			__(
+			none: __( 'Embedding %1$d of %2$d', 'hyve-lite' ),
+			/* translators: 1: embedded chunks, 2: total chunks. */
+			rate_limit: __(
 				'Embedding %1$d of %2$d, waiting for the API limit',
 				'hyve-lite'
 			),
-			completed,
-			total
-		);
-	}
-	if ( 'retry' === reason ) {
-		return sprintf(
 			/* translators: 1: embedded chunks, 2: total chunks. */
-			__(
+			retry: __(
 				'Embedding %1$d of %2$d, retrying after an error',
 				'hyve-lite'
 			),
-			completed,
-			total
-		);
-	}
+		},
+	};
+
+	// Every format above is a literal with the same two placeholders; the
+	// rule cannot follow a lookup.
+	// eslint-disable-next-line @wordpress/valid-sprintf
 	return sprintf(
-		/* translators: 1: embedded chunks, 2: total chunks. */
-		__( 'Embedding %1$d of %2$d', 'hyve-lite' ),
-		completed,
-		total
+		labels[ phase ][ reason ] ?? labels[ phase ].none,
+		ingestion.completed,
+		ingestion.total
 	);
 };
 
