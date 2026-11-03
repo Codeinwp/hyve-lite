@@ -412,7 +412,8 @@ class Ingestion_Queue {
 		}
 		$delay = $openai->rate_limit_delay( $endpoint, $tokens );
 		if ( $delay > 0 ) {
-			$job['retry_at'] = time() + $delay;
+			$job['retry_at']    = time() + $delay;
+			$job['wait_reason'] = 'rate_limit';
 			return true;
 		}
 		$job['retry_at'] = 0;
@@ -687,6 +688,8 @@ class Ingestion_Queue {
 			update_post_meta( $post_id, '_hyve_processing_error', $text . ' ' . __( 'This content will be retried automatically.', 'hyve-lite' ) );
 			$endpoint        = 'moderation' === $job['phase'] ? 'moderations' : 'embeddings';
 			$job['retry_at'] = time() + max( min( 600, 60 * (int) $job['attempts'] ), 60, OpenAI::instance()->rate_limit_delay( $endpoint ) );
+			// The chip says why it waits: only a 429 is the API limit.
+			$job['wait_reason'] = 'rate_limit_exceeded' === $code ? 'rate_limit' : 'retry';
 			$this->save( $post_id, $job, 'queued' );
 			$this->schedule( $post_id, $job['retry_at'] );
 			return;
@@ -741,6 +744,8 @@ class Ingestion_Queue {
 				'completed' => 'publish' === $job['phase'] ? $job['total'] : $job['offset'],
 				'total'     => $job['total'],
 				'retry_at'  => $job['retry_at'],
+				// Why it waits while retry_at is in the future: `rate_limit` or `retry`.
+				'wait'      => $job['retry_at'] > 0 ? ( $job['wait_reason'] ?? 'rate_limit' ) : '',
 			]
 		);
 	}

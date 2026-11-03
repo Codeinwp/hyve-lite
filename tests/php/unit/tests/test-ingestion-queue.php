@@ -1507,6 +1507,64 @@ class IngestionQueueTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * The summary says why a job waits, so the chip only blames the API
+	 * limit when the limit is the reason.
+	 */
+	public function test_the_summary_says_why_a_job_waits() {
+		$status         = 500;
+		$this->response = function () use ( &$status ) {
+			return [
+				'response' => [ 'code' => $status ],
+				'headers'  => [],
+				'body'     => wp_json_encode(
+					[
+						'error' => [
+							'code'    => 429 === $status ? null : 'server_error',
+							'message' => 'Failure',
+						],
+					]
+				),
+			];
+		};
+		$post_id        = $this->queue();
+		Ingestion_Queue::instance()->run( $post_id );
+		$summary = get_post_meta( $post_id, '_hyve_ingestion', true );
+		$this->assertGreaterThan( time(), $summary['retry_at'] );
+		$this->assertSame( 'retry', $summary['wait'], 'A server error is not the API limit.' );
+
+		$status = 429;
+		$this->step( $post_id );
+		$this->assertSame( 'rate_limit', get_post_meta( $post_id, '_hyve_ingestion', true )['wait'] );
+
+		$this->response = null;
+		$this->step( $post_id );
+		$this->assertSame( '', get_post_meta( $post_id, '_hyve_ingestion', true )['wait'], 'Not waiting, so no reason.' );
+	}
+
+	/**
+	 * Waiting on a budget learned from an earlier response is the API limit.
+	 */
+	public function test_a_budget_wait_is_reported_as_the_api_limit() {
+		$this->response = function () {
+			return [
+				'response' => [ 'code' => 200 ],
+				'headers'  => [
+					'x-ratelimit-remaining-tokens' => '1000',
+					'x-ratelimit-reset-tokens'     => '45s',
+				],
+				'body'     => wp_json_encode( [ 'results' => array_fill( 0, 5, [ 'flagged' => false ] ) ] ),
+			];
+		};
+		$first          = $this->queue();
+		$second         = $this->queue();
+		Ingestion_Queue::instance()->run( $first );
+		Ingestion_Queue::instance()->run( $second );
+		$summary = get_post_meta( $second, '_hyve_ingestion', true );
+		$this->assertGreaterThan( time(), $summary['retry_at'] );
+		$this->assertSame( 'rate_limit', $summary['wait'] );
+	}
+
+	/**
 	 * Every active job is recovered, not only the newest page of them.
 	 */
 	public function test_watchdog_recovers_every_active_job() {

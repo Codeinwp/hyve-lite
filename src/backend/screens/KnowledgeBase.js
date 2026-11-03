@@ -143,47 +143,76 @@ const isIngesting = ( row ) =>
 
 /**
  * Progress of a background import, by phase, so the count never looks like
- * it went backwards when embedding starts after moderation.
+ * it went backwards when embedding starts after moderation, and why it is
+ * waiting: the API's rate limit, or a retry after another error.
  *
  * @param {Object} ingestion The public job summary.
  * @return {string} Chip label.
  */
 const ingestionLabel = ( ingestion ) => {
+	const { completed, total } = ingestion;
 	const waiting = ingestion.retry_at > Date.now() / 1000;
+	const reason = waiting ? ingestion.wait || 'rate_limit' : '';
+
 	if ( 'moderation' === ingestion.phase ) {
-		return waiting
-			? sprintf(
-					/* translators: 1: checked chunks, 2: total chunks. */
-					__(
-						'Checking %1$d of %2$d, waiting for the API limit',
-						'hyve-lite'
-					),
-					ingestion.completed,
-					ingestion.total
-			  )
-			: sprintf(
-					/* translators: 1: checked chunks, 2: total chunks. */
-					__( 'Checking %1$d of %2$d', 'hyve-lite' ),
-					ingestion.completed,
-					ingestion.total
-			  );
-	}
-	return waiting
-		? sprintf(
-				/* translators: 1: embedded chunks, 2: total chunks. */
+		if ( 'rate_limit' === reason ) {
+			return sprintf(
+				/* translators: 1: checked chunks, 2: total chunks. */
 				__(
-					'Embedding %1$d of %2$d, waiting for the API limit',
+					'Checking %1$d of %2$d, waiting for the API limit',
 					'hyve-lite'
 				),
-				ingestion.completed,
-				ingestion.total
-		  )
-		: sprintf(
-				/* translators: 1: embedded chunks, 2: total chunks. */
-				__( 'Embedding %1$d of %2$d', 'hyve-lite' ),
-				ingestion.completed,
-				ingestion.total
-		  );
+				completed,
+				total
+			);
+		}
+		if ( 'retry' === reason ) {
+			return sprintf(
+				/* translators: 1: checked chunks, 2: total chunks. */
+				__(
+					'Checking %1$d of %2$d, retrying after an error',
+					'hyve-lite'
+				),
+				completed,
+				total
+			);
+		}
+		return sprintf(
+			/* translators: 1: checked chunks, 2: total chunks. */
+			__( 'Checking %1$d of %2$d', 'hyve-lite' ),
+			completed,
+			total
+		);
+	}
+
+	if ( 'rate_limit' === reason ) {
+		return sprintf(
+			/* translators: 1: embedded chunks, 2: total chunks. */
+			__(
+				'Embedding %1$d of %2$d, waiting for the API limit',
+				'hyve-lite'
+			),
+			completed,
+			total
+		);
+	}
+	if ( 'retry' === reason ) {
+		return sprintf(
+			/* translators: 1: embedded chunks, 2: total chunks. */
+			__(
+				'Embedding %1$d of %2$d, retrying after an error',
+				'hyve-lite'
+			),
+			completed,
+			total
+		);
+	}
+	return sprintf(
+		/* translators: 1: embedded chunks, 2: total chunks. */
+		__( 'Embedding %1$d of %2$d', 'hyve-lite' ),
+		completed,
+		total
+	);
 };
 
 /**

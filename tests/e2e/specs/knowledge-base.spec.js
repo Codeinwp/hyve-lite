@@ -359,6 +359,65 @@ test.describe( 'Knowledge Base', () => {
 		expect( polls ).toBe( settledPolls );
 	} );
 
+	test( 'a background import names why it is waiting', async ( {
+		page,
+		admin,
+	} ) => {
+		const later = Math.floor( Date.now() / 1000 ) + 600;
+
+		await mockDataApi( page, {
+			included: () => ( {
+				posts: [
+					{
+						ID: 1001,
+						title: 'Rate Limited Import',
+						type: 'post',
+						chunks: 0,
+						ingestion: {
+							status: 'queued',
+							phase: 'moderation',
+							completed: 30,
+							total: 34,
+							retry_at: later,
+							wait: 'rate_limit',
+						},
+					},
+					{
+						ID: 1002,
+						title: 'Failing Import',
+						type: 'post',
+						chunks: 0,
+						ingestion: {
+							status: 'queued',
+							phase: 'embedding',
+							completed: 10,
+							total: 34,
+							retry_at: later,
+							wait: 'retry',
+						},
+					},
+				],
+				more: false,
+				total: 2,
+				per_page: 20,
+				totalChunks: '0',
+			} ),
+		} );
+
+		await admin.visitAdminPage( `${ HYVE_ADMIN }&nav=kb` );
+
+		await expect(
+			page.getByText( 'Checking 30 of 34, waiting for the API limit', {
+				exact: true,
+			} )
+		).toBeVisible();
+		await expect(
+			page.getByText( 'Embedding 10 of 34, retrying after an error', {
+				exact: true,
+			} )
+		).toBeVisible();
+	} );
+
 	test( 'an add handed to the background queue says so', async ( {
 		page,
 		admin,
