@@ -318,11 +318,14 @@ export const ConnectPanel = () => {
 			);
 		}
 
-		const chip = isOffline ? (
-			<Chip tone="bad">{ __( 'Offline', 'hyve-lite' ) }</Chip>
-		) : (
-			<Chip tone="ok">{ __( 'Connected', 'hyve-lite' ) }</Chip>
-		);
+		let chip = <Chip tone="ok">{ __( 'Connected', 'hyve-lite' ) }</Chip>;
+		if ( isOffline ) {
+			chip = <Chip tone="bad">{ __( 'Offline', 'hyve-lite' ) }</Chip>;
+		} else if ( isBlocked && isPaused ) {
+			chip = (
+				<Chip tone="warn">{ __( 'Sync paused', 'hyve-lite' ) }</Chip>
+			);
+		}
 
 		return (
 			<>

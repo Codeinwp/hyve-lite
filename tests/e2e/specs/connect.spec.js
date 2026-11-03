@@ -58,6 +58,52 @@ test.describe( 'Hyve Connect', () => {
 		).toBeEnabled();
 	} );
 
+	test( 'connected: a paused sync swaps the status chip and shows the reason', async ( {
+		page,
+		admin,
+	} ) => {
+		await admin.visitAdminPage(
+			`${ HYVE_ADMIN }&nav=settings&sub=hyve-connect`
+		);
+
+		// Drive the store the way the stats route does, so the panel reacts
+		// without the hosted platform.
+		const reason = "Hyve Connect rejected this site's credentials.";
+		await page.evaluate( ( message ) => {
+			const store = window.wp.data.dispatch( 'hyve' );
+			store.setAiMode( 'hyve_connect' );
+			store.setConnect( { service: 'ok' } );
+			store.setConnectSync( {
+				blocked: true,
+				quota: { kind: 'auth' },
+				message,
+			} );
+		}, reason );
+
+		await expect(
+			page.getByText( 'Sync paused', { exact: true } ).first()
+		).toBeVisible();
+		await expect(
+			page.getByText( 'Connected', { exact: true } )
+		).toHaveCount( 0 );
+		await expect( page.getByText( reason ) ).toBeVisible();
+
+		// A plan block is not a pause: the connection chip stays.
+		await page.evaluate( () =>
+			window.wp.data.dispatch( 'hyve' ).setConnectSync( {
+				blocked: true,
+				quota: { kind: 'storage', limit: 100, used: 100 },
+			} )
+		);
+
+		await expect(
+			page.getByText( 'Connected', { exact: true } ).first()
+		).toBeVisible();
+		await expect(
+			page.getByText( 'Sync paused', { exact: true } )
+		).toHaveCount( 0 );
+	} );
+
 	test( 'provider settings lock while Connect handles AI', async ( {
 		page,
 		admin,
