@@ -47,6 +47,13 @@ class Qdrant_API {
 	public const CURRENT_GENERATION = '_hyve_qdrant_generation';
 
 	/**
+	 * Option identifying the current Qdrant connection. A marker records the
+	 * connection it was written for, so one from before a reconnection never
+	 * hides or prunes what the new connection's migration uploads.
+	 */
+	public const CONNECTION = 'hyve_qdrant_connection';
+
+	/**
 	 * Cron hook that moves local vectors to Qdrant.
 	 *
 	 * @var string
@@ -165,9 +172,13 @@ class Qdrant_API {
 			return $payload_index;
 		}
 
-		// A marker from an earlier connection would hide, then prune, the
-		// points this connection's migration uploads without a generation.
-		delete_post_meta_by_key( self::CURRENT_GENERATION );
+		// A fresh connection starts without markers, under a new identity, so
+		// an import still finishing for the old one cannot write one later.
+		// Re-saving settings on a live connection keeps both.
+		if ( 'active' !== self::fresh_option( 'hyve_qdrant_status' ) ) {
+			delete_post_meta_by_key( self::CURRENT_GENERATION );
+			update_option( self::CONNECTION, wp_generate_uuid4(), false );
+		}
 
 		update_option( 'hyve_qdrant_status', 'active' );
 		delete_option( self::MIGRATE_RETRY_AT );
@@ -658,7 +669,45 @@ class Qdrant_API {
 	}
 
 	/**
-	 * Sources waiting for an older generation to be pruned.
+	 * Read an option past this request's cache, so a change another request
+	 * made meanwhile is seen.
+	 *
+	 * @param string $name Option name.
+	 *
+	 * @return string
+	 */
+	private static function fresh_option( $name ) {
+		global $wpdb;
+
+		return (string) $wpdb->get_var( $wpdb->prepare( "SELECT option_value FROM $wpdb->options WHERE option_name = %s", $name ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Must see a concurrent change.
+	}
+
+	/**
+	 * The current connection's identity, or '' while Qdrant is inactive.
+	 * Connections made before this option existed get one on first use.
+	 *
+	 * @return string
+	 */
+	public static function connection_id() {
+		if ( 'active' !== self::fresh_option( 'hyve_qdrant_status' ) ) {
+			return '';
+		}
+
+		$id = self::fresh_option( self::CONNECTION );
+
+		if ( '' === $id ) {
+			// Two requests may race here; the first stored value wins.
+			add_option( self::CONNECTION, wp_generate_uuid4(), '', false );
+			wp_cache_delete( 'notoptions', 'options' );
+			$id = self::fresh_option( self::CONNECTION );
+		}
+
+		return $id;
+	}
+
+	/**
+	 * Sources waiting for an older generation to be pruned on the current
+	 * connection.
 	 *
 	 * @return array<int, string> Generation to keep, by source ID.
 	 */
@@ -667,11 +716,18 @@ class Qdrant_API {
 
 		$rows = $wpdb->get_results( $wpdb->prepare( "SELECT post_id, meta_value FROM $wpdb->postmeta WHERE meta_key = %s", self::CURRENT_GENERATION ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Read fresh on every search; normally no rows.
 
-		$pending = [];
+		if ( empty( $rows ) ) {
+			return [];
+		}
 
-		foreach ( (array) $rows as $row ) {
-			if ( '' !== (string) $row->meta_value ) {
-				$pending[ (int) $row->post_id ] = (string) $row->meta_value;
+		$connection = self::connection_id();
+		$pending    = [];
+
+		foreach ( $rows as $row ) {
+			$generation = self::parse_marker( (string) $row->meta_value, $connection );
+
+			if ( '' !== $generation ) {
+				$pending[ (int) $row->post_id ] = $generation;
 			}
 		}
 
@@ -679,31 +735,57 @@ class Qdrant_API {
 	}
 
 	/**
+	 * The generation a source's marker keeps on the current connection.
+	 *
+	 * @param int $post_id Source ID.
+	 *
+	 * @return string The generation, or '' when there is no current marker.
+	 */
+	public static function current_generation( $post_id ) {
+		wp_cache_delete( $post_id, 'post_meta' );
+
+		return self::parse_marker( (string) get_post_meta( $post_id, self::CURRENT_GENERATION, true ), self::connection_id() );
+	}
+
+	/**
+	 * Read a stored `connection|generation` marker for one connection.
+	 *
+	 * @param string $marker     Stored value.
+	 * @param string $connection Connection to match.
+	 *
+	 * @return string
+	 */
+	private static function parse_marker( $marker, $connection ) {
+		$parts = explode( '|', $marker, 2 );
+
+		return '' !== $connection && 2 === count( $parts ) && $parts[0] === $connection ? $parts[1] : '';
+	}
+
+	/**
 	 * Record which generation search may return for a source, or clear it.
 	 *
 	 * @param int         $post_id    Source ID.
 	 * @param string|null $generation Generation to keep, or null when nothing older remains.
+	 * @param string|null $connection Connection the caller's upload ran on. A marker
+	 *                                for any other connection is not written.
 	 *
 	 * @return void
 	 */
-	public static function set_current_generation( $post_id, $generation ) {
-		global $wpdb;
-
+	public static function set_current_generation( $post_id, $generation, $connection = null ) {
 		if ( null === $generation ) {
 			delete_post_meta( $post_id, self::CURRENT_GENERATION );
 			return;
 		}
 
-		// Read past this request's option cache: an import can still be
-		// running when another request deactivates Qdrant, and a marker
-		// written after that would hide the next connection's migrated points.
-		$status = $wpdb->get_var( $wpdb->prepare( "SELECT option_value FROM $wpdb->options WHERE option_name = %s", 'hyve_qdrant_status' ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Must see a concurrent deactivation.
+		$current = self::connection_id();
 
-		if ( 'active' !== $status ) {
+		// Qdrant was deactivated, or reconnected, since the caller's upload:
+		// its marker would hide the new connection's migrated points.
+		if ( '' === $current || ( null !== $connection && $connection !== $current ) ) {
 			return;
 		}
 
-		update_post_meta( $post_id, self::CURRENT_GENERATION, $generation );
+		update_post_meta( $post_id, self::CURRENT_GENERATION, $current . '|' . $generation );
 	}
 
 	/**

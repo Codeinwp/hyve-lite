@@ -1422,6 +1422,7 @@ class API extends BaseAPI {
 		// A marker would hide, then prune, the points a later migration
 		// uploads without a generation.
 		delete_post_meta_by_key( Qdrant_API::CURRENT_GENERATION );
+		delete_option( Qdrant_API::CONNECTION );
 
 		return rest_ensure_response( __( 'Qdrant deactivated.', 'hyve-lite' ) );
 	}

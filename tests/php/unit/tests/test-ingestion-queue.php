@@ -1380,50 +1380,51 @@ class IngestionQueueTest extends WP_UnitTestCase {
 		$request->set_param( 'force', true );
 		\ThemeIsle\HyveLite\API::instance()->qdrant_deactivate( $request );
 		$this->assertSame( [], Qdrant_API::pending_prunes() );
+		$this->assertSame( '', get_post_meta( $post_id, Qdrant_API::CURRENT_GENERATION, true ), 'The row is removed, not just ignored.' );
 	}
 
 	/**
-	 * Qdrant deactivated while an import waits on its prune: the import must
-	 * not write a marker afterwards.
+	 * Qdrant deactivated, and even reconnected, while an import waits on its
+	 * prune: the import must not write a marker for the new connection.
 	 */
-	public function test_deactivation_during_a_prune_leaves_no_marker() {
+	public function test_a_reconnection_during_a_prune_leaves_no_marker() {
 		wp_set_current_user( self::factory()->user->create( [ 'role' => 'administrator' ] ) );
 		$post_id     = $this->queue( 6 );
 		$points      = [ 'old' => [ 'payload' => [ 'post_id' => (string) $post_id ] ] ];
-		$deactivated = false;
-		$this->qdrant(
+		$reconnected = false;
+		$qdrant      = null;
+		$qdrant      = $this->qdrant(
 			$points,
-			function ( $path, $body ) use ( &$deactivated ) {
+			function ( $path, $body ) use ( &$reconnected, &$qdrant ) {
 				if ( false === strpos( $path, '/delete' ) || empty( $body['filter']['must_not'] ) ) {
 					return null;
 				}
-				if ( ! $deactivated ) {
-					$deactivated = true;
+				if ( ! $reconnected ) {
+					$reconnected = true;
 					$request     = new WP_REST_Request( 'POST', '/hyve/v1/qdrant/deactivate' );
 					$request->set_param( 'force', true );
 					\ThemeIsle\HyveLite\API::instance()->qdrant_deactivate( $request );
+					$qdrant->init();
 				}
 				return new GuzzleHttp\Psr7\Response( 500, [ 'Content-Type' => 'application/json' ], '{"status":{"error":"Unavailable"}}' );
 			}
 		);
 		$this->step( $post_id, 4 );
-		$job                     = get_post_meta( $post_id, Ingestion_Queue::JOB, true );
+		$job = get_post_meta( $post_id, Ingestion_Queue::JOB, true );
+		$this->assertNotEmpty( $job['qdrant_connection'], 'The upload pins its connection.' );
+		// Past the day-long limit, so the failing prune falls back to a marker.
 		$job['remote_activated'] = time() - DAY_IN_SECONDS - 1;
 		update_post_meta( $post_id, Ingestion_Queue::JOB, $job );
-		// The cron run started before the deactivation, so its option cache
-		// still says Qdrant is active; only the database knows otherwise.
-		$options                       = wp_load_alloptions();
-		$options['hyve_qdrant_status'] = 'active';
-		wp_cache_set( 'alloptions', $options, 'options' );
-		wp_cache_set( 'hyve_qdrant_status', 'active', 'options' );
-		$this->assertTrue( Qdrant_API::is_active() );
 		$this->step( $post_id );
-		$this->assertTrue( $deactivated );
+		$this->assertTrue( $reconnected );
+		$this->assertTrue( Qdrant_API::is_active() );
+		$this->assertNotSame( $job['qdrant_connection'], Qdrant_API::connection_id() );
 		$this->assertSame( [], Qdrant_API::pending_prunes() );
+		$this->assertSame( '', get_post_meta( $post_id, Qdrant_API::CURRENT_GENERATION, true ) );
 	}
 
 	/**
-	 * Connecting Qdrant drops markers left from an earlier connection.
+	 * A fresh connection drops markers left from an earlier one.
 	 */
 	public function test_connecting_qdrant_clears_old_markers() {
 		$post_id = self::factory()->post->create();
@@ -1431,8 +1432,25 @@ class IngestionQueueTest extends WP_UnitTestCase {
 		$qdrant  = $this->qdrant( $points );
 		Qdrant_API::set_current_generation( $post_id, 'old' );
 		$this->assertNotEmpty( Qdrant_API::pending_prunes() );
+		update_option( 'hyve_qdrant_status', 'inactive' );
 		$qdrant->init();
 		$this->assertSame( [], Qdrant_API::pending_prunes() );
+		$this->assertSame( '', get_post_meta( $post_id, Qdrant_API::CURRENT_GENERATION, true ), 'The old row is removed, not just ignored.' );
+	}
+
+	/**
+	 * Re-saving settings on a live connection runs init() again; the
+	 * connection and its markers must survive it.
+	 */
+	public function test_reinitialising_a_live_connection_keeps_markers() {
+		$post_id = self::factory()->post->create();
+		$points  = [];
+		$qdrant  = $this->qdrant( $points );
+		Qdrant_API::set_current_generation( $post_id, 'kept' );
+		$connection = Qdrant_API::connection_id();
+		$qdrant->init();
+		$this->assertSame( $connection, Qdrant_API::connection_id() );
+		$this->assertSame( [ $post_id => 'kept' ], Qdrant_API::pending_prunes() );
 	}
 
 	/**
