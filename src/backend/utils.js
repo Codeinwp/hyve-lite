@@ -185,7 +185,9 @@ export const onProcessData = async ( {
 		} else {
 			createNotice(
 				'success',
-				__( 'Post has been updated.', 'hyve-lite' ),
+				response.queued
+					? __( 'Content is queued for indexing.', 'hyve-lite' )
+					: __( 'Post has been updated.', 'hyve-lite' ),
 				{
 					type: 'snackbar',
 					isDismissible: true,

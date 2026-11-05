@@ -211,12 +211,17 @@ test.describe( 'Settings', () => {
 		await page.getByLabel( 'API key' ).fill( 'sk_new_key' );
 		await expect( page.getByText( 'Unsaved' ) ).toBeVisible();
 
-		await page.getByLabel( 'Model' ).selectOption( 'gpt-4.1-nano' );
+		// Models OpenAI has retired are no longer offered.
+		await expect(
+			page.getByLabel( 'Model' ).locator( 'option[value="gpt-4.1-nano"]' )
+		).toHaveCount( 0 );
+
+		await page.getByLabel( 'Model' ).selectOption( 'gpt-5.4-mini' );
 		await page.getByRole( 'button', { name: 'Save changes' } ).click();
 
 		await expect( page.getByTestId( 'snackbar' ) ).toBeVisible();
 		expect( saves[ 0 ]?.data?.api_key ).toBe( 'sk_new_key' );
-		expect( saves[ 0 ]?.data?.chat_model ).toBe( 'gpt-4.1-nano' );
+		expect( saves[ 0 ]?.data?.chat_model ).toBe( 'gpt-5.4-mini' );
 	} );
 
 	test( 'provider: the similarity slider resets to its default', async ( {

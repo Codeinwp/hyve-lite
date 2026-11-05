@@ -333,6 +333,66 @@ test.describe( 'Messages', () => {
 		).toBeVisible();
 	} );
 
+	test( 'a rewritten retrieval query is labelled in the debug ledger', async ( {
+		page,
+		admin,
+	} ) => {
+		await page.route(
+			/.*(?:rest_route=%2Fhyve%2Fv1%2Fthreads|\/wp-json\/hyve\/v1\/threads).*/,
+			async ( route ) => {
+				await route.fulfill( {
+					status: 200,
+					contentType: 'application/json',
+					body: JSON.stringify( {
+						posts: [
+							{
+								ID: 8,
+								title: 'where is RUCA playing next',
+								date: '2026-08-17T10:00:00+00:00',
+								thread_id: 'conv_rewrite1',
+								thread: [
+									{
+										time: 1755424800,
+										sender: 'user',
+										message: 'how long has he been djing',
+									},
+									{
+										time: 1755424806,
+										sender: 'bot',
+										message:
+											'RUCA has been DJing since 2001.',
+										debug: {
+											answered: true,
+											mode: 'self_hosted',
+											transport: 'poll',
+											model: 'gpt-5.4-nano',
+											query: 'How long has RUCA been DJing?',
+											query_rewritten: true,
+										},
+									},
+								],
+							},
+						],
+						more: false,
+						total: 1,
+						per_page: 3,
+					} ),
+				} );
+			}
+		);
+
+		await admin.visitAdminPage( `${ HYVE_ADMIN }&nav=messages` );
+
+		await page.getByRole( 'button', { name: 'View' } ).first().click();
+		await page.getByRole( 'button', { name: 'Show trace' } ).click();
+
+		// The label shares its element with the help icon, so match a substring.
+		await expect( page.getByText( 'Query (rewritten)' ) ).toBeVisible();
+		await expect(
+			page.getByText( 'How long has RUCA been DJing?' )
+		).toBeVisible();
+	} );
+
 	test( 'an unknown deep-linked conversation shows the not-found state', async ( {
 		page,
 		admin,

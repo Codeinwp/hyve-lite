@@ -203,6 +203,9 @@ class IngestContentTest extends WP_UnitTestCase {
 	 * keeps the content it had.
 	 */
 	public function test_self_hosted_stores_the_same_rendered_text(): void {
+		$instance = new ReflectionProperty( OpenAI::class, 'instance' );
+		$instance->setAccessible( true );
+		$instance->setValue( null, new OpenAI( 'ingest-test-key' ) );
 		$post_id = $this->factory()->post->create(
 			[
 				'post_title'   => 'Clinic Opening Hours',
@@ -219,6 +222,57 @@ class IngestContentTest extends WP_UnitTestCase {
 		$stored = $wpdb->get_var( $wpdb->prepare( "SELECT post_content FROM {$wpdb->prefix}hyve WHERE post_id = %d ORDER BY id DESC LIMIT 1", $post_id ) ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 
 		$this->assertSame( 'Open Monday to Friday, 8am to 6pm.', $stored );
+	}
+
+	/**
+	 * A short document is indexed in the request, so its 429 must name the
+	 * endpoint and the account's limit just as a background import's does.
+	 */
+	public function test_a_synchronous_rate_limit_names_the_account_limit(): void {
+		$instance = new ReflectionProperty( OpenAI::class, 'instance' );
+		$instance->setAccessible( true );
+		$instance->setValue( null, new OpenAI( 'ingest-test-key' ) );
+		add_filter(
+			'pre_http_request',
+			function ( $pre, array $args, string $url ) {
+				if ( false === strpos( $url, '/embeddings' ) ) {
+					return $pre;
+				}
+
+				return [
+					'response' => [ 'code' => 429 ],
+					'headers'  => [
+						'x-ratelimit-limit-tokens'     => '20000',
+						'x-ratelimit-remaining-tokens' => '0',
+					],
+					'body'     => wp_json_encode(
+						[
+							'error' => [
+								'code'    => null,
+								'message' => 'Too Many Requests',
+							],
+						]
+					),
+				];
+			},
+			20,
+			3
+		);
+		$post_id = $this->factory()->post->create(
+			[
+				'post_title'   => 'Short Page',
+				'post_status'  => 'publish',
+				'post_content' => 'Open Monday to Friday, 8am to 6pm.',
+			]
+		);
+
+		DB_Table::instance()->add_post( $post_id, 'add' );
+		$error = (string) get_post_meta( $post_id, '_hyve_processing_error', true );
+
+		$this->assertStringContainsString( 'embeddings', $error );
+		$this->assertStringContainsString( 'HTTP 429', $error );
+		$this->assertStringContainsString( 'x-ratelimit-limit-tokens: 20000', $error );
+		$this->assertStringContainsString( 'x-ratelimit-remaining-tokens: 0', $error );
 	}
 
 	/**

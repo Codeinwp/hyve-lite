@@ -22,6 +22,33 @@ class OpenAI {
 	const MAX_TOOL_ITERATIONS = 5;
 
 	/**
+	 * The chat model used when none is stored or the stored one can't be used.
+	 *
+	 * @var string
+	 */
+	const DEFAULT_CHAT_MODEL = 'gpt-5.4-nano';
+
+	/**
+	 * Chat models Hyve can no longer use, mapped to the nearest model still
+	 * offered. A key also covers its snapshots (`gpt-4o-2024-08-06`,
+	 * `gpt-3.5-turbo-0125`). GPT-3.5 lacks the structured outputs Hyve
+	 * requires; the rest OpenAI has shut down or scheduled for shutdown.
+	 *
+	 * @see https://platform.openai.com/docs/deprecations
+	 *
+	 * @var array<string, string>
+	 */
+	const RETIRED_CHAT_MODELS = [
+		'gpt-5'         => 'gpt-5.4-mini',
+		'gpt-4.1'       => 'gpt-5.4-mini',
+		'gpt-4.1-mini'  => 'gpt-5.4-nano',
+		'gpt-4.1-nano'  => 'gpt-5.4-nano',
+		'gpt-4o'        => 'gpt-5.4-mini',
+		'gpt-4o-mini'   => 'gpt-5.4-nano',
+		'gpt-3.5-turbo' => 'gpt-5.4-nano',
+	];
+
+	/**
 	 * Base URL.
 	 *
 	 * @var string
@@ -33,7 +60,7 @@ class OpenAI {
 	 * 
 	 * @var string
 	 */
-	private $chat_model = 'gpt-4o-mini';
+	private $chat_model = self::DEFAULT_CHAT_MODEL;
 
 	/**
 	 * API Key.
@@ -51,6 +78,144 @@ class OpenAI {
 	 * @var bool
 	 */
 	private $persist_errors = true;
+
+	/**
+	 * Last response diagnostics, used by background ingestion.
+	 *
+	 * @var array<string, mixed>
+	 */
+	private $response_context = [];
+
+	/**
+	 * Whether responses should teach the shared rate-limit state.
+	 *
+	 * @var bool
+	 */
+	private $pace_requests = false;
+
+	/**
+	 * Background ingestion learns the account's budget from every response;
+	 * chat only records an actual 429, so it never pays for the write.
+	 *
+	 * @param bool $enabled Whether to persist budget headers.
+	 * @return void
+	 */
+	public function pace_requests( $enabled ) {
+		$this->pace_requests = (bool) $enabled;
+	}
+
+	/**
+	 * Read the last transport response without changing successful API payloads.
+	 *
+	 * @return array<string, mixed>
+	 */
+	public function get_response_context() {
+		return $this->response_context;
+	}
+
+	/**
+	 * Seconds until an endpoint can accept the next background batch.
+	 *
+	 * @param string $endpoint Endpoint.
+	 * @param int    $tokens Estimated tokens in the next request.
+	 * @return int
+	 */
+	public function rate_limit_delay( $endpoint, $tokens = 0 ) {
+		$state = get_transient( $this->rate_limit_key( $endpoint ) );
+		if ( ! is_array( $state ) ) {
+			return 0;
+		}
+		$until = (int) ( $state['blocked_until'] ?? 0 );
+		if ( isset( $state['remaining'] ) && $state['remaining'] < $tokens ) {
+			$until = max( $until, (int) ( $state['reset_at'] ?? 0 ) );
+		}
+		return max( 0, $until - time() );
+	}
+
+	/**
+	 * Keep budgets separate by credential and endpoint; never store the key.
+	 *
+	 * @param string $endpoint Endpoint.
+	 * @return string
+	 */
+	private function rate_limit_key( $endpoint ) {
+		return 'hyve_rate_' . hash( 'sha256', $this->api_key . ':' . $endpoint );
+	}
+
+	/**
+	 * Parse provider durations such as 1m2.5s, or Retry-After HTTP dates.
+	 *
+	 * @param string $value Header value.
+	 * @return int
+	 */
+	private function retry_seconds( $value ) {
+		if ( is_numeric( $value ) ) {
+			return max( 0, (int) ceil( (float) $value ) );
+		}
+		if ( preg_match_all( '/(\d+(?:\.\d+)?)(ms|s|m|h|d)/', $value, $matches, PREG_SET_ORDER ) ) {
+			$seconds = 0;
+			$units   = [
+				'ms' => 0.001,
+				's'  => 1,
+				'm'  => 60,
+				'h'  => 3600,
+				'd'  => 86400,
+			];
+			foreach ( $matches as $match ) {
+				$seconds += (float) $match[1] * $units[ $match[2] ];
+			}
+			return (int) ceil( $seconds );
+		}
+		$date = strtotime( $value );
+		return false === $date ? 0 : max( 0, $date - time() );
+	}
+
+	/**
+	 * Retain only useful response headers and learn the account's current budget.
+	 *
+	 * @param string               $endpoint Endpoint.
+	 * @param array<string, mixed> $params Request parameters.
+	 * @param array<string, mixed> $response HTTP response.
+	 * @return void
+	 */
+	private function capture_response_context( $endpoint, $params, $response ) {
+		$status  = (int) wp_remote_retrieve_response_code( $response );
+		$headers = [];
+		foreach ( [ 'retry-after', 'x-ratelimit-limit-tokens', 'x-ratelimit-remaining-tokens', 'x-ratelimit-reset-tokens', 'x-ratelimit-reset-requests', 'x-request-id' ] as $name ) {
+			$value = wp_remote_retrieve_header( $response, $name );
+			if ( is_string( $value ) && '' !== $value ) {
+				$headers[ $name ] = $value;
+			}
+		}
+		// Not `status`: the REST API would send that key as the HTTP response code.
+		$this->response_context = [
+			'endpoint'    => $endpoint,
+			'model'       => $params['model'] ?? ( 'moderations' === $endpoint ? 'omni-moderation-latest' : '' ),
+			'http_status' => $status,
+			'headers'     => $headers,
+		];
+		if ( ! in_array( $endpoint, [ 'moderations', 'embeddings' ], true ) || ( ! $this->pace_requests && 429 !== $status ) ) {
+			return;
+		}
+		// A malformed header must not park a job for days.
+		$reset   = min( HOUR_IN_SECONDS, $this->retry_seconds( $headers['x-ratelimit-reset-tokens'] ?? '' ) );
+		$delay   = min( HOUR_IN_SECONDS, max( $this->retry_seconds( $headers['retry-after'] ?? '' ), $reset, $this->retry_seconds( $headers['x-ratelimit-reset-requests'] ?? '' ) ) );
+		$blocked = 429 === $status ? time() + max( 60, $delay ) : 0;
+		// Only a success proves the limit has lifted; another error must not
+		// end a cooldown an earlier 429 started.
+		if ( $status < 200 || $status >= 300 ) {
+			$previous = get_transient( $this->rate_limit_key( $endpoint ) );
+			$blocked  = max( $blocked, is_array( $previous ) ? (int) ( $previous['blocked_until'] ?? 0 ) : 0 );
+		}
+		$state = [
+			'blocked_until' => $blocked,
+			'reset_at'      => time() + $reset,
+		];
+		if ( isset( $headers['x-ratelimit-remaining-tokens'] ) ) {
+			$state['remaining'] = (int) $headers['x-ratelimit-remaining-tokens'];
+		}
+		set_transient( $this->rate_limit_key( $endpoint ), $state, max( 60, $delay, $blocked - time() ) + MINUTE_IN_SECONDS );
+	}
 
 	/**
 	 * The single instance of the class.
@@ -72,6 +237,75 @@ class OpenAI {
 	 * @var string
 	 */
 	public const EMBEDDING_MODEL = 'text-embedding-3-small';
+
+	/**
+	 * The model that rewrites follow-ups into standalone retrieval queries: the
+	 * cheapest tier is enough for a one-line rewrite.
+	 *
+	 * @var string
+	 */
+	public const REWRITE_MODEL = 'gpt-5.4-nano';
+
+	/**
+	 * Error codes meaning the key cannot use the rewrite model; the rewrite then
+	 * retries once with the chat model.
+	 *
+	 * @since 2.1.0
+	 *
+	 * @var string[]
+	 */
+	public const REWRITE_MODEL_UNAVAILABLE_CODES = [
+		'model_not_found',
+		'permission_denied',
+	];
+
+	/**
+	 * Most characters a rewrite may add to the message: room for a short
+	 * follow-up expanded with the subject of a long earlier question. A long
+	 * message keeps its own length on top. Mirrors the platform's
+	 * RetrievalQuery::MAX_CHARS.
+	 *
+	 * @var int
+	 */
+	public const REWRITE_MAX_CHARS = 800;
+
+	/**
+	 * Completion tokens for a short message's rewrite: room for a reasoning
+	 * model's hidden tokens, as the visible answer is one line. A long message
+	 * adds its own length. Mirrors the platform's OpenRouterQueryRewriter.
+	 *
+	 * @since 2.1.0
+	 *
+	 * @var int
+	 */
+	public const REWRITE_MAX_TOKENS = 400;
+
+	/**
+	 * Instructions for the retrieval query rewrite. Mirrored by the platform's
+	 * OpenRouterQueryRewriter.
+	 *
+	 * @var string
+	 */
+	public const REWRITE_INSTRUCTIONS = <<<'PROMPT'
+You rewrite the latest visitor message of a website chat into one standalone question that will be used to search the site's content. The search sees only your question, never the conversation, so the question must name what the visitor is talking about.
+
+Rules:
+- Replace every pronoun or vague reference (it, he, she, they, that, this one, there) with the name or thing it refers to in the conversation.
+- Expand a fragment ("fees?", "what about this month", "and on weekends?") into the full question, carrying over the subject of the visitor's previous question.
+- Keep the visitor's language. Copy names, products, numbers and codes exactly as the visitor wrote them.
+- Do not answer, add facts, or change what is being asked.
+- Do not shorten or summarise. Keep every detail the visitor gave and change only the references you resolve.
+- Return the message unchanged when it already names its subject, when it starts a new topic, or when it is not a question (a greeting, thanks). Never attach the earlier subject to a question about something else.
+- Reply with the question only: one line, no quotes, no explanation.
+
+Examples (earlier visitor question → latest message → reply):
+- "where is DJ Nova playing next" → "how long has she been djing" → How long has DJ Nova been DJing?
+- "what does DJ Nova charge per event" → "Fees?" → What are DJ Nova's fees per event?
+- "where is DJ Nova playing next" → "what about this month" → Where is DJ Nova playing this month?
+- "Aveți lecții de tenis?" → "Cât costă?" → Cât costă lecțiile de tenis?
+- "do you ship to Canada" → "Do you offer gift wrapping?" → Do you offer gift wrapping?
+- "Que couvre la garantie ?" → "Quels sont vos horaires le samedi ?" → Quels sont vos horaires le samedi ?
+PROMPT;
 
 	/**
 	 * Base support-assistant instructions shared by the reply flows.
@@ -341,21 +575,28 @@ PROMPT;
 	/**
 	 * Resolve the effective chat model.
 	 *
-	 * GPT-3.5 models don't support the structured-output (`json_schema`) response
-	 * format Hyve requires, so they always error. Any stored GPT-3.5 model (no
-	 * longer offered in the UI) falls back to the default so existing sites keep
-	 * working without manual intervention.
+	 * A model in `RETIRED_CHAT_MODELS` errors on every request, so a stored one
+	 * is replaced by its successor and existing sites keep working without
+	 * manual intervention.
 	 *
 	 * @param mixed $model The stored chat model.
 	 *
 	 * @return string The model to use for requests.
 	 */
 	public static function resolve_chat_model( $model ) {
-		if ( ! is_string( $model ) || '' === $model || 0 === strpos( $model, 'gpt-3.5' ) ) {
-			return 'gpt-5.4-nano';
+		if ( ! is_string( $model ) || '' === $model ) {
+			return self::DEFAULT_CHAT_MODEL;
 		}
 
-		return $model;
+		if ( isset( self::RETIRED_CHAT_MODELS[ $model ] ) ) {
+			return self::RETIRED_CHAT_MODELS[ $model ];
+		}
+
+		// A snapshot (gpt-4o-2024-08-06, gpt-3.5-turbo-0125, gpt-3.5-turbo-16k)
+		// retires with its base model; a sibling family (gpt-5-mini) does not.
+		$base = (string) preg_replace( '/(-(\d{4}-\d{2}-\d{2}|\d{4}|\d+k))+$/', '', $model );
+
+		return self::RETIRED_CHAT_MODELS[ $base ] ?? $model;
 	}
 
 	/**
@@ -425,16 +666,19 @@ PROMPT;
 	 * 
 	 * @param string|array<string> $content Content.
 	 * @param string               $model   Model.
-	 * 
+	 * @param int                  $timeout Request timeout in seconds; 0 keeps the default.
+	 *
 	 * @return mixed
 	 */
-	public function create_embeddings( $content, $model = self::EMBEDDING_MODEL ) {
+	public function create_embeddings( $content, $model = self::EMBEDDING_MODEL, $timeout = 0 ) {
 		$response = $this->request(
 			'embeddings',
 			[
 				'input' => $content,
 				'model' => $model,
-			]
+			],
+			'POST',
+			$timeout
 		);
 
 		if ( is_wp_error( $response ) ) {
@@ -446,6 +690,127 @@ PROMPT;
 		}
 
 		return new \WP_Error( 'unknown_error', __( 'An error occurred while creating the embeddings.', 'hyve-lite' ) );
+	}
+
+	/**
+	 * Rewrite a follow-up into a standalone question for knowledge base retrieval.
+	 *
+	 * One small completion resolves pronouns and fragments ("how long has he
+	 * been djing") against the recent turns ("How long has RUCA been DJing?").
+	 * The instructions are kept in sync with the platform's
+	 * OpenRouterQueryRewriter so both modes search the same way.
+	 *
+	 * @since 2.1.0
+	 *
+	 * @param string                                              $message The visitor's latest message.
+	 * @param list<array{role: 'user'|'assistant', text: string}> $turns   Recent turns, oldest first.
+	 *
+	 * @return string|\WP_Error The rewritten question, or an error when the model gave none.
+	 */
+	public function rewrite_query( $message, $turns ) {
+		$lines = [];
+
+		foreach ( $turns as $turn ) {
+			$lines[] = ( 'assistant' === $turn['role'] ? 'Assistant: ' : 'Visitor: ' ) . $turn['text'];
+		}
+
+		$input = "Conversation:\n" . implode( "\n", $lines ) . "\n\nLatest visitor message: " . $message;
+
+		/**
+		 * Filters the model that rewrites follow-ups into standalone retrieval queries.
+		 *
+		 * @since 2.1.0
+		 *
+		 * @param string $model The OpenAI model. Default `gpt-5.4-nano`.
+		 */
+		$model = (string) apply_filters( 'hyve_retrieval_rewrite_model', self::REWRITE_MODEL );
+
+		// A long message comes back at its own length plus the resolved
+		// subject; one token per character covers it in any script.
+		$max_tokens = self::REWRITE_MAX_TOKENS + mb_strlen( trim( $message ) );
+		$response   = $this->request_rewrite( $model, $input, $max_tokens );
+
+		// A project or key can be barred from the rewrite model while the chat
+		// model, which every turn already uses, works.
+		if (
+			is_wp_error( $response )
+			&& in_array( $response->get_error_code(), self::REWRITE_MODEL_UNAVAILABLE_CODES, true )
+			&& $model !== $this->chat_model
+		) {
+			$response = $this->request_rewrite( $this->chat_model, $input, $max_tokens );
+		}
+
+		if ( is_wp_error( $response ) ) {
+			return $response;
+		}
+
+		// A completion cut by the token limit can stop before the subject it was
+		// meant to add; the caller then searches the message as sent.
+		if ( isset( $response->choices[0]->finish_reason ) && 'length' === $response->choices[0]->finish_reason ) {
+			return new \WP_Error( 'rewrite_failed', __( 'The query could not be rewritten.', 'hyve-lite' ) );
+		}
+
+		$content = isset( $response->choices[0]->message->content ) && is_string( $response->choices[0]->message->content ) ? $response->choices[0]->message->content : '';
+		$query   = self::clean_rewritten_query( $content, $message );
+
+		if ( '' === $query ) {
+			return new \WP_Error( 'rewrite_failed', __( 'The query could not be rewritten.', 'hyve-lite' ) );
+		}
+
+		return $query;
+	}
+
+	/**
+	 * Send one rewrite completion.
+	 *
+	 * @since 2.1.0
+	 *
+	 * @param string $model      The OpenAI model.
+	 * @param string $input      The conversation and latest message.
+	 * @param int    $max_tokens The completion token limit.
+	 *
+	 * @return mixed The decoded response, or a WP_Error.
+	 */
+	private function request_rewrite( $model, $input, $max_tokens ) {
+		return $this->request(
+			'chat/completions',
+			[
+				'model'                 => $model,
+				'messages'              => [
+					[
+						'role'    => 'system',
+						'content' => self::REWRITE_INSTRUCTIONS,
+					],
+					[
+						'role'    => 'user',
+						'content' => $input,
+					],
+				],
+				'max_completion_tokens' => $max_tokens,
+			],
+			'POST',
+			10
+		);
+	}
+
+	/**
+	 * Reduce a rewrite completion to the one-line question it should be.
+	 *
+	 * @since 2.1.0
+	 *
+	 * @param string $content The model output.
+	 * @param string $message The visitor's message, whose length the rewrite may keep.
+	 *
+	 * @return string The question, or '' when the output is unusable.
+	 */
+	public static function clean_rewritten_query( $content, $message = '' ) {
+		$lines = preg_split( '/\R/u', trim( $content ) );
+		$query = is_array( $lines ) && isset( $lines[0] ) ? trim( $lines[0] ) : '';
+		// trim() works on bytes and would eat the lead byte of Cyrillic and
+		// other letters that share one with the curly quotes.
+		$query = (string) preg_replace( '/^[\s"\'“”‘’]+|[\s"\'“”‘’]+$/u', '', $query );
+
+		return mb_substr( $query, 0, self::REWRITE_MAX_CHARS + mb_strlen( trim( $message ) ) );
 	}
 
 	/**
@@ -1100,34 +1465,38 @@ PROMPT;
 	 * The moderations endpoint accepts an array of inputs, so a batch of chunks
 	 * is moderated in one request instead of one request per chunk.
 	 *
-	 * @param array<string> $inputs Inputs to moderate.
+	 * @param array<string> $inputs  Inputs to moderate.
+	 * @param int           $timeout Request timeout in seconds; 0 keeps the default.
 	 *
 	 * @return array<int, object{flagged: bool, categories: array<string, bool>, category_scores: array<string, float>, category_applied_input_types: array<string, string[]>}>|\WP_Error Flagged results, or error.
 	 */
-	private function moderate_batch( $inputs ) {
+	private function moderate_batch( $inputs, $timeout = 0 ) {
 		$response = $this->request(
 			'moderations',
 			[
 				'input' => $inputs,
-			]
+			],
+			'POST',
+			$timeout
 		);
 
 		if ( is_wp_error( $response ) ) {
 			return $response;
 		}
+		if ( empty( $response->results ) || ! is_array( $response->results ) ) {
+			return new \WP_Error( 'invalid_moderation_response', __( 'OpenAI did not return a moderation result. This content has not been indexed.', 'hyve-lite' ), $this->response_context );
+		}
 
 		$flagged = [];
 
-		if ( isset( $response->results ) && is_array( $response->results ) ) {
-			foreach ( $response->results as $result ) {
-				if ( isset( $result->flagged ) && $result->flagged ) {
-					/**
-					 * Moderation result.
-					 *
-					 * @var object{flagged: bool, categories: array<string, bool>, category_scores: array<string, float>, category_applied_input_types: array<string, string[]>} $result
-					 */
-					$flagged[] = $result;
-				}
+		foreach ( $response->results as $result ) {
+			if ( isset( $result->flagged ) && $result->flagged ) {
+				/**
+				 * Moderation result.
+				 *
+				 * @var object{flagged: bool, categories: array<string, bool>, category_scores: array<string, float>, category_applied_input_types: array<string, string[]>} $result
+				 */
+				$flagged[] = $result;
 			}
 		}
 
@@ -1137,12 +1506,13 @@ PROMPT;
 	/**
 	 * Moderate data.
 	 *
-	 * @param array<string>|string $chunks Data to moderate.
-	 * @param int                  $id     Post ID.
+	 * @param array<string>|string $chunks  Data to moderate.
+	 * @param int                  $id      Post ID.
+	 * @param int                  $timeout Request timeout in seconds; 0 keeps the default.
 	 *
 	 * @return true|array<string, float>|\WP_Error
 	 */
-	public function moderate_chunks( $chunks, $id = null ) {
+	public function moderate_chunks( $chunks, $id = null, $timeout = 0 ) {
 		if ( $id ) {
 			$moderated = get_transient( 'hyve_moderate_post_' . $id );
 
@@ -1187,7 +1557,7 @@ PROMPT;
 		$batch_size = max( 1, (int) apply_filters( 'hyve_moderation_batch_size', 5 ) );
 
 		foreach ( array_chunk( array_values( $chunks ), $batch_size ) as $batch ) {
-			$moderated = $this->moderate_batch( $batch );
+			$moderated = $this->moderate_batch( $batch, $timeout );
 
 			if ( is_wp_error( $moderated ) ) {
 				return $moderated;
@@ -1245,6 +1615,7 @@ PROMPT;
 	 * @return mixed
 	 */
 	private function request( $endpoint, $params = [], $method = 'POST', $timeout = 0 ) {
+		$this->response_context = [];
 		if ( ! $this->api_key ) {
 			return (object) [
 				'error'   => true,
@@ -1303,6 +1674,7 @@ PROMPT;
 		if ( is_wp_error( $response ) ) {
 			return $response;
 		} else {
+			$this->capture_response_context( $endpoint, $params, $response );
 			$body = wp_remote_retrieve_body( $response );
 			$body = json_decode( $body );
 
@@ -1332,7 +1704,7 @@ PROMPT;
 					);
 				}
 
-				return new \WP_Error( $error_code, $error_message );
+				return new \WP_Error( $error_code, $error_message, $this->response_context );
 			}
 			
 			if ( 'POST' === $method && $this->persist_errors ) {
@@ -1372,6 +1744,35 @@ PROMPT;
 				]
 			);
 		}
+	}
+
+	/**
+	 * Describe a failed request for the Knowledge Base listing: the actionable
+	 * message, then the endpoint, model, HTTP status and the account's token
+	 * limit headers when the provider sent them.
+	 *
+	 * @param \WP_Error $error The failure.
+	 *
+	 * @return string
+	 */
+	public static function describe_error( $error ) {
+		$text = self::get_error_message_for_code( $error->get_error_code() ) ?? $error->get_error_message();
+		$data = $error->get_error_data();
+
+		if ( ! is_array( $data ) || empty( $data['endpoint'] ) ) {
+			return $text;
+		}
+
+		$details = [ $data['endpoint'], $data['model'] ?? '', 'HTTP ' . ( $data['http_status'] ?? '' ) ];
+
+		// The account's limit is what the admin needs to raise or wait for.
+		foreach ( [ 'x-ratelimit-limit-tokens', 'x-ratelimit-remaining-tokens', 'x-ratelimit-reset-tokens' ] as $header ) {
+			if ( isset( $data['headers'][ $header ] ) ) {
+				$details[] = $header . ': ' . $data['headers'][ $header ];
+			}
+		}
+
+		return $text . ' (' . implode( ', ', array_filter( $details ) ) . ')';
 	}
 
 	/**
