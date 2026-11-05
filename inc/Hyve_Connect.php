@@ -805,6 +805,8 @@ class Hyve_Connect {
 				'code'   => $slug,
 				'status' => $code,
 				'quota'  => $quota,
+				// Validation failures name the offending fields (`documents.N.content`).
+				'errors' => is_array( $decoded ) && isset( $decoded['errors'] ) && is_array( $decoded['errors'] ) ? $decoded['errors'] : [],
 			]
 		);
 

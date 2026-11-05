@@ -62,6 +62,7 @@ class Main {
 		add_action( 'before_delete_post', [ $this, 'delete_post' ] );
 		add_action( DB_Table::CONNECT_SYNC_HOOK, [ $this->table, 'connect_run_sync' ] );
 		add_action( DB_Table::CONNECT_DELETE_HOOK, [ $this->table, 'connect_run_deletes' ] );
+		add_action( DB_Table::CONNECT_RESUME_HOOK, [ $this->table, 'connect_maybe_resume_blocked' ] );
 		add_filter( 'themeisle_sdk_enable_telemetry', '__return_true' );
 		add_filter( 'pre_option_hyve_lite_logger_flag', [ $this, 'force_connect_telemetry' ] );
 
@@ -1145,6 +1146,7 @@ class Main {
 		}
 
 		update_post_meta( $post_id, '_hyve_needs_update', 1 );
+		delete_post_meta( $post_id, '_hyve_connect_update_attempts' );
 		if ( ! Ingestion_Queue::instance()->is_active( $post_id ) ) {
 			delete_post_meta( $post_id, '_hyve_ingestion' );
 		}
