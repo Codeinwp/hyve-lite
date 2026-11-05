@@ -39,6 +39,21 @@ class Qdrant_API {
 	public const ERROR_OPTION_KEY = 'hyve_qdrant_api_error';
 
 	/**
+	 * Post meta naming the only generation search may return for a source
+	 * whose older Qdrant points could not be pruned yet. One row per source,
+	 * so concurrent updates for different sources cannot overwrite each
+	 * other; search reads them all in one query.
+	 */
+	public const CURRENT_GENERATION = '_hyve_qdrant_generation';
+
+	/**
+	 * Option identifying the current Qdrant connection. A marker records the
+	 * connection it was written for, so one from before a reconnection never
+	 * hides or prunes what the new connection's migration uploads.
+	 */
+	public const CONNECTION = 'hyve_qdrant_connection';
+
+	/**
 	 * Cron hook that moves local vectors to Qdrant.
 	 *
 	 * @var string
@@ -155,6 +170,14 @@ class Qdrant_API {
 
 		if ( is_wp_error( $payload_index ) ) {
 			return $payload_index;
+		}
+
+		// A fresh connection starts without markers, under a new identity, so
+		// an import still finishing for the old one cannot write one later.
+		// Re-saving settings on a live connection keeps both.
+		if ( 'active' !== self::fresh_option( 'hyve_qdrant_status' ) ) {
+			delete_post_meta_by_key( self::CURRENT_GENERATION );
+			update_option( self::CONNECTION, wp_generate_uuid4(), false );
 		}
 
 		update_option( 'hyve_qdrant_status', 'active' );
@@ -455,9 +478,12 @@ class Qdrant_API {
 		}
 
 		try {
-			$client->collections( self::COLLECTION_NAME )->index()->create(
-				new CreateIndex( 'post_id', 'keyword' )
-			);
+			// Every field a filter names: hosted clusters refuse unindexed filters.
+			foreach ( [ 'post_id', '_hyve_ingestion_generation', '_hyve_ingestion_pending' ] as $field ) {
+				$client->collections( self::COLLECTION_NAME )->index()->create(
+					new CreateIndex( $field, 'keyword' )
+				);
+			}
 			delete_option( self::ERROR_OPTION_KEY );
 
 			return true;
@@ -563,10 +589,203 @@ class Qdrant_API {
 
 			delete_option( self::ERROR_OPTION_KEY );
 
+			// Every generation is gone, so no older one is left to hide.
+			self::set_current_generation( (int) $id, null );
+
 			return 'acknowledged' === $response['result']['status'];
 		} catch ( \Throwable $e ) {
 			return $this->handle_exception( $e );
 		}
+	}
+
+	/**
+	 * Remove an unpublished generation, or prune older ones after publication.
+	 *
+	 * @param int    $post_id Source ID.
+	 * @param string $generation Ingestion generation.
+	 * @param bool   $keep Keep this generation and delete older points instead.
+	 * @return bool|\WP_Error
+	 */
+	public function delete_ingestion_points( $post_id, $generation, $keep = false ) {
+		$client = $this->ensure_client();
+		if ( is_wp_error( $client ) ) {
+			return $client;
+		}
+		try {
+			$filter = ( new Filter() )->addMust( new MatchString( 'post_id', (string) $post_id ) );
+			$match  = new MatchString( '_hyve_ingestion_generation', $generation );
+			if ( $keep ) {
+				$filter->addMustNot( $match );
+			} else {
+				$filter->addMust( $match );
+			}
+			$response = $client->collections( self::COLLECTION_NAME )->points()->deleteByFilter( $filter );
+			delete_option( self::ERROR_OPTION_KEY );
+			return 'acknowledged' === $response['result']['status'];
+		} catch ( \Throwable $error ) {
+			return $this->handle_exception( $error );
+		}
+	}
+
+	/**
+	 * Make a fully uploaded generation searchable in one payload operation.
+	 *
+	 * @param array<string> $ids Deterministic point IDs.
+	 * @return bool|\WP_Error
+	 */
+	public function publish_ingestion_points( $ids ) {
+		$client = $this->ensure_client();
+		if ( is_wp_error( $client ) ) {
+			return $client;
+		}
+		try {
+			$response = $client->collections( self::COLLECTION_NAME )->points()->payload()->set( $ids, [ '_hyve_ingestion_pending' => 'no' ], [ 'wait' => 'true' ] );
+			delete_option( self::ERROR_OPTION_KEY );
+			return 'completed' === $response['result']['status'];
+		} catch ( \Throwable $error ) {
+			return $this->handle_exception( $error );
+		}
+	}
+
+	/**
+	 * Exclude staged points, and the older generations of any source whose
+	 * prune is still pending. Filtering in the query keeps the result limit
+	 * applied to visible points only.
+	 *
+	 * @return Filter
+	 */
+	private function visible_points_filter() {
+		$filter = ( new Filter() )->addMustNot( new MatchString( '_hyve_ingestion_pending', 'yes' ) );
+
+		foreach ( self::pending_prunes() as $post_id => $generation ) {
+			$filter->addMustNot(
+				( new Filter() )
+					->addMust( new MatchString( 'post_id', (string) $post_id ) )
+					->addMustNot( new MatchString( '_hyve_ingestion_generation', $generation ) )
+			);
+		}
+
+		return $filter;
+	}
+
+	/**
+	 * Read an option past this request's cache, so a change another request
+	 * made meanwhile is seen.
+	 *
+	 * @param string $name Option name.
+	 *
+	 * @return string
+	 */
+	private static function fresh_option( $name ) {
+		global $wpdb;
+
+		return (string) $wpdb->get_var( $wpdb->prepare( "SELECT option_value FROM $wpdb->options WHERE option_name = %s", $name ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Must see a concurrent change.
+	}
+
+	/**
+	 * The current connection's identity, or '' while Qdrant is inactive.
+	 * Connections made before this option existed get one on first use.
+	 *
+	 * @return string
+	 */
+	public static function connection_id() {
+		if ( 'active' !== self::fresh_option( 'hyve_qdrant_status' ) ) {
+			return '';
+		}
+
+		$id = self::fresh_option( self::CONNECTION );
+
+		if ( '' === $id ) {
+			// Two requests may race here; the first stored value wins.
+			add_option( self::CONNECTION, wp_generate_uuid4(), '', false );
+			wp_cache_delete( 'notoptions', 'options' );
+			$id = self::fresh_option( self::CONNECTION );
+		}
+
+		return $id;
+	}
+
+	/**
+	 * Sources waiting for an older generation to be pruned on the current
+	 * connection.
+	 *
+	 * @return array<int, string> Generation to keep, by source ID.
+	 */
+	public static function pending_prunes() {
+		global $wpdb;
+
+		$rows = $wpdb->get_results( $wpdb->prepare( "SELECT post_id, meta_value FROM $wpdb->postmeta WHERE meta_key = %s", self::CURRENT_GENERATION ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Read fresh on every search; normally no rows.
+
+		if ( empty( $rows ) ) {
+			return [];
+		}
+
+		$connection = self::connection_id();
+		$pending    = [];
+
+		foreach ( $rows as $row ) {
+			$generation = self::parse_marker( (string) $row->meta_value, $connection );
+
+			if ( '' !== $generation ) {
+				$pending[ (int) $row->post_id ] = $generation;
+			}
+		}
+
+		return $pending;
+	}
+
+	/**
+	 * The generation a source's marker keeps on the current connection.
+	 *
+	 * @param int $post_id Source ID.
+	 *
+	 * @return string The generation, or '' when there is no current marker.
+	 */
+	public static function current_generation( $post_id ) {
+		wp_cache_delete( $post_id, 'post_meta' );
+
+		return self::parse_marker( (string) get_post_meta( $post_id, self::CURRENT_GENERATION, true ), self::connection_id() );
+	}
+
+	/**
+	 * Read a stored `connection|generation` marker for one connection.
+	 *
+	 * @param string $marker     Stored value.
+	 * @param string $connection Connection to match.
+	 *
+	 * @return string
+	 */
+	private static function parse_marker( $marker, $connection ) {
+		$parts = explode( '|', $marker, 2 );
+
+		return '' !== $connection && 2 === count( $parts ) && $parts[0] === $connection ? $parts[1] : '';
+	}
+
+	/**
+	 * Record which generation search may return for a source, or clear it.
+	 *
+	 * @param int         $post_id    Source ID.
+	 * @param string|null $generation Generation to keep, or null when nothing older remains.
+	 * @param string|null $connection Connection the caller's upload ran on. A marker
+	 *                                for any other connection is not written.
+	 *
+	 * @return void
+	 */
+	public static function set_current_generation( $post_id, $generation, $connection = null ) {
+		if ( null === $generation ) {
+			delete_post_meta( $post_id, self::CURRENT_GENERATION );
+			return;
+		}
+
+		$current = self::connection_id();
+
+		// Qdrant was deactivated, or reconnected, since the caller's upload:
+		// its marker would hide the new connection's migrated points.
+		if ( '' === $current || ( null !== $connection && $connection !== $current ) ) {
+			return;
+		}
+
+		update_post_meta( $post_id, self::CURRENT_GENERATION, $current . '|' . $generation );
 	}
 
 	/**
@@ -591,6 +810,7 @@ class Qdrant_API {
 				)
 			)
 			->setLimit( 10 )
+			->setFilter( $this->visible_points_filter() )
 			->setScoreThreshold( $score_threshold )
 			->setWithPayload( true );
 			$response = $client->collections( self::COLLECTION_NAME )->points()->search( $search );

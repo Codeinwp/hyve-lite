@@ -1145,6 +1145,9 @@ class Main {
 		}
 
 		update_post_meta( $post_id, '_hyve_needs_update', 1 );
+		if ( ! Ingestion_Queue::instance()->is_active( $post_id ) ) {
+			delete_post_meta( $post_id, '_hyve_ingestion' );
+		}
 		delete_post_meta( $post_id, '_hyve_moderation_failed' );
 		delete_post_meta( $post_id, '_hyve_moderation_review' );
 

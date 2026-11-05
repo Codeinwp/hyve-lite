@@ -80,6 +80,144 @@ class OpenAI {
 	private $persist_errors = true;
 
 	/**
+	 * Last response diagnostics, used by background ingestion.
+	 *
+	 * @var array<string, mixed>
+	 */
+	private $response_context = [];
+
+	/**
+	 * Whether responses should teach the shared rate-limit state.
+	 *
+	 * @var bool
+	 */
+	private $pace_requests = false;
+
+	/**
+	 * Background ingestion learns the account's budget from every response;
+	 * chat only records an actual 429, so it never pays for the write.
+	 *
+	 * @param bool $enabled Whether to persist budget headers.
+	 * @return void
+	 */
+	public function pace_requests( $enabled ) {
+		$this->pace_requests = (bool) $enabled;
+	}
+
+	/**
+	 * Read the last transport response without changing successful API payloads.
+	 *
+	 * @return array<string, mixed>
+	 */
+	public function get_response_context() {
+		return $this->response_context;
+	}
+
+	/**
+	 * Seconds until an endpoint can accept the next background batch.
+	 *
+	 * @param string $endpoint Endpoint.
+	 * @param int    $tokens Estimated tokens in the next request.
+	 * @return int
+	 */
+	public function rate_limit_delay( $endpoint, $tokens = 0 ) {
+		$state = get_transient( $this->rate_limit_key( $endpoint ) );
+		if ( ! is_array( $state ) ) {
+			return 0;
+		}
+		$until = (int) ( $state['blocked_until'] ?? 0 );
+		if ( isset( $state['remaining'] ) && $state['remaining'] < $tokens ) {
+			$until = max( $until, (int) ( $state['reset_at'] ?? 0 ) );
+		}
+		return max( 0, $until - time() );
+	}
+
+	/**
+	 * Keep budgets separate by credential and endpoint; never store the key.
+	 *
+	 * @param string $endpoint Endpoint.
+	 * @return string
+	 */
+	private function rate_limit_key( $endpoint ) {
+		return 'hyve_rate_' . hash( 'sha256', $this->api_key . ':' . $endpoint );
+	}
+
+	/**
+	 * Parse provider durations such as 1m2.5s, or Retry-After HTTP dates.
+	 *
+	 * @param string $value Header value.
+	 * @return int
+	 */
+	private function retry_seconds( $value ) {
+		if ( is_numeric( $value ) ) {
+			return max( 0, (int) ceil( (float) $value ) );
+		}
+		if ( preg_match_all( '/(\d+(?:\.\d+)?)(ms|s|m|h|d)/', $value, $matches, PREG_SET_ORDER ) ) {
+			$seconds = 0;
+			$units   = [
+				'ms' => 0.001,
+				's'  => 1,
+				'm'  => 60,
+				'h'  => 3600,
+				'd'  => 86400,
+			];
+			foreach ( $matches as $match ) {
+				$seconds += (float) $match[1] * $units[ $match[2] ];
+			}
+			return (int) ceil( $seconds );
+		}
+		$date = strtotime( $value );
+		return false === $date ? 0 : max( 0, $date - time() );
+	}
+
+	/**
+	 * Retain only useful response headers and learn the account's current budget.
+	 *
+	 * @param string               $endpoint Endpoint.
+	 * @param array<string, mixed> $params Request parameters.
+	 * @param array<string, mixed> $response HTTP response.
+	 * @return void
+	 */
+	private function capture_response_context( $endpoint, $params, $response ) {
+		$status  = (int) wp_remote_retrieve_response_code( $response );
+		$headers = [];
+		foreach ( [ 'retry-after', 'x-ratelimit-limit-tokens', 'x-ratelimit-remaining-tokens', 'x-ratelimit-reset-tokens', 'x-ratelimit-reset-requests', 'x-request-id' ] as $name ) {
+			$value = wp_remote_retrieve_header( $response, $name );
+			if ( is_string( $value ) && '' !== $value ) {
+				$headers[ $name ] = $value;
+			}
+		}
+		// Not `status`: the REST API would send that key as the HTTP response code.
+		$this->response_context = [
+			'endpoint'    => $endpoint,
+			'model'       => $params['model'] ?? ( 'moderations' === $endpoint ? 'omni-moderation-latest' : '' ),
+			'http_status' => $status,
+			'headers'     => $headers,
+		];
+		if ( ! in_array( $endpoint, [ 'moderations', 'embeddings' ], true ) || ( ! $this->pace_requests && 429 !== $status ) ) {
+			return;
+		}
+		// A malformed header must not park a job for days.
+		$reset   = min( HOUR_IN_SECONDS, $this->retry_seconds( $headers['x-ratelimit-reset-tokens'] ?? '' ) );
+		$delay   = min( HOUR_IN_SECONDS, max( $this->retry_seconds( $headers['retry-after'] ?? '' ), $reset, $this->retry_seconds( $headers['x-ratelimit-reset-requests'] ?? '' ) ) );
+		$blocked = 429 === $status ? time() + max( 60, $delay ) : 0;
+		// Only a success proves the limit has lifted; another error must not
+		// end a cooldown an earlier 429 started.
+		if ( $status < 200 || $status >= 300 ) {
+			$previous = get_transient( $this->rate_limit_key( $endpoint ) );
+			$blocked  = max( $blocked, is_array( $previous ) ? (int) ( $previous['blocked_until'] ?? 0 ) : 0 );
+		}
+		$state = [
+			'blocked_until' => $blocked,
+			'reset_at'      => time() + $reset,
+		];
+		if ( isset( $headers['x-ratelimit-remaining-tokens'] ) ) {
+			$state['remaining'] = (int) $headers['x-ratelimit-remaining-tokens'];
+		}
+		set_transient( $this->rate_limit_key( $endpoint ), $state, max( 60, $delay, $blocked - time() ) + MINUTE_IN_SECONDS );
+	}
+
+	/**
 	 * The single instance of the class.
 	 *
 	 * @var OpenAI
@@ -459,16 +597,19 @@ PROMPT;
 	 * 
 	 * @param string|array<string> $content Content.
 	 * @param string               $model   Model.
-	 * 
+	 * @param int                  $timeout Request timeout in seconds; 0 keeps the default.
+	 *
 	 * @return mixed
 	 */
-	public function create_embeddings( $content, $model = self::EMBEDDING_MODEL ) {
+	public function create_embeddings( $content, $model = self::EMBEDDING_MODEL, $timeout = 0 ) {
 		$response = $this->request(
 			'embeddings',
 			[
 				'input' => $content,
 				'model' => $model,
-			]
+			],
+			'POST',
+			$timeout
 		);
 
 		if ( is_wp_error( $response ) ) {
@@ -1134,34 +1275,38 @@ PROMPT;
 	 * The moderations endpoint accepts an array of inputs, so a batch of chunks
 	 * is moderated in one request instead of one request per chunk.
 	 *
-	 * @param array<string> $inputs Inputs to moderate.
+	 * @param array<string> $inputs  Inputs to moderate.
+	 * @param int           $timeout Request timeout in seconds; 0 keeps the default.
 	 *
 	 * @return array<int, object{flagged: bool, categories: array<string, bool>, category_scores: array<string, float>, category_applied_input_types: array<string, string[]>}>|\WP_Error Flagged results, or error.
 	 */
-	private function moderate_batch( $inputs ) {
+	private function moderate_batch( $inputs, $timeout = 0 ) {
 		$response = $this->request(
 			'moderations',
 			[
 				'input' => $inputs,
-			]
+			],
+			'POST',
+			$timeout
 		);
 
 		if ( is_wp_error( $response ) ) {
 			return $response;
 		}
+		if ( empty( $response->results ) || ! is_array( $response->results ) ) {
+			return new \WP_Error( 'invalid_moderation_response', __( 'OpenAI did not return a moderation result. This content has not been indexed.', 'hyve-lite' ), $this->response_context );
+		}
 
 		$flagged = [];
 
-		if ( isset( $response->results ) && is_array( $response->results ) ) {
-			foreach ( $response->results as $result ) {
-				if ( isset( $result->flagged ) && $result->flagged ) {
-					/**
-					 * Moderation result.
-					 *
-					 * @var object{flagged: bool, categories: array<string, bool>, category_scores: array<string, float>, category_applied_input_types: array<string, string[]>} $result
-					 */
-					$flagged[] = $result;
-				}
+		foreach ( $response->results as $result ) {
+			if ( isset( $result->flagged ) && $result->flagged ) {
+				/**
+				 * Moderation result.
+				 *
+				 * @var object{flagged: bool, categories: array<string, bool>, category_scores: array<string, float>, category_applied_input_types: array<string, string[]>} $result
+				 */
+				$flagged[] = $result;
 			}
 		}
 
@@ -1171,12 +1316,13 @@ PROMPT;
 	/**
 	 * Moderate data.
 	 *
-	 * @param array<string>|string $chunks Data to moderate.
-	 * @param int                  $id     Post ID.
+	 * @param array<string>|string $chunks  Data to moderate.
+	 * @param int                  $id      Post ID.
+	 * @param int                  $timeout Request timeout in seconds; 0 keeps the default.
 	 *
 	 * @return true|array<string, float>|\WP_Error
 	 */
-	public function moderate_chunks( $chunks, $id = null ) {
+	public function moderate_chunks( $chunks, $id = null, $timeout = 0 ) {
 		if ( $id ) {
 			$moderated = get_transient( 'hyve_moderate_post_' . $id );
 
@@ -1221,7 +1367,7 @@ PROMPT;
 		$batch_size = max( 1, (int) apply_filters( 'hyve_moderation_batch_size', 5 ) );
 
 		foreach ( array_chunk( array_values( $chunks ), $batch_size ) as $batch ) {
-			$moderated = $this->moderate_batch( $batch );
+			$moderated = $this->moderate_batch( $batch, $timeout );
 
 			if ( is_wp_error( $moderated ) ) {
 				return $moderated;
@@ -1279,6 +1425,7 @@ PROMPT;
 	 * @return mixed
 	 */
 	private function request( $endpoint, $params = [], $method = 'POST', $timeout = 0 ) {
+		$this->response_context = [];
 		if ( ! $this->api_key ) {
 			return (object) [
 				'error'   => true,
@@ -1337,6 +1484,7 @@ PROMPT;
 		if ( is_wp_error( $response ) ) {
 			return $response;
 		} else {
+			$this->capture_response_context( $endpoint, $params, $response );
 			$body = wp_remote_retrieve_body( $response );
 			$body = json_decode( $body );
 
@@ -1366,7 +1514,7 @@ PROMPT;
 					);
 				}
 
-				return new \WP_Error( $error_code, $error_message );
+				return new \WP_Error( $error_code, $error_message, $this->response_context );
 			}
 			
 			if ( 'POST' === $method && $this->persist_errors ) {
@@ -1406,6 +1554,35 @@ PROMPT;
 				]
 			);
 		}
+	}
+
+	/**
+	 * Describe a failed request for the Knowledge Base listing: the actionable
+	 * message, then the endpoint, model, HTTP status and the account's token
+	 * limit headers when the provider sent them.
+	 *
+	 * @param \WP_Error $error The failure.
+	 *
+	 * @return string
+	 */
+	public static function describe_error( $error ) {
+		$text = self::get_error_message_for_code( $error->get_error_code() ) ?? $error->get_error_message();
+		$data = $error->get_error_data();
+
+		if ( ! is_array( $data ) || empty( $data['endpoint'] ) ) {
+			return $text;
+		}
+
+		$details = [ $data['endpoint'], $data['model'] ?? '', 'HTTP ' . ( $data['http_status'] ?? '' ) ];
+
+		// The account's limit is what the admin needs to raise or wait for.
+		foreach ( [ 'x-ratelimit-limit-tokens', 'x-ratelimit-remaining-tokens', 'x-ratelimit-reset-tokens' ] as $header ) {
+			if ( isset( $data['headers'][ $header ] ) ) {
+				$details[] = $header . ': ' . $data['headers'][ $header ];
+			}
+		}
+
+		return $text . ' (' . implode( ', ', array_filter( $details ) ) . ')';
 	}
 
 	/**
