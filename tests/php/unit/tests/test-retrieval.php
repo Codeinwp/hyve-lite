@@ -39,6 +39,8 @@ class RetrievalTest extends WP_UnitTestCase {
 		remove_all_filters( 'hyve_chat_context_token_limit' );
 		remove_all_filters( 'hyve_context_score_ratio' );
 		remove_all_filters( 'hyve_hybrid_retrieval' );
+		remove_all_filters( 'hyve_retrieval_history_count' );
+		remove_all_filters( 'hyve_retrieval_query' );
 		remove_all_filters( 'pre_http_request' );
 		delete_option( 'hyve_qdrant_status' );
 		$this->set_qdrant_instance( null );
@@ -212,12 +214,11 @@ class RetrievalTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * Follow-up retrieval blends the visitor's earlier turns (so the topic
-	 * carries over) but never the bot's replies: fallback apologies drag the
-	 * query off-topic and answered replies echo knowledge base text, which
-	 * inflates every follow-up's similarity scores.
+	 * A thread with one answered exchange, for the rewrite tests.
+	 *
+	 * @return int The thread post ID.
 	 */
-	public function test_retrieval_query_blends_visitor_turns_only() {
+	private function seed_pickleball_thread(): int {
 		$record_id = Threads::create_thread(
 			'Do you offer pickleball lessons?',
 			[
@@ -232,17 +233,438 @@ class RetrievalTest extends WP_UnitTestCase {
 			[
 				'thread_id' => 'conv_q1',
 				'sender'    => 'bot',
-				'message'   => "Sorry, I'm not able to help with that.",
+				'message'   => '<p>Yes, every <strong>Tuesday</strong>.</p>',
 			]
 		);
 
+		return $record_id;
+	}
+
+	/**
+	 * Switch to self-hosted mode with a test key and drop the cached OpenAI
+	 * client, so the next call reads these settings.
+	 *
+	 * @param array<string, string> $settings Extra Hyve settings.
+	 */
+	private function use_self_hosted_openai( array $settings = [] ): void {
+		update_option(
+			'hyve_settings',
+			array_merge(
+				[
+					'ai_mode' => \ThemeIsle\HyveLite\Hyve_Connect::MODE_SELF,
+					'api_key' => 'sk-test',
+				],
+				$settings
+			)
+		);
+
+		$instance = new ReflectionProperty( \ThemeIsle\HyveLite\OpenAI::class, 'instance' );
+		$instance->setAccessible( true );
+		$instance->setValue( null, null );
+	}
+
+	/**
+	 * Answer the rewrite completion with the given text and record what was
+	 * sent, so a test can assert on the prompt (or on no call at all).
+	 *
+	 * @param string|null $reply         The rewritten question; null makes the request fail.
+	 * @param string      $finish_reason Why the completion stopped.
+	 *
+	 * @return array<int, array<string, mixed>> The decoded request bodies, by reference.
+	 */
+	private function &intercept_rewrite( $reply, string $finish_reason = 'stop' ): array {
+		$requests = [];
+
+		$this->use_self_hosted_openai();
+
+		add_filter(
+			'pre_http_request',
+			function ( $pre, $args, $url ) use ( &$requests, $reply, $finish_reason ) {
+				if ( false === strpos( $url, '/chat/completions' ) ) {
+					return new WP_Error( 'unexpected_request', 'Unfaked outbound request: ' . $url );
+				}
+
+				$requests[] = json_decode( $args['body'], true );
+
+				if ( null === $reply ) {
+					return new WP_Error( 'http_request_failed', 'Rewrite is down.' );
+				}
+
+				return [
+					'response' => [ 'code' => 200 ],
+					'body'     => wp_json_encode(
+						[
+							'choices' => [
+								[
+									'message'       => [ 'content' => $reply ],
+									'finish_reason' => $finish_reason,
+								],
+							],
+						]
+					),
+				];
+			},
+			10,
+			3
+		);
+
+		return $requests;
+	}
+
+	/**
+	 * Every non-empty message with history reaches the rewrite model.
+	 *
+	 * @return array<string, array{0: string, 1: bool, 2: bool}>
+	 */
+	public function needs_rewrite_cases(): array {
+		return [
+			'first message, however short'  => [ 'Fees?', false, false ],
+			'first self-contained message'  => [ 'Do you offer tennis lessons?', false, false ],
+			'empty follow-up'               => [ '', true, false ],
+			'whitespace follow-up'          => [ '  ', true, false ],
+			'short follow-up'               => [ 'Fees?', true, true ],
+			'short follow-up, other script' => [ 'Cât costă?', true, true ],
+			'pronoun'                       => [ 'Does it organise picnics', true, true ],
+			'pronoun later in the sentence' => [ 'how long has he been djing', true, true ],
+			'continuation opener'           => [ 'what about this month', true, true ],
+			'self-contained follow-up'      => [ 'Does msca organise picnics', true, true ],
+			'names its subject'             => [ 'where is rucas next event', true, true ],
+			'pronoun inside a word'         => [ 'Which items ship to Hershey', true, true ],
+			'longer French pronoun'         => [ 'Combien de temps dure-t-elle ?', true, true ],
+			'longer Spanish follow-up'      => [ 'Cuánto cuesta el curso completo', true, true ],
+			'longer Cyrillic follow-up'     => [ 'Как забронировать номер на выходные', true, true ],
+			'Romanian shared English word'  => [ 'Cât de des are loc?', true, true ],
+			'Dutch shared English word'     => [ 'Hoe lang is die geldig?', true, true ],
+			'German shared English word'    => [ 'Was kostet eine Reparatur daran?', true, true ],
+		];
+	}
+
+	/**
+	 * The rewrite output keeps its first line without wrapping quotes, and
+	 * never loses a letter that shares a byte with a curly quote.
+	 */
+	public function test_clean_rewritten_query_is_unicode_safe() {
+		$clean = [ \ThemeIsle\HyveLite\OpenAI::class, 'clean_rewritten_query' ];
+
+		$this->assertSame( 'Как забронировать номер', $clean( 'Как забронировать номер' ) );
+		$this->assertSame( 'Как забронировать номер?', $clean( "“Как забронировать номер?”\nПояснение." ) );
+		$this->assertSame( 'How difficult is it?', $clean( "  'How difficult is it?'  " ) );
+		$this->assertSame( '', $clean( '  ""  ' ) );
+	}
+
+	/**
+	 * Rewrite eligibility depends on history and non-empty text, not language.
+	 *
+	 * @dataProvider needs_rewrite_cases
+	 *
+	 * @param string $message     The visitor message.
+	 * @param bool   $has_history Whether earlier turns exist.
+	 * @param bool   $expected    Whether a rewrite is expected.
+	 */
+	public function test_needs_query_rewrite( string $message, bool $has_history, bool $expected ) {
+		$this->assertSame( $expected, API::needs_query_rewrite( $message, $has_history ) );
+	}
+
+	/**
+	 * A pronoun follow-up is rewritten into a standalone question and only that
+	 * question is searched: the earlier turns reach the model as context for
+	 * the rewrite, never the embedded query.
+	 */
+	public function test_follow_up_is_rewritten_into_a_standalone_question() {
+		$requests  = &$this->intercept_rewrite( "\"How difficult are the pickleball lessons?\"\nExtra line." );
+		$record_id = $this->seed_pickleball_thread();
+
 		$query = $this->build_query( 'How difficult is it?', $record_id );
 
-		$this->assertStringContainsString( 'pickleball', $query );
-		$this->assertStringNotContainsString( 'Sorry', $query );
+		$this->assertSame( 'How difficult are the pickleball lessons?', $query );
+		$this->assertCount( 1, $requests );
+		$this->assertSame( \ThemeIsle\HyveLite\OpenAI::REWRITE_MODEL, $requests[0]['model'] );
 
-		// The current question comes last, where it weighs the most.
-		$this->assertStringEndsWith( 'How difficult is it?', $query );
+		$prompt = $requests[0]['messages'][1]['content'];
+		$this->assertStringContainsString( 'Visitor: Do you offer pickleball lessons?', $prompt );
+		$this->assertStringContainsString( 'Assistant: Yes, every Tuesday.', $prompt );
+		$this->assertStringEndsWith( 'Latest visitor message: How difficult is it?', $prompt );
+	}
+
+	/**
+	 * A long message keeps its own wording ahead of the rewrite, so a rewrite
+	 * that condenses it cannot drop its details from the search.
+	 */
+	public function test_long_message_keeps_its_wording_ahead_of_the_rewrite() {
+		$long = 'Bonjour, depuis quelques semaines le compresseur fait un bruit très fort la nuit, le numéro de série est ZX7-2291-B, est-elle couverte ?';
+
+		$this->assertSame( $long . "\nLa garantie du Zorblax7 couvre-t-elle ce bruit ?", API::rewritten_retrieval_text( $long, 'La garantie du Zorblax7 couvre-t-elle ce bruit ?' ) );
+		$this->assertSame( 'How difficult are the pickleball lessons?', API::rewritten_retrieval_text( 'How difficult is it?', 'How difficult are the pickleball lessons?' ) );
+	}
+
+	/**
+	 * A short follow-up can expand past 300 characters with the subject of a
+	 * long earlier question. The rewrite comes back whole and is searched
+	 * alone, and only a rewrite past the 800-character cap is cut.
+	 */
+	public function test_short_follow_up_keeps_a_long_rewrite_whole() {
+		$rewritten = 'For the pro plan, ' . str_repeat( 'does the annual subscription include priority support, onboarding and data migration? ', 4 );
+		$this->assertGreaterThan( API::REWRITE_LONG_CHARS, mb_strlen( trim( $rewritten ) ) );
+
+		$this->intercept_rewrite( $rewritten );
+		$record_id = $this->seed_pickleball_thread();
+
+		$this->assertSame( trim( $rewritten ), $this->build_query( 'and for the pro plan?', $record_id ) );
+
+		$capped = \ThemeIsle\HyveLite\OpenAI::clean_rewritten_query( str_repeat( 'a', \ThemeIsle\HyveLite\OpenAI::REWRITE_MAX_CHARS + 50 ) );
+		$this->assertSame( \ThemeIsle\HyveLite\OpenAI::REWRITE_MAX_CHARS, mb_strlen( $capped ) );
+	}
+
+	/**
+	 * A follow-up longer than the cap, with its pronoun at the end, keeps the
+	 * subject its rewrite resolves, and the token limit grows with it.
+	 */
+	public function test_long_follow_up_keeps_the_subject_resolved_at_its_end() {
+		$details   = str_repeat( 'The unit rattles at night and the display flickers after a power cut. ', 12 );
+		$message   = $details . 'Is it covered?';
+		$rewritten = $details . 'Is the Zorblax7 compressor covered by the warranty?';
+		$this->assertGreaterThan( \ThemeIsle\HyveLite\OpenAI::REWRITE_MAX_CHARS, mb_strlen( $message ) );
+
+		$requests  = &$this->intercept_rewrite( $rewritten );
+		$record_id = $this->seed_pickleball_thread();
+
+		$this->assertSame( $message . "\n" . trim( $rewritten ), $this->build_query( $message, $record_id ) );
+		$this->assertSame( \ThemeIsle\HyveLite\OpenAI::REWRITE_MAX_TOKENS + mb_strlen( $message ), $requests[0]['max_completion_tokens'] );
+	}
+
+	/**
+	 * A message past the long-message character threshold keeps its own
+	 * wording ahead of the rewrite, even without spaces, and the threshold
+	 * is exclusive: 300 characters is short, 301 is long.
+	 */
+	public function test_long_message_without_spaces_keeps_its_trailing_details() {
+		$message   = str_repeat( '測', 333 ) . 'ZX7-2291-B';
+		$rewritten = '这次维修是否在保修范围内？';
+		$this->intercept_rewrite( $rewritten );
+		$record_id = $this->seed_pickleball_thread();
+
+		$this->assertSame( $message . "\n" . $rewritten, $this->build_query( $message, $record_id ) );
+
+		$this->assertSame( 'r', API::rewritten_retrieval_text( str_repeat( '測', API::REWRITE_LONG_CHARS ), 'r' ) );
+		$this->assertSame( str_repeat( '測', API::REWRITE_LONG_CHARS + 1 ) . "\nr", API::rewritten_retrieval_text( str_repeat( '測', API::REWRITE_LONG_CHARS + 1 ), 'r' ) );
+	}
+
+	/**
+	 * A self-hosted turn records the rewritten query in its debug trace, and
+	 * the keyword pass still matches a term only the visitor's own message has.
+	 */
+	public function test_self_hosted_turn_records_the_rewrite_and_keeps_the_visitor_words() {
+		$this->use_self_hosted_openai();
+
+		$this->seed_text( 'Treatments', 'We offer Morpheus8 skin tightening on Fridays.', [ 0.0, 1.0, 0.0 ] );
+		$this->commit_seeds();
+
+		$record_id = $this->seed_pickleball_thread();
+
+		add_filter(
+			'pre_http_request',
+			function ( $pre, $args, $url ) {
+				if ( false !== strpos( $url, '/moderations' ) ) {
+					return [
+						'response' => [ 'code' => 200 ],
+						'body'     => wp_json_encode( [ 'results' => [ [ 'flagged' => false ] ] ] ),
+					];
+				}
+
+				// The rewrite drops the product name the visitor typed.
+				if ( false !== strpos( $url, '/chat/completions' ) ) {
+					return [
+						'response' => [ 'code' => 200 ],
+						'body'     => wp_json_encode( [ 'choices' => [ [ 'message' => [ 'content' => 'Can visitors book that alongside the pickleball lessons?' ] ] ] ] ),
+					];
+				}
+
+				// Keyword retrieval only, so the match must come from the visitor's words.
+				if ( false !== strpos( $url, '/embeddings' ) ) {
+					return new WP_Error( 'http_request_failed', 'Embeddings are down.' );
+				}
+
+				if ( false !== strpos( $url, '/responses' ) ) {
+					return [
+						'response' => [ 'code' => 200 ],
+						'body'     => wp_json_encode( [ 'id' => 'resp_rewrite' ] ),
+					];
+				}
+
+				return new WP_Error( 'unexpected_request', 'Unfaked outbound request: ' . $url );
+			},
+			10,
+			3
+		);
+
+		$request = new WP_REST_Request( 'POST', '/hyve/v1/chat' );
+		$request->set_param( 'message', 'Is Morpheus8 offered there too?' );
+		$request->set_param( 'record_id', $record_id );
+		$request->set_param( 'thread_id', 'conv_q1' );
+
+		$response = API::instance()->send_chat( $request )->get_data();
+		$debug    = get_transient( 'hyve_debug_resp_rewrite' );
+		delete_transient( 'hyve_debug_resp_rewrite' );
+
+		$this->assertArrayNotHasKey( 'error', $response );
+		$this->assertStringContainsString( 'Morpheus8 skin tightening', $response['content'] );
+		$this->assertSame( 'Can visitors book that alongside the pickleball lessons?', $debug['query'] );
+		$this->assertTrue( $debug['query_rewritten'] );
+	}
+
+	/**
+	 * The first message skips the model; a self-contained follow-up still
+	 * calls it and keeps unchanged output without marking the query rewritten.
+	 */
+	public function test_self_contained_message_is_searched_as_sent() {
+		$message   = 'Do you offer tennis lessons on Sundays?';
+		$requests  = &$this->intercept_rewrite( $message );
+		$record_id = $this->seed_pickleball_thread();
+
+		$this->assertSame( 'Fees?', $this->build_query( 'Fees?', null ) );
+		$this->assertCount( 0, $requests );
+		$this->assertSame( $message, $this->build_query( $message, $record_id ) );
+		$this->assertCount( 1, $requests );
+
+		$rewritten = new ReflectionProperty( API::class, 'query_rewritten' );
+		$rewritten->setAccessible( true );
+		$this->assertFalse( $rewritten->getValue( API::instance() ) );
+	}
+
+	/**
+	 * When the rewrite fails the message is searched as sent; the turn is
+	 * never lost to the extra call.
+	 */
+	public function test_failed_rewrite_falls_back_to_the_message() {
+		$this->intercept_rewrite( null );
+		$record_id = $this->seed_pickleball_thread();
+
+		$this->assertSame( 'How difficult is it?', $this->build_query( 'How difficult is it?', $record_id ) );
+
+		remove_all_filters( 'pre_http_request' );
+		$this->intercept_rewrite( '   ' );
+
+		$this->assertSame( 'How difficult is it?', $this->build_query( 'How difficult is it?', $record_id ) );
+	}
+
+	/**
+	 * A rewrite cut by the token limit can stop before the subject it was
+	 * meant to add, so the message is searched as sent instead.
+	 */
+	public function test_rewrite_cut_by_the_token_limit_falls_back_to_the_message() {
+		$this->intercept_rewrite( 'How difficult are the', 'length' );
+		$record_id = $this->seed_pickleball_thread();
+
+		$this->assertSame( 'How difficult is it?', $this->build_query( 'How difficult is it?', $record_id ) );
+	}
+
+	/**
+	 * Fake the rewrite completion per model: a model listed in $errors answers
+	 * with that OpenAI error code, any other with $reply.
+	 *
+	 * @param string                $chat_model The site's chat model.
+	 * @param array<string, string> $errors     Error code by model.
+	 * @param string                $reply      The rewritten question.
+	 *
+	 * @return array<int, array<string, mixed>> The decoded request bodies, by reference.
+	 */
+	private function &intercept_rewrite_by_model( string $chat_model, array $errors, string $reply ): array {
+		$requests = [];
+
+		$this->use_self_hosted_openai( [ 'chat_model' => $chat_model ] );
+
+		add_filter(
+			'pre_http_request',
+			function ( $pre, $args, $url ) use ( &$requests, $errors, $reply ) {
+				if ( false === strpos( $url, '/chat/completions' ) ) {
+					return new WP_Error( 'unexpected_request', 'Unfaked outbound request: ' . $url );
+				}
+
+				$body       = json_decode( $args['body'], true );
+				$requests[] = $body;
+
+				if ( isset( $errors[ $body['model'] ] ) ) {
+					return [
+						'response' => [ 'code' => 403 ],
+						'body'     => wp_json_encode(
+							[
+								'error' => [
+									'code'    => $errors[ $body['model'] ],
+									'message' => 'No access to ' . $body['model'],
+								],
+							]
+						),
+					];
+				}
+
+				return [
+					'response' => [ 'code' => 200 ],
+					'body'     => wp_json_encode( [ 'choices' => [ [ 'message' => [ 'content' => $reply ] ] ] ] ),
+				];
+			},
+			10,
+			3
+		);
+
+		return $requests;
+	}
+
+	/**
+	 * A key barred from the rewrite model retries once with the chat model,
+	 * and the error that model never hit leaves no dashboard notice.
+	 *
+	 * @testWith ["model_not_found"]
+	 *           ["permission_denied"]
+	 *
+	 * @param string $code The OpenAI error code for the rewrite model.
+	 */
+	public function test_rewrite_model_without_access_retries_with_the_chat_model( string $code ) {
+		$requests  = &$this->intercept_rewrite_by_model( 'gpt-5.4-mini', [ \ThemeIsle\HyveLite\OpenAI::REWRITE_MODEL => $code ], 'How difficult are the pickleball lessons?' );
+		$record_id = $this->seed_pickleball_thread();
+
+		$this->assertSame( 'How difficult are the pickleball lessons?', $this->build_query( 'How difficult is it?', $record_id ) );
+		$this->assertSame( [ \ThemeIsle\HyveLite\OpenAI::REWRITE_MODEL, 'gpt-5.4-mini' ], array_column( $requests, 'model' ) );
+		$this->assertSame( $requests[0]['messages'], $requests[1]['messages'] );
+		$this->assertFalse( get_option( \ThemeIsle\HyveLite\OpenAI::ERROR_OPTION_KEY ) );
+	}
+
+	/**
+	 * Only a model-access error retries, and never with the same model.
+	 */
+	public function test_rewrite_does_not_retry_other_errors_or_the_same_model() {
+		$requests  = &$this->intercept_rewrite_by_model( 'gpt-5.4-mini', [ \ThemeIsle\HyveLite\OpenAI::REWRITE_MODEL => 'rate_limit_exceeded' ], 'unused' );
+		$record_id = $this->seed_pickleball_thread();
+
+		$this->assertSame( 'How difficult is it?', $this->build_query( 'How difficult is it?', $record_id ) );
+		$this->assertCount( 1, $requests );
+
+		remove_all_filters( 'pre_http_request' );
+		$requests = &$this->intercept_rewrite_by_model( \ThemeIsle\HyveLite\OpenAI::REWRITE_MODEL, [ \ThemeIsle\HyveLite\OpenAI::REWRITE_MODEL => 'model_not_found' ], 'unused' );
+
+		$this->assertSame( 'How difficult is it?', $this->build_query( 'How difficult is it?', $record_id ) );
+		$this->assertCount( 1, $requests );
+	}
+
+	/**
+	 * A zero history count disables the rewrite, and the final query filter
+	 * still has the last word.
+	 */
+	public function test_retrieval_query_filters_still_apply() {
+		$requests  = &$this->intercept_rewrite( 'How difficult are the pickleball lessons?' );
+		$record_id = $this->seed_pickleball_thread();
+
+		add_filter( 'hyve_retrieval_history_count', '__return_zero' );
+		$this->assertSame( 'How difficult is it?', $this->build_query( 'How difficult is it?', $record_id ) );
+		$this->assertCount( 0, $requests );
+		remove_filter( 'hyve_retrieval_history_count', '__return_zero' );
+
+		$override = function ( $query, $message ) {
+			return 'pickleball difficulty (' . $message . ')';
+		};
+		add_filter( 'hyve_retrieval_query', $override, 10, 2 );
+		$this->assertSame( 'pickleball difficulty (How difficult is it?)', $this->build_query( 'How difficult is it?', $record_id ) );
+		remove_filter( 'hyve_retrieval_query', $override );
+		$this->assertCount( 1, $requests );
 	}
 
 	/**
@@ -569,17 +991,7 @@ class RetrievalTest extends WP_UnitTestCase {
 	 * @param string $content Matching chunk content.
 	 */
 	public function test_embedding_failure_degrades_to_keyword_retrieval( string $message, string $content ) {
-		update_option(
-			'hyve_settings',
-			[
-				'ai_mode' => \ThemeIsle\HyveLite\Hyve_Connect::MODE_SELF,
-				'api_key' => 'sk-test',
-			] 
-		);
-
-		$instance = new ReflectionProperty( \ThemeIsle\HyveLite\OpenAI::class, 'instance' );
-		$instance->setAccessible( true );
-		$instance->setValue( null, null );
+		$this->use_self_hosted_openai();
 
 		$this->seed_text( 'Answer', $content, [ 1.0, 0.0, 0.0 ] );
 		$this->seed_text( 'Overview', str_repeat( $message . ' ', 30 ), [ 0.0, 1.0, 0.0 ] );
@@ -686,17 +1098,7 @@ class RetrievalTest extends WP_UnitTestCase {
 	 * keeps going on it when the embeddings call fails.
 	 */
 	public function test_retrieval_ability_includes_keyword_only_chunks() {
-		update_option(
-			'hyve_settings',
-			[
-				'ai_mode' => \ThemeIsle\HyveLite\Hyve_Connect::MODE_SELF,
-				'api_key' => 'sk-test',
-			]
-		);
-
-		$instance = new ReflectionProperty( \ThemeIsle\HyveLite\OpenAI::class, 'instance' );
-		$instance->setAccessible( true );
-		$instance->setValue( null, null );
+		$this->use_self_hosted_openai();
 
 		$this->seed_text( 'Clan guide', 'ArtIsWar - cercato anche come artiswar.', [ 0.0, 1.0, 0.0 ], 100, 4242 );
 		$this->commit_seeds();
@@ -748,22 +1150,12 @@ class RetrievalTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * The keyword pass reads a capped number of terms, so the current
-	 * question must come before the blended history or a long thread crowds
-	 * its words out.
+	 * A self-contained question in a long thread is searched as sent: the
+	 * earlier turns never reach the keyword pass, so they cannot crowd its
+	 * words out, and the embeddings outage still degrades to keywords.
 	 */
 	public function test_keyword_pass_keeps_the_current_question_after_a_long_history() {
-		update_option(
-			'hyve_settings',
-			[
-				'ai_mode' => \ThemeIsle\HyveLite\Hyve_Connect::MODE_SELF,
-				'api_key' => 'sk-test',
-			]
-		);
-
-		$instance = new ReflectionProperty( \ThemeIsle\HyveLite\OpenAI::class, 'instance' );
-		$instance->setAccessible( true );
-		$instance->setValue( null, null );
+		$this->use_self_hosted_openai();
 
 		$this->seed_text( 'Treatments', 'We offer Morpheus8 skin tightening on Fridays.', [ 0.0, 1.0, 0.0 ] );
 		$this->commit_seeds();
