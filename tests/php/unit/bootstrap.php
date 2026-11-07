@@ -49,3 +49,15 @@ wp_update_user(
 // Clean DB before tests.
 global $wpdb;
 $wpdb->query( 'DROP TABLE IF EXISTS ' . $wpdb->prefix . 'hyve' ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.SchemaChange
+
+// The test case turns every CREATE TABLE into a temporary one, but InnoDB
+// cannot put a FULLTEXT index on a temporary table. The plugin's table stays
+// real (dropped above). Rows a test commits stay after its rollback; see
+// RetrievalTest::commit_seeds().
+add_filter(
+	'query',
+	function ( $query ) use ( $wpdb ) {
+		return str_replace( 'CREATE TEMPORARY TABLE ' . $wpdb->prefix . 'hyve ', 'CREATE TABLE ' . $wpdb->prefix . 'hyve ', $query );
+	},
+	20
+);

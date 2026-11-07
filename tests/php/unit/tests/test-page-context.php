@@ -10,6 +10,8 @@ use ThemeIsle\HyveLite\DB_Table;
 use ThemeIsle\HyveLite\Hyve_Connect;
 use ThemeIsle\HyveLite\Page_Context;
 use ThemeIsle\HyveLite\Tokenizer;
+use ThemeIsle\HyveLite\Vocab_Loader;
+use guttedgarden\Tiktoken\EncoderProvider;
 
 /**
  * Tests for the page context fed to chat turns.
@@ -48,6 +50,9 @@ class Test_Page_Context extends WP_UnitTestCase {
 	public function tear_down() {
 		remove_all_filters( 'hyve_page_context_enabled' );
 		remove_all_filters( 'hyve_page_context_content' );
+		remove_all_filters( 'pre_http_request' );
+		remove_all_filters( 'hyve_page_context_token_limit' );
+		$this->set_tokenizer_provider( null );
 		delete_transient( Page_Context::CACHE_PREFIX . $this->post_id );
 		delete_transient( Page_Context::CACHE_PREFIX . 'url_' . md5( $this->home_root_url() ) );
 
@@ -163,6 +168,93 @@ class Test_Page_Context extends WP_UnitTestCase {
 
 		Page_Context::instance()->context_block( $page );
 		$this->assertSame( 1, $runs );
+	}
+
+	/**
+	 * An unindexed page is extracted like a knowledge base page: a contact
+	 * link keeps its number, and a table keeps its labels, instead of being
+	 * flattened by a plain tag strip.
+	 */
+	public function test_unindexed_content_is_extracted_like_the_knowledge_base() {
+		add_filter(
+			'hyve_page_context_content',
+			fn() => '<h2>Contact</h2><p><a href="tel:+441274998877">Call us</a></p>' .
+				'<table><tr><td>Laundry</td><td>$32.00/hr</td></tr></table>'
+		);
+
+		$page  = Page_Context::instance()->for_request( $this->chat_request( get_permalink( $this->post_id ) ) );
+		$block = Page_Context::instance()->context_block( $page );
+
+		$this->assertStringContainsString( 'Call us (+441274998877)', $block );
+		$this->assertStringContainsString( 'Laundry | $32.00/hr', $block );
+	}
+
+	/**
+	 * A loop page (home, archive) is extracted the same way as a post.
+	 */
+	public function test_loop_page_content_is_extracted_like_the_knowledge_base() {
+		add_filter(
+			'hyve_page_context_content',
+			fn() => '<h2>Contact</h2><p><a href="tel:+441274998877">Call us</a></p>' .
+				'<table><tr><td>Laundry</td><td>$32.00/hr</td></tr></table>'
+		);
+
+		$page  = Page_Context::instance()->for_request( $this->chat_request( home_url( '/' ) ) );
+		$block = Page_Context::instance()->context_block( $page );
+
+		$this->assertSame( 0, $page['id'] );
+		$this->assertStringContainsString( 'Call us (+441274998877)', $block );
+		$this->assertStringContainsString( 'Laundry | $32.00/hr', $block );
+	}
+
+	/**
+	 * Replace the encoder provider the tokenizer shares across calls.
+	 *
+	 * @param EncoderProvider|null $provider The provider, or null to rebuild on next use.
+	 *
+	 * @return void
+	 */
+	private function set_tokenizer_provider( ?EncoderProvider $provider ): void {
+		$values = [
+			'provider' => $provider,
+			'failure'  => null,
+		];
+
+		foreach ( $values as $name => $value ) {
+			$property = new ReflectionProperty( Tokenizer::class, $name );
+			$property->setAccessible( true );
+			$property->setValue( null, $value );
+		}
+	}
+
+	/**
+	 * Make the vocabulary unloadable: no cache directory and no download.
+	 *
+	 * @return void
+	 */
+	private function break_tokenizer(): void {
+		add_filter( 'pre_http_request', fn() => new WP_Error( 'http_request_failed', 'No route to host' ) );
+
+		$provider = new EncoderProvider();
+		$provider->setVocabLoader( new Vocab_Loader( [ __FILE__ . '/nope' ] ) );
+		$this->set_tokenizer_provider( $provider );
+	}
+
+	/**
+	 * Without a loadable vocabulary an unindexed page's content is trimmed by
+	 * characters instead of crashing the chat request.
+	 */
+	public function test_page_content_is_trimmed_by_characters_when_the_vocabulary_is_unavailable(): void {
+		$this->break_tokenizer();
+		add_filter( 'hyve_page_context_token_limit', fn() => 5 );
+
+		add_filter( 'hyve_page_context_content', fn() => '<p>' . str_repeat( 'lorem ipsum ', 50 ) . '</p>' );
+
+		$page  = Page_Context::instance()->for_request( $this->chat_request( get_permalink( $this->post_id ) ) );
+		$block = Page_Context::instance()->context_block( $page );
+
+		$this->assertStringContainsString( 'lorem ipsum', $block );
+		$this->assertStringNotContainsString( str_repeat( 'lorem ipsum ', 5 ), $block );
 	}
 
 	/**
@@ -370,42 +462,39 @@ class Test_Page_Context extends WP_UnitTestCase {
 	}
 
 	/**
-	 * Without an encoder the chunk that needs trimming is skipped and the ones
-	 * that fit whole are kept, rather than the chat turn failing.
-	 *
-	 * @runInSeparateProcess
-	 * @preserveGlobalState disabled
+	 * Without an encoder the chunk that overruns the budget is trimmed by
+	 * characters, rather than dropped or the chat turn failing.
 	 */
-	public function test_encoder_failure_keeps_the_chunks_that_fit_whole(): void {
+	public function test_encoder_failure_trims_the_overrunning_chunk_by_characters(): void {
 		update_post_meta( $this->post_id, '_hyve_added', 1 );
+		$this->break_tokenizer();
 
 		// 600 + 400 fills the 1000 limit exactly, so only the joining newline
-		// makes the second chunk need a trim, which needs the encoder.
+		// makes the second chunk need a trim. Its text runs past the 399 tokens
+		// left, at four characters each, so the trim has to cut it.
 		$chunks = [
-			'FIRSTCHUNK'  => 600,
-			'SECONDCHUNK' => 400,
+			'FIRSTCHUNK'  => [ 600, 'alpha beta gamma delta ' ],
+			'SECONDCHUNK' => [ 400, str_repeat( 'alpha beta gamma delta ', 80 ) . 'END2' ],
 		];
 
-		foreach ( $chunks as $marker => $count ) {
+		foreach ( $chunks as $marker => [ $count, $text ] ) {
 			DB_Table::instance()->insert(
 				[
 					'post_id'      => $this->post_id,
 					'post_title'   => 'Blue Widget',
-					'post_content' => $marker . ' ' . str_repeat( 'alpha beta gamma delta ', 20 ),
+					'post_content' => $marker . ' ' . $text,
 					'token_count'  => $count,
 					'post_status'  => 'processed',
 				]
 			);
 		}
 
-		// A temp directory that cannot exist, so the vocabulary cannot load.
-		define( 'WP_TEMP_DIR', __FILE__ . '/nope/' );
-
 		$page  = Page_Context::instance()->for_request( $this->chat_request( get_permalink( $this->post_id ) ) );
 		$block = Page_Context::instance()->context_block( $page );
 
 		$this->assertStringContainsString( 'FIRSTCHUNK', $block );
-		$this->assertStringNotContainsString( 'SECONDCHUNK', $block );
+		$this->assertStringContainsString( 'SECONDCHUNK', $block );
+		$this->assertStringNotContainsString( 'END2', $block );
 	}
 
 	/**

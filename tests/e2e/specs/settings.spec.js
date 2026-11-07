@@ -211,12 +211,17 @@ test.describe( 'Settings', () => {
 		await page.getByLabel( 'API key' ).fill( 'sk_new_key' );
 		await expect( page.getByText( 'Unsaved' ) ).toBeVisible();
 
-		await page.getByLabel( 'Model' ).selectOption( 'gpt-4.1-nano' );
+		// Models OpenAI has retired are no longer offered.
+		await expect(
+			page.getByLabel( 'Model' ).locator( 'option[value="gpt-4.1-nano"]' )
+		).toHaveCount( 0 );
+
+		await page.getByLabel( 'Model' ).selectOption( 'gpt-5.4-mini' );
 		await page.getByRole( 'button', { name: 'Save changes' } ).click();
 
 		await expect( page.getByTestId( 'snackbar' ) ).toBeVisible();
 		expect( saves[ 0 ]?.data?.api_key ).toBe( 'sk_new_key' );
-		expect( saves[ 0 ]?.data?.chat_model ).toBe( 'gpt-4.1-nano' );
+		expect( saves[ 0 ]?.data?.chat_model ).toBe( 'gpt-5.4-mini' );
 	} );
 
 	test( 'provider: the similarity slider resets to its default', async ( {
@@ -275,6 +280,56 @@ test.describe( 'Settings', () => {
 		await expect(
 			page.getByRole( 'button', { name: 'Connect', exact: true } )
 		).toBeVisible();
+	} );
+
+	test( 'qdrant: failed disconnect offers an explicit local exit', async ( {
+		page,
+		admin,
+	} ) => {
+		const attempts = [];
+		await page.route(
+			/.*(?:rest_route=%2Fhyve%2Fv1%2Fqdrant|\/wp-json\/hyve\/v1\/qdrant).*/,
+			async ( route ) => {
+				const request = route.request();
+				let response = { status: true, migration: null };
+				if ( request.method() === 'POST' ) {
+					const body = request.postDataJSON();
+					attempts.push( body );
+					response = body.force
+						? 'Qdrant deactivated.'
+						: { error: 'Qdrant is unreachable.' };
+				}
+				await route.fulfill( {
+					status: 200,
+					contentType: 'application/json',
+					body: JSON.stringify( response ),
+				} );
+			}
+		);
+		await admin.visitAdminPage( `${ HYVE_ADMIN }&nav=settings&sub=qdrant` );
+		await page
+			.getByRole( 'button', { name: 'Disconnect', exact: true } )
+			.click();
+		const modal = page.getByRole( 'dialog' );
+		await expect(
+			modal.getByRole( 'button', { name: 'Disconnect locally' } )
+		).toBeHidden();
+		await modal
+			.getByRole( 'button', { name: 'Disconnect', exact: true } )
+			.click();
+		await expect(
+			modal.getByText( /Data will remain in your Qdrant cluster/ )
+		).toBeVisible();
+		await modal
+			.getByRole( 'button', { name: 'Disconnect locally' } )
+			.click();
+		await expect( modal ).toBeHidden();
+		await expect(
+			page.getByText( 'Not connected', { exact: true } )
+		).toBeVisible();
+		expect( attempts ).toHaveLength( 2 );
+		expect( attempts[ 0 ] ).toEqual( { force: false } );
+		expect( attempts[ 1 ] ).toEqual( { force: true } );
 	} );
 
 	test( 'api access: free plan sees the upsell and the curl example', async ( {
