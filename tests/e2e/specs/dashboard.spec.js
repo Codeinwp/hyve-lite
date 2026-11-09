@@ -29,6 +29,13 @@ test.describe( 'Dashboard', () => {
 		await expect( bar.getByText( 'Hyve', { exact: true } ) ).toBeVisible();
 		await expect( bar.getByText( 'API connected' ) ).toBeVisible();
 		await expect( bar.getByRole( 'link', { name: 'Docs' } ) ).toBeVisible();
+		// The docs link points straight at the docs page: a redirect would drop the UTMs.
+		await expect(
+			bar.getByRole( 'link', { name: 'Docs' } )
+		).toHaveAttribute(
+			'href',
+			'https://docs.themeisle.com/hyve/hyve-documentation?utm_source=wpadmin&utm_medium=dashboard&utm_campaign=documentation&utm_content=docshyvehyve-documentation'
+		);
 		await expect(
 			bar.getByRole( 'link', { name: 'Upgrade to Pro' } )
 		).toBeVisible();
