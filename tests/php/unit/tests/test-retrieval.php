@@ -1164,6 +1164,77 @@ class RetrievalTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * With embeddings down, a knowledge base that fits the budget is still
+	 * sent whole, and the keyword pass alone picks the cited source.
+	 */
+	public function test_embedding_failure_on_a_small_knowledge_base_sends_it_whole() {
+		$this->use_self_hosted_openai();
+
+		$this->seed_text( 'Returns', 'You can return any item within 30 days of delivery.', [ 1.0, 0.0, 0.0 ], 100, 4242 );
+		$this->seed_text( 'Opening hours', 'We open at nine and close at five.', [ 0.0, 1.0, 0.0 ], 100, 4343 );
+		$this->commit_seeds();
+
+		add_filter(
+			'pre_http_request',
+			function ( $pre, $args, $url ) {
+				if ( false !== strpos( $url, '/moderations' ) ) {
+					return [
+						'response' => [ 'code' => 200 ],
+						'body'     => wp_json_encode( [ 'results' => [ [ 'flagged' => false ] ] ] ),
+					];
+				}
+
+				if ( false !== strpos( $url, '/responses' ) ) {
+					return [
+						'response' => [ 'code' => 200 ],
+						'body'     => wp_json_encode( [ 'id' => 'resp_test' ] ),
+					];
+				}
+
+				return new WP_Error( 'http_request_failed', 'Embeddings are down.' );
+			},
+			10,
+			3
+		);
+
+		$request = new WP_REST_Request( 'POST', '/hyve/v1/chat' );
+		$request->set_param( 'message', 'Can I return an item?' );
+		$request->set_param( 'thread_id', 'conv_local' );
+
+		$response = API::instance()->send_chat( $request )->get_data();
+
+		$this->assertArrayNotHasKey( 'error', $response );
+		$this->assertStringContainsString( 'return any item', $response['content'] );
+		$this->assertStringContainsString( 'We open at nine', $response['content'] );
+
+		$debug = new ReflectionProperty( API::class, 'chat_debug' );
+		$debug->setAccessible( true );
+		$trace = $debug->getValue( API::instance() );
+
+		$this->assertTrue( $trace['embedding_failed'] );
+		$this->assertSame( 'kb_full_context', $trace['retrieval'] );
+		$this->assertCount( 2, $trace['context'] );
+		$this->assertSame( [ 4242 ], array_map( 'intval', API::instance()->get_last_retrieval()['sources'] ) );
+	}
+
+	/**
+	 * In full-context mode, a post only the keyword pass found is still
+	 * cited, after the vector sources.
+	 */
+	public function test_full_context_cites_keyword_only_sources() {
+		$this->seed_text( 'Welcome', 'Welcome to our gaming community site.', [ 1.0, 0.0, 0.0 ], 10, 7 );
+		$this->seed_text( 'Clan guide', 'ArtIsWar - cercato anche come Art Is War, ArtisWar o artiswar.', [ 0.0, 1.0, 0.0 ], 100, 4242 );
+		$this->seed_text( 'Rules', 'Be kind to other members.', [ 0.0, 0.0, 1.0 ], 10, 99 );
+		$this->commit_seeds();
+
+		$context = API::instance()->search_knowledge_base( [ 1.0, 0.0, 0.0 ], 0.25, 2000, 'artiswar' );
+
+		$this->assertSame( 'kb_full_context', $this->retrieval_mode() );
+		$this->assertStringContainsString( 'Be kind', $context );
+		$this->assertSame( [ 7, 4242 ], array_map( 'intval', API::instance()->get_last_retrieval()['sources'] ) );
+	}
+
+	/**
 	 * Questions whose answer must survive an embeddings outage.
 	 *
 	 * @return array<string, array{string, string}>

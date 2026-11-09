@@ -200,6 +200,23 @@ class IngestionQueueTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Publishing a staged import refreshes the cached knowledge base size,
+	 * which decides whether chat sends the whole knowledge base.
+	 */
+	public function test_publishing_refreshes_the_cached_total_tokens() {
+		$post_id = $this->queue();
+		$steps   = 0;
+		while ( $steps++ < 20 && 'publish' !== get_post_meta( $post_id, Ingestion_Queue::JOB, true )['phase'] ) {
+			$this->step( $post_id );
+		}
+		$this->assertSame( 'publish', get_post_meta( $post_id, Ingestion_Queue::JOB, true )['phase'] );
+		$this->assertSame( 0, DB_Table::instance()->get_total_tokens() );
+		$this->drain( $post_id );
+		$this->assertSame( 13, $this->indexed( $post_id ) );
+		$this->assertSame( 13000, DB_Table::instance()->get_total_tokens() );
+	}
+
+	/**
 	 * One cron execution keeps working within its time budget instead of
 	 * waiting a minute between steps.
 	 */
@@ -774,6 +791,8 @@ class IngestionQueueTest extends WP_UnitTestCase {
 		$this->assertSame( [], DB_Table::instance()->get_chunks_by_post_id( $post_id ) );
 		$this->assertSame( [], DB_Table::instance()->get_by_status( 'processed' ) );
 		$this->assertSame( [], DB_Table::instance()->get_posts_over_limit() );
+		$this->assertSame( [], DB_Table::instance()->get_all_chunks() );
+		$this->assertSame( 0, DB_Table::instance()->get_total_tokens() );
 	}
 
 	/**

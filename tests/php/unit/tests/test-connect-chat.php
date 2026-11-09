@@ -97,6 +97,7 @@ class ConnectChatTest extends WP_UnitTestCase {
 				'reply'           => 'Laundry is $32.00/hr.',
 				'retrieval_query' => 'How much does laundry cost?',
 				'query_rewritten' => true,
+				'retrieval'       => 'kb_full_context',
 				'sources'         => [
 					[
 						'id'    => 42,
@@ -148,6 +149,7 @@ class ConnectChatTest extends WP_UnitTestCase {
 
 		$this->assertSame( 'How much does laundry cost?', $debug['query'] );
 		$this->assertTrue( $debug['query_rewritten'] );
+		$this->assertSame( 'kb_full_context', $debug['retrieval'] );
 
 		// The platform's threshold is not knowable plugin-side.
 		$this->assertArrayNotHasKey( 'threshold', $debug );
