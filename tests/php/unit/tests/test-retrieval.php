@@ -121,6 +121,16 @@ class RetrievalTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Seed an unrelated chunk over the context budget, so the scored search,
+	 * not the whole knowledge base, builds the context.
+	 *
+	 * @return void
+	 */
+	private function pad_past_budget(): void {
+		$this->seed_text( 'Unrelated', 'Unrelated content.', [ 0.0, 0.0, 1.0 ], 2001 );
+	}
+
+	/**
 	 * Insert a processed, embedded chunk row.
 	 *
 	 * @param string            $title       Chunk title.
@@ -460,7 +470,8 @@ class RetrievalTest extends WP_UnitTestCase {
 	public function test_self_hosted_turn_records_the_rewrite_and_keeps_the_visitor_words() {
 		$this->use_self_hosted_openai();
 
-		$this->seed_text( 'Treatments', 'We offer Morpheus8 skin tightening on Fridays.', [ 0.0, 1.0, 0.0 ] );
+		$this->seed_text( 'Treatments', 'We offer Morpheus8 skin tightening on Fridays.', [ 0.0, 1.0, 0.0 ], 100, 4242 );
+		$this->pad_past_budget();
 		$this->commit_seeds();
 
 		$record_id = $this->seed_pickleball_thread();
@@ -514,6 +525,8 @@ class RetrievalTest extends WP_UnitTestCase {
 		$this->assertStringContainsString( 'Morpheus8 skin tightening', $response['content'] );
 		$this->assertSame( 'Can visitors book that alongside the pickleball lessons?', $debug['query'] );
 		$this->assertTrue( $debug['query_rewritten'] );
+		$this->assertSame( 'similarity', $debug['retrieval'] );
+		$this->assertSame( [ 4242 ], array_map( 'intval', API::instance()->get_last_retrieval()['sources'] ) );
 	}
 
 	/**
@@ -796,6 +809,7 @@ class RetrievalTest extends WP_UnitTestCase {
 	public function test_exact_term_below_the_vector_floor_is_retrieved() {
 		$this->seed_text( 'Clan guide', 'ArtIsWar - cercato anche come Art Is War, ArtisWar o artiswar.', [ 0.0, 1.0, 0.0 ] );
 		$this->seed_text( 'Welcome', 'Welcome to our gaming community site.', [ 1.0, 0.0, 0.0 ] );
+		$this->pad_past_budget();
 		$this->commit_seeds();
 
 		$context = API::instance()->search_knowledge_base( [ 1.0, 0.0, 0.0 ], 0.25, 2000, 'artiswar' );
@@ -909,6 +923,7 @@ class RetrievalTest extends WP_UnitTestCase {
 	 */
 	public function test_keyword_match_ignores_case() {
 		$this->seed_text( 'Treatments', 'Morpheus8 is a fractional skin treatment.', [ 0.0, 1.0, 0.0 ] );
+		$this->pad_past_budget();
 		$this->commit_seeds();
 
 		$context = API::instance()->search_knowledge_base( [ 1.0, 0.0, 0.0 ], 0.25, 2000, 'morpheus8' );
@@ -938,6 +953,7 @@ class RetrievalTest extends WP_UnitTestCase {
 	public function test_no_space_script_matches_as_a_substring() {
 		$this->seed_text( 'お知らせ', '営業時間は月曜から金曜の9時から17時です。', [ 0.0, 1.0, 0.0 ] );
 		$this->seed_text( 'เวลาทำการ', 'ร้านเปิดวันจันทร์ถึงวันศุกร์ เวลา 9 โมงถึง 5 โมงเย็น', [ 0.0, 1.0, 0.0 ] );
+		$this->pad_past_budget();
 		$this->commit_seeds();
 
 		$japanese = API::instance()->search_knowledge_base( [ 1.0, 0.0, 0.0 ], 0.25, 2000, '営業時間' );
@@ -965,6 +981,7 @@ class RetrievalTest extends WP_UnitTestCase {
 	public function test_mixed_thai_digit_query_keeps_script_segments() {
 		$this->assertSame( [ 'เปิด', 'โมง', 'เปิด9โมง' ], DB_Table::query_segments( 'เปิด9โมง' ) );
 		$this->seed_text( 'Hours', 'ร้านเปิดวันจันทร์ถึงวันศุกร์ เวลา 9 โมงถึง 5 โมงเย็น', [ 0.0, 1.0, 0.0 ] );
+		$this->pad_past_budget();
 		$this->commit_seeds();
 
 		$context = API::instance()->search_knowledge_base( [], 0.25, 2000, 'เปิด9โมง' );
@@ -1083,6 +1100,7 @@ class RetrievalTest extends WP_UnitTestCase {
 	public function test_short_word_stays_out_when_a_term_reaches_the_index() {
 		$this->seed_text( 'درباره ما', 'ما در تهران هستیم.', [ 1.0, 0.0, 0.0 ] );
 		$this->seed_text( 'Shipping', 'ارسال به سراسر ایران انجام می‌شود.', [ 0.0, 1.0, 0.0 ] );
+		$this->pad_past_budget();
 		$this->commit_seeds();
 
 		$rows = $this->table->lexical_search( 'ارسال در ایران' );
@@ -1099,6 +1117,7 @@ class RetrievalTest extends WP_UnitTestCase {
 	 */
 	public function test_keyword_only_retrieval_without_a_vector() {
 		$this->seed_text( 'Returns', 'You can return any item within 30 days of delivery.', [ 1.0, 0.0, 0.0 ] );
+		$this->pad_past_budget();
 		$this->commit_seeds();
 
 		$context = API::instance()->search_knowledge_base( [], 0.25, 2000, 'return within 30 days' );
@@ -1120,6 +1139,7 @@ class RetrievalTest extends WP_UnitTestCase {
 
 		$this->seed_text( 'Answer', $content, [ 1.0, 0.0, 0.0 ] );
 		$this->seed_text( 'Overview', str_repeat( $message . ' ', 30 ), [ 0.0, 1.0, 0.0 ] );
+		$this->pad_past_budget();
 		$this->commit_seeds();
 
 		add_filter(
@@ -1364,6 +1384,7 @@ class RetrievalTest extends WP_UnitTestCase {
 		$this->use_self_hosted_openai();
 
 		$this->seed_text( 'Treatments', 'We offer Morpheus8 skin tightening on Fridays.', [ 0.0, 1.0, 0.0 ] );
+		$this->pad_past_budget();
 		$this->commit_seeds();
 
 		$thread = self::factory()->post->create( [ 'post_type' => 'hyve_threads' ] );
