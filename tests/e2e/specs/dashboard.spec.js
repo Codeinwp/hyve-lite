@@ -29,6 +29,13 @@ test.describe( 'Dashboard', () => {
 		await expect( bar.getByText( 'Hyve', { exact: true } ) ).toBeVisible();
 		await expect( bar.getByText( 'API connected' ) ).toBeVisible();
 		await expect( bar.getByRole( 'link', { name: 'Docs' } ) ).toBeVisible();
+		// The docs link points straight at the docs page: a redirect would drop the UTMs.
+		await expect(
+			bar.getByRole( 'link', { name: 'Docs' } )
+		).toHaveAttribute(
+			'href',
+			'https://docs.themeisle.com/hyve/hyve-documentation?utm_source=wpadmin&utm_medium=dashboard&utm_campaign=documentation&utm_content=docshyvehyve-documentation'
+		);
 		await expect(
 			bar.getByRole( 'link', { name: 'Upgrade to Pro' } )
 		).toBeVisible();
@@ -88,6 +95,41 @@ test.describe( 'Dashboard', () => {
 		await expect(
 			page.getByRole( 'button', { name: 'Manage visibility' } )
 		).toBeVisible();
+		await expect( page.getByText( "Let's get Hyve running" ) ).toBeHidden();
+	} );
+
+	test( 'an unreachable Hyve Connect shows the knowledge base as unknown, not empty', async ( {
+		page,
+		admin,
+	} ) => {
+		// The platform did not answer: the count is null and the Connect
+		// stats carry the degraded marker.
+		await mockStatsResponse( page, {
+			threads: 3,
+			messages: 8,
+			totalChunks: null,
+			chart: CHART,
+		} );
+
+		await admin.visitAdminPage( HYVE_ADMIN );
+
+		await page.evaluate( () => {
+			const { setAiMode, setConnect } = window.wp.data.dispatch( 'hyve' );
+			setAiMode( 'hyve_connect' );
+			setConnect( { service: 'error' } );
+		} );
+
+		const stats = page.locator( '.hyve-next-stats' );
+		await expect( stats.getByText( 'N/A', { exact: true } ) ).toHaveCount(
+			2
+		);
+		await expect(
+			stats.getByText( "Can't reach Hyve Connect right now." )
+		).toHaveCount( 2 );
+		await expect( stats.getByText( 'Offline' ) ).toBeVisible();
+		await expect( stats.getByText( '0 / ' ) ).toBeHidden();
+
+		// Unknown is not empty: no setup checklist asking for content.
 		await expect( page.getByText( "Let's get Hyve running" ) ).toBeHidden();
 	} );
 

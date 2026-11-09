@@ -193,6 +193,7 @@ test.describe( 'Messages', () => {
 													post_id: 5,
 													title: 'Services &#038; Rates',
 													score: 0.7143,
+													lexical: 0.4211,
 													tokens: 119,
 												},
 												{
@@ -200,6 +201,13 @@ test.describe( 'Messages', () => {
 													title: 'Booking Guide',
 													score: 0.6821,
 													tokens: 573,
+												},
+												{
+													post_id: 21,
+													title: 'Overnight FAQ',
+													score: null,
+													lexical: 0.3875,
+													tokens: 88,
 												},
 												{
 													post_id: 15,
@@ -229,6 +237,15 @@ test.describe( 'Messages', () => {
 										sender: 'event',
 										message: 'rate_limited',
 									},
+									{
+										time: 1755424980,
+										sender: 'event',
+										message: 'kb_empty',
+										debug: {
+											code: 'kb_empty',
+											retrieval: 'kb_empty',
+										},
+									},
 								],
 							},
 						],
@@ -249,7 +266,7 @@ test.describe( 'Messages', () => {
 		await expect(
 			page.getByText( 'Not answered', { exact: true } )
 		).toBeVisible();
-		await expect( page.getByText( '2 sources' ) ).toBeVisible();
+		await expect( page.getByText( '3 sources' ) ).toBeVisible();
 
 		await page.getByRole( 'button', { name: 'Show trace' } ).click();
 
@@ -283,6 +300,13 @@ test.describe( 'Messages', () => {
 
 		// Sources: entity-decoded title, and the budget-drop footnote.
 		await expect( page.getByText( 'Services & Rates' ) ).toBeVisible();
+
+		// A chunk both passes found shows both scores; a keyword-only chunk
+		// shows just the keyword score.
+		await expect( page.getByText( '0.71 · keyword 0.42' ) ).toBeVisible();
+		await expect(
+			page.getByText( 'keyword 0.39', { exact: true } )
+		).toBeVisible();
 		await expect(
 			page.getByText( 'the context budget was full', { exact: false } )
 		).toBeVisible();
@@ -316,6 +340,79 @@ test.describe( 'Messages', () => {
 				'Visitor hit the rate limit — the message was not answered'
 			)
 		).toBeVisible();
+		await expect(
+			page.getByText(
+				'The knowledge base was empty — the message was not answered'
+			)
+		).toBeVisible();
+	} );
+
+	test( 'a rewritten retrieval query is labelled in the debug ledger', async ( {
+		page,
+		admin,
+	} ) => {
+		await page.route(
+			/.*(?:rest_route=%2Fhyve%2Fv1%2Fthreads|\/wp-json\/hyve\/v1\/threads).*/,
+			async ( route ) => {
+				await route.fulfill( {
+					status: 200,
+					contentType: 'application/json',
+					body: JSON.stringify( {
+						posts: [
+							{
+								ID: 8,
+								title: 'where is RUCA playing next',
+								date: '2026-08-17T10:00:00+00:00',
+								thread_id: 'conv_rewrite1',
+								thread: [
+									{
+										time: 1755424800,
+										sender: 'user',
+										message: 'how long has he been djing',
+									},
+									{
+										time: 1755424806,
+										sender: 'bot',
+										message:
+											'RUCA has been DJing since 2001.',
+										debug: {
+											answered: true,
+											mode: 'self_hosted',
+											transport: 'poll',
+											model: 'gpt-5.4-nano',
+											query: 'How long has RUCA been DJing?',
+											query_rewritten: true,
+											retrieval: 'kb_full_context',
+										},
+									},
+								],
+							},
+						],
+						more: false,
+						total: 1,
+						per_page: 3,
+					} ),
+				} );
+			}
+		);
+
+		await admin.visitAdminPage( `${ HYVE_ADMIN }&nav=messages` );
+
+		await page.getByRole( 'button', { name: 'View' } ).first().click();
+		await page.getByRole( 'button', { name: 'Show trace' } ).click();
+
+		// The label shares its element with the help icon, so match a substring.
+		await expect( page.getByText( 'Query (rewritten)' ) ).toBeVisible();
+		await expect(
+			page.getByText( 'How long has RUCA been DJing?' )
+		).toBeVisible();
+
+		// The whole-knowledge-base mode is shown once, next to the query.
+		await expect(
+			page.getByText(
+				'Whole knowledge base (it fits the context budget)'
+			)
+		).toHaveCount( 1 );
 	} );
 
 	test( 'an unknown deep-linked conversation shows the not-found state', async ( {

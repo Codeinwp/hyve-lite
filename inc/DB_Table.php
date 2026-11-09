@@ -30,7 +30,7 @@ class DB_Table {
 	 * @since 1.2.0
 	 * @var string
 	 */
-	public $version = '1.2.0';
+	public $version = '1.3.0';
 
 	/**
 	 * Cache prefix.
@@ -103,6 +103,21 @@ class DB_Table {
 	const CONNECT_SYNC_STALL = 300;
 
 	/**
+	 * How long a sync paused for an outage or rate limit waits before it may
+	 * resume, so a persistent refusal is not replayed on every page view.
+	 *
+	 * @var int
+	 */
+	const CONNECT_PAUSE_RESUME = 5 * MINUTE_IN_SECONDS;
+
+	/**
+	 * Cron hook that re-checks a paused sync once its wait has passed.
+	 *
+	 * @var string
+	 */
+	const CONNECT_RESUME_HOOK = 'hyve_lite_connect_resume';
+
+	/**
 	 * How long a post may carry the `_hyve_post_processing` flag before it is
 	 * treated as leaked (an add interrupted mid-request) and ignored. Comfortably
 	 * beyond a single synchronous add, so a live one is never mistaken for stale.
@@ -139,6 +154,7 @@ class DB_Table {
 	public function __construct() {
 		global $wpdb;
 		$this->table_name = $wpdb->prefix . 'hyve';
+		Ingestion_Queue::instance();
 
 		add_action(
 			'hyve_process_post',
@@ -189,7 +205,8 @@ class DB_Table {
 		token_count int(11) NOT NULL DEFAULT 0,
 		post_status VARCHAR(255) NOT NULL DEFAULT "scheduled",
         storage VARCHAR(255) NOT NULL DEFAULT "WordPress",
-		PRIMARY KEY (id)
+		PRIMARY KEY (id),
+		FULLTEXT KEY content_search (post_title,post_content)
 		) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;';
 
 		dbDelta( $sql );
@@ -311,6 +328,7 @@ class DB_Table {
 
 		$this->delete_cache( 'entries' );
 		$this->delete_cache( 'entries_count' );
+		$this->delete_cache( 'total_tokens' );
 		$this->delete_cache( 'chunk_counts' );
 		$this->delete_cache( 'cached_embeddings' );
 
@@ -339,6 +357,7 @@ class DB_Table {
 
 		$this->delete_cache( 'entry_' . $id );
 		$this->delete_cache( 'entries_processed' );
+		$this->delete_cache( 'total_tokens' );
 		$this->delete_cache( 'cached_embeddings' );
 
 		return $rows_affected;
@@ -355,12 +374,14 @@ class DB_Table {
 	 */
 	public function delete_by_post_id( $post_id ) {
 		global $wpdb;
+		Ingestion_Queue::instance()->cancel( (int) $post_id );
 
 		$rows_affected = $wpdb->delete( $this->table_name, [ 'post_id' => $post_id ], [ '%d' ] );
 
 		$this->delete_cache( 'entries' );
 		$this->delete_cache( 'entries_processed' );
 		$this->delete_cache( 'entries_count' );
+		$this->delete_cache( 'total_tokens' );
 		$this->delete_cache( 'chunk_counts' );
 		$this->delete_cache( 'cached_embeddings' );
 
@@ -434,6 +455,47 @@ class DB_Table {
 	}
 
 	/**
+	 * Get processed rows whose vectors still live only in this table.
+	 *
+	 * Only processed rows have an embedding to migrate; scheduled ones are
+	 * sent to Qdrant when they are processed. Rows with no vector at all
+	 * (a hosted export can omit it) have nothing to move and are left out,
+	 * so they never count as pending or as moved.
+	 *
+	 * @since 2.0.5
+	 *
+	 * @param int $limit The limit.
+	 *
+	 * @return array<object{
+	 *     id: string,
+	 *     post_id: string,
+	 *     post_title: string,
+	 *     post_content: string,
+	 *     embeddings: string,
+	 *     token_count: string,
+	 *     storage: string
+	 * }>
+	 */
+	public function get_unmigrated( int $limit = 100 ): array {
+		global $wpdb;
+
+		return $wpdb->get_results( $wpdb->prepare( "SELECT * FROM %i WHERE storage = %s AND post_status = %s AND embeddings NOT IN ('', '[]', 'null') ORDER BY id ASC LIMIT %d", $this->table_name, 'WordPress', 'processed', $limit ) );
+	}
+
+	/**
+	 * Count processed rows whose vectors still live only in this table; see get_unmigrated().
+	 *
+	 * @since 2.0.5
+	 *
+	 * @return int
+	 */
+	public function get_unmigrated_count(): int {
+		global $wpdb;
+
+		return (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM %i WHERE storage = %s AND post_status = %s AND embeddings NOT IN ('', '[]', 'null')", $this->table_name, 'WordPress', 'processed' ) );
+	}
+
+	/**
 	 * Count rows held in a given storage backend.
 	 *
 	 * @param string $storage Storage backend (e.g. WordPress|Qdrant).
@@ -483,6 +545,146 @@ class DB_Table {
 		$this->set_cache( 'cached_embeddings', $cached_embeddings );
 
 		return $posts;
+	}
+
+	/**
+	 * Keyword search over processed chunks: the terms the question shares
+	 * with a chunk, whatever its vector score. Word scripts go through the
+	 * FULLTEXT index (each term as a prefix, so `morpheus8` finds
+	 * `Morpheus8`); scripts without word boundaries (Thai, CJK) are matched
+	 * as substrings instead, since the index tokenizes those as whole runs.
+	 * Words with combining marks also use substrings (FULLTEXT can split
+	 * at vowel signs and viramas within a word). When no word reaches the
+	 * index at all, two-character Arabic, Hebrew and Hangul words (`سن من`)
+	 * are matched as substrings too; alongside indexed terms they would
+	 * outrank them, since index scores scale with the corpus and a
+	 * substring hit does not.
+	 *
+	 * @since 2.1.0
+	 *
+	 * @param string $query The visitor's question.
+	 * @param int    $limit Most matches to return.
+	 *
+	 * @return array<object{id: string, post_id: string, post_title: string, post_content: string, token_count: string, score: string}> Best first.
+	 */
+	public function lexical_search( string $query, int $limit = 20 ): array {
+		$terms    = self::query_terms( $query );
+		$segments = self::query_segments( $query );
+
+		if ( empty( $terms ) ) {
+			$segments = array_values( array_unique( array_merge( $segments, self::query_short_words( $query ) ) ) );
+		}
+
+		if ( empty( $terms ) && empty( $segments ) ) {
+			return [];
+		}
+
+		global $wpdb;
+
+		$score    = [];
+		$bindings = [];
+
+		if ( ! empty( $terms ) ) {
+			$score[]    = 'MATCH( post_title, post_content ) AGAINST( %s IN BOOLEAN MODE )';
+			$bindings[] = implode( ' ', array_map( fn( $term ) => $term . '*', $terms ) );
+		}
+
+		foreach ( $segments as $segment ) {
+			// A title hit counts double: proper nouns live there.
+			$score[]    = '( CASE WHEN post_title LIKE %s THEN 2 ELSE 0 END ) + ( CASE WHEN post_content LIKE %s THEN 1 ELSE 0 END )';
+			$like       = '%' . $wpdb->esc_like( $segment ) . '%';
+			$bindings[] = $like;
+			$bindings[] = $like;
+		}
+
+		$bindings[] = $this->table_name;
+		$bindings[] = 'processed';
+		$bindings[] = $limit;
+
+		$sql = 'SELECT id, post_id, post_title, post_content, token_count, ( ' . implode( ' + ', $score ) . ' ) AS score FROM %i WHERE post_status = %s HAVING score > 0 ORDER BY score DESC, id ASC LIMIT %d';
+
+		// phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- the score clause and its bindings are built together above.
+		return $wpdb->get_results( $wpdb->prepare( $sql, ...$bindings ) );
+	}
+
+	/**
+	 * The question's words for the FULLTEXT index: letters, digits and marks,
+	 * at least three characters (InnoDB indexes nothing shorter), at most
+	 * ten of them. A Latin word carrying marks also adds its mark-free form,
+	 * after the whole words, so decomposed input (`gia` + U+0301 from a
+	 * Vietnamese keyboard) still reaches precomposed `giá` through the
+	 * collation. Other scripts keep their marks: they belong to the word.
+	 *
+	 * @param string $query The visitor's question.
+	 *
+	 * @return array<int, string>
+	 */
+	public static function query_terms( string $query ): array {
+		$words = preg_split( '/[^\p{L}\p{N}\p{M}]+/u', mb_strtolower( $query ), -1, PREG_SPLIT_NO_EMPTY );
+		$terms = [];
+		$bare  = [];
+
+		if ( false === $words ) {
+			return [];
+		}
+
+		foreach ( $words as $word ) {
+			if ( mb_strlen( $word ) < 3 || 1 === preg_match( '/^[\p{Han}\p{Hiragana}\p{Katakana}\p{Thai}\p{Lao}\p{Khmer}\p{Myanmar}]+$/u', $word ) ) {
+				continue;
+			}
+
+			$terms[ $word ] = $word;
+
+			if ( 1 === preg_match( '/^[\p{Latin}\p{N}\p{M}]*\p{M}[\p{Latin}\p{N}\p{M}]*$/u', $word ) ) {
+				$stripped = (string) preg_replace( '/\p{M}+/u', '', $word );
+
+				if ( mb_strlen( $stripped ) >= 3 ) {
+					$bare[ $stripped ] = $stripped;
+				}
+			}
+		}
+
+		return array_slice( array_values( $terms + $bare ), 0, 10 );
+	}
+
+	/**
+	 * Words containing combining marks and runs from scripts without word
+	 * boundaries, matched as substrings. At least two characters, at most
+	 * five segments. A marked word must start with a letter or digit.
+	 *
+	 * @param string $query The visitor's question.
+	 *
+	 * @return array<int, string>
+	 */
+	public static function query_segments( string $query ): array {
+		preg_match_all( '/[\p{Han}\p{Hiragana}\p{Katakana}\p{Thai}\p{Lao}\p{Khmer}\p{Myanmar}]{2,}/u', $query, $matches );
+		preg_match_all( '/[\p{L}\p{N}][\p{L}\p{N}\p{M}]*/u', $query, $words );
+
+		foreach ( $words[0] as $word ) {
+			if ( 1 === preg_match( '/\p{M}/u', $word ) ) {
+				$matches[0][] = $word;
+			}
+		}
+
+		return array_slice( array_values( array_unique( $matches[0] ) ), 0, 5 );
+	}
+
+	/**
+	 * Short words in scripts where those are content words below the
+	 * index's three-character minimum: two letters of Arabic or Hebrew
+	 * (`سن من`), one or two Hangul syllables (`내 집`, each syllable a
+	 * whole morpheme). Latin and Cyrillic two-letter words are stopwords
+	 * and stay out, as do single Arabic and Hebrew letters and lone jamo.
+	 * At most five.
+	 *
+	 * @param string $query The visitor's question.
+	 *
+	 * @return array<int, string>
+	 */
+	public static function query_short_words( string $query ): array {
+		preg_match_all( '/(?<![\p{L}\p{N}\p{M}])(?:(?:(?=\p{L})[\p{Arabic}\p{Hebrew}\x{AC00}-\x{D7A3}]){2}|[\x{AC00}-\x{D7A3}])(?![\p{L}\p{N}\p{M}])/u', $query, $matches );
+
+		return array_slice( array_values( array_unique( $matches[0] ) ), 0, 5 );
 	}
 
 	/**
@@ -577,7 +779,7 @@ class DB_Table {
 		$limit = apply_filters( 'hyve_chunks_limit', 500 );
 
 		global $wpdb;
-		$posts = $wpdb->get_results( $wpdb->prepare( 'SELECT post_id FROM %i ORDER BY id DESC LIMIT %d, %d', $this->table_name, $limit, $this->get_count() ) );
+		$posts = $wpdb->get_results( $wpdb->prepare( 'SELECT post_id FROM %i WHERE post_status <> %s ORDER BY id DESC LIMIT %d, %d', $this->table_name, 'staging', $limit, $this->get_count() ) );
 
 		if ( ! $posts ) {
 			return [];
@@ -665,15 +867,20 @@ class DB_Table {
 	 * @throws \Exception If Qdrant API fails.
 	 */
 	public function ingest_document( $doc, $args = [] ) {
-		$result = $this->run_ingest( $doc, $args );
+		$result  = $this->run_ingest( $doc, $args );
+		$post_id = (int) ( $args['post_id'] ?? 0 );
 
-		// The row reports the latest attempt. Moderation has its own meta.
+		// The row reports the latest attempt. Moderation has its own meta, and
+		// a busy source is not a failure.
 		if ( is_wp_error( $result ) ) {
-			if ( 'content_failed_moderation' === $result->get_error_code() ) {
-				delete_post_meta( (int) ( $args['post_id'] ?? 0 ), '_hyve_processing_error' );
+			if ( in_array( $result->get_error_code(), [ 'content_failed_moderation', 'ingestion_in_progress' ], true ) ) {
+				delete_post_meta( $post_id, '_hyve_processing_error' );
 			} else {
-				$this->record_processing_error( (int) ( $args['post_id'] ?? 0 ), $result, false );
+				$this->record_processing_error( $post_id, $result, false );
 			}
+		} elseif ( $post_id && ! Ingestion_Queue::instance()->is_active( $post_id ) ) {
+			// Indexed synchronously: an older background verdict no longer applies.
+			delete_post_meta( $post_id, '_hyve_ingestion' );
 		}
 
 		return $result;
@@ -712,19 +919,42 @@ class DB_Table {
 		$persist_moderation = ! empty( $args['persist_moderation'] );
 		$allow_retry        = $args['retry_async'] ?? true;
 
-		$data   = Tokenizer::tokenize(
-			[
-				'ID'      => $post_id,
-				'title'   => $doc['title'],
-				'content' => $doc['content'],
-			]
-		);
+		try {
+			$data = Tokenizer::tokenize(
+				[
+					'ID'      => $post_id,
+					'title'   => $doc['title'],
+					'content' => $doc['content'],
+				]
+			);
+		} catch ( \Exception $e ) {
+			// The vocabulary could not be loaded; an error, not a crashed request.
+			return new \WP_Error(
+				'tokenizer_unavailable',
+				sprintf(
+					// translators: %s: the reason the tokenizer could not start.
+					__( 'The content could not be tokenized: %s', 'hyve-lite' ),
+					$e->getMessage()
+				)
+			);
+		}
+
 		$chunks = array_column( $data, 'post_content' );
+		$queued = Ingestion_Queue::instance();
+		if ( $queued->is_active( (int) $post_id ) ) {
+			return $queued->enqueue( $doc, $args, $data );
+		}
+		if ( count( $data ) > max( 1, (int) apply_filters( 'hyve_sync_ingestion_chunks', 5 ) ) ) {
+			return $queued->enqueue( $doc, $args, $data );
+		}
 		// Only reuse the per-post moderation cache for an existing WP post
 		// (the posts source). Freshly submitted content is always re-moderated.
 		$moderation = OpenAI::instance()->moderate_chunks( $chunks, $persist_moderation ? $post_id : null );
 
 		if ( is_wp_error( $moderation ) ) {
+			if ( 'rate_limit_exceeded' === $moderation->get_error_code() ) {
+				return $queued->enqueue( $doc, $args, $data );
+			}
 			return $moderation;
 		}
 
@@ -1167,16 +1397,28 @@ class DB_Table {
 	 *
 	 * Called when a site with indexed content switches into Connect mode, and by
 	 * the purge auto-recovery path. Seeds the progress option and schedules the
-	 * first cron run; a no-op when there is nothing pending.
+	 * first cron run. With nothing pending it schedules nothing, and writes the
+	 * status only to carry an outage probe for the update cron's edited pages.
+	 *
+	 * @param bool $probe Resuming after an outage: a rate-limit or maintenance
+	 *                    answer pauses again at once while the probe lasts. It
+	 *                    lasts one pause wait at most, and ends sooner on any
+	 *                    other failure or a stored upload, on batch progress, or
+	 *                    when the update cron finds nothing to send. Seeded in
+	 *                    the same write that makes the job runnable.
 	 *
 	 * @return void
 	 */
-	public function connect_start_sync() {
+	public function connect_start_sync( $probe = false ) {
 		$this->connect_clear_processing_errors();
 
-		$pending = $this->connect_pending_count();
+		$pending     = $this->connect_pending_count();
+		$probe_until = $probe ? time() + self::CONNECT_PAUSE_RESUME : 0;
 
 		if ( 0 === $pending ) {
+			if ( $probe ) {
+				update_option( self::CONNECT_SYNC_OPTION, [ 'probe_until' => $probe_until ] );
+			}
 			return;
 		}
 
@@ -1189,6 +1431,7 @@ class DB_Table {
 				'blocked'     => false,
 				'message'     => '',
 				'heartbeat'   => time(),
+				'probe_until' => $probe_until,
 			]
 		);
 
@@ -1321,8 +1564,17 @@ class DB_Table {
 
 		$documents = [];
 		$empty     = 0;
+		$flagged   = [];
 
 		foreach ( $post_ids as $post_id ) {
+			// The batch is about to read the source's current content, so its
+			// re-index flag is lifted first: a flag found after the request was
+			// set by an edit made meanwhile. Sources that stay pending get it back.
+			if ( '' !== (string) get_post_meta( $post_id, '_hyve_needs_update', true ) ) {
+				$flagged[] = (int) $post_id;
+				delete_post_meta( $post_id, '_hyve_needs_update' );
+			}
+
 			// Keyed by post id so the success loop can recover each sent hash.
 			$document = $this->connect_document(
 				(int) $post_id,
@@ -1352,7 +1604,22 @@ class DB_Table {
 			return;
 		}
 
-		$result = Hyve_Connect::instance()->kb_upsert( $documents );
+		// Empty sources were failed above; only sent sources can stay pending.
+		$flagged = array_values( array_intersect( $flagged, array_keys( $documents ) ) );
+		$result  = Hyve_Connect::instance()->kb_upsert( $documents );
+
+		// The request can take a minute; read the mode as it is now, not as this
+		// process cached it before the call.
+		wp_cache_delete( 'hyve_settings', 'options' );
+		wp_cache_delete( 'alloptions', 'options' );
+		$live_settings = Main::get_settings();
+
+		// Disconnected while the request ran: nothing here applies anymore.
+		if ( Hyve_Connect::MODE_CONNECT !== ( $live_settings['ai_mode'] ?? '' ) ) {
+			$this->connect_restore_flags( $flagged );
+			$this->connect_finish_sync();
+			return;
+		}
 
 		if ( is_wp_error( $result ) ) {
 			$error_code = $result->get_error_code();
@@ -1362,6 +1629,7 @@ class DB_Table {
 			if ( is_string( $error_code ) && false !== strpos( $error_code, 'quota_exceeded' ) ) {
 				$data = $result->get_error_data();
 
+				$this->connect_restore_flags( $flagged );
 				$this->connect_block_sync(
 					$result->get_error_message(),
 					is_array( $data ) && isset( $data['quota'] ) && is_array( $data['quota'] ) ? $data['quota'] : []
@@ -1369,16 +1637,8 @@ class DB_Table {
 				return;
 			}
 
-			// Transient failure (unreachable/provider): back off and retry.
-			wp_schedule_single_event( time() + 30, self::CONNECT_SYNC_HOOK );
-			return;
-		}
-
-		$live_settings = get_option( 'hyve_settings', [] );
-		$live_mode     = is_array( $live_settings ) ? ( $live_settings['ai_mode'] ?? '' ) : '';
-
-		if ( Hyve_Connect::MODE_CONNECT !== $live_mode ) {
-			$this->connect_finish_sync();
+			$failed = $this->connect_handle_sync_error( $result, array_keys( $documents ), $empty );
+			$this->connect_restore_flags( array_diff( $flagged, $failed ) );
 			return;
 		}
 
@@ -1404,6 +1664,7 @@ class DB_Table {
 			// later batch, or the block below when nothing fits anymore.
 			if ( 'skipped' === $state ) {
 				$storage_skip = $storage_skip || 'storage' === ( $row['reason'] ?? '' );
+				$this->connect_restore_flags( array_intersect( $flagged, [ $post_id ] ) );
 				continue;
 			}
 
@@ -1463,6 +1724,261 @@ class DB_Table {
 	}
 
 	/**
+	 * Bound retries for a failed batch without discarding sources or local rows.
+	 *
+	 * A validation failure that names documents fails only those. Anything the
+	 * whole site shares (credentials, an outage that outlasts the retry budget)
+	 * pauses the job with the sources still pending, like a plan block, so a
+	 * backlog is never written off one batch at a time. Other 4xx responses are
+	 * terminal for the batch. Synced markers stay untouched and failed sources
+	 * stay in the manifest so a manual reconcile can recover them.
+	 *
+	 * @param \WP_Error $error       Batch error.
+	 * @param int[]     $post_ids    Sources sent in the failed request, in request order.
+	 * @param int       $empty_count Empty sources already handled in this pass.
+	 *
+	 * @return int[] Sources failed by this pass; the rest stay pending.
+	 */
+	private function connect_handle_sync_error( $error, $post_ids, $empty_count ) {
+		$status   = $this->connect_sync_status();
+		$attempts = (int) ( $status['attempts'] ?? 0 ) + 1;
+		$data     = $error->get_error_data();
+		$http     = is_array( $data ) ? (int) ( $data['status'] ?? 0 ) : 0;
+		$rejected = 422 === $http ? $this->connect_rejected_documents( $data['errors'] ?? [], $post_ids ) : [];
+
+		if ( ! empty( $rejected ) ) {
+			return $this->connect_fail_sources( array_keys( $rejected ), $error, $empty_count, $rejected );
+		}
+
+		$scope = $this->connect_error_scope( $error );
+
+		if ( $this->connect_may_retry( $scope, $attempts ) ) {
+			$status['attempts']  = $attempts;
+			$status['heartbeat'] = time();
+
+			// Any failure but a rate-limit or maintenance answer ends the probe.
+			if ( 'later' !== $scope ) {
+				$status['probe_until'] = 0;
+			}
+
+			update_option( self::CONNECT_SYNC_OPTION, $status );
+			wp_schedule_single_event( time() + ( MINUTE_IN_SECONDS * $attempts ), self::CONNECT_SYNC_HOOK );
+			return [];
+		}
+
+		// Out of retries: settle whether the failure is the platform's or the batch's.
+		$scope = 'unknown' === $scope ? $this->connect_settle_unknown_scope( $error ) : $scope;
+
+		if ( 'batch' === $scope ) {
+			return $this->connect_fail_sources( $post_ids, $error, $empty_count );
+		}
+
+		$this->connect_pause_sync( $scope, $error );
+
+		return [];
+	}
+
+	/**
+	 * Who must act on a failed Connect request.
+	 *
+	 * @param \WP_Error $error The request error.
+	 *
+	 * @return 'auth'|'batch'|'site'|'later'|'unknown' `auth` (reconnect),
+	 *         `batch` (the content sent), `site` (this site's setup, a missing
+	 *         route or refused header), `later` (rate limit, maintenance) or
+	 *         `unknown` (a provider or server failure that may be either side).
+	 */
+	private function connect_error_scope( \WP_Error $error ) {
+		$data = $error->get_error_data();
+		$http = is_array( $data ) ? (int) ( $data['status'] ?? 0 ) : 0;
+		$code = $error->get_error_code();
+
+		if ( 'hyve_connect_auth_failed' === $code || in_array( $http, [ 401, 403 ], true ) ) {
+			return 'auth';
+		}
+
+		if ( in_array( $http, [ 400, 413, 422 ], true ) || in_array( $code, [ 'hyve_connect_invalid_request', 'hyve_connect_invalid_params' ], true ) ) {
+			return 'batch';
+		}
+
+		if ( 'hyve_connect_rate_limited' === $code || in_array( $http, [ 425, 429, 502, 503, 504 ], true ) ) {
+			return 'later';
+		}
+
+		if ( $http >= 400 && $http < 500 && ! in_array( $http, [ 408, 409 ], true ) ) {
+			return 'site';
+		}
+
+		return 'unknown';
+	}
+
+	/**
+	 * Whether a failed upload gets another try before the job pauses or the
+	 * platform is asked to settle it. Temporary and unexplained failures get
+	 * MAX_PROCESS_ATTEMPTS tries, except a rate-limit or maintenance answer
+	 * while an outage resume is still probing: that outage is not over.
+	 *
+	 * @param string $scope    The failure's scope, from connect_error_scope().
+	 * @param int    $attempts Tries so far, this one included.
+	 *
+	 * @return bool
+	 */
+	private function connect_may_retry( $scope, $attempts ) {
+		if ( ! in_array( $scope, [ 'later', 'unknown' ], true ) || $attempts >= self::MAX_PROCESS_ATTEMPTS ) {
+			return false;
+		}
+
+		return 'later' !== $scope || (int) ( $this->connect_sync_status()['probe_until'] ?? 0 ) <= time();
+	}
+
+	/**
+	 * End an outage resume's probe after any failure but a rate-limit or
+	 * maintenance answer, a stored upload, or when nothing is left to send.
+	 *
+	 * Rereads the stored status past this request's option cache and changes
+	 * only the probe: an upload can outlast the cron lock, and another cron
+	 * process may have paused or advanced the job meanwhile.
+	 *
+	 * @return void
+	 */
+	private function connect_end_probe() {
+		wp_cache_delete( self::CONNECT_SYNC_OPTION, 'options' );
+		wp_cache_delete( 'alloptions', 'options' );
+		$status = $this->connect_sync_status();
+
+		if ( empty( $status['probe_until'] ) ) {
+			return;
+		}
+
+		$status['probe_until'] = 0;
+		update_option( self::CONNECT_SYNC_OPTION, $status );
+	}
+
+	/**
+	 * Settle an `unknown` failure by asking the platform: it could be an outage
+	 * or content the platform cannot process, and pausing on the latter would
+	 * replay it on every resume, so it pauses only if the platform is down. The
+	 * platform's rate limiter and kill switch guard the upload route alone, so
+	 * this probe cannot decide a rate-limited request; those are `later` already.
+	 *
+	 * @param \WP_Error $error The request error.
+	 *
+	 * @return 'auth'|'batch'|'site'|'later' The scope with `unknown` resolved.
+	 */
+	private function connect_settle_unknown_scope( \WP_Error $error ) {
+		$scope = $this->connect_error_scope( $error );
+
+		if ( 'unknown' !== $scope ) {
+			return $scope;
+		}
+
+		$stats = Hyve_Connect::instance()->stats( true );
+
+		return 'error' === ( $stats['service'] ?? '' ) ? 'later' : 'batch';
+	}
+
+	/**
+	 * Pause syncing for a failure the whole site shares, with the sources
+	 * still pending and a timed re-check.
+	 *
+	 * @param string    $scope `auth`, `site` or `later`, from connect_error_scope().
+	 * @param \WP_Error $error The request error.
+	 *
+	 * @return void
+	 */
+	private function connect_pause_sync( $scope, \WP_Error $error ) {
+		if ( 'auth' === $scope ) {
+			$message = __( 'Hyve Connect rejected this site\'s credentials. Reconnect to resume syncing.', 'hyve-lite' );
+		} elseif ( 'site' === $scope ) {
+			$message = sprintf(
+				// translators: %s is the error message returned by Hyve Connect.
+				__( 'Hyve Connect refused the request (%s). Syncing retries once it is available again.', 'hyve-lite' ),
+				$error->get_error_message()
+			);
+		} else {
+			$message = __( 'Hyve Connect could not be reached. Syncing resumes once it is available again.', 'hyve-lite' );
+		}
+
+		$this->connect_block_sync( $message, [ 'kind' => 'auth' === $scope ? 'auth' : 'unavailable' ], time() + self::CONNECT_PAUSE_RESUME );
+	}
+
+	/**
+	 * Map a validation failure's `documents.N.*` field errors back to sources.
+	 *
+	 * @param mixed $errors   Field errors from the platform, keyed by field name.
+	 * @param int[] $post_ids Sources in request order.
+	 *
+	 * @return array<int, string> Source id => first field message.
+	 */
+	private function connect_rejected_documents( $errors, $post_ids ) {
+		$rejected = [];
+
+		foreach ( is_array( $errors ) ? $errors : [] as $field => $messages ) {
+			if ( ! preg_match( '/(?:^|\.)documents\.(\d+)(?:\.|$)/', (string) $field, $match ) || ! isset( $post_ids[ (int) $match[1] ] ) ) {
+				continue;
+			}
+
+			$post_id = $post_ids[ (int) $match[1] ];
+			$message = is_array( $messages ) ? reset( $messages ) : $messages;
+
+			if ( ! isset( $rejected[ $post_id ] ) ) {
+				$rejected[ $post_id ] = is_string( $message ) ? $message : '';
+			}
+		}
+
+		return $rejected;
+	}
+
+	/**
+	 * Mark sources failed for this round and move the job past them.
+	 *
+	 * The batch cleared each source's re-index flag, so a flag present now was
+	 * set by an edit during the request: leave that source pending so the new
+	 * content gets its own attempt. The edit came from another request, so the
+	 * flag is re-read past this process's cache.
+	 *
+	 * @param int[]              $post_ids    Sources to fail.
+	 * @param \WP_Error          $error       Why they failed.
+	 * @param int                $empty_count Empty sources already handled in this pass.
+	 * @param array<int, string> $messages    Per-source messages that replace the batch message.
+	 *
+	 * @return int[] The sources actually failed.
+	 */
+	private function connect_fail_sources( $post_ids, $error, $empty_count, $messages = [] ) {
+		$failed = [];
+
+		foreach ( $post_ids as $post_id ) {
+			clean_post_cache( $post_id );
+
+			if ( '' !== (string) get_post_meta( $post_id, '_hyve_needs_update', true ) ) {
+				continue;
+			}
+
+			$reason = empty( $messages[ $post_id ] ) ? $error : new \WP_Error( $error->get_error_code(), $messages[ $post_id ] );
+
+			$this->record_processing_error( $post_id, $reason, false );
+			$failed[] = $post_id;
+		}
+
+		$this->connect_advance_sync( count( $failed ) + $empty_count );
+
+		return $failed;
+	}
+
+	/**
+	 * Give sources that stay pending after a batch their re-index flag back.
+	 *
+	 * @param int[] $post_ids Sources flagged when the batch was built.
+	 *
+	 * @return void
+	 */
+	private function connect_restore_flags( $post_ids ) {
+		foreach ( $post_ids as $post_id ) {
+			update_post_meta( $post_id, '_hyve_needs_update', 1 );
+		}
+	}
+
+	/**
 	 * Record progress after a batch and reschedule if any sources remain.
 	 *
 	 * @param int $done Sources handled in the batch just finished.
@@ -1477,6 +1993,8 @@ class DB_Table {
 		}
 
 		$status['current']     = (int) ( $status['current'] ?? 0 ) + (int) $done;
+		$status['attempts']    = 0;
+		$status['probe_until'] = 0;
 		$has_more              = $this->connect_pending_count() > 0;
 		$status['in_progress'] = $has_more;
 		$status['heartbeat']   = time();
@@ -1539,25 +2057,34 @@ class DB_Table {
 	}
 
 	/**
-	 * Stop the sync job because the plan's limit was hit, recording the reason
-	 * and the quota numbers at block time (so auto-resume can tell "something
-	 * changed" from "still does not fit").
+	 * Stop the sync job with its sources still pending: the plan's limit was
+	 * hit, the credentials were rejected or the platform is unavailable. Records
+	 * why, and for a plan block the quota numbers at block time (so auto-resume
+	 * can tell "something changed" from "still does not fit").
 	 *
-	 * @param string               $message The platform's limit message.
-	 * @param array<string, mixed> $quota   The platform's quota snapshot ({kind, limit, used}).
+	 * @param string               $message      Why the job stopped, as shown to the admin.
+	 * @param array<string, mixed> $quota        `kind` is storage, indexing, auth or unavailable; a storage block adds the platform's {limit, used}.
+	 * @param int                  $resume_after Earliest time the job may resume; 0 for no wait. A cron event re-checks it then.
 	 *
 	 * @return void
 	 */
-	private function connect_block_sync( $message, $quota = [] ) {
+	private function connect_block_sync( $message, $quota = [], $resume_after = 0 ) {
 		$status = get_option( self::CONNECT_SYNC_OPTION, [] );
 
-		$status['in_progress'] = false;
-		$status['blocked']     = true;
-		$status['message']     = (string) $message;
-		$status['quota']       = $quota;
+		$status['in_progress']  = false;
+		$status['blocked']      = true;
+		$status['message']      = (string) $message;
+		$status['quota']        = $quota;
+		$status['resume_after'] = (int) $resume_after;
 
 		update_option( self::CONNECT_SYNC_OPTION, $status );
 		Hyve_Connect::flush_stats();
+
+		wp_clear_scheduled_hook( self::CONNECT_RESUME_HOOK );
+
+		if ( $resume_after > 0 ) {
+			wp_schedule_single_event( (int) $resume_after, self::CONNECT_RESUME_HOOK );
+		}
 	}
 
 	/**
@@ -1592,31 +2119,48 @@ class DB_Table {
 	}
 
 	/**
-	 * Resume a plan-blocked sync once the quota numbers have actually changed
-	 * (upgrade, freed space on another site, a new usage window).
+	 * Resume a blocked sync once its cause has lifted: a plan block when the
+	 * quota numbers have actually changed (upgrade, freed space on another
+	 * site, a new usage window), a credential or outage pause when the
+	 * platform answers the stats call again after the wait.
 	 *
-	 * Cheap on every admin load: reads the cached stats, so the platform is
-	 * consulted at most once per cache window. Both storage and the indexing
-	 * windows must have headroom, or resuming would immediately re-block. For
-	 * a storage block the numbers must also have MOVED since the block (cap
-	 * raised or space freed): leftover room alone means the knowledge base
-	 * simply does not fit, and resuming would retry-loop against the cap.
+	 * Cheap on every admin load, and run once by cron when a pause's wait
+	 * ends: reads the cached stats, so the platform is consulted at most once
+	 * per cache window. Both storage and the indexing windows must have
+	 * headroom, or resuming would immediately re-block. For a storage block
+	 * the numbers must also have MOVED since the block (cap raised or space
+	 * freed): leftover room alone means the knowledge base simply does not
+	 * fit, and resuming would retry-loop against the cap.
 	 *
 	 * @return void
 	 */
 	public function connect_maybe_resume_blocked() {
 		$status = $this->connect_sync_status();
 
-		if ( empty( $status['blocked'] ) ) {
+		if ( empty( $status['blocked'] ) || (int) ( $status['resume_after'] ?? 0 ) > time() ) {
 			return;
 		}
 
-		$stats   = Hyve_Connect::instance()->stats();
+		// A timed pause with its cron check still ahead leaves the probing to
+		// that check, so admin loads do not poll the platform meanwhile.
+		if ( (int) ( $status['resume_after'] ?? 0 ) > 0 && (int) wp_next_scheduled( self::CONNECT_RESUME_HOOK ) > time() ) {
+			return;
+		}
+
+		$stats = Hyve_Connect::instance()->stats();
+
+		// Still down, or no room yet: a paused job checks again after another wait.
+		if ( 'error' === ( $stats['service'] ?? '' ) ) {
+			$this->connect_recheck_pause( $status );
+			return;
+		}
+
 		$storage = isset( $stats['kb']['storage'] ) && is_array( $stats['kb']['storage'] ) ? $stats['kb']['storage'] : [];
 		$limit   = isset( $storage['limit'] ) ? (int) $storage['limit'] : 0;
 		$used    = isset( $storage['used'] ) ? (int) $storage['used'] : 0;
 
 		if ( $limit <= 0 || $used >= $limit ) {
+			$this->connect_recheck_pause( $status );
 			return;
 		}
 
@@ -1624,6 +2168,7 @@ class DB_Table {
 
 		foreach ( $windows as $window ) {
 			if ( isset( $window['remaining'] ) && (int) $window['remaining'] <= 0 ) {
+				$this->connect_recheck_pause( $status );
 				return;
 			}
 		}
@@ -1640,7 +2185,31 @@ class DB_Table {
 		}
 
 		delete_option( self::CONNECT_SYNC_OPTION );
-		$this->connect_start_sync();
+		// The stats route answering does not prove uploads are back: an outage
+		// resume probes them once before it may pause again.
+		$this->connect_start_sync( 'unavailable' === ( $snapshot['kind'] ?? '' ) );
+
+		// Edits held back while the job was paused go out again.
+		wp_schedule_single_event( time(), 'hyve_update_posts' );
+	}
+
+	/**
+	 * Re-arm the cron check of a paused job for one more wait. Only the cron
+	 * event moves: the status is left alone, so a job restarted or dropped
+	 * while the stats call ran is not overwritten. A plan block has no wait
+	 * and keeps waiting for its numbers to move.
+	 *
+	 * @param array<string, mixed> $status The blocked sync status.
+	 *
+	 * @return void
+	 */
+	private function connect_recheck_pause( array $status ) {
+		if ( (int) ( $status['resume_after'] ?? 0 ) <= 0 ) {
+			return;
+		}
+
+		wp_clear_scheduled_hook( self::CONNECT_RESUME_HOOK );
+		wp_schedule_single_event( time() + self::CONNECT_PAUSE_RESUME, self::CONNECT_RESUME_HOOK );
 	}
 
 	/**
@@ -1740,7 +2309,8 @@ class DB_Table {
 
 	/**
 	 * Record the hash a source last synced to the cloud, plus the post's modified
-	 * time then, so the manifest can reuse it while the post is unchanged.
+	 * time and the extractor version then, so the manifest can reuse it while
+	 * the post and the extraction are unchanged.
 	 *
 	 * @param int    $post_id The source post id.
 	 * @param string $hash    Hash of the content that was synced.
@@ -1750,6 +2320,7 @@ class DB_Table {
 	private function connect_store_synced_hash( $post_id, $hash ) {
 		update_post_meta( (int) $post_id, '_hyve_connect_synced_hash', $hash );
 		update_post_meta( (int) $post_id, '_hyve_connect_synced_modified', (int) get_post_modified_time( 'U', true, $post_id ) );
+		update_post_meta( (int) $post_id, '_hyve_connect_synced_extractor', Tokenizer::EXTRACTOR_VERSION );
 	}
 
 	/**
@@ -1787,7 +2358,8 @@ class DB_Table {
 	}
 
 	/**
-	 * Forget a source's synced markers (its hash and cache-invalidation time).
+	 * Forget a source's synced markers (its hash, cache-invalidation time and
+	 * extractor version).
 	 *
 	 * @param int $post_id The source post id.
 	 *
@@ -1796,6 +2368,7 @@ class DB_Table {
 	public function connect_forget_sync( $post_id ) {
 		delete_post_meta( (int) $post_id, '_hyve_connect_synced_hash' );
 		delete_post_meta( (int) $post_id, '_hyve_connect_synced_modified' );
+		delete_post_meta( (int) $post_id, '_hyve_connect_synced_extractor' );
 	}
 
 	/**
@@ -1920,10 +2493,21 @@ class DB_Table {
 
 			$synced_modified  = (int) get_post_meta( $post_id, '_hyve_connect_synced_modified', true );
 			$current_modified = (int) get_post_modified_time( 'U', true, $post_id );
+			$synced_extractor = (int) get_post_meta( $post_id, '_hyve_connect_synced_extractor', true );
+			$unedited         = '' !== $synced_hash && $synced_modified === $current_modified;
 
-			$hash = ( '' !== $synced_hash && $synced_modified === $current_modified )
-				? $synced_hash
-				: $this->connect_source_hash( $post_id );
+			if ( $unedited && Tokenizer::EXTRACTOR_VERSION === $synced_extractor ) {
+				$hash = $synced_hash;
+			} else {
+				// An unedited post synced by an older extractor is rehashed: its
+				// text may read differently now. When it does not, note the
+				// extractor so the next reconcile reuses the hash again.
+				$hash = $this->connect_source_hash( $post_id );
+
+				if ( $unedited && $hash === $synced_hash ) {
+					update_post_meta( $post_id, '_hyve_connect_synced_extractor', Tokenizer::EXTRACTOR_VERSION );
+				}
+			}
 
 			$manifest[] = [
 				'id'   => $post_id,
@@ -1972,6 +2556,7 @@ class DB_Table {
 		}
 
 		if ( ! empty( $root['in_sync'] ) ) {
+			$this->connect_confirm_synced_sources( $manifest );
 			$this->connect_clear_blocked_state( $was_blocked );
 			return true;
 		}
@@ -2004,6 +2589,7 @@ class DB_Table {
 			: [];
 
 		if ( empty( $differing ) ) {
+			$this->connect_confirm_synced_sources( $manifest );
 			$this->connect_clear_blocked_state( $was_blocked );
 			return true;
 		}
@@ -2033,6 +2619,19 @@ class DB_Table {
 			isset( $diff['missing'] ) ? $diff['missing'] : []
 		);
 
+		if ( isset( $diff['stale'], $diff['missing'] ) && is_array( $diff['stale'] ) && is_array( $diff['missing'] ) ) {
+			$pushing = array_map( 'intval', $to_push );
+
+			$this->connect_confirm_synced_sources(
+				array_filter(
+					$manifest,
+					static function ( $entry ) use ( $pushing ) {
+						return ! in_array( (int) $entry['id'], $pushing, true );
+					}
+				)
+			);
+		}
+
 		foreach ( $to_push as $id ) {
 			$this->connect_forget_sync( $id );
 		}
@@ -2045,6 +2644,36 @@ class DB_Table {
 		}
 
 		return true;
+	}
+
+	/**
+	 * Repair failed-source bookkeeping when reconcile confirms hosted content.
+	 *
+	 * An upload can succeed while its response is lost. Once matching hashes
+	 * confirm it, a stopped retry must not leave the source marked failed. A
+	 * concurrent edit must still be indexed, so verify the manifest is current.
+	 * Only pass sources the platform holds: local chunk rows are dropped here,
+	 * and a source still to be pushed must keep them until it lands.
+	 *
+	 * @param array<array{id: int, hash: string}> $manifest Confirmed manifest.
+	 *
+	 * @return void
+	 */
+	private function connect_confirm_synced_sources( $manifest ) {
+		foreach ( $manifest as $entry ) {
+			$post_id = $entry['id'];
+
+			if ( '' === (string) get_post_meta( $post_id, '_hyve_processing_error', true )
+				|| '' !== (string) get_post_meta( $post_id, '_hyve_moderation_failed', true )
+				|| $entry['hash'] !== $this->connect_source_hash( $post_id ) ) {
+				continue;
+			}
+
+			$this->connect_store_synced_hash( $post_id, $entry['hash'] );
+			delete_post_meta( $post_id, '_hyve_processing_error' );
+			delete_post_meta( $post_id, '_hyve_needs_update' );
+			$this->delete_by_post_id( $post_id );
+		}
 	}
 
 	/**
@@ -2201,11 +2830,7 @@ class DB_Table {
 			return;
 		}
 
-		$message = OpenAI::get_error_message_for_code( $error->get_error_code() );
-
-		if ( null === $message ) {
-			$message = $error->get_error_message();
-		}
+		$message = OpenAI::describe_error( $error );
 
 		// translators: both sentences are appended after the error message that caused the failure.
 		$suffix = $will_retry
@@ -2223,6 +2848,13 @@ class DB_Table {
 	 * @return void
 	 */
 	public function update_posts() {
+		$connect = Hyve_Connect::is_active();
+
+		// A paused or blocked sync holds edits back too; resuming it re-runs this.
+		if ( $connect && ! empty( $this->connect_sync_status()['blocked'] ) ) {
+			return;
+		}
+
 		$args = [
 			'post_type'      => 'any',
 			'post_status'    => [ 'publish', 'private' ],
@@ -2239,12 +2871,29 @@ class DB_Table {
 					'key'     => '_hyve_moderation_failed',
 					'compare' => 'NOT EXISTS',
 				],
+				// Owned by a background import; it must not fill this page.
+				[
+					'key'     => Ingestion_Queue::JOB,
+					'compare' => 'NOT EXISTS',
+				],
 			],
 		];
+
+		// A flag left on a removed source must not upload it to the platform.
+		if ( $connect ) {
+			$args['meta_query'][] = [
+				'key'     => '_hyve_added',
+				'compare' => 'EXISTS',
+			];
+		}
 
 		$query = new \WP_Query( $args );
 
 		if ( ! $query->have_posts() ) {
+			// Nothing left to probe an outage with, unless a batch still runs.
+			if ( $connect && empty( $this->connect_sync_status()['in_progress'] ) ) {
+				$this->connect_end_probe();
+			}
 			return;
 		}
 
@@ -2256,17 +2905,180 @@ class DB_Table {
 			 *
 			 * @var int $post_id
 			 */
+			// A background import already owns this source.
+			if ( Ingestion_Queue::instance()->is_active( $post_id ) ) {
+				continue;
+			}
+
+			// The upload is about to read the current content, so the flag is
+			// lifted first: a flag found afterwards was set by a newer edit. A
+			// flag already gone was claimed by an overlapping run.
+			if ( $connect && ! delete_post_meta( (int) $post_id, '_hyve_needs_update', 1 ) ) {
+				continue;
+			}
+
 			$result = $this->add_post( $post_id, 'update' );
+
+			if ( ! is_wp_error( $result ) ) {
+				if ( $connect ) {
+					delete_post_meta( (int) $post_id, '_hyve_connect_update_attempts' );
+					$this->connect_end_probe();
+				}
+				continue;
+			}
 
 			// Terminal until the post is edited again, so surface the error and
 			// stop re-queueing; an edit clears the error and re-flags the post.
-			if ( is_wp_error( $result ) && 'empty_content' === $result->get_error_code() ) {
+			if ( 'empty_content' === $result->get_error_code() ) {
+				delete_post_meta( (int) $post_id, '_hyve_connect_update_attempts' );
 				$this->record_processing_error( (int) $post_id, $result, false );
 				delete_post_meta( (int) $post_id, '_hyve_needs_update' );
+				continue;
+			}
+
+			// The post stays flagged, so the next run tries again.
+			if ( 'tokenizer_unavailable' === $result->get_error_code() ) {
+				$this->record_processing_error( (int) $post_id, $result, true );
+				update_post_meta( (int) $post_id, '_hyve_needs_update', 1 );
+				continue;
+			}
+
+			if ( $connect && $this->connect_update_failed( (int) $post_id, $result ) ) {
+				return;
 			}
 		}
 
 		wp_schedule_single_event( time() + 60, 'hyve_update_posts' );
+	}
+
+	/**
+	 * Settle a Connect failure for an edited, already synced source whose
+	 * flag update_posts() lifted. Outcomes:
+	 *
+	 * - Superseded: a removal or a newer edit made during the upload drops
+	 *   the stale error; a newer edit keeps its own flag.
+	 * - Bounded retry: a rate limit, maintenance answer or server failure
+	 *   puts the flag back for the next cron run, up to MAX_PROCESS_ATTEMPTS.
+	 * - Pause or block: credentials, the site's setup, a plan limit, or an
+	 *   outage that outlasts the retries stops the whole site's syncing with
+	 *   the flag kept.
+	 * - Failed: content the platform refuses keeps its error and loses its
+	 *   flag, so the cron does not re-send it.
+	 *
+	 * A flag is put back only while the source is still in the knowledge base.
+	 *
+	 * @param int       $post_id The edited source.
+	 * @param \WP_Error $error   The update failure.
+	 *
+	 * @return bool Whether syncing was paused or blocked, so the cron run should stop.
+	 */
+	private function connect_update_failed( $post_id, \WP_Error $error ) {
+		$code = $error->get_error_code();
+		$data = $error->get_error_data();
+
+		// Any failure but a rate-limit or maintenance answer ends the probe.
+		if ( 'later' !== $this->connect_error_scope( $error ) ) {
+			$this->connect_end_probe();
+		}
+
+		// A removal or a newer edit supersedes this result and its retry budget.
+		if ( $this->connect_update_superseded( $post_id ) ) {
+			delete_post_meta( $post_id, '_hyve_processing_error' );
+			return false;
+		}
+
+		// A moderation rejection keeps the source out of this cron on its own.
+		if ( 'content_failed_moderation' === $code ) {
+			delete_post_meta( $post_id, '_hyve_connect_update_attempts' );
+			return false;
+		}
+
+		if ( is_string( $code ) && false !== strpos( $code, 'quota_exceeded' ) ) {
+			delete_post_meta( $post_id, '_hyve_connect_update_attempts' );
+			// The platform skipped the source: the ingest path already queued
+			// it for the sync job. A refused upload carries the plan's numbers:
+			// keep the edit and block, as a batch does.
+			if ( ! is_array( $data ) || ! isset( $data['quota'] ) || ! is_array( $data['quota'] ) ) {
+				return false;
+			}
+
+			delete_post_meta( $post_id, '_hyve_processing_error' );
+			$this->connect_requeue_update( $post_id );
+			$this->connect_block_sync( $error->get_error_message(), $data['quota'] );
+			return true;
+		}
+
+		$scope    = $this->connect_error_scope( $error );
+		$attempts = (int) get_post_meta( $post_id, '_hyve_connect_update_attempts', true ) + 1;
+
+		// Temporary or unexplained failures get the same bounded retries as a
+		// batch, one cron run apart, before the job pauses or the platform is
+		// asked to settle them.
+		if ( $this->connect_may_retry( $scope, $attempts ) ) {
+			if ( $this->connect_requeue_update( $post_id ) ) {
+				update_post_meta( $post_id, '_hyve_connect_update_attempts', $attempts );
+				$this->record_processing_error( $post_id, $error, true );
+			}
+			return false;
+		}
+
+		delete_post_meta( $post_id, '_hyve_connect_update_attempts' );
+		$scope = $this->connect_settle_unknown_scope( $error );
+
+		if ( 'batch' !== $scope ) {
+			// Not this source's fault: the pause carries the reason instead.
+			delete_post_meta( $post_id, '_hyve_processing_error' );
+			$this->connect_requeue_update( $post_id );
+			$this->connect_pause_sync( $scope, $error );
+			return true;
+		}
+
+		// The error ingest_document() recorded describes the content sent; an
+		// edit made meanwhile (flagged from another request) supersedes it.
+		clean_post_cache( $post_id );
+
+		if ( '' !== (string) get_post_meta( $post_id, '_hyve_needs_update', true ) ) {
+			delete_post_meta( $post_id, '_hyve_processing_error' );
+		}
+
+		return false;
+	}
+
+	/**
+	 * Whether the claimed edit was removed or superseded during its upload.
+	 *
+	 * @param int $post_id Source post ID.
+	 *
+	 * @return bool
+	 */
+	private function connect_update_superseded( $post_id ) {
+		clean_post_cache( $post_id );
+
+		return '' === (string) get_post_meta( $post_id, '_hyve_added', true )
+			|| '' !== (string) get_post_meta( $post_id, '_hyve_needs_update', true );
+	}
+
+	/**
+	 * Put an edited source's flag back for the next cron run, unless it left
+	 * the knowledge base meanwhile: a removal can finish during the stats call
+	 * that settles a failure, and a stray flag would upload the page again.
+	 *
+	 * @param int $post_id The edited source.
+	 *
+	 * @return bool Whether the source is still in the knowledge base.
+	 */
+	private function connect_requeue_update( $post_id ) {
+		clean_post_cache( $post_id );
+
+		if ( '' === (string) get_post_meta( $post_id, '_hyve_added', true ) ) {
+			delete_post_meta( $post_id, '_hyve_processing_error' );
+			delete_post_meta( $post_id, '_hyve_connect_update_attempts' );
+			return false;
+		}
+
+		update_post_meta( $post_id, '_hyve_needs_update', 1 );
+
+		return true;
 	}
 
 	/**
@@ -2290,6 +3102,7 @@ class DB_Table {
 	
 			delete_post_meta( $id, '_hyve_added' );
 			delete_post_meta( $id, '_hyve_needs_update' );
+			delete_post_meta( $id, '_hyve_connect_update_attempts' );
 			delete_post_meta( $id, '_hyve_moderation_failed' );
 			delete_post_meta( $id, '_hyve_moderation_review' );
 		}
@@ -2321,11 +3134,60 @@ class DB_Table {
 
 		global $wpdb;
 
-		$count = $wpdb->get_var( $wpdb->prepare( 'SELECT COUNT(*) FROM %i', $this->table_name ) );
+		$count = $wpdb->get_var( $wpdb->prepare( 'SELECT COUNT(*) FROM %i WHERE post_status <> %s', $this->table_name, 'staging' ) );
 
 		$this->set_cache( 'entries_count', $count );
 
 		return $count;
+	}
+
+	/**
+	 * Total tokens across every processed chunk: the size of the whole
+	 * knowledge base, which decides whether it fits a chat's context budget.
+	 *
+	 * @since 2.1.0
+	 *
+	 * @return int
+	 */
+	public function get_total_tokens(): int {
+		$cache = $this->get_cache( 'total_tokens' );
+
+		if ( false !== $cache ) {
+			return (int) $cache;
+		}
+
+		global $wpdb;
+
+		$total = (int) $wpdb->get_var( $wpdb->prepare( 'SELECT COALESCE( SUM( token_count ), 0 ) FROM %i WHERE post_status = %s', $this->table_name, 'processed' ) );
+
+		$this->set_cache( 'total_tokens', $total );
+
+		return $total;
+	}
+
+	/**
+	 * Every processed chunk, in source order. Only called when the whole
+	 * knowledge base fits a context budget, so the result is small.
+	 *
+	 * @since 2.1.0
+	 *
+	 * @return array<object{post_id: string, post_title: string, post_content: string, token_count: string}>
+	 */
+	public function get_all_chunks(): array {
+		global $wpdb;
+
+		return $wpdb->get_results( $wpdb->prepare( 'SELECT post_id, post_title, post_content, token_count FROM %i WHERE post_status = %s ORDER BY post_id ASC, id ASC', $this->table_name, 'processed' ) );
+	}
+
+	/**
+	 * Invalidate derived data after a staged index is published.
+	 *
+	 * @return void
+	 */
+	public function invalidate_ingestion_cache() {
+		foreach ( [ 'entries', 'entries_processed', 'entries_count', 'total_tokens', 'chunk_counts', 'cached_embeddings' ] as $key ) {
+			$this->delete_cache( $key );
+		}
 	}
 
 	/**
@@ -2352,7 +3214,7 @@ class DB_Table {
 		if ( ! is_array( $counts ) ) {
 			global $wpdb;
 
-			$results = $wpdb->get_results( $wpdb->prepare( 'SELECT post_id, COUNT(*) AS chunks FROM %i GROUP BY post_id', $this->table_name ) );
+			$results = $wpdb->get_results( $wpdb->prepare( 'SELECT post_id, COUNT(*) AS chunks FROM %i WHERE post_status <> %s GROUP BY post_id', $this->table_name, 'staging' ) );
 
 			$counts = [];
 

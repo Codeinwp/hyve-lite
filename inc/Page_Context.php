@@ -398,13 +398,7 @@ class Page_Context {
 			// larger than the budget still gives the page its start.
 			if ( $limit < $tokens + $count ) {
 				$left = $limit - $tokens - ( empty( $parts ) ? 0 : 1 );
-
-				try {
-					$rest = 0 < $left ? $this->trim_to_limit( $chunk->post_content, $left ) : '';
-				} catch ( \Exception $e ) {
-					// No encoder to trim with; keep the chunks that fit whole.
-					$rest = '';
-				}
+				$rest = 0 < $left ? $this->trim_to_limit( $chunk->post_content, $left ) : '';
 
 				if ( '' !== $rest ) {
 					$parts[] = $rest;
@@ -462,7 +456,9 @@ class Page_Context {
 		 * @param string        $url     The page URL to extract.
 		 */
 		$content = (string) apply_filters( 'hyve_page_context_content', '', $post, (string) get_permalink( $post ) );
-		$content = $this->trim_to_limit( wp_strip_all_tags( $content ) );
+		// The same extraction as the knowledge base, so the page reads the
+		// same whether it is pinned from the index or scraped on the spot.
+		$content = $this->trim_to_limit( Tokenizer::html_to_text( $content ) );
 
 		set_transient(
 			self::CACHE_PREFIX . $post_id,
@@ -497,7 +493,7 @@ class Page_Context {
 
 		/** This filter is documented in inc/Page_Context.php */
 		$content = (string) apply_filters( 'hyve_page_context_content', '', null, $url );
-		$content = $this->trim_to_limit( wp_strip_all_tags( $content ) );
+		$content = $this->trim_to_limit( Tokenizer::html_to_text( $content ) );
 
 		set_transient(
 			$key,
@@ -526,6 +522,8 @@ class Page_Context {
 
 	/**
 	 * Trim text to the page context token budget, on sentence boundaries.
+	 * Without a loadable tokenizer vocabulary, trims to about four characters
+	 * per token on a word boundary instead.
 	 *
 	 * @param string   $text  Plain text.
 	 * @param int|null $limit Token budget. Default the page context limit.
@@ -539,7 +537,15 @@ class Page_Context {
 			return '';
 		}
 
-		$chunks = Tokenizer::create_chunks( $text, null === $limit ? self::token_limit() : $limit );
+		$limit = null === $limit ? self::token_limit() : $limit;
+
+		try {
+			$chunks = Tokenizer::create_chunks( $text, $limit );
+		} catch ( \RuntimeException $e ) {
+			$cut = mb_substr( $text, 0, $limit * 4 );
+
+			return trim( mb_strlen( $cut ) < mb_strlen( $text ) ? (string) preg_replace( '/\s+\S*$/u', '', $cut ) : $cut );
+		}
 
 		if ( empty( $chunks ) ) {
 			return '';

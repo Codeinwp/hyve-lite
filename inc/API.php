@@ -15,6 +15,9 @@ use ThemeIsle\HyveLite\OpenAI;
 
 /**
  * API class.
+ *
+ * @phpstan-type Candidate array{key: string, post_id: int, title: string, content: string, tokens: int, score: float|null, lexical: float|null}
+ * @phpstan-type FusedCandidate array{key: string, post_id: int, title: string, content: string, tokens: int, score: float|null, lexical: float|null, fused: float}
  */
 class API extends BaseAPI {
 
@@ -49,6 +52,24 @@ class API extends BaseAPI {
 	private $retrieval_trace = [];
 
 	/**
+	 * The scores the last search gave each candidate, keyed by candidate_key().
+	 * Qdrant points carry no row id, so the content stands in.
+	 *
+	 * @var array<string, array{score: float|null, lexical: float|null}>
+	 */
+	private $chunk_scores = [];
+
+	/**
+	 * How the last search built its context: `similarity` for the scored
+	 * search, `kb_full_context` when the whole knowledge base fit the budget.
+	 *
+	 * @since 2.1.0
+	 *
+	 * @var string
+	 */
+	private $retrieval_mode = 'similarity';
+
+	/**
 	 * Debug information collected while preparing the current chat turn (the
 	 * retrieval query, threshold and matched chunks), attached to the recorded
 	 * bot message so the history shows what led to the reply.
@@ -58,6 +79,36 @@ class API extends BaseAPI {
 	 * @var array<string, mixed>
 	 */
 	private $chat_debug = [];
+
+	/**
+	 * Whether the last retrieval query was rewritten from the visitor's message.
+	 *
+	 * @since 2.1.0
+	 *
+	 * @var bool
+	 */
+	private $query_rewritten = false;
+
+	/**
+	 * A rewritten message longer than this many words, or this many characters,
+	 * is searched with its own wording ahead of the rewrite, so a condensing
+	 * rewrite cannot drop its details. Mirrors the platform's
+	 * RetrievalQuery::LONG_WORDS and LONG_CHARS.
+	 *
+	 * @since 2.1.0
+	 *
+	 * @var int
+	 */
+	const REWRITE_LONG_WORDS = 12;
+
+	/**
+	 * See REWRITE_LONG_WORDS.
+	 *
+	 * @since 2.1.0
+	 *
+	 * @var int
+	 */
+	const REWRITE_LONG_CHARS = 300;
 
 	/**
 	 * Ensures only one instance of the class is loaded.
@@ -270,6 +321,12 @@ class API extends BaseAPI {
 				[
 					'methods'  => \WP_REST_Server::CREATABLE,
 					'callback' => [ $this, 'qdrant_deactivate' ],
+					'args'     => [
+						'force' => [
+							'type'    => 'boolean',
+							'default' => false,
+						],
+					],
 				],
 			],
 			'connect'           => [
@@ -762,6 +819,7 @@ class API extends BaseAPI {
 	 * @return \WP_REST_Response
 	 */
 	public function get_data( $request ) {
+		Ingestion_Queue::instance()->watchdog();
 		$args = [
 			'post_type'   => $request->get_param( 'type' ),
 			'post_status' => [ 'publish', 'private' ],
@@ -831,7 +889,7 @@ class API extends BaseAPI {
 		// The unified "Indexed content" listing includes the plugin-owned sources,
 		// so a site without Pro can still see and remove them. hyve_docs must
 		// be named explicitly: it is exclude_from_search, which `any` skips.
-		if ( 'included' === $status && 'any' === $request->get_param( 'type' ) ) {
+		if ( in_array( $status, [ 'included', 'pending', 'moderation' ], true ) && in_array( $request->get_param( 'type' ), [ null, 'any' ], true ) ) {
 			$args['post_type'] = $this->table->connect_indexed_post_types();
 		}
 
@@ -929,6 +987,10 @@ class API extends BaseAPI {
 			}
 
 			$processing_error = get_post_meta( $post_id, '_hyve_processing_error', true );
+			$ingestion        = get_post_meta( $post_id, '_hyve_ingestion', true );
+			if ( is_array( $ingestion ) ) {
+				$post_data['ingestion'] = $ingestion;
+			}
 
 			// Shown whether or not the source made it into the index: a document
 			// refused for having no text is never added, and that refusal is
@@ -950,10 +1012,11 @@ class API extends BaseAPI {
 			$posts_data[] = apply_filters( 'hyve_data_post', $post_data, $post_id );
 		}
 
-		// Connect mode keeps no local rows; the KB footprint is the hosted total.
+		// Connect mode keeps no local rows; the KB footprint is the hosted total,
+		// unknown (not zero) when the platform did not answer.
 		if ( Hyve_Connect::is_active() ) {
 			$connect      = Hyve_Connect::instance()->stats();
-			$total_chunks = isset( $connect['kb']['chunks'] ) ? (int) $connect['kb']['chunks'] : 0;
+			$total_chunks = isset( $connect['kb']['chunks'] ) ? (int) $connect['kb']['chunks'] : null;
 		} else {
 			$total_chunks = $this->table->get_count();
 		}
@@ -1045,7 +1108,7 @@ class API extends BaseAPI {
 	private function count_posts_by_meta( $meta_query ) {
 		$query = new \WP_Query(
 			[
-				'post_type'      => 'any',
+				'post_type'      => $this->table->connect_indexed_post_types(),
 				'post_status'    => [ 'publish', 'private' ],
 				'fields'         => 'ids',
 				'posts_per_page' => 1,
@@ -1063,6 +1126,7 @@ class API extends BaseAPI {
 	 * @return \WP_REST_Response
 	 */
 	public function get_data_counts() {
+		Ingestion_Queue::instance()->watchdog();
 		$pending = $this->count_posts_by_meta(
 			[
 				'relation' => 'AND',
@@ -1153,6 +1217,16 @@ class API extends BaseAPI {
 		// The content was stored, but the synchronous indexing attempt may have
 		// failed (e.g. rate limit, no credits). Surface that as a non-blocking
 		// warning so the admin sees it immediately, not only as a list badge.
+		$ingestion = get_post_meta( $post_id, '_hyve_ingestion', true );
+		if ( ! Hyve_Connect::is_active() && is_array( $ingestion ) && in_array( $ingestion['status'], [ 'queued', 'processing' ], true ) ) {
+			return rest_ensure_response(
+				[
+					'success'   => true,
+					'queued'    => true,
+					'ingestion' => $ingestion,
+				]
+			);
+		}
 		$processing_error = get_post_meta( $post_id, '_hyve_processing_error', true );
 
 		if ( ! empty( $processing_error ) ) {
@@ -1212,6 +1286,7 @@ class API extends BaseAPI {
 	 */
 	public function delete_data( $request ) {
 		$id = $request->get_param( 'id' );
+		Ingestion_Queue::instance()->cancel( (int) $id );
 
 		if ( Hyve_Connect::is_active() ) {
 			$deleted = Hyve_Connect::instance()->kb_delete( [ (int) $id ] );
@@ -1235,6 +1310,7 @@ class API extends BaseAPI {
 
 		delete_post_meta( $id, '_hyve_added' );
 		delete_post_meta( $id, '_hyve_needs_update' );
+		delete_post_meta( $id, '_hyve_connect_update_attempts' );
 		delete_post_meta( $id, '_hyve_moderation_failed' );
 		delete_post_meta( $id, '_hyve_moderation_review' );
 		delete_post_meta( $id, '_hyve_processing_error' );
@@ -1353,14 +1429,21 @@ class API extends BaseAPI {
 	/**
 	 * Qdrant deactivate.
 	 *
+	 * @param \WP_REST_Request<array{force?: bool}>|null $request Optional local-only disconnect.
+	 *
 	 * @return \WP_REST_Response
 	 * @throws \Exception If Qdrant API fails.
 	 */
-	public function qdrant_deactivate() {
+	public function qdrant_deactivate( $request = null ) {
 		$settings = Main::get_settings();
 
 		try {
-			$deactivated = Qdrant_API::instance()->disconnect();
+			$force       = null !== $request && true === $request->get_param( 'force' );
+			$deactivated = $force ? true : Qdrant_API::instance()->disconnect();
+
+			if ( is_wp_error( $deactivated ) ) {
+				throw new \Exception( $deactivated->get_error_message() );
+			}
 
 			if ( ! $deactivated ) {
 				throw new \Exception( __( 'Failed to deactivate Qdrant.', 'hyve-lite' ) );
@@ -1383,6 +1466,13 @@ class API extends BaseAPI {
 		Main::save_settings( $settings );
 		update_option( 'hyve_qdrant_status', 'inactive' );
 		delete_option( 'hyve_qdrant_migration' );
+		delete_option( Qdrant_API::MIGRATE_RETRY_AT );
+		wp_clear_scheduled_hook( Qdrant_API::MIGRATE_HOOK );
+		delete_option( Qdrant_API::ERROR_OPTION_KEY );
+		// A marker would hide, then prune, the points a later migration
+		// uploads without a generation.
+		delete_post_meta_by_key( Qdrant_API::CURRENT_GENERATION );
+		delete_option( Qdrant_API::CONNECTION );
 
 		return rest_ensure_response( __( 'Qdrant deactivated.', 'hyve-lite' ) );
 	}
@@ -1680,6 +1770,7 @@ class API extends BaseAPI {
 		delete_post_meta( $post_id, '_hyve_added' );
 		$this->table->connect_forget_sync( $post_id );
 		delete_post_meta( $post_id, '_hyve_needs_update' );
+		delete_post_meta( $post_id, '_hyve_connect_update_attempts' );
 		delete_post_meta( $post_id, '_hyve_moderation_failed' );
 		delete_post_meta( $post_id, '_hyve_moderation_review' );
 		delete_post_meta( $post_id, '_hyve_processing_error' );
@@ -1874,105 +1965,69 @@ class API extends BaseAPI {
 	}
 
 	/**
-	 * Search knowledge base using Qdrant vector database.
+	 * Vector candidates from Qdrant: the points above the noise floor, best
+	 * first, capped.
 	 *
-	 * @param array<int, float> $message_vector The embedding vector for the user's message.
-	 * @param float             $similarity_score_threshold Minimum cosine similarity score for relevance.
-	 * @param int               $tokens_threshold Maximum tokens to include in the response.
+	 * @param array<int, float> $message_vector             The question's embedding.
+	 * @param float             $similarity_score_threshold Minimum cosine similarity.
+	 * @param int               $limit                      Most candidates to keep.
 	 *
-	 * @return string Concatenated article content.
+	 * @return array<int, Candidate>|null Candidates, or null when Qdrant could not be searched.
 	 */
-	private function search_knowledge_base_qdrant( $message_vector, $similarity_score_threshold, $tokens_threshold ) {
-		$articles_embedded_data = '';
-		$current_token_count    = 0;
+	private function vector_candidates_qdrant( $message_vector, $similarity_score_threshold, $limit ) {
+		$points = Qdrant_API::instance()->search( $message_vector, $similarity_score_threshold );
 
-		$knowledge_points = Qdrant_API::instance()->search( $message_vector, $similarity_score_threshold );
-
-		if ( is_wp_error( $knowledge_points ) ) {
-			return $articles_embedded_data;
+		if ( is_wp_error( $points ) ) {
+			return null;
 		}
 
-		$source_scores = [];
-		$cutoff        = null;
+		$candidates = [];
 
-		foreach ( $knowledge_points as $point ) {
-			if ( empty( $point['post_title'] ) || empty( $point['post_content'] ) || empty( $point['token_count'] ) ) {
+		foreach ( $points as $point ) {
+			if ( empty( $point['post_title'] ) || empty( $point['post_content'] ) || empty( $point['token_count'] ) || ! isset( $point['score'] ) ) {
 				continue;
 			}
 
-			// Qdrant returns points best-first, so the first scored point is
-			// the top match; weaker stragglers below its relative cutoff stay
-			// out of the context (see relative_score_cutoff()).
-			if ( isset( $point['score'] ) ) {
-				if ( null === $cutoff ) {
-					$cutoff = self::relative_score_cutoff( (float) $point['score'] );
-				} elseif ( (float) $point['score'] < $cutoff ) {
-					break;
-				}
-			}
+			$post_id = (int) ( $point['post_id'] ?? 0 );
 
-			$tokens_count = intval( $point['token_count'] );
-
-			if ( $tokens_threshold <= ( $current_token_count + $tokens_count ) ) {
-				// Matched the query but did not fit the context budget — traced
-				// so the Messages screen can show what the model never saw.
-				$this->retrieval_trace[] = [
-					'post_id'  => isset( $point['post_id'] ) ? intval( $point['post_id'] ) : 0,
-					'title'    => (string) $point['post_title'],
-					'score'    => isset( $point['score'] ) ? round( floatval( $point['score'] ), 4 ) : null,
-					'tokens'   => $tokens_count,
-					'included' => false,
-				];
-				continue;
-			}
-
-			if ( isset( $point['post_id'], $point['score'] ) ) {
-				$post_id = (string) $point['post_id'];
-
-				if ( ! isset( $source_scores[ $post_id ] ) || $point['score'] > $source_scores[ $post_id ] ) {
-					$source_scores[ $post_id ] = $point['score'];
-				}
-			}
-
-			$articles_embedded_data .= "\n ===START POST=== " . $point['post_title'] . ' - ' . $point['post_content'] . ' ===END POST===';
-			$current_token_count    += intval( $point['token_count'] );
-
-			$this->retrieval_trace[] = [
-				'post_id' => isset( $point['post_id'] ) ? intval( $point['post_id'] ) : 0,
+			$candidates[] = [
+				'key'     => self::candidate_key( $post_id, (string) $point['post_content'] ),
+				'post_id' => $post_id,
 				'title'   => (string) $point['post_title'],
-				'score'   => isset( $point['score'] ) ? round( floatval( $point['score'] ), 4 ) : null,
-				'tokens'  => $tokens_count,
+				'content' => (string) $point['post_content'],
+				'tokens'  => (int) $point['token_count'],
+				'score'   => (float) $point['score'],
+				'lexical' => null,
 			];
 		}
 
-		$this->source_post_ids = $this->rank_sources( $source_scores );
+		usort( $candidates, [ __CLASS__, 'compare_by_score' ] );
 
-		return $articles_embedded_data;
+		return array_slice( $candidates, 0, $limit );
 	}
 
 	/**
-	 * Search knowledge base using WordPress database storage.
+	 * Vector candidates from the local table: every processed chunk is
+	 * scored in PHP; the ones above the noise floor are kept, best first,
+	 * capped.
 	 *
-	 * @param array<int, float> $message_vector The embedding vector for the user's message.
-	 * @param float             $similarity_score_threshold Minimum cosine similarity score for relevance.
-	 * @param int               $tokens_threshold Maximum tokens to include in the response.
+	 * @param array<int, float> $message_vector             The question's embedding.
+	 * @param float             $similarity_score_threshold Minimum cosine similarity.
+	 * @param int               $limit                      Most candidates to keep.
 	 *
-	 * @return string Concatenated article content.
+	 * @return array<int, Candidate>
 	 */
-	private function search_knowledge_base_wp( $message_vector, $similarity_score_threshold, $tokens_threshold ) {
-		$articles_embedded_data = '';
-		$message_vector_mag     = Cosine_Similarity::magnitude( $message_vector );
+	private function vector_candidates_wp( $message_vector, $similarity_score_threshold, $limit ) {
+		$message_vector_mag = Cosine_Similarity::magnitude( $message_vector );
 
 		if ( 0.0 === $message_vector_mag ) {
-			return $articles_embedded_data;
+			return [];
 		}
 
-		$current_token_count = 0;
-		$offset              = 0;
-		$items_per_page      = 50;
-		$saved_embeddings    = $this->table->get_embeddings( $offset, $items_per_page );
-		$matched_articles    = [];
-		$dropped_articles    = [];
+		$offset           = 0;
+		$items_per_page   = 50;
+		$saved_embeddings = $this->table->get_embeddings( $offset, $items_per_page );
+		$matched          = [];
 
 		do {
 			foreach ( $saved_embeddings as $data ) {
@@ -1997,101 +2052,345 @@ class API extends BaseAPI {
 					continue;
 				}
 
-				$matched_articles[] = [
-					'id'          => intval( $data->id ),
-					'token_count' => intval( $data->token_count ),
-					'score'       => $score,
+				$matched[] = [
+					'id'     => intval( $data->id ),
+					'tokens' => intval( $data->token_count ),
+					'score'  => $score,
 				];
-
-				$current_token_count += intval( $data->token_count );
 				unset( $data );
 			}
 
-			if ( $current_token_count > $tokens_threshold ) {
-				// Sort by score and drop the ones that do not fit in the context.
-				usort( $matched_articles, [ __CLASS__, 'compare_by_score' ] );
-
-				while ( $current_token_count > $tokens_threshold ) {
-					$article = array_pop( $matched_articles );
-					if ( empty( $article ) ) {
-						break;
-					}
-					$current_token_count -= $article['token_count'];
-					$dropped_articles[]   = $article;
-				}
+			// Only the best matter; keep the list short on large knowledge bases.
+			if ( count( $matched ) > 4 * $limit ) {
+				usort( $matched, [ __CLASS__, 'compare_by_score' ] );
+				$matched = array_slice( $matched, 0, $limit );
 			}
 
 			$offset          += $items_per_page;
 			$saved_embeddings = $this->table->get_embeddings( $offset, $items_per_page );
 		} while ( ! empty( $saved_embeddings ) );
 
-		if ( empty( $matched_articles ) ) {
-			return $articles_embedded_data;
+		usort( $matched, [ __CLASS__, 'compare_by_score' ] );
+
+		$candidates = [];
+
+		foreach ( array_slice( $matched, 0, $limit ) as $article ) {
+			$article_data = $this->table->get_post_data( $article['id'] );
+			if ( empty( $article_data ) ) {
+				continue;
+			}
+
+			$post_id = (int) $this->table->get_post_id( $article['id'] );
+
+			$candidates[] = [
+				'key'     => self::candidate_key( $post_id, (string) $article_data['post_content'] ),
+				'post_id' => $post_id,
+				'title'   => (string) $article_data['post_title'],
+				'content' => (string) $article_data['post_content'],
+				'tokens'  => $article['tokens'],
+				'score'   => (float) $article['score'],
+				'lexical' => null,
+			];
 		}
 
-		// The strongest matches go first in the context blob even when
-		// everything fit the budget; otherwise the order is whatever the
-		// database returned, and models weight early context more.
-		usort( $matched_articles, [ __CLASS__, 'compare_by_score' ] );
+		return $candidates;
+	}
 
-		// Weak stragglers that merely cleared the noise floor stay out of the
-		// context; only chunks competitive with the best match get in.
-		$cutoff = self::relative_score_cutoff( $matched_articles[0]['score'] );
+	/**
+	 * Keyword candidates from the local table, which holds the chunks in both
+	 * storage modes (Qdrant only holds the vectors).
+	 *
+	 * @param string $query The visitor's question.
+	 * @param int    $limit Most candidates to keep.
+	 *
+	 * @return array<int, Candidate>
+	 */
+	private function lexical_candidates( $query, $limit ) {
+		$candidates = [];
 
-		$matched_articles = array_values(
+		foreach ( $this->table->lexical_search( $query, $limit ) as $row ) {
+			$post_id = (int) $row->post_id;
+
+			$candidates[] = [
+				'key'     => self::candidate_key( $post_id, (string) $row->post_content ),
+				'post_id' => $post_id,
+				'title'   => (string) $row->post_title,
+				'content' => (string) $row->post_content,
+				'tokens'  => (int) $row->token_count,
+				'score'   => null,
+				'lexical' => (float) $row->score,
+			];
+		}
+
+		return $candidates;
+	}
+
+	/**
+	 * The same chunk from either list.
+	 *
+	 * @param int    $post_id The source post.
+	 * @param string $content The chunk text.
+	 *
+	 * @return string
+	 */
+	private static function candidate_key( $post_id, $content ) {
+		return $post_id . ':' . md5( $content );
+	}
+
+	/**
+	 * Hybrid retrieval settings, in one place so the hosted platform and the
+	 * plugin can stay identical. Lists are merged by reciprocal rank: each
+	 * chunk scores `weight / (rrf_k + rank)` per list it appears in, plus a
+	 * flat `title_weight / rrf_k` when a query term is in its title.
+	 *
+	 * @since 2.1.0
+	 *
+	 * @return array{rrf_k: int, vector_weight: float, lexical_weight: float, title_weight: float, candidates: int}
+	 */
+	public static function hybrid_settings() {
+		$defaults = [
+			'rrf_k'          => 60,
+			'vector_weight'  => 1.0,
+			'lexical_weight' => 1.0,
+			'title_weight'   => 0.5,
+			'candidates'     => 20,
+		];
+
+		/**
+		 * Filters how the vector and keyword searches are merged.
+		 *
+		 * @since 2.1.0
+		 *
+		 * @param array{rrf_k: int, vector_weight: float, lexical_weight: float, title_weight: float, candidates: int} $settings Fusion settings.
+		 */
+		$settings = apply_filters( 'hyve_hybrid_retrieval', $defaults );
+
+		return array_merge( $defaults, $settings );
+	}
+
+	/**
+	 * Merge the vector and keyword lists by reciprocal rank, best first.
+	 * Vector hits keep their relative cutoff. All capped keyword hits stay
+	 * available: a lower keyword score can still carry the exact answer.
+	 *
+	 * @param array<int, Candidate> $vector   Vector candidates, best first.
+	 * @param array<int, Candidate> $lexical  Keyword candidates, best first.
+	 * @param string                $query    The visitor's question, for the title bonus.
+	 * @param array<string, mixed>  $settings See hybrid_settings().
+	 *
+	 * @return array<int, FusedCandidate>
+	 */
+	private function fuse_candidates( $vector, $lexical, $query, $settings ) {
+		$k      = max( 1, (int) $settings['rrf_k'] );
+		$merged = [];
+
+		$lists = [
+			[ self::within_cutoff( $vector, 'score' ), (float) $settings['vector_weight'], 'score' ],
+			[ $lexical, (float) $settings['lexical_weight'], 'lexical' ],
+		];
+
+		foreach ( $lists as list( $items, $weight, $field ) ) {
+			foreach ( $items as $rank => $candidate ) {
+				$key = (string) $candidate['key'];
+
+				if ( ! isset( $merged[ $key ] ) ) {
+					$merged[ $key ] = [
+						'key'     => $key,
+						'post_id' => (int) $candidate['post_id'],
+						'title'   => (string) $candidate['title'],
+						'content' => (string) $candidate['content'],
+						'tokens'  => (int) $candidate['tokens'],
+						'score'   => null,
+						'lexical' => null,
+						'fused'   => 0.0,
+					];
+				}
+
+				$merged[ $key ][ $field ] = (float) $candidate[ $field ];
+				$merged[ $key ]['fused'] += $weight / ( $k + $rank + 1 );
+			}
+		}
+
+		$terms = array_merge( DB_Table::query_terms( $query ), DB_Table::query_segments( $query ) );
+
+		foreach ( $merged as &$candidate ) {
+			if ( self::title_matches( $candidate['title'], $terms ) ) {
+				$candidate['fused'] += (float) $settings['title_weight'] / $k;
+			}
+		}
+		unset( $candidate );
+
+		usort(
+			$merged,
+			function ( $a, $b ) {
+				return $b['fused'] <=> $a['fused'];
+			}
+		);
+
+		return $merged;
+	}
+
+	/**
+	 * The candidates competitive with the list's best match.
+	 *
+	 * @param array<int, Candidate> $items Candidates, best first.
+	 * @param 'score'|'lexical'     $field The score to compare.
+	 *
+	 * @return array<int, Candidate>
+	 */
+	private static function within_cutoff( $items, $field ) {
+		if ( empty( $items ) ) {
+			return [];
+		}
+
+		$cutoff = self::relative_score_cutoff( (float) $items[0][ $field ] );
+
+		return array_values(
 			array_filter(
-				$matched_articles,
-				function ( $article ) use ( $cutoff ) {
-					return $article['score'] >= $cutoff;
+				$items,
+				function ( $candidate ) use ( $cutoff, $field ) {
+					return (float) $candidate[ $field ] >= $cutoff;
 				}
 			)
 		);
+	}
 
-		$source_scores = [];
+	/**
+	 * Whether a query term appears in a title.
+	 *
+	 * @param string             $title The chunk's title.
+	 * @param array<int, string> $terms Query words and segments.
+	 *
+	 * @return bool
+	 */
+	private static function title_matches( $title, $terms ) {
+		foreach ( $terms as $term ) {
+			if ( false !== mb_stripos( $title, $term ) ) {
+				return true;
+			}
+		}
 
-		foreach ( $matched_articles as $article ) {
-			$article_data = $this->table->get_post_data( $article['id'] );
-			if ( empty( $article_data ) ) {
+		return false;
+	}
+
+	/**
+	 * Build the context blob from the ranked candidates, best first, within
+	 * the token budget. Every candidate is traced; the ones that did not fit
+	 * are marked so the Messages screen can show what the model never saw.
+	 * Vector source links keep their score cutoff. Keyword-only source links
+	 * require the best query-term coverage among keyword candidates.
+	 *
+	 * @param array<int, FusedCandidate> $ranked           Fused candidates, best first.
+	 * @param int                        $tokens_threshold Context token budget.
+	 * @param string                     $query            The keyword query.
+	 *
+	 * @return string
+	 */
+	private function assemble_context( $ranked, $tokens_threshold, string $query ) {
+		$context         = '';
+		$used            = 0;
+		$vector_scores   = [];
+		$lexical_only    = [];
+		$keyword_sources = self::keyword_source_keys( $ranked, $query );
+
+		foreach ( $ranked as $candidate ) {
+			$trace                                   = [
+				'post_id' => (int) $candidate['post_id'],
+				'title'   => (string) $candidate['title'],
+				'score'   => null === $candidate['score'] ? null : round( (float) $candidate['score'], 4 ),
+				'lexical' => null === $candidate['lexical'] ? null : round( (float) $candidate['lexical'], 4 ),
+				'tokens'  => (int) $candidate['tokens'],
+			];
+			$this->chunk_scores[ $candidate['key'] ] = [
+				'score'   => $trace['score'],
+				'lexical' => $trace['lexical'],
+			];
+
+			if ( $used + $candidate['tokens'] > $tokens_threshold ) {
+				$trace['included']       = false;
+				$this->retrieval_trace[] = $trace;
 				continue;
 			}
 
-			$post_id = $this->table->get_post_id( $article['id'] );
+			$context .= "\n ===START POST=== " . $candidate['title'] . ' - ' . $candidate['content'] . ' ===END POST===';
+			$used    += (int) $candidate['tokens'];
 
-			if ( ! empty( $post_id ) && ( ! isset( $source_scores[ $post_id ] ) || $article['score'] > $source_scores[ $post_id ] ) ) {
-				$source_scores[ $post_id ] = $article['score'];
-			}
+			$this->retrieval_trace[] = $trace;
 
-			$articles_embedded_data .= "\n ===START POST=== " . $article_data['post_title'] . ' - ' . $article_data['post_content'] . ' ===END POST===';
+			$post_id = (int) $candidate['post_id'];
 
-			$this->retrieval_trace[] = [
-				'post_id' => intval( $post_id ),
-				'title'   => (string) $article_data['post_title'],
-				'score'   => round( floatval( $article['score'] ), 4 ),
-				'tokens'  => intval( $article['token_count'] ),
-			];
-		}
-
-		// Chunks that matched the query but were dropped for the context budget:
-		// traced (capped, they are already the weakest matches) so the Messages
-		// screen can show what the model never saw.
-		foreach ( array_slice( $dropped_articles, 0, 10 ) as $article ) {
-			$article_data = $this->table->get_post_data( $article['id'] );
-			if ( empty( $article_data ) ) {
+			if ( empty( $post_id ) ) {
 				continue;
 			}
 
-			$this->retrieval_trace[] = [
-				'post_id'  => intval( $this->table->get_post_id( $article['id'] ) ),
-				'title'    => (string) $article_data['post_title'],
-				'score'    => round( floatval( $article['score'] ), 4 ),
-				'tokens'   => intval( $article['token_count'] ),
-				'included' => false,
-			];
+			if ( null !== $candidate['score'] ) {
+				$vector_scores[ $post_id ] = max( $vector_scores[ $post_id ] ?? 0.0, (float) $candidate['score'] );
+			} elseif ( isset( $keyword_sources[ $candidate['key'] ] ) ) {
+				$lexical_only[ $post_id ] = $post_id;
+			}
 		}
 
-		$this->source_post_ids = $this->rank_sources( $source_scores );
+		$this->source_post_ids = array_values( array_unique( array_merge( $this->rank_sources( $vector_scores ), array_values( array_diff_key( $lexical_only, $vector_scores ) ) ) ) );
 
-		return $articles_embedded_data;
+		return $context;
+	}
+
+	/**
+	 * InnoDB's default FULLTEXT stopwords (INNODB_FT_DEFAULT_STOPWORD): the
+	 * keyword search never matches them, so coverage must not count them.
+	 *
+	 * @var array<int, string>
+	 */
+	const INNODB_STOPWORDS = [ 'a', 'about', 'an', 'are', 'as', 'at', 'be', 'by', 'com', 'de', 'en', 'for', 'from', 'how', 'i', 'in', 'is', 'it', 'la', 'of', 'on', 'or', 'that', 'the', 'this', 'to', 'und', 'was', 'what', 'when', 'where', 'who', 'will', 'with', 'www' ];
+
+	/**
+	 * Keyword candidates eligible for source links, independent of term frequency.
+	 * Indexed words match prefixes; segments match substrings, as in lexical_search().
+	 *
+	 * @param array<int, FusedCandidate> $candidates Fused candidates.
+	 * @param string                     $query      The keyword query.
+	 *
+	 * @return array<string, true> Candidate keys with the best positive coverage.
+	 */
+	private static function keyword_source_keys( array $candidates, string $query ): array {
+		$candidates = array_filter( $candidates, fn( $candidate ) => null !== $candidate['lexical'] );
+		if ( empty( $candidates ) ) {
+			return [];
+		}
+
+		$normalize = static function ( string $text ): string {
+			// Fold Latin accents without stripping vowel signs in other scripts.
+			$text = (string) preg_replace( '/(?<=\p{Latin})\p{M}+/u', '', $text );
+			return mb_strtolower( remove_accents( $text ) );
+		};
+		$terms     = DB_Table::query_terms( $query );
+		$segments  = DB_Table::query_segments( $query );
+		if ( empty( $terms ) ) {
+			$segments = array_merge( $segments, DB_Table::query_short_words( $query ) );
+		}
+		// The index ignores its stopwords, so they must not count here either.
+		$terms    = array_diff( array_unique( array_map( $normalize, $terms ) ), self::INNODB_STOPWORDS );
+		$segments = array_unique( array_map( $normalize, $segments ) );
+		$patterns = [];
+		foreach ( array_diff( $terms, $segments ) as $term ) {
+			$patterns[] = '/(?<![\p{L}\p{N}_])' . preg_quote( $term, '/' ) . '/u';
+		}
+		foreach ( $segments as $segment ) {
+			$patterns[] = '/' . preg_quote( $segment, '/' ) . '/u';
+		}
+
+		$coverage = [];
+		foreach ( $candidates as $candidate ) {
+			$text  = $normalize( $candidate['title'] . ' ' . $candidate['content'] );
+			$count = 0;
+			foreach ( $patterns as $pattern ) {
+				$count += 1 === preg_match( $pattern, $text ) ? 1 : 0;
+			}
+			$coverage[ $candidate['key'] ] = $count;
+		}
+		$best = max( $coverage );
+
+		return array_fill_keys( array_keys( array_filter( $coverage, fn( $count ) => $count > 0 && $count === $best ) ), true );
 	}
 
 	/**
@@ -2109,14 +2408,14 @@ class API extends BaseAPI {
 	}
 
 	/**
-	 * The minimum score a chunk must reach to share the context with the best
-	 * match for this query.
+	 * The minimum score a vector chunk must reach relative to the best vector
+	 * match. Keyword candidates do not use this cutoff.
 	 *
 	 * An absolute score cannot tell an answerable question from an
 	 * unanswerable one — a specific question about one table row scores lower
 	 * against its (correct) page than an off-topic question scores against a
-	 * tangential one. So within the absolute noise floor, chunks are kept
-	 * relative to the best match for this query, and the model judges from
+	 * tangential one. So above the vector noise floor, vector chunks are kept
+	 * relative to the best vector match for this query, and the model judges from
 	 * the retrieved text itself whether the question can be answered.
 	 *
 	 * @since 1.5.1
@@ -2127,10 +2426,10 @@ class API extends BaseAPI {
 	 */
 	private static function relative_score_cutoff( $top_score ) {
 		/**
-		 * Filters how close to the best match a chunk must score, as a ratio
-		 * of the top score (0–1), to be included in the chat context. A higher
-		 * value keeps only near-equal matches; 0 keeps everything above the
-		 * similarity score threshold.
+		 * Filters how close to the best vector match a vector chunk must score,
+		 * as a ratio (0–1). A higher value keeps only near-equal vector matches;
+		 * 0 keeps every vector hit above the similarity threshold. Keyword hits
+		 * are not cut by this ratio.
 		 *
 		 * @since 1.5.1
 		 *
@@ -2198,18 +2497,21 @@ class API extends BaseAPI {
 	 * @param array<int, float> $message_vector Message vector.
 	 * @param float             $similarity_score_threshold Cosine similarity score.
 	 * @param int               $tokens_threshold Tokens threshold for final data.
+	 * @param string            $query Optional. The visitor's question, for the keyword search. Default ''.
 	 *
-	 * @return string The articles blob data that match the given message vector.
+	 * @return string The matched chunks, or the whole knowledge base when it fits the token budget.
 	 */
-	public function search_knowledge_base( $message_vector, $similarity_score_threshold = 0.25, $tokens_threshold = 2000 ) {
+	public function search_knowledge_base( $message_vector, $similarity_score_threshold = 0.25, $tokens_threshold = 2000, $query = '' ) {
 		$this->source_post_ids = [];
 		$this->retrieval_trace = [];
+		$this->chunk_scores    = [];
 
 		/**
 		 * Filters the token budget for the knowledge base context sent with a
-		 * chat message. Matched chunks are added best-first until the budget
-		 * is full; a larger budget lets more of the knowledge base reach the
-		 * model at a higher API cost per message.
+		 * chat message. A knowledge base within the budget is sent whole, in
+		 * source order; otherwise matched chunks are added best-first until
+		 * the budget is full. A larger budget lets more of the knowledge base
+		 * reach the model at a higher API cost per message.
 		 *
 		 * @since 1.5.1
 		 *
@@ -2217,11 +2519,95 @@ class API extends BaseAPI {
 		 */
 		$tokens_threshold = (int) apply_filters( 'hyve_chat_context_token_limit', $tokens_threshold );
 
-		if ( Qdrant_API::is_active() ) {
-			return $this->search_knowledge_base_qdrant( $message_vector, $similarity_score_threshold, $tokens_threshold );
+		$settings = self::hybrid_settings();
+		$limit    = max( 1, (int) $settings['candidates'] );
+		$query    = trim( (string) $query );
+		$vector   = [];
+
+		if ( ! empty( $message_vector ) ) {
+			// Local vectors stay complete while Qdrant is migrating or unavailable.
+			$vector = Qdrant_API::is_active() && ! Qdrant_API::has_pending_migration()
+				? $this->vector_candidates_qdrant( $message_vector, $similarity_score_threshold, $limit )
+				: $this->vector_candidates_wp( $message_vector, $similarity_score_threshold, $limit );
+
+			if ( null === $vector ) {
+				$vector = $this->vector_candidates_wp( $message_vector, $similarity_score_threshold, $limit );
+			}
 		}
 
-		return $this->search_knowledge_base_wp( $message_vector, $similarity_score_threshold, $tokens_threshold );
+		$lexical = '' !== $query ? $this->lexical_candidates( $query, $limit ) : [];
+		$context = $this->assemble_context( $this->fuse_candidates( $vector, $lexical, $query, $settings ), $tokens_threshold, $query );
+
+		// A knowledge base that fits the budget goes in whole: same cost, and
+		// no gamble on the threshold. The scored search still picks the sources.
+		$this->retrieval_mode = 'similarity';
+
+		if ( $this->table->get_total_tokens() <= $tokens_threshold ) {
+			$full = $this->full_context( $tokens_threshold );
+
+			if ( '' !== $full ) {
+				$context              = $full;
+				$this->retrieval_mode = 'kb_full_context';
+			}
+		}
+
+		return $context;
+	}
+
+	/**
+	 * Every chunk as context, in source order; nothing when the chunks add up
+	 * to more than the budget, which a stale cached total can claim they do
+	 * not. The trace lists them all as included, keeping the score the search
+	 * gave the ones it matched.
+	 *
+	 * @param int $tokens_threshold Maximum context tokens.
+	 *
+	 * @return string
+	 */
+	private function full_context( int $tokens_threshold ): string {
+		$context = '';
+		$trace   = [];
+		$tokens  = 0;
+
+		foreach ( $this->table->get_all_chunks() as $chunk ) {
+			$tokens += intval( $chunk->token_count );
+
+			if ( $tokens_threshold < $tokens ) {
+				return '';
+			}
+
+			$context .= "\n ===START POST=== " . $chunk->post_title . ' - ' . $chunk->post_content . ' ===END POST===';
+			$scores   = $this->chunk_scores[ self::candidate_key( intval( $chunk->post_id ), $chunk->post_content ) ] ?? [];
+			$trace[]  = [
+				'post_id' => intval( $chunk->post_id ),
+				'title'   => (string) $chunk->post_title,
+				'score'   => $scores['score'] ?? null,
+				'lexical' => $scores['lexical'] ?? null,
+				'tokens'  => intval( $chunk->token_count ),
+			];
+		}
+
+		if ( '' !== $context ) {
+			$this->retrieval_trace = $trace;
+		}
+
+		return $context;
+	}
+
+	/**
+	 * Whether the knowledge base has nothing to answer from.
+	 *
+	 * @return bool
+	 */
+	private function kb_is_empty(): bool {
+		if ( Hyve_Connect::is_active() ) {
+			$stats = Hyve_Connect::instance()->stats();
+
+			// An unreachable platform is not an empty knowledge base.
+			return isset( $stats['kb']['chunks'] ) && 0 === (int) $stats['kb']['chunks'];
+		}
+
+		return 0 === (int) $this->table->get_count();
 	}
 
 	/**
@@ -2237,21 +2623,53 @@ class API extends BaseAPI {
 	}
 
 	/**
+	 * Whether a message should be passed to the retrieval query rewriter.
+	 *
+	 * Rewrite every non-empty message with history so references resolve in
+	 * any language. The model returns self-contained questions unchanged.
+	 * Mirrored by the platform's RetrievalQuery::needsRewrite().
+	 *
+	 * @since 2.1.0
+	 *
+	 * @param string $message     The current user message.
+	 * @param bool   $has_history Whether the conversation has earlier turns.
+	 *
+	 * @return bool
+	 */
+	public static function needs_query_rewrite( $message, $has_history ) {
+		return $has_history && '' !== trim( (string) $message );
+	}
+
+	/**
+	 * The text to search for once a message is rewritten: the rewrite alone,
+	 * or for a long message its own wording followed by the rewrite. The
+	 * character limit also protects details in scripts without spaces. Mirrored
+	 * by the platform's RetrievalQuery::searchText().
+	 *
+	 * @since 2.1.0
+	 *
+	 * @param string $message   The current user message.
+	 * @param string $rewritten The standalone rewrite.
+	 *
+	 * @return string
+	 */
+	public static function rewritten_retrieval_text( $message, $rewritten ) {
+		$words = preg_split( '/\s+/u', trim( (string) $message ) );
+
+		if ( ( is_array( $words ) && count( $words ) > self::REWRITE_LONG_WORDS ) || mb_strlen( trim( (string) $message ) ) > self::REWRITE_LONG_CHARS ) {
+			return $message . "\n" . $rewritten;
+		}
+
+		return $rewritten;
+	}
+
+	/**
 	 * Build the text used for knowledge base retrieval.
 	 *
-	 * Retrieval embeds this text and searches the knowledge base with it. For the
-	 * first message it is just the question. For follow-ups it also blends in the
-	 * visitor's most recent turns, so a topic-less question such as "How
-	 * difficult is it?" still carries the subject ("pickleball") into the
-	 * search and matches the relevant content, instead of embedding a query with
-	 * no topic that finds nothing. The model already receives the conversation
-	 * history through the OpenAI conversation; this closes the same gap for
-	 * retrieval.
-	 *
-	 * Only the visitor's turns are blended. Bot replies either echo knowledge
-	 * base text (inflating every follow-up's similarity scores) or are fallback
-	 * apologies ("Sorry, I'm not able to help with that") that drag the query
-	 * off-topic, so they carry no retrieval signal of their own.
+	 * Retrieval embeds this text and searches the knowledge base with it. A
+	 * first message is used as sent. Every later message is passed to a small
+	 * model to resolve references; self-contained questions stay unchanged.
+	 * When the rewrite fails, the message is searched as sent.
 	 *
 	 * @param string     $message   The current user message.
 	 * @param int|string $record_id The thread post ID, when the conversation exists.
@@ -2262,6 +2680,8 @@ class API extends BaseAPI {
 	private function build_retrieval_query( $message, $record_id, $thread_id = '' ) {
 		$history = [];
 
+		$this->query_rewritten = false;
+
 		if ( ! empty( $record_id ) && 'hyve_threads' === get_post_type( (int) $record_id ) ) {
 			$thread_data = get_post_meta( (int) $record_id, '_hyve_thread_data', true );
 
@@ -2271,75 +2691,70 @@ class API extends BaseAPI {
 		}
 
 		/**
-		 * Filters how many recent visitor messages are blended into the
-		 * retrieval query.
+		 * Filters how many recent turns the retrieval query rewrite sees.
 		 *
-		 * Set to 0 to disable conversation-aware retrieval and search with the
-		 * current message only.
+		 * Set to 0 to disable the rewrite and search with the current message
+		 * only.
 		 *
 		 * @since 1.5.0
+		 * @since 2.1.0 Counts visitor and bot turns shown to the rewrite model
+		 *              instead of visitor messages blended into the query.
 		 *
-		 * @param int    $count     Number of most recent visitor messages to include. Default 6.
+		 * @param int    $count     Number of most recent turns to include. Default 6.
 		 * @param string $thread_id The OpenAI conversation ID, when one exists.
 		 */
 		$count = (int) apply_filters( 'hyve_retrieval_history_count', 6, $thread_id );
 
 		/**
-		 * Filters the per-message character cap for the retrieval query.
+		 * Filters the per-turn character cap for the retrieval query rewrite.
 		 *
-		 * Keeps a single long turn from dominating or bloating the embedded query.
+		 * Keeps a single long turn from bloating the rewrite prompt.
 		 *
 		 * @since 1.5.0
 		 *
-		 * @param int $length Maximum characters kept per message. Default 500.
+		 * @param int $length Maximum characters kept per turn. Default 500.
 		 */
 		$length = (int) apply_filters( 'hyve_retrieval_history_message_length', 500 );
 
-		$parts = [];
+		$turns = [];
 
-		if ( $count > 0 && ! empty( $history ) ) {
-			$user_turns = array_filter(
-				$history,
-				function ( $entry ) {
-					return isset( $entry['sender'] ) && 'user' === $entry['sender'];
-				}
-			);
-
-			$recent = array_slice( $user_turns, - $count );
-
-			foreach ( $recent as $entry ) {
-				if ( empty( $entry['message'] ) ) {
-					continue;
-				}
-
-				$text = trim( wp_strip_all_tags( (string) $entry['message'] ) );
-
-				if ( '' === $text ) {
-					continue;
-				}
-
-				if ( mb_strlen( $text ) > $length ) {
-					$text = mb_substr( $text, 0, $length );
-				}
-
-				$parts[] = $text;
+		foreach ( $history as $entry ) {
+			if ( empty( $entry['message'] ) || ! isset( $entry['sender'] ) || ! in_array( $entry['sender'], [ 'user', 'bot' ], true ) ) {
+				continue;
 			}
+
+			$text = trim( wp_strip_all_tags( (string) $entry['message'] ) );
+
+			if ( '' === $text ) {
+				continue;
+			}
+
+			$turns[] = [
+				'role' => 'bot' === $entry['sender'] ? 'assistant' : 'user',
+				'text' => mb_substr( $text, 0, $length ),
+			];
 		}
 
-		// The current question goes last so it carries the most weight.
-		$parts[] = $message;
+		$query = $message;
 
-		$query = implode( "\n", $parts );
+		if ( $count > 0 && self::needs_query_rewrite( $message, ! empty( $turns ) ) ) {
+			$rewritten = OpenAI::instance()->rewrite_query( $message, array_slice( $turns, - $count ) );
+
+			if ( is_string( $rewritten ) && '' !== $rewritten && $rewritten !== $message ) {
+				$query                 = self::rewritten_retrieval_text( $message, $rewritten );
+				$this->query_rewritten = true;
+			}
+		}
 
 		/**
 		 * Filters the final text used for knowledge base retrieval.
 		 *
-		 * Allows replacing the assembled query, for example with a rewritten
-		 * standalone question, before it is embedded and searched.
+		 * Allows replacing the query, rewritten or not, before it is embedded
+		 * and searched.
 		 *
 		 * @since 1.5.0
 		 *
-		 * @param string                            $query   The assembled retrieval query.
+		 * @param string                            $query   The retrieval query.
 		 * @param string                            $message The current user message.
 		 * @param array<int, array<string, mixed>>  $history The thread history considered.
 		 */
@@ -2407,6 +2822,17 @@ class API extends BaseAPI {
 		delete_transient( $transient_key );
 
 		return $this->maybe_append_source_link( $response, $post_ids );
+	}
+
+	/**
+	 * Whether a platform result says the knowledge base was empty.
+	 *
+	 * @param array<string, mixed> $result The platform job result.
+	 *
+	 * @return bool
+	 */
+	public static function connect_kb_empty( $result ): bool {
+		return isset( $result['retrieval'] ) && 'kb_empty' === $result['retrieval'];
 	}
 
 	/**
@@ -2745,6 +3171,20 @@ class API extends BaseAPI {
 			);
 		}
 
+		// The platform found nothing to answer from (the local count was stale).
+		if ( self::connect_kb_empty( $result ) ) {
+			$this->record_chat_failure( (string) $prepared['thread_id'], $record_id, $prepared['message'], $is_test, 'kb_empty' );
+
+			Main::add_labels_to_default_settings();
+
+			return rest_ensure_response(
+				[
+					'error' => (string) Main::get_settings()['default_message'],
+					'code'  => 'kb_empty',
+				]
+			);
+		}
+
 		// Close the latency clock here: the platform call is synchronous, and
 		// the poll hop that serves the buffered reply is not answering time.
 		$debug = $this->chat_debug;
@@ -2942,6 +3382,15 @@ class API extends BaseAPI {
 			return new \WP_Error( 'missing_message', __( 'No message was provided.', 'hyve-lite' ) );
 		}
 
+		// Nothing to answer from: no moderation, embedding or model call. The
+		// message is the site's own unanswered fallback, so the visitor sees
+		// what any other unanswered turn shows.
+		if ( $this->kb_is_empty() ) {
+			Main::add_labels_to_default_settings();
+
+			return new \WP_Error( 'kb_empty', (string) Main::get_settings()['default_message'] );
+		}
+
 		$page = Page_Context::instance()->for_request( $request );
 
 		// The page the visitor chatted from, kept for the debug trace. Sent on
@@ -2998,14 +3447,11 @@ class API extends BaseAPI {
 		// the context on its own budget.
 		$retrieval_query = $this->build_retrieval_query( $message, $record_id, $request->get_param( 'thread_id' ) );
 
-		$message_vector = $openai->create_embeddings( $retrieval_query );
-
-		if ( is_wp_error( $message_vector ) ) {
-			return new \WP_Error( 'no_embeddings', __( 'Your message could not be processed. Please try again.', 'hyve-lite' ) );
-		}
-
-		$message_vector = reset( $message_vector );
-		$message_vector = $message_vector->embedding;
+		// Without a vector the keyword search still answers from the knowledge
+		// base, so an embeddings outage degrades the turn instead of failing it.
+		$embedded         = $openai->create_embeddings( $retrieval_query );
+		$embedding_failed = is_wp_error( $embedded ) || empty( $embedded );
+		$message_vector   = $embedding_failed ? [] : (array) reset( $embedded )->embedding;
 
 		if ( $request->get_param( 'thread_id' ) ) {
 			$thread_id = $request->get_param( 'thread_id' );
@@ -3021,9 +3467,10 @@ class API extends BaseAPI {
 		 * Filters the similarity score threshold for knowledge base search.
 		 *
 		 * The similarity score threshold determines the minimum cosine similarity
-		 * required for an article to be considered relevant to the user's query.
-		 * This is a noise floor: within it, only chunks scoring close to the best
-		 * match are kept (see `hyve_context_score_ratio`), and the model judges
+		 * required for a vector hit to be considered relevant to the user's query.
+		 * Above this floor, only vector chunks close to the best vector match
+		 * are kept (see `hyve_context_score_ratio`). Keyword hits bypass both
+		 * vector thresholds, and the model judges
 		 * from the retrieved text whether the question can be answered. A higher
 		 * value means stricter matching, while a lower value allows for broader
 		 * results.
@@ -3034,7 +3481,11 @@ class API extends BaseAPI {
 		 */
 		$similarity_score_threshold = apply_filters( 'hyve_similarity_score_threshold', 0.25 );
 
-		$article_context = $this->search_knowledge_base( $message_vector, $similarity_score_threshold );
+		// The rewrite may respell a name the visitor typed; their own words stay
+		// first in the keyword pass so an exact term still matches.
+		$keyword_query = 0 === strpos( $retrieval_query, $message ) ? $retrieval_query : $message . "\n" . $retrieval_query;
+
+		$article_context = $this->search_knowledge_base( $message_vector, $similarity_score_threshold, 2000, $keyword_query );
 
 		if ( $page ) {
 			$article_context .= Page_Context::instance()->context_block( $page, $article_context );
@@ -3055,15 +3506,24 @@ class API extends BaseAPI {
 
 		// Everything retrieval decided for this turn, kept for the conversation
 		// history so a reply (or a refusal) can be traced back to what the
-		// search actually matched. The query is capped so a long history blend
-		// cannot bloat the stored thread meta.
+		// search actually matched. The query is capped so a filter cannot
+		// bloat the stored thread meta.
 		$this->chat_debug = [
 			'query'     => mb_substr( $retrieval_query, 0, 2000 ),
 			'threshold' => (float) $similarity_score_threshold,
+			'retrieval' => $this->retrieval_mode,
 			'context'   => $this->retrieval_trace,
 			'model'     => $openai->get_chat_model(),
 			'started'   => microtime( true ),
 		];
+
+		if ( $this->query_rewritten ) {
+			$this->chat_debug['query_rewritten'] = true;
+		}
+
+		if ( $embedding_failed ) {
+			$this->chat_debug['embedding_failed'] = true;
+		}
 
 		if ( '' !== $page_url ) {
 			$this->chat_debug['page'] = $page_url;
@@ -3073,7 +3533,9 @@ class API extends BaseAPI {
 			$this->chat_debug['page_context'] = true;
 		}
 
-		self::cache_question_vector( $message, $message_vector );
+		if ( ! $embedding_failed ) {
+			self::cache_question_vector( $message, $message_vector );
+		}
 
 		return [
 			'thread_id' => $thread_id,
@@ -3239,8 +3701,16 @@ class API extends BaseAPI {
 			return;
 		}
 
-		$event = 'content_flagged' === $code ? 'moderation_flagged' : 'chat_error';
-		$debug = [ 'code' => (string) $code ];
+		$events = [
+			'content_flagged' => 'moderation_flagged',
+			'kb_empty'        => 'kb_empty',
+		];
+		$event  = $events[ $code ] ?? 'chat_error';
+		$debug  = [ 'code' => (string) $code ];
+
+		if ( 'kb_empty' === $code ) {
+			$debug['retrieval'] = 'kb_empty';
+		}
 
 		if ( 'moderation_flagged' === $event && ! empty( $categories ) ) {
 			$debug['categories'] = array_keys( $categories );
@@ -3372,7 +3842,8 @@ class API extends BaseAPI {
 	 * Build the debug trace for a Hyve Connect turn from the platform result.
 	 *
 	 * Retrieval runs remotely in Connect mode, so the recorded trace is limited
-	 * to what the platform reports back: the sources behind the answer.
+	 * to what the platform reports back: the query it searched for, the sources
+	 * behind the answer, and the token usage.
 	 *
 	 * @since 2.1.0
 	 *
@@ -3387,6 +3858,20 @@ class API extends BaseAPI {
 
 		if ( null !== $usage ) {
 			$debug['usage'] = $usage;
+		}
+
+		if ( isset( $result['retrieval'] ) && is_string( $result['retrieval'] ) ) {
+			$debug['retrieval'] = $result['retrieval'];
+		}
+
+		// The platform rewrites follow-ups before retrieval; what it searched
+		// for is shown like the self-hosted query.
+		if ( isset( $result['retrieval_query'] ) && is_string( $result['retrieval_query'] ) && '' !== $result['retrieval_query'] ) {
+			$debug['query'] = mb_substr( $result['retrieval_query'], 0, 2000 );
+
+			if ( ! empty( $result['query_rewritten'] ) ) {
+				$debug['query_rewritten'] = true;
+			}
 		}
 
 		if ( empty( $result['sources'] ) || ! is_array( $result['sources'] ) ) {

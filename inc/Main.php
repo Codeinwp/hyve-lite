@@ -62,6 +62,7 @@ class Main {
 		add_action( 'before_delete_post', [ $this, 'delete_post' ] );
 		add_action( DB_Table::CONNECT_SYNC_HOOK, [ $this->table, 'connect_run_sync' ] );
 		add_action( DB_Table::CONNECT_DELETE_HOOK, [ $this->table, 'connect_run_deletes' ] );
+		add_action( DB_Table::CONNECT_RESUME_HOOK, [ $this->table, 'connect_maybe_resume_blocked' ] );
 		add_filter( 'themeisle_sdk_enable_telemetry', '__return_true' );
 		add_filter( 'pre_option_hyve_lite_logger_flag', [ $this, 'force_connect_telemetry' ] );
 
@@ -406,8 +407,9 @@ class Main {
 						'stats'             => $this->get_stats(),
 						'privacySettings'   => admin_url( 'options-privacy.php' ),
 						'hasPrivacyPage'    => '' !== get_privacy_policy_url(),
-						'docs'              => 'https://docs.themeisle.com/article/2009-hyve-documentation',
-						'qdrant_docs'       => 'https://docs.themeisle.com/article/2066-integrate-hyve-with-qdrant',
+						// Final docs URLs: a redirect would drop the UTMs.
+						'docs'              => tsdk_utmify( 'https://docs.themeisle.com/hyve/hyve-documentation', 'documentation', 'dashboard' ),
+						'qdrant_docs'       => tsdk_utmify( 'https://docs.themeisle.com/hyve/integrate-hyve-with-qdrant', 'qdrant', 'settings' ),
 						'pro'               => 'https://themeisle.com/plugins/hyve/',
 						'chart'             => $this->get_chart_data(),
 						'hasPro'            => apply_filters( 'product_hyve_license_status', false ),
@@ -480,7 +482,7 @@ class Main {
 				'api_key'                    => '',
 				'qdrant_api_key'             => '',
 				'qdrant_endpoint'            => '',
-				'chat_model'                 => 'gpt-5.4-nano',
+				'chat_model'                 => OpenAI::DEFAULT_CHAT_MODEL,
 				'welcome_message'            => '',
 				'default_message'            => '',
 				'similarity_score_threshold' => 0.25,
@@ -523,6 +525,9 @@ class Main {
 		$settings['telemetry_enabled'] = 'yes' === get_option( 'hyve_lite_logger_flag', 'no' );
 
 		$settings = wp_parse_args( $settings, self::get_default_settings() );
+
+		// A retired model would error on every message; report its successor.
+		$settings['chat_model'] = OpenAI::resolve_chat_model( $settings['chat_model'] ?? '' );
 
 		/*
 		 * Backward compatibility: derive the visibility mode from the legacy
@@ -744,14 +749,22 @@ class Main {
 		$settings = self::get_settings();
 		$stats    = $this->get_stats();
 
+		// Null when the count is unknown (the platform did not answer), which
+		// is not an empty knowledge base.
+		$total_chunks = isset( $stats['totalChunks'] ) ? intval( $stats['totalChunks'] ) : null;
+		$can_manage   = current_user_can( 'manage_options' );
+
 		/**
 		 * Filters whether the chat should be displayed.
 		 *
+		 * An empty knowledge base hides the chat from visitors; an admin still
+		 * sees it, with a notice that it has no content yet.
+		 *
 		 * @since 1.4.0
 		 *
-		 * @param bool $should_show_chat Whether to display the chat. Default true if totalChunks > 0.
+		 * @param bool $should_show_chat Whether to display the chat. Default true if totalChunks > 0, or for an admin.
 		 */
-		$should_show_chat = apply_filters( 'hyve_display_chat', 0 < intval( $stats['totalChunks'] ) );
+		$should_show_chat = apply_filters( 'hyve_display_chat', 0 < (int) $total_chunks || $can_manage );
 
 		// Inline the icon SVGs so the chat button renders instantly, without an
 		// extra runtime fetch (which causes an icon flash on load). Only the
@@ -839,9 +852,14 @@ class Main {
 					'leadRequired'      => __( 'Please fill in the required fields.', 'hyve-lite' ),
 					'leadEvent'         => __( 'You shared your contact details.', 'hyve-lite' ),
 					'leadAlready'       => __( 'We already have your details. We will get back to you as soon as possible.', 'hyve-lite' ),
+					'emptyKb'           => __( 'Your assistant has no content yet, so visitors cannot see it.', 'hyve-lite' ),
+					'emptyKbLink'       => __( 'Add content', 'hyve-lite' ),
 				],
 				'icons'         => self::get_inline_icons( $icon_slugs ),
 				'canShow'       => $should_show_chat,
+				'totalChunks'   => $total_chunks,
+				'canManage'     => $can_manage,
+				'kbUrl'         => $can_manage ? admin_url( 'admin.php?page=hyve&nav=kb' ) : '',
 			]
 		);
 
@@ -1010,9 +1028,10 @@ class Main {
 	public function get_stats() {
 		// In Connect mode the knowledge base lives on the platform, so the chunk
 		// count comes from the hosted aggregate, not the (dormant) local table.
+		// Without an answer the count is unknown, not zero.
 		if ( Hyve_Connect::is_active() ) {
 			$connect      = Hyve_Connect::instance()->stats();
-			$total_chunks = isset( $connect['kb']['chunks'] ) ? (int) $connect['kb']['chunks'] : 0;
+			$total_chunks = isset( $connect['kb']['chunks'] ) ? (int) $connect['kb']['chunks'] : null;
 		} else {
 			$total_chunks = $this->table->get_count();
 		}
@@ -1142,6 +1161,10 @@ class Main {
 		}
 
 		update_post_meta( $post_id, '_hyve_needs_update', 1 );
+		delete_post_meta( $post_id, '_hyve_connect_update_attempts' );
+		if ( ! Ingestion_Queue::instance()->is_active( $post_id ) ) {
+			delete_post_meta( $post_id, '_hyve_ingestion' );
+		}
 		delete_post_meta( $post_id, '_hyve_moderation_failed' );
 		delete_post_meta( $post_id, '_hyve_moderation_review' );
 
@@ -1191,6 +1214,8 @@ class Main {
 		$config['title']     = sprintf( __( 'Hyve Pro: %s off this week', 'hyve-lite' ), '60%' );
 		$config['cta_label'] = __( 'Get Hyve Pro', 'hyve-lite' );
 		$config['message']   = __( 'Chat history, missed question tracking, appearance customization. Make your chatbot actually useful. Exclusively for existing Hyve users.', 'hyve-lite' );
+		// translators: %s is the discount percentage.
+		$config['upgrade_menu_text'] = sprintf( __( 'BF Sale - %s off', 'hyve-lite' ), '60%' );
 		// translators: %s is the discount percentage.
 		$config['plugin_meta_message'] = sprintf( __( 'Black Friday Sale - %s off', 'hyve-lite' ), '60%' );
 		$config['sale_url']            = add_query_arg(
@@ -1409,7 +1434,7 @@ class Main {
 				'is_qdrant_active'          => $options['isQdrantActive'],
 				'stats_messages'            => $options['stats']['messages'],
 				'stats_threads'             => $options['stats']['threads'],
-				'stats_total_chunks'        => $options['stats']['totalChunks'],
+				'stats_total_chunks'        => (int) $options['stats']['totalChunks'],
 				'openai_chat_model'         => $settings['chat_model'],
 				'chat_on_all_pages_enabled' => 'all' === $settings['display_mode'],
 				'chat_display_mode'         => $settings['display_mode'],

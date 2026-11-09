@@ -185,7 +185,9 @@ export const onProcessData = async ( {
 		} else {
 			createNotice(
 				'success',
-				__( 'Post has been updated.', 'hyve-lite' ),
+				response.queued
+					? __( 'Content is queued for indexing.', 'hyve-lite' )
+					: __( 'Post has been updated.', 'hyve-lite' ),
 				{
 					type: 'snackbar',
 					isDismissible: true,
@@ -246,6 +248,16 @@ export const percentOf = ( used, limit ) =>
 				Math.round( ( Number( used ) / Number( limit ) ) * 100 )
 		  )
 		: 0;
+
+/**
+ * A chunk count from the stats, or null while it is unknown because Hyve
+ * Connect did not answer.
+ *
+ * @param {number|string|null|undefined} value The raw count.
+ * @return {number|null} The count, or null when unknown.
+ */
+export const chunkCount = ( value ) =>
+	null === value || undefined === value ? null : Number( value );
 
 /**
  * Read a Hyve Connect stats block's usage for one dimension. KB usage lives on
