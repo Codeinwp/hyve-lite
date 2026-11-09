@@ -237,6 +237,15 @@ test.describe( 'Messages', () => {
 										sender: 'event',
 										message: 'rate_limited',
 									},
+									{
+										time: 1755424980,
+										sender: 'event',
+										message: 'kb_empty',
+										debug: {
+											code: 'kb_empty',
+											retrieval: 'kb_empty',
+										},
+									},
 								],
 							},
 						],
@@ -331,6 +340,11 @@ test.describe( 'Messages', () => {
 				'Visitor hit the rate limit — the message was not answered'
 			)
 		).toBeVisible();
+		await expect(
+			page.getByText(
+				'The knowledge base was empty — the message was not answered'
+			)
+		).toBeVisible();
 	} );
 
 	test( 'a rewritten retrieval query is labelled in the debug ledger', async ( {
@@ -368,6 +382,7 @@ test.describe( 'Messages', () => {
 											model: 'gpt-5.4-nano',
 											query: 'How long has RUCA been DJing?',
 											query_rewritten: true,
+											retrieval: 'kb_full_context',
 										},
 									},
 								],
@@ -391,6 +406,13 @@ test.describe( 'Messages', () => {
 		await expect(
 			page.getByText( 'How long has RUCA been DJing?' )
 		).toBeVisible();
+
+		// The whole-knowledge-base mode is shown once, next to the query.
+		await expect(
+			page.getByText(
+				'Whole knowledge base (it fits the context budget)'
+			)
+		).toHaveCount( 1 );
 	} );
 
 	test( 'an unknown deep-linked conversation shows the not-found state', async ( {
