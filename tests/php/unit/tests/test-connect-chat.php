@@ -97,6 +97,7 @@ class ConnectChatTest extends WP_UnitTestCase {
 				'reply'           => 'Laundry is $32.00/hr.',
 				'retrieval_query' => 'How much does laundry cost?',
 				'query_rewritten' => true,
+				'retrieval'       => 'kb_full_context',
 				'sources'         => [
 					[
 						'id'    => 42,
@@ -148,6 +149,7 @@ class ConnectChatTest extends WP_UnitTestCase {
 
 		$this->assertSame( 'How much does laundry cost?', $debug['query'] );
 		$this->assertTrue( $debug['query_rewritten'] );
+		$this->assertSame( 'kb_full_context', $debug['retrieval'] );
 
 		// The platform's threshold is not knowable plugin-side.
 		$this->assertArrayNotHasKey( 'threshold', $debug );
@@ -290,8 +292,19 @@ class ConnectChatTest extends WP_UnitTestCase {
 		$message = 'Mennyibe kerül a szállítás?';
 		$key     = 'hyve_message_' . hash( 'md5', strtolower( $message ) );
 
-		// Retrieval reads the knowledge base table on the self-hosted path.
+		// Retrieval reads the knowledge base table on the self-hosted path, and
+		// an empty one is answered without a model call.
 		\ThemeIsle\HyveLite\DB_Table::instance()->create_table();
+		\ThemeIsle\HyveLite\DB_Table::instance()->insert(
+			[
+				'post_id'      => 1,
+				'post_title'   => 'Shipping',
+				'post_content' => 'Shipping costs 5 EUR.',
+				'embeddings'   => wp_json_encode( [ 0.7, 0.8, 0.9 ] ),
+				'token_count'  => 10,
+				'post_status'  => 'processed',
+			]
+		);
 
 		update_option(
 			'hyve_settings',

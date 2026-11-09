@@ -17,7 +17,8 @@ const DEFAULT_STATE = {
 	isQdrantActive: Boolean( window.hyve.isQdrantActive ),
 	stats: window.hyve.stats || {},
 	chart: window.hyve.chart || null,
-	totalChunks: Number( window.hyve.stats?.totalChunks ?? 0 ),
+	// Null while the count is unknown (Hyve Connect did not answer).
+	totalChunks: window.hyve.stats?.totalChunks ?? null,
 	attentionCount: null,
 	serviceErrors: window.hyve.serviceErrors || [],
 };

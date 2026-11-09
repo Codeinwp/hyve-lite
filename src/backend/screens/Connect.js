@@ -14,7 +14,7 @@ import { useCallback, useEffect, useState } from '@wordpress/element';
 /**
  * Internal dependencies.
  */
-import { setUtm, percentOf, quotaOf } from '../utils';
+import { chunkCount, setUtm, percentOf, quotaOf } from '../utils';
 import { navigate } from '../router';
 import Card from '../components/Card';
 import Chip from '../components/Chip';
@@ -166,7 +166,7 @@ export const ConnectPanel = () => {
 
 			// Empty Knowledge Base: continue to the next checklist step once
 			// the connected state has had a moment to show.
-			if ( 0 === Number( totalChunks ?? 0 ) ) {
+			if ( 0 === chunkCount( totalChunks ) ) {
 				setTimeout( () => navigate( 'kb' ), 2000 );
 			}
 		} catch ( error ) {

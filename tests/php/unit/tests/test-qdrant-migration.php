@@ -206,6 +206,28 @@ class QdrantMigrationTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Seed an unrelated chunk large enough that the knowledge base outgrows
+	 * the context budget, so the scored search builds the context.
+	 *
+	 * @param string $storage Where the vectors live.
+	 *
+	 * @return int Row ID.
+	 */
+	private function seed_padding( $storage = 'Qdrant' ) {
+		return $this->table->insert(
+			[
+				'post_id'      => 999,
+				'post_title'   => 'Padding',
+				'post_content' => 'Padding content.',
+				'embeddings'   => wp_json_encode( [ 0.0, 0.0, 1.0 ] ),
+				'token_count'  => 3000,
+				'post_status'  => 'processed',
+				'storage'      => $storage,
+			]
+		);
+	}
+
+	/**
 	 * Storage of a row.
 	 *
 	 * @param int $id Row ID.
@@ -717,6 +739,7 @@ class QdrantMigrationTest extends WP_UnitTestCase {
 	 */
 	public function test_search_uses_local_vectors_while_migration_is_pending() {
 		$this->seed( 'LocalMatch' );
+		$this->seed_padding();
 		$this->qdrant->search_result = [];
 
 		$context = API::instance()->search_knowledge_base( [ 1.0, 0.0, 0.0 ], 0.3, 2000 );
@@ -731,6 +754,7 @@ class QdrantMigrationTest extends WP_UnitTestCase {
 	public function test_search_switches_to_qdrant_once_migration_completes() {
 		$this->seed( 'LocalMatch' );
 		$this->seed( 'Migrated', [ 0.0, 1.0, 0.0 ], 'processed', 'Qdrant' );
+		$this->seed_padding();
 		$this->qdrant->search_result = [
 			[
 				'post_id'      => 7,
@@ -760,6 +784,7 @@ class QdrantMigrationTest extends WP_UnitTestCase {
 	 */
 	public function test_search_falls_back_to_local_when_qdrant_fails() {
 		$this->seed( 'LocalMatch', [ 1.0, 0.0, 0.0 ], 'processed', 'Qdrant' );
+		$this->seed_padding();
 		$this->qdrant->search_result = new WP_Error( 'collection_error', 'Server error' );
 
 		$context = API::instance()->search_knowledge_base( [ 1.0, 0.0, 0.0 ], 0.3, 2000 );
