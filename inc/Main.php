@@ -407,8 +407,9 @@ class Main {
 						'stats'             => $this->get_stats(),
 						'privacySettings'   => admin_url( 'options-privacy.php' ),
 						'hasPrivacyPage'    => '' !== get_privacy_policy_url(),
-						'docs'              => 'https://docs.themeisle.com/article/2009-hyve-documentation',
-						'qdrant_docs'       => 'https://docs.themeisle.com/article/2066-integrate-hyve-with-qdrant',
+						// Final docs URLs: a redirect would drop the UTMs.
+						'docs'              => tsdk_utmify( 'https://docs.themeisle.com/hyve/hyve-documentation', 'documentation', 'dashboard' ),
+						'qdrant_docs'       => tsdk_utmify( 'https://docs.themeisle.com/hyve/integrate-hyve-with-qdrant', 'qdrant', 'settings' ),
 						'pro'               => 'https://themeisle.com/plugins/hyve/',
 						'chart'             => $this->get_chart_data(),
 						'hasPro'            => apply_filters( 'product_hyve_license_status', false ),

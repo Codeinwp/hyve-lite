@@ -280,6 +280,12 @@ test.describe( 'Settings', () => {
 		await expect(
 			page.getByRole( 'button', { name: 'Connect', exact: true } )
 		).toBeVisible();
+		await expect(
+			page.getByRole( 'link', { name: /Learn more about Qdrant/ } )
+		).toHaveAttribute(
+			'href',
+			'https://docs.themeisle.com/hyve/integrate-hyve-with-qdrant?utm_source=wpadmin&utm_medium=settings&utm_campaign=qdrant&utm_content=docshyveintegrate-hyve-with-qdrant'
+		);
 	} );
 
 	test( 'qdrant: failed disconnect offers an explicit local exit', async ( {
