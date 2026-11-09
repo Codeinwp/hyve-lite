@@ -465,6 +465,9 @@ class Hyve_Connect {
 			'hyve_connect_chat_settings',
 			[
 				'instructions' => mb_substr( $instructions, 0, 4000 ),
+				// The platform dates the prompt in the site's timezone, so
+				// "tomorrow" means the site's tomorrow, not the server's.
+				'timezone'     => wp_timezone_string(),
 			],
 			$settings
 		);
@@ -802,6 +805,8 @@ class Hyve_Connect {
 				'code'   => $slug,
 				'status' => $code,
 				'quota'  => $quota,
+				// Validation failures name the offending fields (`documents.N.content`).
+				'errors' => is_array( $decoded ) && isset( $decoded['errors'] ) && is_array( $decoded['errors'] ) ? $decoded['errors'] : [],
 			]
 		);
 

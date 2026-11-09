@@ -278,11 +278,19 @@ export const ConnectPanel = () => {
 			? Math.round( ( syncCurrent / syncTotal ) * 100 )
 			: 0;
 
+		// A paused job (credentials, outage) carries its own reason; a plan
+		// block explains the limit that applies.
+		const isPaused = [ 'auth', 'unavailable' ].includes(
+			connectSync?.quota?.kind
+		);
+
 		let blockedReason = __(
 			'It goes over the free plan limit. Upgrade to Pro to sync everything.',
 			'hyve-lite'
 		);
-		if ( isLicenseExpired ) {
+		if ( isPaused ) {
+			blockedReason = connectSync?.message ?? '';
+		} else if ( isLicenseExpired ) {
 			blockedReason = __(
 				'It goes over the free plan limit that applies while your license is expired.',
 				'hyve-lite'
@@ -310,11 +318,15 @@ export const ConnectPanel = () => {
 			);
 		}
 
-		const chip = isOffline ? (
-			<Chip tone="bad">{ __( 'Offline', 'hyve-lite' ) }</Chip>
-		) : (
-			<Chip tone="ok">{ __( 'Connected', 'hyve-lite' ) }</Chip>
-		);
+		let chip = <Chip tone="ok">{ __( 'Connected', 'hyve-lite' ) }</Chip>;
+		// A pause outranks Offline: an outage pause also fails the stats call.
+		if ( isBlocked && isPaused ) {
+			chip = (
+				<Chip tone="warn">{ __( 'Sync paused', 'hyve-lite' ) }</Chip>
+			);
+		} else if ( isOffline ) {
+			chip = <Chip tone="bad">{ __( 'Offline', 'hyve-lite' ) }</Chip>;
+		}
 
 		return (
 			<>
@@ -375,10 +387,12 @@ export const ConnectPanel = () => {
 						<div className="hyve-next-notice is-warn is-flush">
 							<div className="hyve-next-notice__body">
 								<strong>
-									{ __(
-										"Some content couldn't be synced.",
-										'hyve-lite'
-									) }
+									{ isPaused
+										? __( 'Sync paused.', 'hyve-lite' )
+										: __(
+												"Some content couldn't be synced.",
+												'hyve-lite'
+										  ) }
 								</strong>{ ' ' }
 								{ blockedReason }
 							</div>

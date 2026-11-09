@@ -81,6 +81,36 @@ class API extends BaseAPI {
 	private $chat_debug = [];
 
 	/**
+	 * Whether the last retrieval query was rewritten from the visitor's message.
+	 *
+	 * @since 2.1.0
+	 *
+	 * @var bool
+	 */
+	private $query_rewritten = false;
+
+	/**
+	 * A rewritten message longer than this many words, or this many characters,
+	 * is searched with its own wording ahead of the rewrite, so a condensing
+	 * rewrite cannot drop its details. Mirrors the platform's
+	 * RetrievalQuery::LONG_WORDS and LONG_CHARS.
+	 *
+	 * @since 2.1.0
+	 *
+	 * @var int
+	 */
+	const REWRITE_LONG_WORDS = 12;
+
+	/**
+	 * See REWRITE_LONG_WORDS.
+	 *
+	 * @since 2.1.0
+	 *
+	 * @var int
+	 */
+	const REWRITE_LONG_CHARS = 300;
+
+	/**
 	 * Ensures only one instance of the class is loaded.
 	 *
 	 * @return API An instance of the class.
@@ -291,6 +321,12 @@ class API extends BaseAPI {
 				[
 					'methods'  => \WP_REST_Server::CREATABLE,
 					'callback' => [ $this, 'qdrant_deactivate' ],
+					'args'     => [
+						'force' => [
+							'type'    => 'boolean',
+							'default' => false,
+						],
+					],
 				],
 			],
 			'connect'           => [
@@ -783,6 +819,7 @@ class API extends BaseAPI {
 	 * @return \WP_REST_Response
 	 */
 	public function get_data( $request ) {
+		Ingestion_Queue::instance()->watchdog();
 		$args = [
 			'post_type'   => $request->get_param( 'type' ),
 			'post_status' => [ 'publish', 'private' ],
@@ -852,7 +889,7 @@ class API extends BaseAPI {
 		// The unified "Indexed content" listing includes the plugin-owned sources,
 		// so a site without Pro can still see and remove them. hyve_docs must
 		// be named explicitly: it is exclude_from_search, which `any` skips.
-		if ( 'included' === $status && 'any' === $request->get_param( 'type' ) ) {
+		if ( in_array( $status, [ 'included', 'pending', 'moderation' ], true ) && in_array( $request->get_param( 'type' ), [ null, 'any' ], true ) ) {
 			$args['post_type'] = $this->table->connect_indexed_post_types();
 		}
 
@@ -950,6 +987,10 @@ class API extends BaseAPI {
 			}
 
 			$processing_error = get_post_meta( $post_id, '_hyve_processing_error', true );
+			$ingestion        = get_post_meta( $post_id, '_hyve_ingestion', true );
+			if ( is_array( $ingestion ) ) {
+				$post_data['ingestion'] = $ingestion;
+			}
 
 			// Shown whether or not the source made it into the index: a document
 			// refused for having no text is never added, and that refusal is
@@ -1067,7 +1108,7 @@ class API extends BaseAPI {
 	private function count_posts_by_meta( $meta_query ) {
 		$query = new \WP_Query(
 			[
-				'post_type'      => 'any',
+				'post_type'      => $this->table->connect_indexed_post_types(),
 				'post_status'    => [ 'publish', 'private' ],
 				'fields'         => 'ids',
 				'posts_per_page' => 1,
@@ -1085,6 +1126,7 @@ class API extends BaseAPI {
 	 * @return \WP_REST_Response
 	 */
 	public function get_data_counts() {
+		Ingestion_Queue::instance()->watchdog();
 		$pending = $this->count_posts_by_meta(
 			[
 				'relation' => 'AND',
@@ -1175,6 +1217,16 @@ class API extends BaseAPI {
 		// The content was stored, but the synchronous indexing attempt may have
 		// failed (e.g. rate limit, no credits). Surface that as a non-blocking
 		// warning so the admin sees it immediately, not only as a list badge.
+		$ingestion = get_post_meta( $post_id, '_hyve_ingestion', true );
+		if ( ! Hyve_Connect::is_active() && is_array( $ingestion ) && in_array( $ingestion['status'], [ 'queued', 'processing' ], true ) ) {
+			return rest_ensure_response(
+				[
+					'success'   => true,
+					'queued'    => true,
+					'ingestion' => $ingestion,
+				]
+			);
+		}
 		$processing_error = get_post_meta( $post_id, '_hyve_processing_error', true );
 
 		if ( ! empty( $processing_error ) ) {
@@ -1234,6 +1286,7 @@ class API extends BaseAPI {
 	 */
 	public function delete_data( $request ) {
 		$id = $request->get_param( 'id' );
+		Ingestion_Queue::instance()->cancel( (int) $id );
 
 		if ( Hyve_Connect::is_active() ) {
 			$deleted = Hyve_Connect::instance()->kb_delete( [ (int) $id ] );
@@ -1257,6 +1310,7 @@ class API extends BaseAPI {
 
 		delete_post_meta( $id, '_hyve_added' );
 		delete_post_meta( $id, '_hyve_needs_update' );
+		delete_post_meta( $id, '_hyve_connect_update_attempts' );
 		delete_post_meta( $id, '_hyve_moderation_failed' );
 		delete_post_meta( $id, '_hyve_moderation_review' );
 		delete_post_meta( $id, '_hyve_processing_error' );
@@ -1375,14 +1429,21 @@ class API extends BaseAPI {
 	/**
 	 * Qdrant deactivate.
 	 *
+	 * @param \WP_REST_Request<array{force?: bool}>|null $request Optional local-only disconnect.
+	 *
 	 * @return \WP_REST_Response
 	 * @throws \Exception If Qdrant API fails.
 	 */
-	public function qdrant_deactivate() {
+	public function qdrant_deactivate( $request = null ) {
 		$settings = Main::get_settings();
 
 		try {
-			$deactivated = Qdrant_API::instance()->disconnect();
+			$force       = null !== $request && true === $request->get_param( 'force' );
+			$deactivated = $force ? true : Qdrant_API::instance()->disconnect();
+
+			if ( is_wp_error( $deactivated ) ) {
+				throw new \Exception( $deactivated->get_error_message() );
+			}
 
 			if ( ! $deactivated ) {
 				throw new \Exception( __( 'Failed to deactivate Qdrant.', 'hyve-lite' ) );
@@ -1405,6 +1466,13 @@ class API extends BaseAPI {
 		Main::save_settings( $settings );
 		update_option( 'hyve_qdrant_status', 'inactive' );
 		delete_option( 'hyve_qdrant_migration' );
+		delete_option( Qdrant_API::MIGRATE_RETRY_AT );
+		wp_clear_scheduled_hook( Qdrant_API::MIGRATE_HOOK );
+		delete_option( Qdrant_API::ERROR_OPTION_KEY );
+		// A marker would hide, then prune, the points a later migration
+		// uploads without a generation.
+		delete_post_meta_by_key( Qdrant_API::CURRENT_GENERATION );
+		delete_option( Qdrant_API::CONNECTION );
 
 		return rest_ensure_response( __( 'Qdrant deactivated.', 'hyve-lite' ) );
 	}
@@ -1702,6 +1770,7 @@ class API extends BaseAPI {
 		delete_post_meta( $post_id, '_hyve_added' );
 		$this->table->connect_forget_sync( $post_id );
 		delete_post_meta( $post_id, '_hyve_needs_update' );
+		delete_post_meta( $post_id, '_hyve_connect_update_attempts' );
 		delete_post_meta( $post_id, '_hyve_moderation_failed' );
 		delete_post_meta( $post_id, '_hyve_moderation_review' );
 		delete_post_meta( $post_id, '_hyve_processing_error' );
@@ -1903,13 +1972,13 @@ class API extends BaseAPI {
 	 * @param float             $similarity_score_threshold Minimum cosine similarity.
 	 * @param int               $limit                      Most candidates to keep.
 	 *
-	 * @return array<int, Candidate>
+	 * @return array<int, Candidate>|null Candidates, or null when Qdrant could not be searched.
 	 */
 	private function vector_candidates_qdrant( $message_vector, $similarity_score_threshold, $limit ) {
 		$points = Qdrant_API::instance()->search( $message_vector, $similarity_score_threshold );
 
 		if ( is_wp_error( $points ) ) {
-			return [];
+			return null;
 		}
 
 		$candidates = [];
@@ -2456,9 +2525,14 @@ class API extends BaseAPI {
 		$vector   = [];
 
 		if ( ! empty( $message_vector ) ) {
-			$vector = Qdrant_API::is_active()
+			// Local vectors stay complete while Qdrant is migrating or unavailable.
+			$vector = Qdrant_API::is_active() && ! Qdrant_API::has_pending_migration()
 				? $this->vector_candidates_qdrant( $message_vector, $similarity_score_threshold, $limit )
 				: $this->vector_candidates_wp( $message_vector, $similarity_score_threshold, $limit );
+
+			if ( null === $vector ) {
+				$vector = $this->vector_candidates_wp( $message_vector, $similarity_score_threshold, $limit );
+			}
 		}
 
 		$lexical = '' !== $query ? $this->lexical_candidates( $query, $limit ) : [];
@@ -2549,21 +2623,53 @@ class API extends BaseAPI {
 	}
 
 	/**
+	 * Whether a message should be passed to the retrieval query rewriter.
+	 *
+	 * Rewrite every non-empty message with history so references resolve in
+	 * any language. The model returns self-contained questions unchanged.
+	 * Mirrored by the platform's RetrievalQuery::needsRewrite().
+	 *
+	 * @since 2.1.0
+	 *
+	 * @param string $message     The current user message.
+	 * @param bool   $has_history Whether the conversation has earlier turns.
+	 *
+	 * @return bool
+	 */
+	public static function needs_query_rewrite( $message, $has_history ) {
+		return $has_history && '' !== trim( (string) $message );
+	}
+
+	/**
+	 * The text to search for once a message is rewritten: the rewrite alone,
+	 * or for a long message its own wording followed by the rewrite. The
+	 * character limit also protects details in scripts without spaces. Mirrored
+	 * by the platform's RetrievalQuery::searchText().
+	 *
+	 * @since 2.1.0
+	 *
+	 * @param string $message   The current user message.
+	 * @param string $rewritten The standalone rewrite.
+	 *
+	 * @return string
+	 */
+	public static function rewritten_retrieval_text( $message, $rewritten ) {
+		$words = preg_split( '/\s+/u', trim( (string) $message ) );
+
+		if ( ( is_array( $words ) && count( $words ) > self::REWRITE_LONG_WORDS ) || mb_strlen( trim( (string) $message ) ) > self::REWRITE_LONG_CHARS ) {
+			return $message . "\n" . $rewritten;
+		}
+
+		return $rewritten;
+	}
+
+	/**
 	 * Build the text used for knowledge base retrieval.
 	 *
-	 * Retrieval embeds this text and searches the knowledge base with it. For the
-	 * first message it is just the question. For follow-ups it also blends in the
-	 * visitor's most recent turns, so a topic-less question such as "How
-	 * difficult is it?" still carries the subject ("pickleball") into the
-	 * search and matches the relevant content, instead of embedding a query with
-	 * no topic that finds nothing. The model already receives the conversation
-	 * history through the OpenAI conversation; this closes the same gap for
-	 * retrieval.
-	 *
-	 * Only the visitor's turns are blended. Bot replies either echo knowledge
-	 * base text (inflating every follow-up's similarity scores) or are fallback
-	 * apologies ("Sorry, I'm not able to help with that") that drag the query
-	 * off-topic, so they carry no retrieval signal of their own.
+	 * Retrieval embeds this text and searches the knowledge base with it. A
+	 * first message is used as sent. Every later message is passed to a small
+	 * model to resolve references; self-contained questions stay unchanged.
+	 * When the rewrite fails, the message is searched as sent.
 	 *
 	 * @param string     $message   The current user message.
 	 * @param int|string $record_id The thread post ID, when the conversation exists.
@@ -2574,6 +2680,8 @@ class API extends BaseAPI {
 	private function build_retrieval_query( $message, $record_id, $thread_id = '' ) {
 		$history = [];
 
+		$this->query_rewritten = false;
+
 		if ( ! empty( $record_id ) && 'hyve_threads' === get_post_type( (int) $record_id ) ) {
 			$thread_data = get_post_meta( (int) $record_id, '_hyve_thread_data', true );
 
@@ -2583,75 +2691,70 @@ class API extends BaseAPI {
 		}
 
 		/**
-		 * Filters how many recent visitor messages are blended into the
-		 * retrieval query.
+		 * Filters how many recent turns the retrieval query rewrite sees.
 		 *
-		 * Set to 0 to disable conversation-aware retrieval and search with the
-		 * current message only.
+		 * Set to 0 to disable the rewrite and search with the current message
+		 * only.
 		 *
 		 * @since 1.5.0
+		 * @since 2.1.0 Counts visitor and bot turns shown to the rewrite model
+		 *              instead of visitor messages blended into the query.
 		 *
-		 * @param int    $count     Number of most recent visitor messages to include. Default 6.
+		 * @param int    $count     Number of most recent turns to include. Default 6.
 		 * @param string $thread_id The OpenAI conversation ID, when one exists.
 		 */
 		$count = (int) apply_filters( 'hyve_retrieval_history_count', 6, $thread_id );
 
 		/**
-		 * Filters the per-message character cap for the retrieval query.
+		 * Filters the per-turn character cap for the retrieval query rewrite.
 		 *
-		 * Keeps a single long turn from dominating or bloating the embedded query.
+		 * Keeps a single long turn from bloating the rewrite prompt.
 		 *
 		 * @since 1.5.0
 		 *
-		 * @param int $length Maximum characters kept per message. Default 500.
+		 * @param int $length Maximum characters kept per turn. Default 500.
 		 */
 		$length = (int) apply_filters( 'hyve_retrieval_history_message_length', 500 );
 
-		$parts = [];
+		$turns = [];
 
-		if ( $count > 0 && ! empty( $history ) ) {
-			$user_turns = array_filter(
-				$history,
-				function ( $entry ) {
-					return isset( $entry['sender'] ) && 'user' === $entry['sender'];
-				}
-			);
-
-			$recent = array_slice( $user_turns, - $count );
-
-			foreach ( $recent as $entry ) {
-				if ( empty( $entry['message'] ) ) {
-					continue;
-				}
-
-				$text = trim( wp_strip_all_tags( (string) $entry['message'] ) );
-
-				if ( '' === $text ) {
-					continue;
-				}
-
-				if ( mb_strlen( $text ) > $length ) {
-					$text = mb_substr( $text, 0, $length );
-				}
-
-				$parts[] = $text;
+		foreach ( $history as $entry ) {
+			if ( empty( $entry['message'] ) || ! isset( $entry['sender'] ) || ! in_array( $entry['sender'], [ 'user', 'bot' ], true ) ) {
+				continue;
 			}
+
+			$text = trim( wp_strip_all_tags( (string) $entry['message'] ) );
+
+			if ( '' === $text ) {
+				continue;
+			}
+
+			$turns[] = [
+				'role' => 'bot' === $entry['sender'] ? 'assistant' : 'user',
+				'text' => mb_substr( $text, 0, $length ),
+			];
 		}
 
-		// The current question goes last so it carries the most weight.
-		$parts[] = $message;
+		$query = $message;
 
-		$query = implode( "\n", $parts );
+		if ( $count > 0 && self::needs_query_rewrite( $message, ! empty( $turns ) ) ) {
+			$rewritten = OpenAI::instance()->rewrite_query( $message, array_slice( $turns, - $count ) );
+
+			if ( is_string( $rewritten ) && '' !== $rewritten && $rewritten !== $message ) {
+				$query                 = self::rewritten_retrieval_text( $message, $rewritten );
+				$this->query_rewritten = true;
+			}
+		}
 
 		/**
 		 * Filters the final text used for knowledge base retrieval.
 		 *
-		 * Allows replacing the assembled query, for example with a rewritten
-		 * standalone question, before it is embedded and searched.
+		 * Allows replacing the query, rewritten or not, before it is embedded
+		 * and searched.
 		 *
 		 * @since 1.5.0
 		 *
-		 * @param string                            $query   The assembled retrieval query.
+		 * @param string                            $query   The retrieval query.
 		 * @param string                            $message The current user message.
 		 * @param array<int, array<string, mixed>>  $history The thread history considered.
 		 */
@@ -3378,9 +3481,9 @@ class API extends BaseAPI {
 		 */
 		$similarity_score_threshold = apply_filters( 'hyve_similarity_score_threshold', 0.25 );
 
-		// The keyword pass reads a capped number of terms, so the message goes
-		// first or a long history crowds its words out.
-		$keyword_query = $message . "\n" . $retrieval_query;
+		// The rewrite may respell a name the visitor typed; their own words stay
+		// first in the keyword pass so an exact term still matches.
+		$keyword_query = 0 === strpos( $retrieval_query, $message ) ? $retrieval_query : $message . "\n" . $retrieval_query;
 
 		$article_context = $this->search_knowledge_base( $message_vector, $similarity_score_threshold, 2000, $keyword_query );
 
@@ -3403,8 +3506,8 @@ class API extends BaseAPI {
 
 		// Everything retrieval decided for this turn, kept for the conversation
 		// history so a reply (or a refusal) can be traced back to what the
-		// search actually matched. The query is capped so a long history blend
-		// cannot bloat the stored thread meta.
+		// search actually matched. The query is capped so a filter cannot
+		// bloat the stored thread meta.
 		$this->chat_debug = [
 			'query'     => mb_substr( $retrieval_query, 0, 2000 ),
 			'threshold' => (float) $similarity_score_threshold,
@@ -3413,6 +3516,10 @@ class API extends BaseAPI {
 			'model'     => $openai->get_chat_model(),
 			'started'   => microtime( true ),
 		];
+
+		if ( $this->query_rewritten ) {
+			$this->chat_debug['query_rewritten'] = true;
+		}
 
 		if ( $embedding_failed ) {
 			$this->chat_debug['embedding_failed'] = true;
@@ -3735,7 +3842,8 @@ class API extends BaseAPI {
 	 * Build the debug trace for a Hyve Connect turn from the platform result.
 	 *
 	 * Retrieval runs remotely in Connect mode, so the recorded trace is limited
-	 * to what the platform reports back: the sources behind the answer.
+	 * to what the platform reports back: the query it searched for, the sources
+	 * behind the answer, and the token usage.
 	 *
 	 * @since 2.1.0
 	 *
@@ -3754,6 +3862,16 @@ class API extends BaseAPI {
 
 		if ( isset( $result['retrieval'] ) && is_string( $result['retrieval'] ) ) {
 			$debug['retrieval'] = $result['retrieval'];
+		}
+
+		// The platform rewrites follow-ups before retrieval; what it searched
+		// for is shown like the self-hosted query.
+		if ( isset( $result['retrieval_query'] ) && is_string( $result['retrieval_query'] ) && '' !== $result['retrieval_query'] ) {
+			$debug['query'] = mb_substr( $result['retrieval_query'], 0, 2000 );
+
+			if ( ! empty( $result['query_rewritten'] ) ) {
+				$debug['query_rewritten'] = true;
+			}
 		}
 
 		if ( empty( $result['sources'] ) || ! is_array( $result['sources'] ) ) {

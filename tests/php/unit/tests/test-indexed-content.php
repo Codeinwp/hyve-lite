@@ -154,4 +154,31 @@ class Test_Indexed_Content extends WP_UnitTestCase {
 		$this->assertSame( '', get_post_meta( $post, '_hyve_added', true ) );
 		$this->assertNull( get_post( $sitemap ) );
 	}
+
+	/**
+	 * Needs Attention counts and lists plugin-owned sources too, so the
+	 * badge and the panel always agree. hyve_docs is excluded from search,
+	 * which a plain `any` query would skip.
+	 */
+	public function test_needs_attention_includes_plugin_owned_sources() {
+		$pending    = $this->docs_source( [ '_hyve_needs_update' => 1 ] );
+		$moderation = $this->docs_source( [ '_hyve_moderation_failed' => 1 ] );
+
+		$counts = rest_do_request( new WP_REST_Request( 'GET', '/hyve/v1/data/counts' ) )->get_data();
+
+		$this->assertSame( 1, (int) $counts['pending'] );
+		$this->assertSame( 1, (int) $counts['moderation'] );
+
+		foreach ( [
+			'pending'    => $pending,
+			'moderation' => $moderation,
+		] as $status => $id ) {
+			$request = new WP_REST_Request( 'GET', '/hyve/v1/data' );
+			$request->set_query_params( [ 'status' => $status ] );
+
+			$ids = array_map( 'intval', wp_list_pluck( rest_do_request( $request )->get_data()['posts'], 'ID' ) );
+
+			$this->assertContains( $id, $ids, "The {$status} panel lists what its badge counts." );
+		}
+	}
 }

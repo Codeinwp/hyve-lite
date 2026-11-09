@@ -16,9 +16,11 @@ class Tokenizer {
 	/**
 	 * Bumped when `html_to_text()` changes what it extracts, so Connect
 	 * reconcile rehashes unedited posts instead of trusting a hash of the
-	 * old text. 1 was the structured extractor; 2 folds contact links.
+	 * old text. 1 was the structured extractor; 2 folds contact links;
+	 * 3 decodes WPBakery raw HTML blocks and drops its raw JS blocks before
+	 * removing shortcode markers.
 	 */
-	const EXTRACTOR_VERSION = 2;
+	const EXTRACTOR_VERSION = 3;
 
 	/**
 	 * Most digit groups of one number-like run compared against a `tel:` target.
@@ -65,6 +67,39 @@ class Tokenizer {
 		if ( '' === trim( $content ) ) {
 			return '';
 		}
+
+		// An inactive WPBakery leaves base64(URL-encoded HTML) inside these
+		// shortcodes. Decode each block before stripping its boundaries: joining
+		// padded payloads makes invalid base64. Never guess at encoded prose.
+		// Its raw JS blocks hold scripts in the same encoding: nothing to index.
+		$content = (string) preg_replace( '/\[vc_raw_js(?:\s[^\]]*)?\][^\[]*\[\/vc_raw_js\s*\]/i', '', $content );
+		$decoded = preg_replace_callback(
+			'/\[vc_raw_html(?:\s[^\]]*)?\]([^\[]*)\[\/vc_raw_html\s*\]/i',
+			static function ( $block ) {
+				// the_content may have added paragraph/line-break tags to the body.
+				$encoded = (string) preg_replace( '/\s+/', '', wp_strip_all_tags( $block[1] ) );
+				// phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_decode -- WPBakery's raw HTML storage format.
+				$html = base64_decode( $encoded, true );
+
+				if ( false === $html ) {
+					return $block[0];
+				}
+
+				// A legacy block can hold single-byte Latin-1 escapes (`%E9`);
+				// invalid UTF-8 would make the platform's hash differ from ours.
+				$html = rawurldecode( $html );
+
+				if ( 1 !== preg_match( '//u', $html ) ) {
+					$html = function_exists( 'mb_convert_encoding' )
+						? (string) mb_convert_encoding( $html, 'UTF-8', 'ISO-8859-1' )
+						: (string) wp_check_invalid_utf8( $html, true );
+				}
+
+				return "\n" . $html . "\n";
+			},
+			$content
+		);
+		$content = null === $decoded ? $content : $decoded;
 
 		// A name has to start with a letter, and anything after it has to look
 		// like a `name="value"` attribute. Between them those keep bracketed

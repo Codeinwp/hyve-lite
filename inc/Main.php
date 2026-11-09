@@ -62,6 +62,7 @@ class Main {
 		add_action( 'before_delete_post', [ $this, 'delete_post' ] );
 		add_action( DB_Table::CONNECT_SYNC_HOOK, [ $this->table, 'connect_run_sync' ] );
 		add_action( DB_Table::CONNECT_DELETE_HOOK, [ $this->table, 'connect_run_deletes' ] );
+		add_action( DB_Table::CONNECT_RESUME_HOOK, [ $this->table, 'connect_maybe_resume_blocked' ] );
 		add_filter( 'themeisle_sdk_enable_telemetry', '__return_true' );
 		add_filter( 'pre_option_hyve_lite_logger_flag', [ $this, 'force_connect_telemetry' ] );
 
@@ -406,8 +407,9 @@ class Main {
 						'stats'             => $this->get_stats(),
 						'privacySettings'   => admin_url( 'options-privacy.php' ),
 						'hasPrivacyPage'    => '' !== get_privacy_policy_url(),
-						'docs'              => 'https://docs.themeisle.com/article/2009-hyve-documentation',
-						'qdrant_docs'       => 'https://docs.themeisle.com/article/2066-integrate-hyve-with-qdrant',
+						// Final docs URLs: a redirect would drop the UTMs.
+						'docs'              => tsdk_utmify( 'https://docs.themeisle.com/hyve/hyve-documentation', 'documentation', 'dashboard' ),
+						'qdrant_docs'       => tsdk_utmify( 'https://docs.themeisle.com/hyve/integrate-hyve-with-qdrant', 'qdrant', 'settings' ),
 						'pro'               => 'https://themeisle.com/plugins/hyve/',
 						'chart'             => $this->get_chart_data(),
 						'hasPro'            => apply_filters( 'product_hyve_license_status', false ),
@@ -480,7 +482,7 @@ class Main {
 				'api_key'                    => '',
 				'qdrant_api_key'             => '',
 				'qdrant_endpoint'            => '',
-				'chat_model'                 => 'gpt-5.4-nano',
+				'chat_model'                 => OpenAI::DEFAULT_CHAT_MODEL,
 				'welcome_message'            => '',
 				'default_message'            => '',
 				'similarity_score_threshold' => 0.25,
@@ -523,6 +525,9 @@ class Main {
 		$settings['telemetry_enabled'] = 'yes' === get_option( 'hyve_lite_logger_flag', 'no' );
 
 		$settings = wp_parse_args( $settings, self::get_default_settings() );
+
+		// A retired model would error on every message; report its successor.
+		$settings['chat_model'] = OpenAI::resolve_chat_model( $settings['chat_model'] ?? '' );
 
 		/*
 		 * Backward compatibility: derive the visibility mode from the legacy
@@ -1156,6 +1161,10 @@ class Main {
 		}
 
 		update_post_meta( $post_id, '_hyve_needs_update', 1 );
+		delete_post_meta( $post_id, '_hyve_connect_update_attempts' );
+		if ( ! Ingestion_Queue::instance()->is_active( $post_id ) ) {
+			delete_post_meta( $post_id, '_hyve_ingestion' );
+		}
 		delete_post_meta( $post_id, '_hyve_moderation_failed' );
 		delete_post_meta( $post_id, '_hyve_moderation_review' );
 
@@ -1205,6 +1214,8 @@ class Main {
 		$config['title']     = sprintf( __( 'Hyve Pro: %s off this week', 'hyve-lite' ), '60%' );
 		$config['cta_label'] = __( 'Get Hyve Pro', 'hyve-lite' );
 		$config['message']   = __( 'Chat history, missed question tracking, appearance customization. Make your chatbot actually useful. Exclusively for existing Hyve users.', 'hyve-lite' );
+		// translators: %s is the discount percentage.
+		$config['upgrade_menu_text'] = sprintf( __( 'BF Sale - %s off', 'hyve-lite' ), '60%' );
 		// translators: %s is the discount percentage.
 		$config['plugin_meta_message'] = sprintf( __( 'Black Friday Sale - %s off', 'hyve-lite' ), '60%' );
 		$config['sale_url']            = add_query_arg(

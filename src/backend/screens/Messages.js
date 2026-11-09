@@ -917,11 +917,22 @@ const MessageDebug = ( { debug, time } ) => {
 					{ Boolean( debug.query ) && (
 						<div className="hyve-next-debug__row">
 							<DebugKey
-								label={ __( 'Query', 'hyve-lite' ) }
-								help={ __(
-									'The exact text used to search the knowledge base: the question blended with recent turns of the conversation, so follow-ups keep their topic.',
-									'hyve-lite'
-								) }
+								label={
+									debug.query_rewritten
+										? __( 'Query (rewritten)', 'hyve-lite' )
+										: __( 'Query', 'hyve-lite' )
+								}
+								help={
+									debug.query_rewritten
+										? __(
+												'The exact text used to search the knowledge base. The message leaned on the conversation, so a small model rewrote it into a standalone question first.',
+												'hyve-lite'
+										  )
+										: __(
+												'The exact text used to search the knowledge base.',
+												'hyve-lite'
+										  )
+								}
 							/>
 							<pre className="hyve-next-debug__query">
 								{ debug.query }
