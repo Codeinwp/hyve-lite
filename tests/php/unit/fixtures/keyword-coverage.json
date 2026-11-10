@@ -1,0 +1,169 @@
+{
+	"version": 1,
+	"description": "Keyword coverage parity cases for retrieval_stats (Codeinwp/hyve#330), shared with the Hyve Connect platform: both implementations must produce the same term_count, matched and coverage for every case. term_count is the number of diagnostic patterns built from the query; matched is the most patterns one candidate's title + ' ' + content matches (0 with no candidates); coverage is matched / term_count rounded to 4 places, null when term_count is 0. In retrieval_stats a term_count of 0 is recorded as null for all three fields. Accents fold by WordPress's default (en_US) rules whatever the site's locale, after NFC normalization (WordPress only normalizes when PHP's intl normalizer is available; without it, decomposed non-Latin marks stay decomposed in Lite).",
+	"cases": [
+		{
+			"name": "every term in one candidate",
+			"query": "silextra pricing",
+			"candidates": [
+				{
+					"title": "Answer",
+					"content": "Silextra pricing is 73 euros."
+				},
+				{
+					"title": "Other",
+					"content": "Silextra enterprisepricing guide."
+				}
+			],
+			"term_count": 2,
+			"matched": 2,
+			"coverage": 1.0
+		},
+		{
+			"name": "the best hit need not rank first",
+			"query": "silextra pricing",
+			"candidates": [
+				{
+					"title": "Other",
+					"content": "Silextra guide."
+				},
+				{
+					"title": "Answer",
+					"content": "Silextra pricing is 73 euros."
+				}
+			],
+			"term_count": 2,
+			"matched": 2,
+			"coverage": 1.0
+		},
+		{
+			"name": "terms match word prefixes, not infixes",
+			"query": "SILEXTRA pric",
+			"candidates": [
+				{
+					"title": "Other",
+					"content": "Silextra enterprisepricing guide."
+				}
+			],
+			"term_count": 2,
+			"matched": 1,
+			"coverage": 0.5
+		},
+		{
+			"name": "index stopwords and short words do not count",
+			"query": "what is the price of silextra",
+			"candidates": [
+				{
+					"title": "Answer",
+					"content": "Silextra pricing is 73 euros."
+				}
+			],
+			"term_count": 2,
+			"matched": 1,
+			"coverage": 0.5
+		},
+		{
+			"name": "repeated terms count once",
+			"query": "price Price PRICE",
+			"candidates": [
+				{
+					"title": "Rates",
+					"content": "Our price list."
+				}
+			],
+			"term_count": 1,
+			"matched": 1,
+			"coverage": 1.0
+		},
+		{
+			"name": "the title counts",
+			"query": "morpheus8 fridays",
+			"candidates": [
+				{
+					"title": "Morpheus8",
+					"content": "Skin tightening is offered on Fridays."
+				}
+			],
+			"term_count": 2,
+			"matched": 2,
+			"coverage": 1.0
+		},
+		{
+			"name": "decomposed accent matches precomposed text",
+			"query": "cafe\u0301 menu",
+			"candidates": [
+				{
+					"title": "Precomposed",
+					"content": "Café menu rates."
+				},
+				{
+					"title": "Partial",
+					"content": "Cafe cafe cafe."
+				}
+			],
+			"term_count": 2,
+			"matched": 2,
+			"coverage": 1.0
+		},
+		{
+			"name": "a script without word boundaries matches as a substring",
+			"query": "ราคาเท่าไหร่",
+			"candidates": [
+				{
+					"title": "ราคา",
+					"content": "ราคาเท่าไหร่ครับ 500 บาท"
+				}
+			],
+			"term_count": 1,
+			"matched": 1,
+			"coverage": 1.0
+		},
+		{
+			"name": "two-letter Arabic words count when no term reaches the index",
+			"query": "سن من",
+			"candidates": [
+				{
+					"title": "العمر",
+					"content": "سن القبول من ست سنوات"
+				}
+			],
+			"term_count": 2,
+			"matched": 2,
+			"coverage": 1.0
+		},
+		{
+			"name": "one-syllable Hangul words count when no term reaches the index",
+			"query": "내 집",
+			"candidates": [
+				{
+					"title": "안내",
+					"content": "집 주소"
+				}
+			],
+			"term_count": 2,
+			"matched": 2,
+			"coverage": 1.0
+		},
+		{
+			"name": "only stopwords leaves nothing to measure",
+			"query": "what is the",
+			"candidates": [
+				{
+					"title": "Any",
+					"content": "What is the answer?"
+				}
+			],
+			"term_count": 0,
+			"matched": 0,
+			"coverage": null
+		},
+		{
+			"name": "terms but no keyword hits measure zero",
+			"query": "artiswar tune",
+			"candidates": [],
+			"term_count": 2,
+			"matched": 0,
+			"coverage": 0.0
+		}
+	]
+}

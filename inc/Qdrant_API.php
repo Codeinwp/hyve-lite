@@ -32,6 +32,13 @@ class Qdrant_API {
 	const COLLECTION_NAME = 'hyve';
 
 	/**
+	 * Most points a search returns.
+	 *
+	 * @var int
+	 */
+	public const SEARCH_LIMIT = 10;
+
+	/**
 	 * The service error option key for `wp_options`.
 	 * 
 	 * @var string
@@ -809,7 +816,7 @@ class Qdrant_API {
 					new VectorStruct( $embeddings, 'embeddings' )
 				)
 			)
-			->setLimit( 10 )
+			->setLimit( self::SEARCH_LIMIT )
 			->setFilter( $this->visible_points_filter() )
 			->setScoreThreshold( $score_threshold )
 			->setWithPayload( true );
