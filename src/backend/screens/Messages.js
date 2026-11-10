@@ -483,6 +483,113 @@ const DebugKey = ( { label, help } ) => (
 	</span>
 );
 
+const isCount = ( value ) => 'number' === typeof value;
+
+// What each retrieval stage kept (`retrieval_stats`). Null fields are
+// stages that did not run, so they show as such rather than as zero.
+const RetrievalStatsRows = ( { stats } ) => {
+	const vector = isCount( stats.vector_above_floor )
+		? [
+				sprintf(
+					/* translators: %d: vector matches above the similarity threshold. */
+					__( '%d above threshold', 'hyve-lite' ),
+					stats.vector_above_floor
+				),
+				isCount( stats.vector_within_cutoff ) &&
+					sprintf(
+						/* translators: %d: vector matches close enough to the best one. */
+						__( '%d close to the best', 'hyve-lite' ),
+						stats.vector_within_cutoff
+					),
+				isCount( stats.vector_top_score ) &&
+					sprintf(
+						/* translators: 1: best similarity score, 2: minimum score kept. */
+						__( 'best %1$s, cutoff %2$s', 'hyve-lite' ),
+						stats.vector_top_score.toFixed( 2 ),
+						isCount( stats.vector_cutoff )
+							? stats.vector_cutoff.toFixed( 2 )
+							: '–'
+					),
+		  ]
+				.filter( Boolean )
+				.join( ' · ' )
+		: __( 'Not run', 'hyve-lite' );
+
+	const keyword = isCount( stats.keyword_hits )
+		? [
+				sprintf(
+					/* translators: %d: chunks the keyword search found. */
+					_n( '%d hit', '%d hits', stats.keyword_hits, 'hyve-lite' ),
+					stats.keyword_hits
+				),
+				isCount( stats.keyword_term_count ) &&
+					isCount( stats.keyword_matched_terms ) &&
+					sprintf(
+						/* translators: 1: question terms found in the best hit, 2: question terms. */
+						__( '%1$d of %2$d terms in the best hit', 'hyve-lite' ),
+						stats.keyword_matched_terms,
+						stats.keyword_term_count
+					),
+		  ]
+				.filter( Boolean )
+				.join( ' · ' )
+		: __( 'Not run', 'hyve-lite' );
+
+	const used =
+		isCount( stats.used ) &&
+		isCount( stats.scored_used ) &&
+		stats.used !== stats.scored_used
+			? sprintf(
+					/* translators: 1: chunks sent to the model, 2: chunks the search picked. */
+					__( '%1$d sent, %2$d picked by the search', 'hyve-lite' ),
+					stats.used,
+					stats.scored_used
+			  )
+			: isCount( stats.used ) &&
+			  sprintf(
+					/* translators: %d: knowledge base chunks sent to the model. */
+					_n( '%d chunk', '%d chunks', stats.used, 'hyve-lite' ),
+					stats.used
+			  );
+
+	return (
+		<>
+			<div className="hyve-next-debug__row">
+				<DebugKey
+					label={ __( 'Vector search', 'hyve-lite' ) }
+					help={ __(
+						'Knowledge base chunks whose meaning matched the question: how many cleared the similarity threshold, how many scored close enough to the best match to be kept, and the scores. Not run when the question could not be embedded.',
+						'hyve-lite'
+					) }
+				/>
+				<span className="hyve-next-debug__val">{ vector }</span>
+			</div>
+			<div className="hyve-next-debug__row">
+				<DebugKey
+					label={ __( 'Keyword search', 'hyve-lite' ) }
+					help={ __(
+						'Knowledge base chunks containing the question’s words, and how many of those words the best of them contains. Most words found but no answer usually means retrieval missed; none found usually means the knowledge base lacks the answer.',
+						'hyve-lite'
+					) }
+				/>
+				<span className="hyve-next-debug__val">{ keyword }</span>
+			</div>
+			{ used && (
+				<div className="hyve-next-debug__row">
+					<DebugKey
+						label={ __( 'Context', 'hyve-lite' ) }
+						help={ __(
+							'Knowledge base chunks sent to the model with the question, within the context budget.',
+							'hyve-lite'
+						) }
+					/>
+					<span className="hyve-next-debug__val">{ used }</span>
+				</div>
+			) }
+		</>
+	);
+};
+
 // Trace for a bot reply (what retrieval matched and why): folded into the
 // timestamp line ("12:31 pm · Not answered · 9 sources · Show trace") so
 // transcripts stay clean, expanding into a label/value ledger where each
@@ -579,6 +686,13 @@ const MessageDebug = ( { debug, time } ) => {
 							</span>
 						</div>
 					) }
+
+					{ debug.retrieval_stats &&
+						'object' === typeof debug.retrieval_stats && (
+							<RetrievalStatsRows
+								stats={ debug.retrieval_stats }
+							/>
+						) }
 
 					{ Boolean( debug.model ) && (
 						<div className="hyve-next-debug__row">
