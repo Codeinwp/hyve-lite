@@ -521,7 +521,10 @@ class App {
 			const inner = node.querySelector( 'div' );
 
 			if ( inner ) {
-				inner.innerHTML = html;
+				// Provider output is incomplete while it streams, so it cannot be
+				// safely parsed as HTML yet. Render a text-only preview; the terminal
+				// event replaces it with the server-sanitized formatted response.
+				inner.textContent = html.replace( /<[^>]*>/g, '' );
 			}
 
 			const box = document.getElementById( 'hyve-message-box' );
@@ -645,7 +648,7 @@ class App {
 			if ( started ) {
 				this.finalizeStream( bubbleId, {
 					success: true,
-					message: streamedText,
+					message: this.sanitize( streamedText ),
 				} );
 				return true;
 			}
@@ -658,7 +661,7 @@ class App {
 			if ( started ) {
 				this.finalizeStream( bubbleId, {
 					success: true,
-					message: streamedText,
+					message: this.sanitize( streamedText ),
 				} );
 				return true;
 			}

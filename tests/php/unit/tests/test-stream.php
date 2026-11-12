@@ -6,11 +6,51 @@
  */
 
 use ThemeIsle\HyveLite\Stream;
+use ThemeIsle\HyveLite\API;
+use ThemeIsle\HyveLite\OpenAI;
 
 /**
  * Class Test_Stream.
  */
 class Test_Stream extends WP_UnitTestCase {
+	/**
+	 * Provider markup is allowlisted before a completed response reaches the browser.
+	 */
+	public function test_completed_response_html_is_sanitized() {
+		$result = OpenAI::interpret_chat_payload(
+			wp_json_encode(
+				[
+					'response' => '<p>Hello <strong>there</strong>.</p><img src="x" onerror="alert(1)"><script>alert(2)</script><a href="javascript:alert(3)">bad</a>',
+					'success'  => true,
+				]
+			),
+			'No answer.'
+		);
+
+		$this->assertTrue( $result['answered'] );
+		$this->assertStringContainsString( '<strong>there</strong>', $result['final'] );
+		$this->assertStringNotContainsString( 'onerror', $result['final'] );
+		$this->assertStringNotContainsString( '<script', $result['final'] );
+		$this->assertStringNotContainsString( 'javascript:', $result['final'] );
+		$this->assertSame( $result['final'], $result['payload']['response'] );
+	}
+
+	/**
+	 * Hosted replies cross the same output boundary as self-hosted replies.
+	 */
+	public function test_connect_response_html_is_sanitized() {
+		$result = API::instance()->connect_reply_final(
+			[
+				'answered' => true,
+				'reply'    => '<p>Hosted.</p><svg onload="alert(1)"></svg>',
+			],
+			[],
+			'No answer.'
+		);
+
+		$this->assertSame( '<p>Hosted.</p>', $result['reply'] );
+		$this->assertSame( $result['reply'], $result['final'] );
+	}
 	/**
 	 * A complete JSON object yields the full response value.
 	 */
