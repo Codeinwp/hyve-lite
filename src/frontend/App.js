@@ -176,6 +176,11 @@ class App {
 		return tempDiv.innerHTML;
 	}
 
+	// Streamed provider output is unsanitized and may be cut mid-tag, so it is only ever shown as text.
+	stripTags( html ) {
+		return html.replace( /<[^>]*>/g, '' );
+	}
+
 	addTargetBlank( message ) {
 		const tempDiv = document.createElement( 'div' );
 		tempDiv.innerHTML = message;
@@ -524,7 +529,7 @@ class App {
 				// Provider output is incomplete while it streams, so it cannot be
 				// safely parsed as HTML yet. Render a text-only preview; the terminal
 				// event replaces it with the server-sanitized formatted response.
-				inner.textContent = html.replace( /<[^>]*>/g, '' );
+				inner.textContent = this.stripTags( html );
 			}
 
 			const box = document.getElementById( 'hyve-message-box' );
@@ -648,7 +653,7 @@ class App {
 			if ( started ) {
 				this.finalizeStream( bubbleId, {
 					success: true,
-					message: this.sanitize( streamedText ),
+					message: this.sanitize( this.stripTags( streamedText ) ),
 				} );
 				return true;
 			}
@@ -661,7 +666,7 @@ class App {
 			if ( started ) {
 				this.finalizeStream( bubbleId, {
 					success: true,
-					message: this.sanitize( streamedText ),
+					message: this.sanitize( this.stripTags( streamedText ) ),
 				} );
 				return true;
 			}
