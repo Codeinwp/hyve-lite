@@ -374,7 +374,8 @@ class Stream {
 		}
 
 		if ( isset( $data['message'] ) && is_string( $data['message'] ) ) {
-			$final = $data['message'];
+			$data['message'] = OpenAI::sanitize_chat_response( $data['message'] );
+			$final           = $data['message'];
 		}
 
 		$extra = [
@@ -548,7 +549,8 @@ class Stream {
 		}
 
 		if ( isset( $data['message'] ) && is_string( $data['message'] ) ) {
-			$final = $data['message'];
+			$data['message'] = OpenAI::sanitize_chat_response( $data['message'] );
+			$final           = $data['message'];
 		}
 
 		$payload['debug'] = API::finalize_chat_debug(

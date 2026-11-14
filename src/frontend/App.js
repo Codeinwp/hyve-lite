@@ -10,6 +10,10 @@ import { addQueryArgs } from '@wordpress/url';
 const pingAudio = new Audio( window.hyveClient.audio.ping );
 const { strings } = window.hyveClient;
 
+// Replies stored under the legacy key predate server-side sanitizing, so they are dropped, not restored.
+const CHAT_STORAGE_KEY = 'hyve-chat-v2';
+const LEGACY_CHAT_STORAGE_KEY = 'hyve-chat';
+
 // Default assistant avatar, reused by the header and the live preview refresh.
 const ROBOT_AVATAR_SVG =
 	'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 2a2 2 0 0 1 2 2v1h3a3 3 0 0 1 3 3v6a3 3 0 0 1-3 3h-3l-4 3v-3H7a3 3 0 0 1-3-3V8a3 3 0 0 1 3-3h3V4a2 2 0 0 1 2-2Z"/><circle cx="9.5" cy="11.5" r="1" fill="currentColor" stroke="none"/><circle cx="14.5" cy="11.5" r="1" fill="currentColor" stroke="none"/></svg>';
@@ -57,7 +61,9 @@ class App {
 			return;
 		}
 
-		const storageData = window.localStorage.getItem( 'hyve-chat' );
+		window.localStorage.removeItem( LEGACY_CHAT_STORAGE_KEY );
+
+		const storageData = window.localStorage.getItem( CHAT_STORAGE_KEY );
 
 		if ( null === storageData ) {
 			return;
@@ -70,7 +76,7 @@ class App {
 		}
 
 		if ( this.isStorageExpired( storage ) ) {
-			window.localStorage.removeItem( 'hyve-chat' );
+			window.localStorage.removeItem( CHAT_STORAGE_KEY );
 			return;
 		}
 
@@ -127,7 +133,7 @@ class App {
 			.slice( -20 );
 
 		window.localStorage.setItem(
-			'hyve-chat',
+			CHAT_STORAGE_KEY,
 			JSON.stringify( {
 				timestamp: new Date(),
 				messages,
@@ -174,6 +180,19 @@ class App {
 		const tempDiv = document.createElement( 'div' );
 		tempDiv.textContent = input;
 		return tempDiv.innerHTML;
+	}
+
+	/**
+	 * Read unsanitized, possibly truncated provider HTML as plain text.
+	 *
+	 * DOMParser builds an inert document, so nothing in the markup runs or loads.
+	 *
+	 * @param {string} html Streamed provider output.
+	 * @return {string} The text with tags removed and character references decoded.
+	 */
+	toPlainText( html ) {
+		return new window.DOMParser().parseFromString( html, 'text/html' ).body
+			.textContent;
 	}
 
 	addTargetBlank( message ) {
@@ -521,7 +540,8 @@ class App {
 			const inner = node.querySelector( 'div' );
 
 			if ( inner ) {
-				inner.innerHTML = html;
+				// The terminal event replaces this text-only preview with the server-sanitized reply.
+				inner.textContent = this.toPlainText( html );
 			}
 
 			const box = document.getElementById( 'hyve-message-box' );
@@ -645,7 +665,7 @@ class App {
 			if ( started ) {
 				this.finalizeStream( bubbleId, {
 					success: true,
-					message: streamedText,
+					message: this.sanitize( this.toPlainText( streamedText ) ),
 				} );
 				return true;
 			}
@@ -658,7 +678,7 @@ class App {
 			if ( started ) {
 				this.finalizeStream( bubbleId, {
 					success: true,
-					message: streamedText,
+					message: this.sanitize( this.toPlainText( streamedText ) ),
 				} );
 				return true;
 			}
@@ -1953,7 +1973,7 @@ class App {
 		this.setGateLock( false );
 
 		// Clear local storage
-		window.localStorage.removeItem( 'hyve-chat' );
+		window.localStorage.removeItem( CHAT_STORAGE_KEY );
 		this.clearLeadFormStatus();
 
 		// Close menu
