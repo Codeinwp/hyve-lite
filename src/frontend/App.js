@@ -191,10 +191,8 @@ class App {
 	 * @return {string} The text with tags removed and character references decoded.
 	 */
 	toPlainText( html ) {
-		return (
-			new window.DOMParser().parseFromString( html, 'text/html' ).body
-				.textContent ?? ''
-		);
+		return new window.DOMParser().parseFromString( html, 'text/html' ).body
+			.textContent;
 	}
 
 	addTargetBlank( message ) {
