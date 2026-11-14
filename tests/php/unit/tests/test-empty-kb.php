@@ -299,6 +299,61 @@ class EmptyKbTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Connect, streaming: markup an extension adds to the reply data is
+	 * sanitized before the `done` frame.
+	 */
+	public function test_connect_stream_done_reply_is_sanitized(): void {
+		update_option( 'hyve_settings', [ 'ai_mode' => Hyve_Connect::MODE_CONNECT ] );
+
+		$this->set_connect_instance(
+			new class() extends Hyve_Connect {
+				/**
+				 * An answered platform result.
+				 *
+				 * @param array<string, mixed> $payload  Ignored.
+				 * @param callable             $on_event Ignored.
+				 *
+				 * @return array<string, mixed>
+				 */
+				public function stream_chat( $payload, $on_event ) {
+					return [
+						'thread_id' => 'th-1',
+						'answered'  => true,
+						'reply'     => '<p>Hi</p>',
+					];
+				}
+			}
+		);
+		add_filter(
+			'hyve_chat_reply_data',
+			function ( $data ) {
+				$data['message'] .= '<img src=x onerror=alert(1)>';
+				return $data;
+			}
+		);
+
+		$events = '';
+
+		ob_start(
+			function ( $buffer ) use ( &$events ) {
+				$events .= $buffer;
+
+				return '';
+			}
+		);
+
+		$stream = new ReflectionMethod( Stream::class, 'stream_connect' );
+		$stream->setAccessible( true );
+		$stream->invoke( new Stream(), 'Hello?', 'th-1', null, true, Main::get_settings(), 'No answer.' );
+
+		ob_end_clean();
+
+		$this->assertStringContainsString( 'event: done', $events );
+		$this->assertStringContainsString( '<p>Hi<\\/p>', $events );
+		$this->assertStringNotContainsString( 'onerror', $events );
+	}
+
+	/**
 	 * Replace the shared Connect client, or reset it with null.
 	 *
 	 * @param Hyve_Connect|null $instance The client to install.
