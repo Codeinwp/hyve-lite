@@ -1236,7 +1236,11 @@ PROMPT;
 		}
 
 		$answered = isset( $payload['success'] ) && true === $payload['success'] && isset( $payload['response'] );
-		$final    = $answered ? $payload['response'] : esc_html( $default_message );
+		$final    = $answered ? self::sanitize_chat_response( (string) $payload['response'] ) : esc_html( $default_message );
+
+		if ( $answered ) {
+			$payload['response'] = $final;
+		}
 
 		return [
 			'decoded'  => true,
@@ -1244,6 +1248,23 @@ PROMPT;
 			'answered' => $answered,
 			'final'    => $final,
 		];
+	}
+
+	/**
+	 * Limit provider-generated reply markup to the HTML WordPress permits in posts.
+	 *
+	 * Model instructions are not an output-safety boundary. Every live reply is
+	 * normalized here before it reaches an HTML-rendering browser sink.
+	 *
+	 * A "<" that cannot open a tag is escaped first: browsers show it as text,
+	 * but kses would read it as a tag and drop the words that follow.
+	 *
+	 * @param string $response Provider-generated reply HTML.
+	 *
+	 * @return string
+	 */
+	public static function sanitize_chat_response( $response ) {
+		return wp_kses_post( (string) preg_replace( '/<(?![a-zA-Z\/!?])/', '&lt;', $response ) );
 	}
 
 	/**
