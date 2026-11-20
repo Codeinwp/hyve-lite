@@ -415,6 +415,134 @@ test.describe( 'Messages', () => {
 		).toHaveCount( 1 );
 	} );
 
+	test( 'retrieval stats show each search stage, and older turns without them still render', async ( {
+		page,
+		admin,
+	} ) => {
+		const bot = ( message, debug ) => ( {
+			time: 1755424806,
+			sender: 'bot',
+			message,
+			debug,
+		} );
+
+		await page.route(
+			/.*(?:rest_route=%2Fhyve%2Fv1%2Fthreads|\/wp-json\/hyve\/v1\/threads).*/,
+			async ( route ) => {
+				await route.fulfill( {
+					status: 200,
+					contentType: 'application/json',
+					body: JSON.stringify( {
+						posts: [
+							{
+								ID: 9,
+								title: 'artiswar tune warzone',
+								date: '2026-08-17T10:00:00+00:00',
+								thread_id: 'conv_stats1',
+								thread: [
+									{
+										time: 1755424800,
+										sender: 'user',
+										message: 'artiswar tune warzone',
+									},
+									bot( 'Older reply.', {
+										answered: true,
+										mode: 'self_hosted',
+										retrieval: 'similarity',
+									} ),
+									bot( 'Sorry, I could not find that.', {
+										answered: false,
+										mode: 'connect',
+										retrieval: 'kb_full_context',
+										retrieval_stats: {
+											version: 1,
+											keyword_query:
+												'artiswar tune warzone',
+											vector_backend: null,
+											vector_above_floor: null,
+											vector_within_cutoff: null,
+											vector_top_score: null,
+											vector_cutoff: null,
+											keyword_hits: 4,
+											keyword_term_count: 3,
+											keyword_matched_terms: 2,
+											keyword_coverage: 0.6667,
+											scored_used: 2,
+											used: 6,
+										},
+									} ),
+									bot( 'We are open nine to five.', {
+										answered: true,
+										mode: 'self_hosted',
+										retrieval: 'similarity',
+										retrieval_stats: {
+											version: 1,
+											keyword_query: 'opening hours',
+											vector_backend: 'local',
+											vector_above_floor: 3,
+											vector_within_cutoff: 2,
+											vector_top_score: 0.6123,
+											vector_cutoff: 0.3674,
+											keyword_hits: 0,
+											keyword_term_count: 2,
+											keyword_matched_terms: 0,
+											keyword_coverage: 0,
+											scored_used: 2,
+											used: 2,
+										},
+									} ),
+								],
+							},
+						],
+						more: false,
+						total: 1,
+						per_page: 3,
+					} ),
+				} );
+			}
+		);
+
+		await admin.visitAdminPage( `${ HYVE_ADMIN }&nav=messages` );
+
+		await page.getByRole( 'button', { name: 'View' } ).first().click();
+
+		// The older turn has no stats and shows none.
+		await page
+			.getByRole( 'button', { name: 'Show trace' } )
+			.first()
+			.click();
+		await expect( page.getByText( 'Vector search' ) ).toHaveCount( 0 );
+		await page.getByRole( 'button', { name: 'Hide trace' } ).click();
+
+		await page
+			.getByRole( 'button', { name: 'Show trace' } )
+			.nth( 1 )
+			.click();
+
+		// A stage that did not run reads as such, not as zero.
+		await expect( page.getByText( 'Not run' ) ).toBeVisible();
+		await expect(
+			page.getByText( '4 hits · 2 of 3 terms in the best hit' )
+		).toBeVisible();
+		await expect(
+			page.getByText( '6 sent, 2 picked by the search' )
+		).toBeVisible();
+		await page.getByRole( 'button', { name: 'Hide trace' } ).click();
+
+		// Measured zeros and scores are shown as numbers.
+		await page.getByRole( 'button', { name: 'Show trace' } ).last().click();
+		await expect(
+			page.getByText(
+				'3 above threshold · 2 close to the best · best 0.61, cutoff 0.37'
+			)
+		).toBeVisible();
+		await expect(
+			page.getByText( '0 hits · 0 of 2 terms in the best hit' )
+		).toBeVisible();
+		await expect( page.getByText( '2 chunks' ) ).toBeVisible();
+		await expect( page.getByText( 'Not run' ) ).toHaveCount( 0 );
+	} );
+
 	test( 'an unknown deep-linked conversation shows the not-found state', async ( {
 		page,
 		admin,
