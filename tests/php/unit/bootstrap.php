@@ -34,6 +34,20 @@ require $_tests_dir . '/includes/bootstrap.php';
 
 activate_plugin( 'hyve-lite/hyve-lite.php' );
 
+// The SDK's load.php returns early here: the bootstrap autoloads before ABSPATH exists.
+if ( ! function_exists( 'tsdk_utmify' ) ) {
+	/**
+	 * Pass-through stand-in for the SDK helper.
+	 *
+	 * @param string $url URL.
+	 *
+	 * @return string
+	 */
+	function tsdk_utmify( $url ) {
+		return $url;
+	}
+}
+
 global $current_user;
 $current_user = new WP_User( 1 ); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited
 $current_user->set_role( 'administrator' );

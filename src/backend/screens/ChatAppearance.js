@@ -19,6 +19,8 @@ import {
 
 import { MediaUpload } from '@wordpress/media-utils';
 
+import { store as coreStore } from '@wordpress/core-data';
+
 import { useDispatch, useSelect } from '@wordpress/data';
 
 import { useEffect, useMemo } from '@wordpress/element';
@@ -179,7 +181,9 @@ const ChatAppearance = () => {
 
 	const mediaUrl = useSelect(
 		( select ) =>
-			mediaId ? select( 'core' ).getMedia( mediaId )?.source_url : null,
+			mediaId
+				? select( coreStore ).getMedia( mediaId )?.source_url
+				: null,
 		[ mediaId ]
 	);
 
