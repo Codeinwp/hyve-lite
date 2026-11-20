@@ -1238,7 +1238,7 @@ class Main {
 	public function about_us_metadata() {
 		return [
 			'location'         => 'hyve',
-			'logo'             => 'https://ps.w.org/hyve-lite/assets/icon-256x256.png',
+			'logo'             => HYVE_LITE_URL . 'assets/images/icon.png',
 			'has_upgrade_menu' => 'valid' !== apply_filters( 'product_hyve_license_status', false ),
 			'upgrade_link'     => tsdk_utmify( 'https://themeisle.com/plugins/hyve/', 'about-us' ),
 			'upgrade_text'     => __( 'Upgrade to Pro', 'hyve-lite' ),
