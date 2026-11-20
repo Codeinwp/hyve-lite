@@ -10,6 +10,9 @@ import { dispatch } from '@wordpress/data';
 import { createRoot } from '@wordpress/element';
 import { addFilter } from '@wordpress/hooks';
 
+// Declares wp-notices: WP 6.8 and older don't load the core/notices store otherwise.
+import '@wordpress/notices';
+
 /**
  * Internal dependencies.
  */

@@ -19,7 +19,13 @@ import { archive, brush, cloud, comment, help, people } from '@wordpress/icons';
  * Internal dependencies.
  */
 import { navigate } from '../router';
-import { isLicenseActive, percentOf, quotaOf, setUtm } from '../utils';
+import {
+	chunkCount,
+	isLicenseActive,
+	percentOf,
+	quotaOf,
+	setUtm,
+} from '../utils';
 import Card from '../components/Card';
 import Chip from '../components/Chip';
 import SetupChecklist from '../components/SetupChecklist';
@@ -166,10 +172,19 @@ const StatsGrid = () => {
 	// The Knowledge Base card reflects where content actually lives: the free
 	// local limit, an unlimited Qdrant cluster, or the Hyve Connect plan quota.
 	const kbQuota = quotaOf( connect, 'kb' );
+	const offline = isConnectActive && connect?.service === 'error';
 
 	let kbCard;
 
-	if ( isConnectActive ) {
+	if ( offline ) {
+		// No answer from the platform: the count is unknown, not zero.
+		kbCard = {
+			value: __( 'N/A', 'hyve-lite' ),
+			suffix: undefined,
+			meter: undefined,
+			foot: __( "Can't reach Hyve Connect right now.", 'hyve-lite' ),
+		};
+	} else if ( isConnectActive ) {
 		kbCard = {
 			value: kbQuota.used.toLocaleString(),
 			suffix: sprintf(
@@ -262,8 +277,6 @@ const StatsGrid = () => {
 						connect,
 						'chat'
 					);
-					const offline = connect?.service === 'error';
-
 					let connectChip = (
 						<Chip tone="ok">
 							{ __( 'Connected', 'hyve-lite' ) }
@@ -567,7 +580,7 @@ const Dashboard = () => {
 
 				if ( response?.stats ) {
 					setStats( response.stats );
-					setTotalChunks( Number( response.stats.totalChunks ?? 0 ) );
+					setTotalChunks( response.stats.totalChunks ?? null );
 				}
 
 				if ( response?.chart ) {
@@ -581,7 +594,8 @@ const Dashboard = () => {
 		fetchStats();
 	}, [ setStats, setChart, setTotalChunks ] );
 
-	const totalChunks = Number( chunks ?? 0 );
+	// Null while unknown: that is not an empty knowledge base.
+	const totalChunks = chunkCount( chunks );
 	// Pro keeps the checklist up while its license step is incomplete.
 	const showChecklist = applyFilters(
 		'hyve.setup-required',

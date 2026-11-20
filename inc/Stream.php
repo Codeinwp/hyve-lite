@@ -478,6 +478,23 @@ class Stream {
 			return;
 		}
 
+		// The platform found nothing to answer from (the local count was stale).
+		if ( API::connect_kb_empty( $result ) ) {
+			API::instance()->record_chat_failure( $thread_id, $record_id, $message, $is_test, 'kb_empty' );
+
+			$this->send_event(
+				'done',
+				[
+					'success'   => false,
+					'message'   => esc_html( $default_message ),
+					'code'      => 'kb_empty',
+					'record_id' => $record_id ? $record_id : null,
+				]
+			);
+
+			return;
+		}
+
 		$resolved = API::instance()->connect_reply_final( $result, $settings, esc_html( $default_message ) );
 		$answered = $resolved['answered'];
 		$reply    = $resolved['reply'];

@@ -28,7 +28,9 @@ import { navigate } from '../router';
  * Selectable chat models.
  *
  * Every listed model must support structured outputs (`json_schema`), which
- * Hyve requires for chat responses. GPT-3.5 lacks them, so it is excluded.
+ * Hyve requires for chat responses. Models that lack them or that OpenAI
+ * retires are dropped here and mapped to a successor in
+ * `OpenAI::RETIRED_CHAT_MODELS`.
  */
 const MODEL_OPTIONS = [
 	{
@@ -84,54 +86,6 @@ const MODEL_OPTIONS = [
 		value: 'gpt-5.4-nano',
 		description: __(
 			'Fast and low cost, the recommended default for most chats.',
-			'hyve-lite'
-		),
-	},
-	{
-		label: __( 'GPT-5', 'hyve-lite' ),
-		value: 'gpt-5',
-		description: __(
-			'Reasoning model with strong quality at a lower cost than GPT-5.5.',
-			'hyve-lite'
-		),
-	},
-	{
-		label: __( 'GPT-4.1', 'hyve-lite' ),
-		value: 'gpt-4.1',
-		description: __(
-			'Capable and proven, great for detailed answers.',
-			'hyve-lite'
-		),
-	},
-	{
-		label: __( 'GPT-4.1 mini', 'hyve-lite' ),
-		value: 'gpt-4.1-mini',
-		description: __(
-			'Faster and cheaper than GPT-4.1, a solid all-rounder.',
-			'hyve-lite'
-		),
-	},
-	{
-		label: __( 'GPT-4.1 nano', 'hyve-lite' ),
-		value: 'gpt-4.1-nano',
-		description: __(
-			'Ultra-fast and very low cost, best for lightweight chats.',
-			'hyve-lite'
-		),
-	},
-	{
-		label: __( 'GPT-4o', 'hyve-lite' ),
-		value: 'gpt-4o',
-		description: __(
-			'Smart, cost-effective general-purpose model.',
-			'hyve-lite'
-		),
-	},
-	{
-		label: __( 'GPT-4o mini', 'hyve-lite' ),
-		value: 'gpt-4o-mini',
-		description: __(
-			'Fastest and most affordable, best for most chats.',
 			'hyve-lite'
 		),
 	},
@@ -217,14 +171,9 @@ export const ProviderPanel = () => {
 		}
 	};
 
-	// GPT-3.5 is no longer offered (it errors with structured outputs); show
-	// the default instead. A still-valid but no-longer-listed saved model is
-	// appended so it isn't silently lost.
-	const savedModel = settings.chat_model;
-	const isLegacyModel =
-		'string' === typeof savedModel && savedModel.startsWith( 'gpt-3.5' );
-	const selectedModel =
-		( isLegacyModel ? 'gpt-5.4-nano' : savedModel ) || 'gpt-5.4-nano';
+	// The server already swaps retired models for their successor.
+	// Any other saved model that isn't listed is appended so it isn't lost.
+	const selectedModel = settings.chat_model || 'gpt-5.4-nano';
 
 	const modelOptions = MODEL_OPTIONS.some(
 		( option ) => option.value === selectedModel

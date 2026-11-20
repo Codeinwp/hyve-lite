@@ -442,11 +442,24 @@ const EVENT_LABELS = {
 		'hyve-lite'
 	),
 	chat_error: __( 'The reply failed with an error', 'hyve-lite' ),
+	kb_empty: __(
+		'The knowledge base was empty — the message was not answered',
+		'hyve-lite'
+	),
 };
 
 const MODE_LABELS = {
 	self_hosted: __( 'Self-hosted', 'hyve-lite' ),
 	connect: __( 'Hyve Connect', 'hyve-lite' ),
+};
+
+const RETRIEVAL_LABELS = {
+	similarity: __( 'Similarity search', 'hyve-lite' ),
+	kb_full_context: __(
+		'Whole knowledge base (it fits the context budget)',
+		'hyve-lite'
+	),
+	kb_empty: __( 'Knowledge base empty', 'hyve-lite' ),
 };
 
 const clampPercent = ( value ) => Math.max( 0, Math.min( 100, value * 100 ) );
@@ -548,6 +561,21 @@ const MessageDebug = ( { debug, time } ) => {
 							<span className="hyve-next-debug__val">
 								{ MODE_LABELS[ debug.mode ] }
 								{ debug.transport && ` · ${ debug.transport }` }
+							</span>
+						</div>
+					) }
+
+					{ RETRIEVAL_LABELS[ debug.retrieval ] && (
+						<div className="hyve-next-debug__row">
+							<DebugKey
+								label={ __( 'Retrieval', 'hyve-lite' ) }
+								help={ __(
+									'How the context was chosen: the scored similarity search, or the whole knowledge base when it is small enough to fit the context budget.',
+									'hyve-lite'
+								) }
+							/>
+							<span className="hyve-next-debug__val">
+								{ RETRIEVAL_LABELS[ debug.retrieval ] }
 							</span>
 						</div>
 					) }
@@ -745,7 +773,7 @@ const MessageDebug = ( { debug, time } ) => {
 						<DebugKey
 							label={ __( 'Sources', 'hyve-lite' ) }
 							help={ __(
-								'Knowledge base content sent to the model as context, with how closely each piece matched the question (0–1). Hover a title for its size in tokens. The best-scoring sources may also be shown to the visitor as source links.',
+								'Knowledge base content sent to the model as context, with how closely each piece matched the question (0–1) and, when the keyword search also found it, "keyword" with its rank score; a keyword-only hit shows just the keyword score. Hover a title for its size in tokens. The best-scoring sources may also be shown to the visitor as source links.',
 								'hyve-lite'
 							) }
 						/>
@@ -755,6 +783,13 @@ const MessageDebug = ( { debug, time } ) => {
 									const score =
 										'number' === typeof source.score
 											? source.score
+											: null;
+									// Rank score from the keyword search, shown
+									// beside the similarity score when both
+									// passes found the chunk.
+									const lexical =
+										'number' === typeof source.lexical
+											? source.lexical
 											: null;
 									const dropped = false === source.included;
 									const droppedClass = dropped
@@ -818,9 +853,23 @@ const MessageDebug = ( { debug, time } ) => {
 											<span
 												className={ `hyve-next-debug__score${ droppedClass }` }
 											>
-												{ null !== score
-													? score.toFixed( 2 )
-													: '—' }
+												{ null !== score &&
+													score.toFixed( 2 ) }
+												{ null !== score &&
+													null !== lexical &&
+													' · ' }
+												{ null !== lexical &&
+													sprintf(
+														/* translators: %s: the keyword search's rank score. */
+														__(
+															'keyword %s',
+															'hyve-lite'
+														),
+														lexical.toFixed( 2 )
+													) }
+												{ null === score &&
+													null === lexical &&
+													'—' }
 											</span>
 										</Fragment>
 									);
@@ -868,11 +917,22 @@ const MessageDebug = ( { debug, time } ) => {
 					{ Boolean( debug.query ) && (
 						<div className="hyve-next-debug__row">
 							<DebugKey
-								label={ __( 'Query', 'hyve-lite' ) }
-								help={ __(
-									'The exact text used to search the knowledge base: the question blended with recent turns of the conversation, so follow-ups keep their topic.',
-									'hyve-lite'
-								) }
+								label={
+									debug.query_rewritten
+										? __( 'Query (rewritten)', 'hyve-lite' )
+										: __( 'Query', 'hyve-lite' )
+								}
+								help={
+									debug.query_rewritten
+										? __(
+												'The exact text used to search the knowledge base. The message leaned on the conversation, so a small model rewrote it into a standalone question first.',
+												'hyve-lite'
+										  )
+										: __(
+												'The exact text used to search the knowledge base.',
+												'hyve-lite'
+										  )
+								}
 							/>
 							<pre className="hyve-next-debug__query">
 								{ debug.query }

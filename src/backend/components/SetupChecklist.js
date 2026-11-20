@@ -15,6 +15,7 @@ import { check } from '@wordpress/icons';
  * Internal dependencies.
  */
 import { navigate } from '../router';
+import { chunkCount } from '../utils';
 
 const SetupChecklist = () => {
 	const { hasAPI, chunks } = useSelect( ( select ) => ( {
@@ -22,7 +23,8 @@ const SetupChecklist = () => {
 		chunks: select( 'hyve' ).getTotalChunks(),
 	} ) );
 
-	const totalChunks = Number( chunks ?? 0 );
+	// Null while unknown (Hyve Connect did not answer): neither done nor empty.
+	const totalChunks = chunkCount( chunks );
 
 	// AI is "connected" via hosted Hyve Connect or a personal OpenAI key.
 	const aiConnected = hasAPI;
@@ -57,6 +59,13 @@ const SetupChecklist = () => {
 			),
 			done: 0 < totalChunks,
 			locked: ! aiConnected,
+			pending:
+				null === totalChunks
+					? __(
+							"Can't reach Hyve Connect right now, so the content count is unknown.",
+							'hyve-lite'
+					  )
+					: undefined,
 			action: {
 				label: __( 'Add content', 'hyve-lite' ),
 				onClick: () => navigate( 'kb' ),
@@ -112,7 +121,15 @@ const SetupChecklist = () => {
 						</b>
 						<p>{ step.description }</p>
 					</div>
-					{ ! step.done && (
+					{ ! step.done && step.pending && (
+						<div className="hyve-next-checklist__actions">
+							<span className="hyve-next-checklist__pending">
+								{ step.pending }
+							</span>
+						</div>
+					) }
+
+					{ ! step.done && ! step.pending && (
 						<div className="hyve-next-checklist__actions">
 							<Button
 								__next40pxDefaultSize={ false }

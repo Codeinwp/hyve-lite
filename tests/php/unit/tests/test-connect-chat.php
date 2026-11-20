@@ -83,26 +83,29 @@ class ConnectChatTest extends WP_UnitTestCase {
 
 	/**
 	 * A Connect reply records its debug trace: mode and transport, the latency
-	 * measured around the platform call, the visitor's page, and the sources
-	 * and usage the platform reported. Retrieval details (query, threshold)
-	 * stay platform-side and are absent by design.
+	 * measured around the platform call, the visitor's page, the query the
+	 * platform searched for, and the sources and usage it reported. The
+	 * threshold stays platform-side and is absent by design.
 	 */
 	public function test_connect_poll_chat_records_debug_trace() {
 		update_option( 'hyve_settings', [ 'ai_mode' => Hyve_Connect::MODE_CONNECT ] );
 
 		$this->intercept_job_complete(
 			[
-				'thread_id' => 'th-2',
-				'answered'  => true,
-				'reply'     => 'Laundry is $32.00/hr.',
-				'sources'   => [
+				'thread_id'       => 'th-2',
+				'answered'        => true,
+				'reply'           => 'Laundry is $32.00/hr.',
+				'retrieval_query' => 'How much does laundry cost?',
+				'query_rewritten' => true,
+				'retrieval'       => 'kb_full_context',
+				'sources'         => [
 					[
 						'id'    => 42,
 						'title' => 'Services & Rates',
 						'score' => 0.6123,
 					],
 				],
-				'usage'     => [
+				'usage'           => [
 					'input_tokens'  => 900,
 					'output_tokens' => 40,
 				],
@@ -144,9 +147,37 @@ class ConnectChatTest extends WP_UnitTestCase {
 			$debug['usage']
 		);
 
-		// Platform-side retrieval details are not knowable plugin-side.
-		$this->assertArrayNotHasKey( 'query', $debug );
+		$this->assertSame( 'How much does laundry cost?', $debug['query'] );
+		$this->assertTrue( $debug['query_rewritten'] );
+		$this->assertSame( 'kb_full_context', $debug['retrieval'] );
+
+		// The platform's threshold is not knowable plugin-side.
 		$this->assertArrayNotHasKey( 'threshold', $debug );
+	}
+
+	/**
+	 * A query the platform searched as sent is recorded without the rewritten
+	 * flag, and an empty one is left out rather than recorded.
+	 */
+	public function test_connect_debug_records_an_unrewritten_platform_query() {
+		$debug = API::instance()->connect_debug(
+			[
+				'reply'           => 'Hi',
+				'retrieval_query' => 'Do you sell gift cards?',
+			]
+		);
+
+		$this->assertSame( 'Do you sell gift cards?', $debug['query'] );
+		$this->assertArrayNotHasKey( 'query_rewritten', $debug );
+
+		$empty = API::instance()->connect_debug(
+			[
+				'reply'           => 'Hi',
+				'retrieval_query' => '',
+			]
+		);
+
+		$this->assertArrayNotHasKey( 'query', $empty );
 	}
 
 	/**
@@ -261,8 +292,19 @@ class ConnectChatTest extends WP_UnitTestCase {
 		$message = 'Mennyibe kerül a szállítás?';
 		$key     = 'hyve_message_' . hash( 'md5', strtolower( $message ) );
 
-		// Retrieval reads the knowledge base table on the self-hosted path.
+		// Retrieval reads the knowledge base table on the self-hosted path, and
+		// an empty one is answered without a model call.
 		\ThemeIsle\HyveLite\DB_Table::instance()->create_table();
+		\ThemeIsle\HyveLite\DB_Table::instance()->insert(
+			[
+				'post_id'      => 1,
+				'post_title'   => 'Shipping',
+				'post_content' => 'Shipping costs 5 EUR.',
+				'embeddings'   => wp_json_encode( [ 0.7, 0.8, 0.9 ] ),
+				'token_count'  => 10,
+				'post_status'  => 'processed',
+			]
+		);
 
 		update_option(
 			'hyve_settings',

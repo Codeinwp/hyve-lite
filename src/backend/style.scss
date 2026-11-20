@@ -711,6 +711,13 @@
 	margin-left: auto;
 }
 
+.hyve-next-checklist__pending {
+	color: var(--hyve-muted);
+	font-size: 11px;
+	max-width: 220px;
+	text-align: right;
+}
+
 .hyve-next-checklist__alt.components-button.is-link {
 	color: var(--hyve-muted);
 	font-size: 11px;
