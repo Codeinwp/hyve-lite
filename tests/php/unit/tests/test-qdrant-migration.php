@@ -7,6 +7,7 @@
 
 use ThemeIsle\HyveLite\API;
 use ThemeIsle\HyveLite\DB_Table;
+use ThemeIsle\HyveLite\Encryption;
 use ThemeIsle\HyveLite\Main;
 use ThemeIsle\HyveLite\Qdrant_API;
 
@@ -604,6 +605,31 @@ class QdrantMigrationTest extends WP_UnitTestCase {
 		$this->assertFalse( get_option( Qdrant_API::ERROR_OPTION_KEY ) );
 		$this->assertFalse( get_option( Qdrant_API::MIGRATE_RETRY_AT ) );
 		$this->assertFalse( wp_next_scheduled( Qdrant_API::MIGRATE_HOOK ) );
+	}
+
+	/**
+	 * Disconnect keeps an OpenAI key it cannot decrypt (changed salts) instead of blanking it.
+	 */
+	public function test_disconnect_keeps_unreadable_openai_key() {
+		$unreadable = Encryption::PREFIX . base64_encode( str_repeat( 'x', 29 ) ); // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode
+
+		update_option(
+			'hyve_settings',
+			[
+				'api_key'         => $unreadable,
+				'qdrant_api_key'  => Encryption::encrypt( 'key' ),
+				'qdrant_endpoint' => 'https://example.qdrant.io',
+			]
+		);
+		$request = new WP_REST_Request( 'POST' );
+		$request->set_param( 'force', true );
+
+		API::instance()->qdrant_deactivate( $request );
+
+		$stored = get_option( 'hyve_settings' );
+		$this->assertSame( $unreadable, $stored['api_key'] );
+		$this->assertSame( '', $stored['qdrant_api_key'] );
+		$this->assertSame( '', $stored['qdrant_endpoint'] );
 	}
 
 	/**

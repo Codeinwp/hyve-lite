@@ -1435,8 +1435,6 @@ class API extends BaseAPI {
 	 * @throws \Exception If Qdrant API fails.
 	 */
 	public function qdrant_deactivate( $request = null ) {
-		$settings = Main::get_settings();
-
 		try {
 			$force       = null !== $request && true === $request->get_param( 'force' );
 			$deactivated = $force ? true : Qdrant_API::instance()->disconnect();
@@ -1460,10 +1458,14 @@ class API extends BaseAPI {
 
 		$this->table->update_storage( 'WordPress', 'Qdrant' );
 
+		// Patch the stored option so the OpenAI key stays encrypted as saved.
+		$settings = get_option( 'hyve_settings', [] );
+		$settings = is_array( $settings ) ? $settings : [];
+
 		$settings['qdrant_api_key']  = '';
 		$settings['qdrant_endpoint'] = '';
 
-		Main::save_settings( $settings );
+		update_option( 'hyve_settings', $settings );
 		update_option( 'hyve_qdrant_status', 'inactive' );
 		delete_option( 'hyve_qdrant_migration' );
 		delete_option( Qdrant_API::MIGRATE_RETRY_AT );
@@ -1500,8 +1502,7 @@ class API extends BaseAPI {
 	 * @return \WP_REST_Response
 	 */
 	public function connect_disconnect( $request ) {
-		$mode     = 'clear' === $request->get_param( 'mode' ) ? 'clear' : 'import';
-		$settings = Main::get_settings();
+		$mode = 'clear' === $request->get_param( 'mode' ) ? 'clear' : 'import';
 
 		$blocked = apply_filters( 'hyve_connect_disconnect_blocked_reason', '', $mode );
 
@@ -1545,6 +1546,10 @@ class API extends BaseAPI {
 		}
 
 		// Leave Connect before cleanup, else before_delete_post deletes each source.
+		// Patch the stored option so credentials stay encrypted as saved.
+		$settings = get_option( 'hyve_settings', [] );
+		$settings = is_array( $settings ) ? $settings : [];
+
 		$settings['ai_mode'] = Hyve_Connect::MODE_SELF;
 		update_option( 'hyve_settings', $settings );
 
