@@ -565,9 +565,9 @@ class DB_Table {
 	 * @param string $query The visitor's question.
 	 * @param int    $limit Most matches to return.
 	 *
-	 * @return array<object{id: string, post_id: string, post_title: string, post_content: string, token_count: string, score: string}> Best first.
+	 * @return array<object{id: string, post_id: string, post_title: string, post_content: string, token_count: string, score: string}>|null Best first; null when the query failed.
 	 */
-	public function lexical_search( string $query, int $limit = 20 ): array {
+	public function lexical_search( string $query, int $limit = 20 ): ?array {
 		$terms    = self::query_terms( $query );
 		$segments = self::query_segments( $query );
 
@@ -604,7 +604,10 @@ class DB_Table {
 		$sql = 'SELECT id, post_id, post_title, post_content, token_count, ( ' . implode( ' + ', $score ) . ' ) AS score FROM %i WHERE post_status = %s HAVING score > 0 ORDER BY score DESC, id ASC LIMIT %d';
 
 		// phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- the score clause and its bindings are built together above.
-		return $wpdb->get_results( $wpdb->prepare( $sql, ...$bindings ) );
+		$rows = $wpdb->get_results( $wpdb->prepare( $sql, ...$bindings ) );
+
+		// A failed query (a missing FULLTEXT index, say) is not "no matches".
+		return '' === $wpdb->last_error ? $rows : null;
 	}
 
 	/**

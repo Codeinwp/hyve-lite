@@ -478,6 +478,39 @@ class RetrievalStatsTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * A keyword query that fails (a missing FULLTEXT index, say) is not
+	 * measured, so it reads as not run rather than as zero hits.
+	 */
+	public function test_failed_keyword_search_is_unknown(): void {
+		global $wpdb;
+
+		$this->seed_text( 'Answer', 'Silextra pricing is 73 euros.', [ 1.0, 0.0, 0.0 ] );
+		$this->pad_past_budget();
+		$this->commit_seeds();
+
+		$break    = static fn( $query ) => false !== strpos( $query, 'AGAINST' ) ? $query . ' BROKEN' : $query;
+		add_filter( 'query', $break );
+		$suppress = $wpdb->suppress_errors( true );
+
+		API::instance()->search_knowledge_base( [ 1.0, 0.0, 0.0 ], 0.25, 2000, 'silextra pricing' );
+
+		$wpdb->suppress_errors( $suppress );
+		remove_filter( 'query', $break );
+
+		$stats = $this->stats();
+
+		$this->assertSame( 'silextra pricing', $stats['keyword_query'] );
+		$this->assertNull( $stats['keyword_hits'] );
+		$this->assertNull( $stats['keyword_within_cutoff'] );
+		$this->assertNull( $stats['keyword_matching_hits'] );
+		$this->assertNull( $stats['keyword_term_count'] );
+		$this->assertNull( $stats['keyword_matched_terms'] );
+		$this->assertNull( $stats['keyword_coverage'] );
+		$this->assertSame( 1, $stats['vector_above_floor'] );
+		$this->assertSame( 1, $stats['scored_used'] );
+	}
+
+	/**
 	 * Source links keep the keyword search's own rules: a hit found only
 	 * through a filler word is still linked when nothing better matched.
 	 */

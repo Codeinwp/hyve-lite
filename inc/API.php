@@ -2121,12 +2121,18 @@ class API extends BaseAPI {
 	 * @param string $query The visitor's question.
 	 * @param int    $limit Most candidates to keep.
 	 *
-	 * @return array<int, Candidate>
+	 * @return array<int, Candidate>|null Null when the keyword query failed.
 	 */
 	private function lexical_candidates( $query, $limit ) {
+		$rows = $this->table->lexical_search( $query, $limit );
+
+		if ( null === $rows ) {
+			return null;
+		}
+
 		$candidates = [];
 
-		foreach ( $this->table->lexical_search( $query, $limit ) as $row ) {
+		foreach ( $rows as $row ) {
 			$post_id = (int) $row->post_id;
 
 			$candidates[] = [
@@ -2615,12 +2621,15 @@ class API extends BaseAPI {
 		}
 
 		$lexical = '' !== $query ? $this->lexical_candidates( $query, $limit ) : [];
+		// A failed keyword query was not measured; retrieval goes on without it.
+		$keyword_ran = '' !== $query && null !== $lexical;
+		$lexical     = $lexical ?? [];
 		// The stats use the diagnostic's rules on the stored slice of the
 		// query (one pattern per word, so a huge message stays cheap) and
 		// fold accents by the default locale, as the platform does; source
 		// links keep the search's rules and the site's folding.
 		$keyword_query = mb_substr( $query, 0, 2000 );
-		$coverage      = '' !== $query ? self::keyword_coverage( $lexical, $keyword_query, 'en_US', true ) : null;
+		$coverage      = $keyword_ran ? self::keyword_coverage( $lexical, $keyword_query, 'en_US', true ) : null;
 		$matches       = null === $coverage ? [] : $coverage['matches'];
 		$link_matches  = '' !== $query ? self::keyword_coverage( $lexical, $query )['matches'] : [];
 
@@ -2641,8 +2650,8 @@ class API extends BaseAPI {
 			'vector_top_score'      => null === $top_score ? null : round( $top_score, 4 ),
 			'vector_cutoff'         => null === $top_score ? null : round( self::relative_score_cutoff( $top_score ), 4 ),
 			// Keyword hits are not cut here; the platform cuts them by ratio.
-			'keyword_hits'          => '' !== $query ? count( $lexical ) : null,
-			'keyword_within_cutoff' => '' !== $query ? count( $lexical ) : null,
+			'keyword_hits'          => $keyword_ran ? count( $lexical ) : null,
+			'keyword_within_cutoff' => $keyword_ran ? count( $lexical ) : null,
 			'keyword_matching_hits' => $terms > 0 ? count( array_filter( $matches ) ) : null,
 			'scored_used'           => $scored_used,
 			'used'                  => $scored_used,
