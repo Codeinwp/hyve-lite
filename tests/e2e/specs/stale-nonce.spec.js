@@ -12,10 +12,24 @@ const CHAT_ROUTE =
  * Make apiFetch reject a refused nonce the way WordPress before 6.9 does:
  * with core's failed `rest-nonce` response instead of the original error.
  *
- * @param {import('@playwright/test').Page} page The page.
+ * @param {import('@playwright/test').Page} page              The page.
+ * @param {{upperHost?: boolean}}           options           Options.
+ * @param {boolean}                         options.upperHost Print the renewal URL with the
+ *                                                            host in capitals, as a `siteurl`
+ *                                                            stored that way would.
  */
-async function rejectLikeOlderCore( page ) {
-	await page.evaluate( () => {
+async function rejectLikeOlderCore( page, { upperHost = false } = {} ) {
+	await page.evaluate( ( upper ) => {
+		if ( upper ) {
+			const endpoint = new URL( window.wp.apiFetch.nonceEndpoint );
+
+			window.wp.apiFetch.nonceEndpoint =
+				window.wp.apiFetch.nonceEndpoint.replace(
+					endpoint.host,
+					endpoint.host.toUpperCase()
+				);
+		}
+
 		window.wp.apiFetch.use( ( options, next ) =>
 			next( options ).catch( async ( error ) => {
 				if ( 'rest_cookie_invalid_nonce' !== error?.code ) {
@@ -25,7 +39,7 @@ async function rejectLikeOlderCore( page ) {
 				throw await window.fetch( window.wp.apiFetch.nonceEndpoint );
 			} )
 		);
-	} );
+	}, upperHost );
 }
 
 /**
@@ -133,14 +147,26 @@ test.describe( 'Chat with a stale nonce', () => {
 			.click( { force: true } );
 	}
 
-	[ false, true ].forEach( ( olderCore ) => {
-		test( `the poll flow renews the nonce and retries once${
-			olderCore ? ' (WordPress < 6.9)' : ''
-		}`, async ( { page } ) => {
+	const coreVariants = [
+		{ label: '', olderCore: null },
+		{
+			label: ' (WordPress < 6.9)',
+			olderCore: { upperHost: false },
+		},
+		{
+			label: ' (WordPress < 6.9, host in capitals)',
+			olderCore: { upperHost: true },
+		},
+	];
+
+	coreVariants.forEach( ( { label, olderCore } ) => {
+		test( `the poll flow renews the nonce and retries once${ label }`, async ( {
+			page,
+		} ) => {
 			const traffic = await open( page, { stream: false } );
 
 			if ( olderCore ) {
-				await rejectLikeOlderCore( page );
+				await rejectLikeOlderCore( page, olderCore );
 			}
 
 			// The stale nonce reaches the server, which refuses it; the retry is answered here.

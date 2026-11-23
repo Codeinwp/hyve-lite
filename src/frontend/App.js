@@ -31,10 +31,9 @@ const NONCE_REFRESH_TIMEOUT = 8000;
  */
 const isNonceError = ( error ) =>
 	[ 'rest_cookie_invalid_nonce', 'rest_forbidden' ].includes( error?.code ) ||
-	// Before WordPress 6.9, apiFetch rejects with core's failed renewal reply instead.
-	( Boolean( apiFetch.nonceEndpoint ) &&
-		'string' === typeof error?.url &&
-		error.url.startsWith( apiFetch.nonceEndpoint ) );
+	// Before WordPress 6.9, apiFetch rejects with core's failed renewal reply
+	// instead. These calls parse JSON, so no other failure rejects with a Response.
+	error instanceof window.Response;
 
 /**
  * Renew the REST and stream nonces, sharing one request between callers.
