@@ -1932,7 +1932,8 @@ class API extends BaseAPI {
 		}
 
 		if ( isset( $data['message'] ) && is_string( $data['message'] ) ) {
-			$response = $data['message'];
+			$data['message'] = OpenAI::sanitize_chat_response( $data['message'] );
+			$response        = $data['message'];
 		}
 
 		$extra = [
@@ -2853,7 +2854,7 @@ class API extends BaseAPI {
 	 */
 	public function connect_reply_final( $result, $settings, $unanswered ) {
 		$answered = ! empty( $result['answered'] );
-		$reply    = isset( $result['reply'] ) ? (string) $result['reply'] : '';
+		$reply    = isset( $result['reply'] ) ? OpenAI::sanitize_chat_response( (string) $result['reply'] ) : '';
 
 		if ( ! $answered ) {
 			return [
@@ -3318,7 +3319,8 @@ class API extends BaseAPI {
 		}
 
 		if ( isset( $data['message'] ) && is_string( $data['message'] ) ) {
-			$final = $data['message'];
+			$data['message'] = OpenAI::sanitize_chat_response( $data['message'] );
+			$final           = $data['message'];
 		}
 
 		$job_debug = isset( $job['debug'] ) && is_array( $job['debug'] ) ? $job['debug'] : [];

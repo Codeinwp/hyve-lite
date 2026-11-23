@@ -82,6 +82,39 @@ class ConnectChatTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Markup an extension adds to the reply data is sanitized before it reaches the browser.
+	 */
+	public function test_connect_poll_chat_sanitizes_filtered_reply_markup() {
+		update_option( 'hyve_settings', [ 'ai_mode' => Hyve_Connect::MODE_CONNECT ] );
+		$this->intercept_job_complete(
+			[
+				'thread_id' => 'th-1',
+				'answered'  => true,
+				'reply'     => 'Hello there.',
+			]
+		);
+		add_filter(
+			'hyve_chat_reply_data',
+			function ( $data ) {
+				$data['message'] .= '<img src="x" onerror="alert(1)">';
+				return $data;
+			}
+		);
+
+		$send = new WP_REST_Request( 'POST', '/hyve/v1/chat' );
+		$send->set_param( 'message', 'Hi' );
+		$sent = API::instance()->send_chat( $send )->get_data();
+		$poll = new WP_REST_Request( 'GET', '/hyve/v1/chat' );
+		$poll->set_param( 'run_id', $sent['query_run'] );
+
+		$message = rest_ensure_response( API::instance()->get_chat( $poll ) )->get_data()['message'];
+		remove_all_filters( 'hyve_chat_reply_data' );
+
+		$this->assertStringContainsString( 'Hello there.', $message );
+		$this->assertStringNotContainsString( 'onerror', $message );
+	}
+
+	/**
 	 * A Connect reply records its debug trace: mode and transport, the latency
 	 * measured around the platform call, the visitor's page, the query the
 	 * platform searched for, and the sources and usage it reported. The
