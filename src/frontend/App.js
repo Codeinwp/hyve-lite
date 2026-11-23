@@ -30,7 +30,11 @@ const NONCE_REFRESH_TIMEOUT = 8000;
  * @return {boolean} True for a stale or missing nonce.
  */
 const isNonceError = ( error ) =>
-	[ 'rest_cookie_invalid_nonce', 'rest_forbidden' ].includes( error?.code );
+	[ 'rest_cookie_invalid_nonce', 'rest_forbidden' ].includes( error?.code ) ||
+	// Before WordPress 6.9, apiFetch rejects with core's failed renewal reply instead.
+	( Boolean( apiFetch.nonceEndpoint ) &&
+		'string' === typeof error?.url &&
+		error.url.startsWith( apiFetch.nonceEndpoint ) );
 
 /**
  * Renew the REST and stream nonces, sharing one request between callers.
@@ -61,6 +65,10 @@ const refreshNonces = () => {
 				}
 
 				const nonces = await response.json();
+
+				if ( ! nonces?.rest || ! nonces?.stream ) {
+					throw new Error( 'hyve_refresh_nonce' );
+				}
 
 				if ( apiFetch.nonceMiddleware ) {
 					apiFetch.nonceMiddleware.nonce = nonces.rest;

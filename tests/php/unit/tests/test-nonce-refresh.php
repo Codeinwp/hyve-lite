@@ -106,10 +106,9 @@ class Test_Nonce_Refresh extends WP_Ajax_UnitTestCase {
 	 * GET is refused, so no cache keyed on the URL can hold a nonce.
 	 */
 	public function test_refresh_refuses_get() {
-		$nonces = $this->refresh( 0, 'GET' );
+		$this->refresh( 0, 'GET' );
 
-		$this->assertArrayNotHasKey( 'rest', (array) $nonces );
-		$this->assertStringNotContainsString( wp_create_nonce( 'wp_rest' ), $this->_last_response );
+		$this->assertSame( '{"success":false}', $this->_last_response );
 	}
 
 	/**

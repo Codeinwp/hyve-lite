@@ -9,6 +9,26 @@ const CHAT_ROUTE =
 	/.*(?:rest_route=%2Fhyve%2Fv1%2Fchat|\/wp-json\/hyve\/v1\/chat).*/;
 
 /**
+ * Make apiFetch reject a refused nonce the way WordPress before 6.9 does:
+ * with core's failed `rest-nonce` response instead of the original error.
+ *
+ * @param {import('@playwright/test').Page} page The page.
+ */
+async function rejectLikeOlderCore( page ) {
+	await page.evaluate( () => {
+		window.wp.apiFetch.use( ( options, next ) =>
+			next( options ).catch( async ( error ) => {
+				if ( 'rest_cookie_invalid_nonce' !== error?.code ) {
+					throw error;
+				}
+
+				throw await window.fetch( window.wp.apiFetch.nonceEndpoint );
+			} )
+		);
+	} );
+}
+
+/**
  * A cached page can outlive the nonces it embeds. The widget renews them
  * through `hyve_refresh_nonce` and retries once, also for visitors, whom
  * core's `rest-nonce` renewal does not serve.
@@ -113,83 +133,94 @@ test.describe( 'Chat with a stale nonce', () => {
 			.click( { force: true } );
 	}
 
-	test( 'the poll flow renews the nonce and retries once', async ( {
-		page,
-	} ) => {
-		const traffic = await open( page, { stream: false } );
+	[ false, true ].forEach( ( olderCore ) => {
+		test( `the poll flow renews the nonce and retries once${
+			olderCore ? ' (WordPress < 6.9)' : ''
+		}`, async ( { page } ) => {
+			const traffic = await open( page, { stream: false } );
 
-		// The stale nonce reaches the server, which refuses it; the retry is answered here.
-		await page.route( CHAT_ROUTE, ( route ) => {
-			const request = route.request();
-
-			if ( STALE === request.headers()[ 'x-wp-nonce' ] ) {
-				return route.continue();
+			if ( olderCore ) {
+				await rejectLikeOlderCore( page );
 			}
 
-			return route.fulfill( {
-				status: 200,
-				contentType: 'application/json',
-				body: JSON.stringify(
-					'POST' === request.method()
-						? {
-								thread_id: 'th-e2e',
-								query_run: 'run-e2e',
-								record_id: null,
-						  }
-						: { status: 'completed', message: 'Fresh reply' }
-				),
+			// The stale nonce reaches the server, which refuses it; the retry is answered here.
+			await page.route( CHAT_ROUTE, ( route ) => {
+				const request = route.request();
+
+				if ( STALE === request.headers()[ 'x-wp-nonce' ] ) {
+					return route.continue();
+				}
+
+				return route.fulfill( {
+					status: 200,
+					contentType: 'application/json',
+					body: JSON.stringify(
+						'POST' === request.method()
+							? {
+									thread_id: 'th-e2e',
+									query_run: 'run-e2e',
+									record_id: null,
+							  }
+							: { status: 'completed', message: 'Fresh reply' }
+					),
+				} );
 			} );
+
+			await page.evaluate( ( stale ) => {
+				window.wp.apiFetch.nonceMiddleware.nonce = stale;
+			}, STALE );
+
+			const refused = page.waitForResponse(
+				( response ) =>
+					CHAT_ROUTE.test( response.url() ) &&
+					403 === response.status()
+			);
+			const refreshed = page.waitForResponse( ( response ) =>
+				( response.request().postData() || '' ).includes(
+					'hyve_refresh_nonce'
+				)
+			);
+
+			await send( page );
+
+			expect( ( await ( await refused ).json() ).code ).toBe(
+				'rest_cookie_invalid_nonce'
+			);
+
+			const refresh = await refreshed;
+			const nonces = await refresh.json();
+
+			expect( refresh.status() ).toBe( 200 );
+			expect( refresh.request().method() ).toBe( 'POST' );
+			expect( refresh.headers()[ 'cache-control' ] ).toContain(
+				'no-store'
+			);
+			expect( nonces.rest ).toBeTruthy();
+			expect( nonces.rest ).not.toBe( STALE );
+
+			const box = page.locator( '#hyve-message-box' );
+
+			await expect( box.getByText( 'Fresh reply' ) ).toBeVisible();
+			await expect( box ).not.toContainText( 'not able to process' );
+			await expect(
+				box
+					.locator( '.hyve-user-message' )
+					.filter( { hasText: 'Hello' } )
+			).toHaveCount( 1 );
+
+			const posts = traffic.chat.filter( ( r ) => 'POST' === r.method );
+
+			expect( traffic.refreshes ).toHaveLength( 1 );
+			expect( posts.map( ( r ) => r.nonce ) ).toEqual( [
+				STALE,
+				nonces.rest,
+			] );
+			expect(
+				await page.evaluate(
+					() => window.wp.apiFetch.nonceMiddleware.nonce
+				)
+			).toBe( nonces.rest );
 		} );
-
-		await page.evaluate( ( stale ) => {
-			window.wp.apiFetch.nonceMiddleware.nonce = stale;
-		}, STALE );
-
-		const refused = page.waitForResponse(
-			( response ) =>
-				CHAT_ROUTE.test( response.url() ) && 403 === response.status()
-		);
-		const refreshed = page.waitForResponse( ( response ) =>
-			( response.request().postData() || '' ).includes(
-				'hyve_refresh_nonce'
-			)
-		);
-
-		await send( page );
-
-		expect( ( await ( await refused ).json() ).code ).toBe(
-			'rest_cookie_invalid_nonce'
-		);
-
-		const refresh = await refreshed;
-		const nonces = await refresh.json();
-
-		expect( refresh.status() ).toBe( 200 );
-		expect( refresh.request().method() ).toBe( 'POST' );
-		expect( refresh.headers()[ 'cache-control' ] ).toContain( 'no-store' );
-		expect( nonces.rest ).toBeTruthy();
-		expect( nonces.rest ).not.toBe( STALE );
-
-		const box = page.locator( '#hyve-message-box' );
-
-		await expect( box.getByText( 'Fresh reply' ) ).toBeVisible();
-		await expect( box ).not.toContainText( 'not able to process' );
-		await expect(
-			box.locator( '.hyve-user-message' ).filter( { hasText: 'Hello' } )
-		).toHaveCount( 1 );
-
-		const posts = traffic.chat.filter( ( r ) => 'POST' === r.method );
-
-		expect( traffic.refreshes ).toHaveLength( 1 );
-		expect( posts.map( ( r ) => r.nonce ) ).toEqual( [
-			STALE,
-			nonces.rest,
-		] );
-		expect(
-			await page.evaluate(
-				() => window.wp.apiFetch.nonceMiddleware.nonce
-			)
-		).toBe( nonces.rest );
 	} );
 
 	test( 'the stream retries once with a renewed stream nonce', async ( {
@@ -343,38 +374,44 @@ test.describe( 'Chat with a stale nonce', () => {
 		expect( traffic.chat ).toHaveLength( 2 );
 	} );
 
-	test( 'a failed renewal shows the retry message without looping', async ( {
-		page,
-	} ) => {
-		const traffic = await open( page, { stream: false } );
+	[
+		{ status: 500, body: '' },
+		// A proxy or security plugin answering 200 without the nonces.
+		{ status: 200, contentType: 'application/json', body: '{}' },
+	].forEach( ( reply ) => {
+		test( `a failed renewal shows the retry message without looping (${
+			reply.status
+		} ${ reply.body || 'empty' })`, async ( { page } ) => {
+			const traffic = await open( page, { stream: false } );
 
-		await page.route( /admin-ajax\.php/, ( route ) =>
-			( route.request().postData() || '' ).includes(
-				'hyve_refresh_nonce'
-			)
-				? route.fulfill( { status: 500, body: '' } )
-				: route.continue()
-		);
+			await page.route( /admin-ajax\.php/, ( route ) =>
+				( route.request().postData() || '' ).includes(
+					'hyve_refresh_nonce'
+				)
+					? route.fulfill( reply )
+					: route.continue()
+			);
 
-		await page.evaluate( ( stale ) => {
-			window.wp.apiFetch.nonceMiddleware.nonce = stale;
-		}, STALE );
+			await page.evaluate( ( stale ) => {
+				window.wp.apiFetch.nonceMiddleware.nonce = stale;
+			}, STALE );
 
-		await send( page );
+			await send( page );
 
-		await expect(
-			page
-				.locator( '#hyve-message-box' )
-				.getByText( 'not able to process', {
-					exact: false,
-				} )
-		).toBeVisible();
+			await expect(
+				page
+					.locator( '#hyve-message-box' )
+					.getByText( 'not able to process', {
+						exact: false,
+					} )
+			).toBeVisible();
 
-		// Give any stray retry time to show up.
-		await page.waitForTimeout( 1000 );
+			// Give any stray retry time to show up.
+			await page.waitForTimeout( 1000 );
 
-		expect( traffic.refreshes ).toHaveLength( 1 );
-		expect( traffic.chat ).toHaveLength( 1 );
+			expect( traffic.refreshes ).toHaveLength( 1 );
+			expect( traffic.chat ).toHaveLength( 1 );
+		} );
 	} );
 
 	/**
@@ -437,72 +474,86 @@ test.describe( 'Chat with a stale nonce', () => {
 		await form.locator( '.hyve-lead-form__submit' ).click();
 	}
 
-	test( 'a lead is stored once after renewing a stale nonce', async ( {
-		page,
-	} ) => {
-		const { traffic, leads } = await openLeadForm( page );
+	[ false, true ].forEach( ( olderCore ) => {
+		test( `a lead is stored once after renewing a stale nonce${
+			olderCore ? ' (WordPress < 6.9)' : ''
+		}`, async ( { page } ) => {
+			const { traffic, leads } = await openLeadForm( page );
 
-		// Lite has no /leads route, but core refuses the stale nonce before
-		// routing, so the first attempt gets the real 403.
-		await page.route( LEADS_ROUTE, ( route ) =>
-			STALE === route.request().headers()[ 'x-wp-nonce' ]
-				? route.continue()
-				: route.fulfill( {
-						status: 200,
-						contentType: 'application/json',
-						body: JSON.stringify( { lead_token: 'tok-e2e' } ),
-				  } )
-		);
+			if ( olderCore ) {
+				await rejectLikeOlderCore( page );
+			}
 
-		await submitLead( page );
+			// Lite has no /leads route, but core refuses the stale nonce before
+			// routing, so the first attempt gets the real 403.
+			await page.route( LEADS_ROUTE, ( route ) =>
+				STALE === route.request().headers()[ 'x-wp-nonce' ]
+					? route.continue()
+					: route.fulfill( {
+							status: 200,
+							contentType: 'application/json',
+							body: JSON.stringify( { lead_token: 'tok-e2e' } ),
+					  } )
+			);
 
-		const box = page.locator( '#hyve-message-box' );
+			await submitLead( page );
 
-		await expect( box.getByText( 'Thanks! Your details' ) ).toBeVisible();
-		await expect( page.locator( '.hyve-lead-form' ) ).toHaveCount( 0 );
+			const box = page.locator( '#hyve-message-box' );
 
-		const fresh = await page.evaluate(
-			() => window.wp.apiFetch.nonceMiddleware.nonce
-		);
+			await expect(
+				box.getByText( 'Thanks! Your details' )
+			).toBeVisible();
+			await expect( page.locator( '.hyve-lead-form' ) ).toHaveCount( 0 );
 
-		expect( traffic.refreshes ).toHaveLength( 1 );
-		expect( leads ).toEqual( [ STALE, fresh ] );
-		expect( await page.evaluate( () => window.hyveApp.leadToken() ) ).toBe(
-			'tok-e2e'
-		);
+			const fresh = await page.evaluate(
+				() => window.wp.apiFetch.nonceMiddleware.nonce
+			);
+
+			expect( traffic.refreshes ).toHaveLength( 1 );
+			expect( leads ).toEqual( [ STALE, fresh ] );
+			expect(
+				await page.evaluate( () => window.hyveApp.leadToken() )
+			).toBe( 'tok-e2e' );
+		} );
 	} );
 
-	test( 'a pending lead links after renewing a stale nonce', async ( {
-		page,
-	} ) => {
-		const { traffic, links } = await openLeadForm( page );
+	[ false, true ].forEach( ( olderCore ) => {
+		test( `a pending lead links after renewing a stale nonce${
+			olderCore ? ' (WordPress < 6.9)' : ''
+		}`, async ( { page } ) => {
+			const { traffic, links } = await openLeadForm( page );
 
-		await page.route( LINK_ROUTE, ( route ) =>
-			STALE === route.request().headers()[ 'x-wp-nonce' ]
-				? route.continue()
-				: route.fulfill( {
-						status: 200,
-						contentType: 'application/json',
-						body: JSON.stringify( { success: true } ),
-				  } )
-		);
+			if ( olderCore ) {
+				await rejectLikeOlderCore( page );
+			}
 
-		await page.evaluate( async () => {
-			window.hyveApp.setLeadFormStatus( 'submitted', 'tok-e2e' );
-			window.hyveApp.recordID = 1;
-			window.hyveApp.threadID = 'th-e2e';
-			await window.hyveApp.maybeLinkLead();
+			await page.route( LINK_ROUTE, ( route ) =>
+				STALE === route.request().headers()[ 'x-wp-nonce' ]
+					? route.continue()
+					: route.fulfill( {
+							status: 200,
+							contentType: 'application/json',
+							body: JSON.stringify( { success: true } ),
+					  } )
+			);
+
+			await page.evaluate( async () => {
+				window.hyveApp.setLeadFormStatus( 'submitted', 'tok-e2e' );
+				window.hyveApp.recordID = 1;
+				window.hyveApp.threadID = 'th-e2e';
+				await window.hyveApp.maybeLinkLead();
+			} );
+
+			const fresh = await page.evaluate(
+				() => window.wp.apiFetch.nonceMiddleware.nonce
+			);
+
+			expect( traffic.refreshes ).toHaveLength( 1 );
+			expect( links ).toEqual( [ STALE, fresh ] );
+			expect(
+				await page.evaluate( () => window.hyveApp.leadToken() )
+			).toBeNull();
 		} );
-
-		const fresh = await page.evaluate(
-			() => window.wp.apiFetch.nonceMiddleware.nonce
-		);
-
-		expect( traffic.refreshes ).toHaveLength( 1 );
-		expect( links ).toEqual( [ STALE, fresh ] );
-		expect(
-			await page.evaluate( () => window.hyveApp.leadToken() )
-		).toBeNull();
 	} );
 
 	[
