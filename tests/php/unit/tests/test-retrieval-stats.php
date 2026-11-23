@@ -459,6 +459,25 @@ class RetrievalStatsTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Coverage measures only the stored slice of a long message, so one huge
+	 * message cannot build a pattern per word.
+	 */
+	public function test_coverage_measures_only_the_stored_query(): void {
+		$this->seed_text( 'Answer', 'Silextra pricing is 73 euros.', [ 1.0, 0.0, 0.0 ] );
+		$this->pad_past_budget();
+		$this->commit_seeds();
+
+		// 2,001 characters before "pricing": the slice ends inside the filler.
+		API::instance()->search_knowledge_base( [ 1.0, 0.0, 0.0 ], 0.25, 2000, 'silextra ' . str_repeat( 'ab ', 664 ) . 'pricing' );
+
+		$stats = $this->stats();
+
+		$this->assertSame( 2000, mb_strlen( $stats['keyword_query'] ) );
+		$this->assertSame( 1, $stats['keyword_term_count'] );
+		$this->assertSame( 1.0, $stats['keyword_coverage'] );
+	}
+
+	/**
 	 * Source links keep the keyword search's own rules: a hit found only
 	 * through a filler word is still linked when nothing better matched.
 	 */

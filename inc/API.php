@@ -2615,12 +2615,14 @@ class API extends BaseAPI {
 		}
 
 		$lexical = '' !== $query ? $this->lexical_candidates( $query, $limit ) : [];
-		// The stats use the diagnostic's rules and fold accents by the
-		// default locale, as the platform does; source links keep the
-		// search's rules and the site's folding.
-		$coverage     = '' !== $query ? self::keyword_coverage( $lexical, $query, 'en_US', true ) : null;
-		$matches      = null === $coverage ? [] : $coverage['matches'];
-		$link_matches = '' !== $query ? self::keyword_coverage( $lexical, $query )['matches'] : [];
+		// The stats use the diagnostic's rules on the stored slice of the
+		// query (one pattern per word, so a huge message stays cheap) and
+		// fold accents by the default locale, as the platform does; source
+		// links keep the search's rules and the site's folding.
+		$keyword_query = mb_substr( $query, 0, 2000 );
+		$coverage      = '' !== $query ? self::keyword_coverage( $lexical, $keyword_query, 'en_US', true ) : null;
+		$matches       = null === $coverage ? [] : $coverage['matches'];
+		$link_matches  = '' !== $query ? self::keyword_coverage( $lexical, $query )['matches'] : [];
 
 		list( $context, $scored_used ) = $this->assemble_context( $this->fuse_candidates( $vector, $lexical, $query, $settings ), $tokens_threshold, $link_matches );
 
@@ -2629,7 +2631,7 @@ class API extends BaseAPI {
 
 		$this->retrieval_stats = [
 			'version'               => 1,
-			'keyword_query'         => mb_substr( $query, 0, 2000 ),
+			'keyword_query'         => $keyword_query,
 			'vector_backend'        => $backend,
 			'vector_limit'          => $vector_limit,
 			'keyword_limit'         => $limit,
