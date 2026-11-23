@@ -1,6 +1,6 @@
 {
 	"version": 1,
-	"description": "Keyword coverage parity cases for retrieval_stats (Codeinwp/hyve#330), shared with the Hyve Connect platform: both implementations must produce the same term_count, matched and coverage for every case. term_count is the number of diagnostic patterns built from the query; matched is the most patterns one candidate's title + ' ' + content matches (0 with no candidates); coverage is matched / term_count rounded to 4 places, null when term_count is 0. In retrieval_stats a term_count of 0 is recorded as null for all three fields. Accents fold by WordPress's default (en_US) rules whatever the site's locale, after NFC normalization (WordPress only normalizes when PHP's intl normalizer is available; without it, decomposed non-Latin marks stay decomposed in Lite).",
+	"description": "Keyword coverage parity cases for retrieval_stats (Codeinwp/hyve#330), shared with the Hyve Connect platform: both implementations must produce the same term_count, matched, coverage and matching_hits for every case. term_count is the number of diagnostic patterns built from the query's content words: every word of three or more characters, with no cap, minus common English words that carry no topic (the index's stopwords, pronouns, auxiliaries and question scaffolding such as 'tell' and 'know'); matched is the most patterns one candidate's title + ' ' + content matches (0 with no candidates); coverage is matched / term_count rounded to 4 places, null when term_count is 0; matching_hits is how many candidates match at least one pattern. In retrieval_stats a term_count of 0 is recorded as null for all four fields. Accents fold by WordPress's default (en_US) rules whatever the site's locale, after NFC normalization (WordPress only normalizes when PHP's intl normalizer is available; without it, decomposed non-Latin marks stay decomposed in Lite).",
 	"cases": [
 		{
 			"name": "every term in one candidate",
@@ -17,7 +17,8 @@
 			],
 			"term_count": 2,
 			"matched": 2,
-			"coverage": 1.0
+			"coverage": 1.0,
+			"matching_hits": 2
 		},
 		{
 			"name": "the best hit need not rank first",
@@ -34,7 +35,8 @@
 			],
 			"term_count": 2,
 			"matched": 2,
-			"coverage": 1.0
+			"coverage": 1.0,
+			"matching_hits": 2
 		},
 		{
 			"name": "terms match word prefixes, not infixes",
@@ -47,7 +49,8 @@
 			],
 			"term_count": 2,
 			"matched": 1,
-			"coverage": 0.5
+			"coverage": 0.5,
+			"matching_hits": 1
 		},
 		{
 			"name": "index stopwords and short words do not count",
@@ -60,7 +63,8 @@
 			],
 			"term_count": 2,
 			"matched": 1,
-			"coverage": 0.5
+			"coverage": 0.5,
+			"matching_hits": 1
 		},
 		{
 			"name": "repeated terms count once",
@@ -73,7 +77,8 @@
 			],
 			"term_count": 1,
 			"matched": 1,
-			"coverage": 1.0
+			"coverage": 1.0,
+			"matching_hits": 1
 		},
 		{
 			"name": "the title counts",
@@ -86,11 +91,12 @@
 			],
 			"term_count": 2,
 			"matched": 2,
-			"coverage": 1.0
+			"coverage": 1.0,
+			"matching_hits": 1
 		},
 		{
 			"name": "decomposed accent matches precomposed text",
-			"query": "cafe\u0301 menu",
+			"query": "café menu",
 			"candidates": [
 				{
 					"title": "Precomposed",
@@ -103,7 +109,8 @@
 			],
 			"term_count": 2,
 			"matched": 2,
-			"coverage": 1.0
+			"coverage": 1.0,
+			"matching_hits": 2
 		},
 		{
 			"name": "a script without word boundaries matches as a substring",
@@ -116,7 +123,8 @@
 			],
 			"term_count": 1,
 			"matched": 1,
-			"coverage": 1.0
+			"coverage": 1.0,
+			"matching_hits": 1
 		},
 		{
 			"name": "two-letter Arabic words count when no term reaches the index",
@@ -129,7 +137,8 @@
 			],
 			"term_count": 2,
 			"matched": 2,
-			"coverage": 1.0
+			"coverage": 1.0,
+			"matching_hits": 1
 		},
 		{
 			"name": "one-syllable Hangul words count when no term reaches the index",
@@ -142,7 +151,8 @@
 			],
 			"term_count": 2,
 			"matched": 2,
-			"coverage": 1.0
+			"coverage": 1.0,
+			"matching_hits": 1
 		},
 		{
 			"name": "only stopwords leaves nothing to measure",
@@ -155,7 +165,8 @@
 			],
 			"term_count": 0,
 			"matched": 0,
-			"coverage": null
+			"coverage": null,
+			"matching_hits": 0
 		},
 		{
 			"name": "terms but no keyword hits measure zero",
@@ -163,7 +174,54 @@
 			"candidates": [],
 			"term_count": 2,
 			"matched": 0,
-			"coverage": 0.0
+			"coverage": 0.0,
+			"matching_hits": 0
+		},
+		{
+			"name": "filler words do not count",
+			"query": "Do you sell gift cards?",
+			"candidates": [
+				{
+					"title": "Welcome",
+					"content": "Thank you for visiting your store."
+				}
+			],
+			"term_count": 3,
+			"matched": 0,
+			"coverage": 0.0,
+			"matching_hits": 0
+		},
+		{
+			"name": "question scaffolding does not count",
+			"query": "Can you tell me how long shipping takes?",
+			"candidates": [
+				{
+					"title": "Shipping",
+					"content": "Shipping takes 3 to 5 days."
+				},
+				{
+					"title": "Returns",
+					"content": "Tell us within 30 days."
+				}
+			],
+			"term_count": 3,
+			"matched": 2,
+			"coverage": 0.6667,
+			"matching_hits": 1
+		},
+		{
+			"name": "every word counts, past the keyword search's ten",
+			"query": "alpha bravo charlie delta echo foxtrot golf hotel india juliet kilo lima",
+			"candidates": [
+				{
+					"title": "Codes",
+					"content": "alpha bravo charlie delta echo foxtrot golf hotel india juliet"
+				}
+			],
+			"term_count": 12,
+			"matched": 10,
+			"coverage": 0.8333,
+			"matching_hits": 1
 		}
 	]
 }

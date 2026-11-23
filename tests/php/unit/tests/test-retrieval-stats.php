@@ -149,6 +149,7 @@ class RetrievalStatsTest extends WP_UnitTestCase {
 		$this->assertSame( '', $stats['keyword_query'] );
 		$this->assertNull( $stats['keyword_hits'] );
 		$this->assertNull( $stats['keyword_within_cutoff'] );
+		$this->assertNull( $stats['keyword_matching_hits'] );
 		$this->assertNull( $stats['keyword_term_count'] );
 		$this->assertNull( $stats['keyword_matched_terms'] );
 		$this->assertNull( $stats['keyword_coverage'] );
@@ -259,6 +260,7 @@ class RetrievalStatsTest extends WP_UnitTestCase {
 		$this->assertSame( 1, $stats['vector_above_floor'] );
 		$this->assertSame( 2, $stats['keyword_hits'] );
 		$this->assertSame( 2, $stats['keyword_within_cutoff'] );
+		$this->assertSame( 2, $stats['keyword_matching_hits'] );
 		$this->assertSame( 2, $stats['keyword_term_count'] );
 		$this->assertSame( 1, $stats['keyword_matched_terms'] );
 		$this->assertSame( 0.5, $stats['keyword_coverage'] );
@@ -279,6 +281,7 @@ class RetrievalStatsTest extends WP_UnitTestCase {
 		$stats = $this->stats();
 
 		$this->assertSame( 0, $stats['keyword_hits'] );
+		$this->assertSame( 0, $stats['keyword_matching_hits'] );
 		$this->assertSame( 1, $stats['keyword_term_count'] );
 		$this->assertSame( 0, $stats['keyword_matched_terms'] );
 		$this->assertSame( 0.0, $stats['keyword_coverage'] );
@@ -418,6 +421,58 @@ class RetrievalStatsTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * A hit found only through a word that carries no topic ("you") counts
+	 * as a hit but not as a matching one, and the word is not a term.
+	 */
+	public function test_filler_word_hit_does_not_match(): void {
+		$this->seed_text( 'Welcome', 'Thank you for visiting.', [ 1.0, 0.0, 0.0 ] );
+		$this->pad_past_budget();
+		$this->commit_seeds();
+
+		API::instance()->search_knowledge_base( [ 1.0, 0.0, 0.0 ], 0.25, 2000, 'Do you sell gift cards?' );
+
+		$stats = $this->stats();
+
+		$this->assertSame( 1, $stats['keyword_hits'] );
+		$this->assertSame( 0, $stats['keyword_matching_hits'] );
+		$this->assertSame( 3, $stats['keyword_term_count'] );
+		$this->assertSame( 0, $stats['keyword_matched_terms'] );
+		$this->assertSame( 0.0, $stats['keyword_coverage'] );
+	}
+
+	/**
+	 * Coverage counts every content word of a long question, not only the
+	 * ten the keyword search uses.
+	 */
+	public function test_coverage_counts_past_the_search_term_cap(): void {
+		$this->seed_text( 'Codes', 'alpha bravo charlie delta echo foxtrot golf hotel india juliet', [ 1.0, 0.0, 0.0 ] );
+		$this->pad_past_budget();
+		$this->commit_seeds();
+
+		API::instance()->search_knowledge_base( [ 1.0, 0.0, 0.0 ], 0.25, 2000, 'alpha bravo charlie delta echo foxtrot golf hotel india juliet kilo lima' );
+
+		$stats = $this->stats();
+
+		$this->assertSame( 12, $stats['keyword_term_count'] );
+		$this->assertSame( 10, $stats['keyword_matched_terms'] );
+		$this->assertSame( 0.8333, $stats['keyword_coverage'] );
+	}
+
+	/**
+	 * Source links keep the keyword search's own rules: a hit found only
+	 * through a filler word is still linked when nothing better matched.
+	 */
+	public function test_source_links_ignore_the_coverage_rules(): void {
+		$this->seed_text( 'Welcome', 'Thank you for visiting.', [ 0.0, 1.0, 0.0 ], 100, 5501 );
+		$this->pad_past_budget();
+		$this->commit_seeds();
+
+		API::instance()->search_knowledge_base( [ 1.0, 0.0, 0.0 ], 0.25, 2000, 'Do you sell gift cards?' );
+
+		$this->assertContains( 5501, array_map( 'intval', API::instance()->get_last_retrieval()['sources'] ) );
+	}
+
+	/**
 	 * The shared parity fixtures (also run by the platform).
 	 *
 	 * @return array<string, array{0: array<string, mixed>}>
@@ -451,11 +506,12 @@ class RetrievalStatsTest extends WP_UnitTestCase {
 			];
 		}
 
-		$coverage = API::keyword_coverage( $candidates, $fixture['query'] );
+		$coverage = API::keyword_coverage( $candidates, $fixture['query'], 'en_US', true );
 		$matched  = empty( $coverage['matches'] ) ? 0 : max( $coverage['matches'] );
 
 		$this->assertSame( $fixture['term_count'], $coverage['terms'] );
 		$this->assertSame( $fixture['matched'], $matched );
+		$this->assertSame( $fixture['matching_hits'], count( array_filter( $coverage['matches'] ) ) );
 		$this->assertSame( null === $fixture['coverage'] ? null : (float) $fixture['coverage'], API::coverage_ratio( $coverage ) );
 	}
 
@@ -549,6 +605,7 @@ class RetrievalStatsTest extends WP_UnitTestCase {
 					'vector_cutoff'         => 0.367404,
 					'keyword_hits'          => 4,
 					'keyword_within_cutoff' => 2,
+					'keyword_matching_hits' => '1',
 					'scored_used'           => 2,
 					'used'                  => 2,
 					'keyword_term_count'    => 1,
@@ -564,6 +621,7 @@ class RetrievalStatsTest extends WP_UnitTestCase {
 		$this->assertTrue( $debug['tools_used'] );
 		$this->assertArrayNotHasKey( 'injected', $stats );
 		$this->assertSame( 5, $stats['vector_limit'] );
+		$this->assertSame( 1, $stats['keyword_matching_hits'] );
 		$this->assertSame( 0.6123, $stats['vector_top_score'] );
 		$this->assertSame( 1.0, $stats['keyword_coverage'] );
 		$this->assertSame( 'pgvector', $stats['vector_backend'] );

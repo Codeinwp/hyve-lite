@@ -464,6 +464,7 @@ test.describe( 'Messages', () => {
 											vector_top_score: null,
 											vector_cutoff: null,
 											keyword_hits: 4,
+											keyword_matching_hits: 3,
 											keyword_term_count: 3,
 											keyword_matched_terms: 2,
 											keyword_coverage: 0.6667,
@@ -484,6 +485,7 @@ test.describe( 'Messages', () => {
 											vector_top_score: 0.6123,
 											vector_cutoff: 0.3674,
 											keyword_hits: 0,
+											keyword_matching_hits: 0,
 											keyword_term_count: 2,
 											keyword_matched_terms: 0,
 											keyword_coverage: 0,
@@ -522,7 +524,9 @@ test.describe( 'Messages', () => {
 		// A stage that did not run reads as such, not as zero.
 		await expect( page.getByText( 'Not run' ) ).toBeVisible();
 		await expect(
-			page.getByText( '4 hits · 2 of 3 terms in the best hit' )
+			page.getByText(
+				'4 hits, 3 with a question term · 2 of 3 terms in the best hit'
+			)
 		).toBeVisible();
 		await expect(
 			page.getByText( '6 sent, 2 picked by the search' )

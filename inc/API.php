@@ -19,7 +19,7 @@ use ThemeIsle\HyveLite\OpenAI;
  * @phpstan-type Candidate array{key: string, post_id: int, title: string, content: string, tokens: int, score: float|null, lexical: float|null}
  * @phpstan-type FusedCandidate array{key: string, post_id: int, title: string, content: string, tokens: int, score: float|null, lexical: float|null, fused: float}
  * @phpstan-type KeywordCoverage array{terms: int, matches: array<string, int>}
- * @phpstan-type RetrievalStats array{version: int, keyword_query: string, vector_backend: string|null, vector_limit: int|null, keyword_limit: int|null, vector_floor: float|null, vector_above_floor: int|null, vector_within_cutoff: int|null, vector_top_score: float|null, vector_cutoff: float|null, keyword_hits: int|null, keyword_within_cutoff: int|null, scored_used: int|null, used: int|null, keyword_term_count: int|null, keyword_matched_terms: int|null, keyword_coverage: float|null}
+ * @phpstan-type RetrievalStats array{version: int, keyword_query: string, vector_backend: string|null, vector_limit: int|null, keyword_limit: int|null, vector_floor: float|null, vector_above_floor: int|null, vector_within_cutoff: int|null, vector_top_score: float|null, vector_cutoff: float|null, keyword_hits: int|null, keyword_within_cutoff: int|null, keyword_matching_hits: int|null, scored_used: int|null, used: int|null, keyword_term_count: int|null, keyword_matched_terms: int|null, keyword_coverage: float|null}
  */
 class API extends BaseAPI {
 
@@ -2364,6 +2364,16 @@ class API extends BaseAPI {
 	const INNODB_STOPWORDS = [ 'a', 'about', 'an', 'are', 'as', 'at', 'be', 'by', 'com', 'de', 'en', 'for', 'from', 'how', 'i', 'in', 'is', 'it', 'la', 'of', 'on', 'or', 'that', 'the', 'this', 'to', 'und', 'was', 'what', 'when', 'where', 'who', 'will', 'with', 'www' ];
 
 	/**
+	 * Words of three or more letters that carry no topic, left out of the
+	 * diagnostic coverage: the index's stopwords plus common English
+	 * pronouns, auxiliaries and question scaffolding ("can you tell me").
+	 * The platform keeps the same list.
+	 *
+	 * @var array<int, string>
+	 */
+	const COVERAGE_STOPWORDS = [ 'about', 'above', 'after', 'again', 'against', 'all', 'also', 'and', 'any', 'are', 'aren', 'been', 'before', 'being', 'below', 'between', 'both', 'but', 'can', 'cannot', 'com', 'could', 'couldn', 'did', 'didn', 'does', 'doesn', 'doing', 'don', 'done', 'during', 'each', 'either', 'else', 'even', 'ever', 'every', 'few', 'for', 'from', 'further', 'get', 'gets', 'getting', 'give', 'got', 'had', 'hadn', 'has', 'hasn', 'have', 'haven', 'having', 'hello', 'her', 'here', 'hers', 'herself', 'hey', 'him', 'himself', 'his', 'how', 'however', 'into', 'isn', 'its', 'itself', 'just', 'know', 'let', 'lets', 'like', 'may', 'might', 'more', 'most', 'much', 'must', 'myself', 'need', 'needs', 'neither', 'nor', 'not', 'now', 'once', 'only', 'other', 'others', 'our', 'ours', 'ourselves', 'out', 'own', 'per', 'please', 'same', 'shall', 'she', 'should', 'shouldn', 'since', 'some', 'such', 'tell', 'than', 'thank', 'thanks', 'that', 'the', 'their', 'theirs', 'them', 'themselves', 'then', 'there', 'these', 'they', 'this', 'those', 'though', 'through', 'thus', 'too', 'und', 'until', 'upon', 'very', 'want', 'wants', 'was', 'wasn', 'were', 'weren', 'what', 'whatever', 'when', 'whenever', 'where', 'whether', 'which', 'while', 'who', 'whom', 'whose', 'why', 'will', 'with', 'within', 'without', 'won', 'would', 'wouldn', 'www', 'yes', 'yet', 'you', 'your', 'yours', 'yourself', 'yourselves' ];
+
+	/**
 	 * Keyword candidates eligible for source links, independent of term frequency.
 	 *
 	 * @param array<string, int> $matches Query patterns each keyword candidate matches, by key.
@@ -2383,31 +2393,33 @@ class API extends BaseAPI {
 	/**
 	 * How many of the query's terms each keyword candidate contains (title
 	 * and text). Indexed words match prefixes; segments match substrings,
-	 * as in lexical_search(). The platform mirrors these rules with the
-	 * default locale's accent folding; the shared cases live in
-	 * tests/php/unit/fixtures/keyword-coverage.json.
+	 * as in lexical_search(). The diagnostic counts every content word: no
+	 * term cap, with COVERAGE_STOPWORDS left out. The platform mirrors the
+	 * diagnostic with the default locale's accent folding; the shared cases
+	 * live in tests/php/unit/fixtures/keyword-coverage.json.
 	 *
 	 * @since 2.1.0
 	 *
 	 * @param array<int, array{key: string, title: string, content: string}> $candidates Keyword candidates.
 	 * @param string                                                         $query      The keyword query.
 	 * @param string                                                         $locale     Accent-folding locale; '' for the site's.
+	 * @param bool                                                           $diagnostic Use the diagnostic's rules instead of the search's.
 	 *
 	 * @return KeywordCoverage Pattern count, and the patterns each candidate matches by key.
 	 */
-	public static function keyword_coverage( array $candidates, string $query, string $locale = '' ): array {
+	public static function keyword_coverage( array $candidates, string $query, string $locale = '', bool $diagnostic = false ): array {
 		$normalize = static function ( string $text ) use ( $locale ): string {
 			// Fold Latin accents without stripping vowel signs in other scripts.
 			$text = (string) preg_replace( '/(?<=\p{Latin})\p{M}+/u', '', $text );
 			return mb_strtolower( remove_accents( $text, $locale ) );
 		};
-		$terms     = DB_Table::query_terms( $query );
-		$segments  = DB_Table::query_segments( $query );
+		$terms     = $diagnostic ? DB_Table::query_terms( $query, null ) : DB_Table::query_terms( $query );
+		$segments  = $diagnostic ? DB_Table::query_segments( $query, null ) : DB_Table::query_segments( $query );
 		if ( empty( $terms ) ) {
-			$segments = array_merge( $segments, DB_Table::query_short_words( $query ) );
+			$segments = array_merge( $segments, $diagnostic ? DB_Table::query_short_words( $query, null ) : DB_Table::query_short_words( $query ) );
 		}
 		// The index ignores its stopwords, so they must not count here either.
-		$terms    = array_diff( array_unique( array_map( $normalize, $terms ) ), self::INNODB_STOPWORDS );
+		$terms    = array_diff( array_unique( array_map( $normalize, $terms ) ), $diagnostic ? self::COVERAGE_STOPWORDS : self::INNODB_STOPWORDS );
 		$segments = array_unique( array_map( $normalize, $segments ) );
 		$patterns = [];
 		foreach ( array_diff( $terms, $segments ) as $term ) {
@@ -2603,11 +2615,12 @@ class API extends BaseAPI {
 		}
 
 		$lexical = '' !== $query ? $this->lexical_candidates( $query, $limit ) : [];
-		// The stats fold accents by the default locale, as the platform does;
-		// source links keep the site's folding.
-		$coverage     = '' !== $query ? self::keyword_coverage( $lexical, $query, 'en_US' ) : null;
+		// The stats use the diagnostic's rules and fold accents by the
+		// default locale, as the platform does; source links keep the
+		// search's rules and the site's folding.
+		$coverage     = '' !== $query ? self::keyword_coverage( $lexical, $query, 'en_US', true ) : null;
 		$matches      = null === $coverage ? [] : $coverage['matches'];
-		$link_matches = '' === $query || 'en_US' === get_locale() ? $matches : self::keyword_coverage( $lexical, $query )['matches'];
+		$link_matches = '' !== $query ? self::keyword_coverage( $lexical, $query )['matches'] : [];
 
 		list( $context, $scored_used ) = $this->assemble_context( $this->fuse_candidates( $vector, $lexical, $query, $settings ), $tokens_threshold, $link_matches );
 
@@ -2628,6 +2641,7 @@ class API extends BaseAPI {
 			// Keyword hits are not cut here; the platform cuts them by ratio.
 			'keyword_hits'          => '' !== $query ? count( $lexical ) : null,
 			'keyword_within_cutoff' => '' !== $query ? count( $lexical ) : null,
+			'keyword_matching_hits' => $terms > 0 ? count( array_filter( $matches ) ) : null,
 			'scored_used'           => $scored_used,
 			'used'                  => $scored_used,
 			'keyword_term_count'    => $terms > 0 ? $terms : null,
@@ -4046,6 +4060,7 @@ class API extends BaseAPI {
 			'vector_cutoff'         => $float( 'vector_cutoff' ),
 			'keyword_hits'          => $int( 'keyword_hits' ),
 			'keyword_within_cutoff' => $int( 'keyword_within_cutoff' ),
+			'keyword_matching_hits' => $int( 'keyword_matching_hits' ),
 			'scored_used'           => $int( 'scored_used' ),
 			'used'                  => $int( 'used' ),
 			'keyword_term_count'    => $int( 'keyword_term_count' ),

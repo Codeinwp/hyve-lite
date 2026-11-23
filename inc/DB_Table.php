@@ -610,16 +610,17 @@ class DB_Table {
 	/**
 	 * The question's words for the FULLTEXT index: letters, digits and marks,
 	 * at least three characters (InnoDB indexes nothing shorter), at most
-	 * ten of them. A Latin word carrying marks also adds its mark-free form,
+	 * ten of them by default. A Latin word carrying marks also adds its mark-free form,
 	 * after the whole words, so decomposed input (`gia` + U+0301 from a
 	 * Vietnamese keyboard) still reaches precomposed `giá` through the
 	 * collation. Other scripts keep their marks: they belong to the word.
 	 *
-	 * @param string $query The visitor's question.
+	 * @param string   $query The visitor's question.
+	 * @param int|null $limit Most terms; null for all.
 	 *
 	 * @return array<int, string>
 	 */
-	public static function query_terms( string $query ): array {
+	public static function query_terms( string $query, ?int $limit = 10 ): array {
 		$words = preg_split( '/[^\p{L}\p{N}\p{M}]+/u', mb_strtolower( $query ), -1, PREG_SPLIT_NO_EMPTY );
 		$terms = [];
 		$bare  = [];
@@ -644,19 +645,20 @@ class DB_Table {
 			}
 		}
 
-		return array_slice( array_values( $terms + $bare ), 0, 10 );
+		return array_slice( array_values( $terms + $bare ), 0, $limit );
 	}
 
 	/**
 	 * Words containing combining marks and runs from scripts without word
 	 * boundaries, matched as substrings. At least two characters, at most
-	 * five segments. A marked word must start with a letter or digit.
+	 * five segments by default. A marked word must start with a letter or digit.
 	 *
-	 * @param string $query The visitor's question.
+	 * @param string   $query The visitor's question.
+	 * @param int|null $limit Most segments; null for all.
 	 *
 	 * @return array<int, string>
 	 */
-	public static function query_segments( string $query ): array {
+	public static function query_segments( string $query, ?int $limit = 5 ): array {
 		preg_match_all( '/[\p{Han}\p{Hiragana}\p{Katakana}\p{Thai}\p{Lao}\p{Khmer}\p{Myanmar}]{2,}/u', $query, $matches );
 		preg_match_all( '/[\p{L}\p{N}][\p{L}\p{N}\p{M}]*/u', $query, $words );
 
@@ -666,7 +668,7 @@ class DB_Table {
 			}
 		}
 
-		return array_slice( array_values( array_unique( $matches[0] ) ), 0, 5 );
+		return array_slice( array_values( array_unique( $matches[0] ) ), 0, $limit );
 	}
 
 	/**
@@ -675,16 +677,17 @@ class DB_Table {
 	 * (`سن من`), one or two Hangul syllables (`내 집`, each syllable a
 	 * whole morpheme). Latin and Cyrillic two-letter words are stopwords
 	 * and stay out, as do single Arabic and Hebrew letters and lone jamo.
-	 * At most five.
+	 * At most five by default.
 	 *
-	 * @param string $query The visitor's question.
+	 * @param string   $query The visitor's question.
+	 * @param int|null $limit Most words; null for all.
 	 *
 	 * @return array<int, string>
 	 */
-	public static function query_short_words( string $query ): array {
+	public static function query_short_words( string $query, ?int $limit = 5 ): array {
 		preg_match_all( '/(?<![\p{L}\p{N}\p{M}])(?:(?:(?=\p{L})[\p{Arabic}\p{Hebrew}\x{AC00}-\x{D7A3}]){2}|[\x{AC00}-\x{D7A3}])(?![\p{L}\p{N}\p{M}])/u', $query, $matches );
 
-		return array_slice( array_values( array_unique( $matches[0] ) ), 0, 5 );
+		return array_slice( array_values( array_unique( $matches[0] ) ), 0, $limit );
 	}
 
 	/**

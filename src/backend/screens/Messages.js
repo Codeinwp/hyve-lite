@@ -517,11 +517,29 @@ const RetrievalStatsRows = ( { stats } ) => {
 
 	const keyword = isCount( stats.keyword_hits )
 		? [
-				sprintf(
-					/* translators: %d: chunks the keyword search found. */
-					_n( '%d hit', '%d hits', stats.keyword_hits, 'hyve-lite' ),
-					stats.keyword_hits
-				),
+				isCount( stats.keyword_matching_hits ) &&
+				stats.keyword_matching_hits !== stats.keyword_hits
+					? sprintf(
+							/* translators: 1: chunks the keyword search found, 2: those containing a question term. */
+							_n(
+								'%1$d hit, %2$d with a question term',
+								'%1$d hits, %2$d with a question term',
+								stats.keyword_hits,
+								'hyve-lite'
+							),
+							stats.keyword_hits,
+							stats.keyword_matching_hits
+					  )
+					: sprintf(
+							/* translators: %d: chunks the keyword search found. */
+							_n(
+								'%d hit',
+								'%d hits',
+								stats.keyword_hits,
+								'hyve-lite'
+							),
+							stats.keyword_hits
+					  ),
 				isCount( stats.keyword_term_count ) &&
 					isCount( stats.keyword_matched_terms ) &&
 					sprintf(
@@ -568,7 +586,7 @@ const RetrievalStatsRows = ( { stats } ) => {
 				<DebugKey
 					label={ __( 'Keyword search', 'hyve-lite' ) }
 					help={ __(
-						'Knowledge base chunks containing the question’s words, and how many of those words the best of them contains. Most words found but no answer usually means retrieval missed; none found usually means the knowledge base lacks the answer.',
+						'Knowledge base chunks containing the question’s words, and how many of the question’s content words the best of them contains. Most words found but no answer usually means retrieval missed; none found usually means the knowledge base lacks the answer. Words are matched as written, so a question in a different language from the knowledge base finds none even when the answer is there.',
 						'hyve-lite'
 					) }
 				/>
