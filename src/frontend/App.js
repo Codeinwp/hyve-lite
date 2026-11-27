@@ -18,6 +18,103 @@ const LEGACY_CHAT_STORAGE_KEY = 'hyve-chat';
 const ROBOT_AVATAR_SVG =
 	'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 2a2 2 0 0 1 2 2v1h3a3 3 0 0 1 3 3v6a3 3 0 0 1-3 3h-3l-4 3v-3H7a3 3 0 0 1-3-3V8a3 3 0 0 1 3-3h3V4a2 2 0 0 1 2-2Z"/><circle cx="9.5" cy="11.5" r="1" fill="currentColor" stroke="none"/><circle cx="14.5" cy="11.5" r="1" fill="currentColor" stroke="none"/></svg>';
 
+let nonceRefresh = null;
+
+// A renewal that never answers must not hold the widget in its loading state.
+const NONCE_REFRESH_TIMEOUT = 8000;
+
+/**
+ * Whether a request was refused for its nonce rather than its content.
+ *
+ * @param {any} error The rejected apiFetch error.
+ * @return {boolean} True for a stale or missing nonce.
+ */
+const isNonceError = ( error ) =>
+	[ 'rest_cookie_invalid_nonce', 'rest_forbidden' ].includes( error?.code ) ||
+	// Before WordPress 6.9, apiFetch rejects with core's failed renewal reply
+	// instead. These calls parse JSON, so no other failure rejects with a Response.
+	error instanceof window.Response;
+
+/**
+ * Renew the REST and stream nonces, sharing one request between callers.
+ *
+ * A cached page can outlive the nonces it embeds, and core renews the REST
+ * nonce for logged-in users only.
+ *
+ * @return {Promise<{rest:string,stream:string}>} The fresh nonces.
+ */
+const refreshNonces = () => {
+	if ( ! nonceRefresh ) {
+		const controller = new window.AbortController();
+		const timer = setTimeout(
+			() => controller.abort(),
+			NONCE_REFRESH_TIMEOUT
+		);
+
+		nonceRefresh = window
+			.fetch( window.hyveClient.ajaxUrl, {
+				method: 'POST',
+				credentials: 'same-origin',
+				body: new URLSearchParams( { action: 'hyve_refresh_nonce' } ),
+				signal: controller.signal,
+			} )
+			.then( async ( response ) => {
+				if ( ! response.ok ) {
+					throw new Error( 'hyve_refresh_nonce' );
+				}
+
+				const nonces = await response.json();
+
+				if ( ! nonces?.rest || ! nonces?.stream ) {
+					throw new Error( 'hyve_refresh_nonce' );
+				}
+
+				if ( apiFetch.nonceMiddleware ) {
+					apiFetch.nonceMiddleware.nonce = nonces.rest;
+				}
+
+				window.hyveClient.streamNonce = nonces.stream;
+
+				return nonces;
+			} )
+			.finally( () => {
+				clearTimeout( timer );
+				nonceRefresh = null;
+			} );
+	}
+
+	return nonceRefresh;
+};
+
+/**
+ * apiFetch that renews a stale nonce and retries once.
+ *
+ * @param {Parameters<typeof apiFetch>[0]} options apiFetch options.
+ * @return {Promise<any>} The response.
+ */
+const request = async ( options ) => {
+	try {
+		return await apiFetch( options );
+	} catch ( error ) {
+		if ( ! isNonceError( error ) ) {
+			throw error;
+		}
+
+		let nonces;
+
+		try {
+			nonces = await refreshNonces();
+		} catch {
+			throw error;
+		}
+
+		return apiFetch( {
+			...options,
+			headers: { ...options.headers, 'X-WP-Nonce': nonces.rest },
+		} );
+	}
+};
+
 class App {
 	constructor() {
 		this.isInitialToggle = true;
@@ -274,7 +371,7 @@ class App {
 				query.is_test = 1;
 			}
 
-			const response = await apiFetch( {
+			const response = await request( {
 				path: this.addCacheProtection(
 					addQueryArgs( `${ window.hyveClient.api }/chat`, query )
 				),
@@ -448,7 +545,7 @@ class App {
 		let token;
 
 		try {
-			const setup = await apiFetch( {
+			const setup = await request( {
 				path: this.addCacheProtection(
 					`${ window.hyveClient.api }/chat`
 				),
@@ -502,11 +599,12 @@ class App {
 			return false;
 		}
 
-		const url = addQueryArgs( window.hyveClient.ajaxUrl, {
-			action: 'hyve_stream',
-			token,
-			nonce: window.hyveClient.streamNonce,
-		} );
+		const streamUrl = () =>
+			addQueryArgs( window.hyveClient.ajaxUrl, {
+				action: 'hyve_stream',
+				token,
+				nonce: window.hyveClient.streamNonce,
+			} );
 
 		const controller = new AbortController();
 		const bubbleId = 'hyve-stream';
@@ -522,12 +620,18 @@ class App {
 		// ': connected' comment is deliberately NOT counted as content, so a proxy
 		// that forwards the comment but buffers the body is still detected. 8s is
 		// lenient enough for a slow first token; a false trip self-heals after 24h.
-		const watchdog = setTimeout( () => {
-			if ( ! firstEvent ) {
-				timedOut = true;
-				controller.abort();
-			}
-		}, 8000 );
+		let watchdog;
+
+		const armWatchdog = () => {
+			watchdog = setTimeout( () => {
+				if ( ! firstEvent ) {
+					timedOut = true;
+					controller.abort();
+				}
+			}, 8000 );
+		};
+
+		armWatchdog();
 
 		const renderInto = ( html ) => {
 			const node = document.getElementById(
@@ -580,11 +684,23 @@ class App {
 		};
 
 		try {
-			const response = await fetch( url, {
+			const init = {
 				headers: { Accept: 'text/event-stream' },
 				credentials: 'same-origin',
 				signal: controller.signal,
-			} );
+			};
+
+			let response = await fetch( streamUrl(), init );
+
+			// A stale stream nonce. The job is only consumed past the nonce
+			// check, so the same token can be retried once.
+			// Renewal has its own time limit, so the watchdog restarts after it.
+			if ( 403 === response.status ) {
+				clearTimeout( watchdog );
+				await refreshNonces();
+				armWatchdog();
+				response = await fetch( streamUrl(), init );
+			}
 
 			if ( ! response.ok || ! response.body ) {
 				clearTimeout( watchdog );
@@ -743,7 +859,7 @@ class App {
 	 */
 	async backgroundRequest( message ) {
 		try {
-			const response = await apiFetch( {
+			const response = await request( {
 				path: this.addCacheProtection(
 					`${ window.hyveClient.api }/chat`
 				),
@@ -1508,7 +1624,7 @@ class App {
 		}
 
 		try {
-			await apiFetch( {
+			await request( {
 				path: `${ window.hyveClient.api }/leads/link`,
 				method: 'POST',
 				data: {
@@ -1906,7 +2022,7 @@ class App {
 
 			// The admin preview never stores real leads.
 			if ( ! this.isPreview() ) {
-				const response = await apiFetch( {
+				const response = await request( {
 					path: `${ window.hyveClient.api }/leads`,
 					method: 'POST',
 					data: {
@@ -1938,7 +2054,10 @@ class App {
 			}
 		} catch ( err ) {
 			submit.disabled = false;
-			error.textContent = err?.message || strings.tryAgain;
+			// A refused nonce carries core's raw wording; validation errors read well.
+			error.textContent = isNonceError( err )
+				? strings.tryAgain
+				: err?.message || strings.tryAgain;
 			error.hidden = false;
 		}
 	}
