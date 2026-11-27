@@ -954,6 +954,10 @@ PROMPT;
 	private function get_chat_response_params( $items, $conversation ) {
 		return [
 			'conversation' => $conversation,
+			// The conversation keeps every turn, retrieved context included.
+			// Without this, once it outgrows the model's window every later
+			// turn fails; with it, OpenAI drops the oldest items instead.
+			'truncation'   => 'auto',
 			'model'        => $this->chat_model,
 			'input'        => $items,
 			'instructions' => $this->apply_system_prompt( self::BASE_SYSTEM_PROMPT ),
@@ -1385,8 +1389,10 @@ PROMPT;
 					];
 				}
 
-				if ( 'response.failed' === $event->type || 'error' === $event->type ) {
-					$stream_err = isset( $event->response->error->message ) ? $event->response->error->message : ( isset( $event->message ) ? $event->message : __( 'The response could not be streamed. Please try again.', 'hyve-lite' ) );
+				$event_err = self::stream_event_error( $event );
+
+				if ( null !== $event_err ) {
+					$stream_err = $event_err;
 				}
 			}
 
@@ -1427,7 +1433,7 @@ PROMPT;
 		// phpcs:enable WordPress.WP.AlternativeFunctions.curl_curl_init, WordPress.WP.AlternativeFunctions.curl_curl_setopt_array, WordPress.WP.AlternativeFunctions.curl_curl_exec, WordPress.WP.AlternativeFunctions.curl_curl_error, WordPress.WP.AlternativeFunctions.curl_curl_getinfo, WordPress.WP.AlternativeFunctions.curl_curl_close
 
 		if ( null !== $stream_err ) {
-			return new \WP_Error( 'stream_error', $stream_err );
+			return new \WP_Error( $stream_err['code'], $stream_err['message'] );
 		}
 
 		if ( $code >= 400 ) {
@@ -1443,6 +1449,29 @@ PROMPT;
 			'text'       => $assembled,
 			'tool_calls' => $tool_calls,
 			'usage'      => $usage,
+		];
+	}
+
+	/**
+	 * Read the failure a streamed event reports, if any.
+	 *
+	 * OpenAI nests it under `error` on an `error` event and under
+	 * `response.error` on `response.failed`.
+	 *
+	 * @param object $event A decoded SSE event.
+	 *
+	 * @return array{code:string,message:string}|null
+	 */
+	public static function stream_event_error( $event ) {
+		if ( ! isset( $event->type ) || ! in_array( $event->type, [ 'response.failed', 'error' ], true ) ) {
+			return null;
+		}
+
+		$error = $event->response->error ?? $event->error ?? $event;
+
+		return [
+			'code'    => isset( $error->code ) && is_string( $error->code ) && '' !== $error->code ? $error->code : 'stream_error',
+			'message' => isset( $error->message ) && is_string( $error->message ) ? $error->message : __( 'The response could not be streamed. Please try again.', 'hyve-lite' ),
 		];
 	}
 

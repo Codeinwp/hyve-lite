@@ -283,6 +283,7 @@ class App {
 			if ( response.error ) {
 				this.add( strings.tryAgain, 'bot' );
 				this.removeMessage( this.runID );
+				this.setLoading( false );
 				return;
 			}
 
