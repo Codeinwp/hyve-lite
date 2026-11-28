@@ -18,6 +18,8 @@ use ThemeIsle\HyveLite\OpenAI;
  *
  * @phpstan-type Candidate array{key: string, post_id: int, title: string, content: string, tokens: int, score: float|null, lexical: float|null}
  * @phpstan-type FusedCandidate array{key: string, post_id: int, title: string, content: string, tokens: int, score: float|null, lexical: float|null, fused: float}
+ * @phpstan-type KeywordCoverage array{terms: int, matches: array<string, int>}
+ * @phpstan-type RetrievalStats array{version: int, keyword_query: string, vector_backend: string|null, vector_limit: int|null, keyword_limit: int|null, vector_floor: float|null, vector_above_floor: int|null, vector_within_cutoff: int|null, vector_top_score: float|null, vector_cutoff: float|null, keyword_hits: int|null, keyword_within_cutoff: int|null, keyword_matching_hits: int|null, scored_used: int|null, used: int|null, keyword_term_count: int|null, keyword_matched_terms: int|null, keyword_coverage: float|null}
  */
 class API extends BaseAPI {
 
@@ -68,6 +70,16 @@ class API extends BaseAPI {
 	 * @var string
 	 */
 	private $retrieval_mode = 'similarity';
+
+	/**
+	 * What each stage of the last search kept (`retrieval_stats`). The
+	 * platform records the same fields; null means the stage did not run.
+	 *
+	 * @since 2.1.0
+	 *
+	 * @var RetrievalStats|null
+	 */
+	private $retrieval_stats = null;
 
 	/**
 	 * Debug information collected while preparing the current chat turn (the
@@ -2109,12 +2121,18 @@ class API extends BaseAPI {
 	 * @param string $query The visitor's question.
 	 * @param int    $limit Most candidates to keep.
 	 *
-	 * @return array<int, Candidate>
+	 * @return array<int, Candidate>|null Null when the keyword query failed.
 	 */
 	private function lexical_candidates( $query, $limit ) {
+		$rows = $this->table->lexical_search( $query, $limit );
+
+		if ( null === $rows ) {
+			return null;
+		}
+
 		$candidates = [];
 
-		foreach ( $this->table->lexical_search( $query, $limit ) as $row ) {
+		foreach ( $rows as $row ) {
 			$post_id = (int) $row->post_id;
 
 			$candidates[] = [
@@ -2288,16 +2306,17 @@ class API extends BaseAPI {
 	 *
 	 * @param array<int, FusedCandidate> $ranked           Fused candidates, best first.
 	 * @param int                        $tokens_threshold Context token budget.
-	 * @param string                     $query            The keyword query.
+	 * @param array<string, int>         $keyword_matches  Query patterns each keyword candidate matches, by key.
 	 *
-	 * @return string
+	 * @return array{0: string, 1: int} The context, and how many chunks it holds.
 	 */
-	private function assemble_context( $ranked, $tokens_threshold, string $query ) {
+	private function assemble_context( $ranked, $tokens_threshold, array $keyword_matches ) {
 		$context         = '';
 		$used            = 0;
+		$included        = 0;
 		$vector_scores   = [];
 		$lexical_only    = [];
-		$keyword_sources = self::keyword_source_keys( $ranked, $query );
+		$keyword_sources = self::keyword_source_keys( $keyword_matches );
 
 		foreach ( $ranked as $candidate ) {
 			$trace                                   = [
@@ -2320,6 +2339,7 @@ class API extends BaseAPI {
 
 			$context .= "\n ===START POST=== " . $candidate['title'] . ' - ' . $candidate['content'] . ' ===END POST===';
 			$used    += (int) $candidate['tokens'];
+			++$included;
 
 			$this->retrieval_trace[] = $trace;
 
@@ -2338,7 +2358,7 @@ class API extends BaseAPI {
 
 		$this->source_post_ids = array_values( array_unique( array_merge( $this->rank_sources( $vector_scores ), array_values( array_diff_key( $lexical_only, $vector_scores ) ) ) ) );
 
-		return $context;
+		return [ $context, $included ];
 	}
 
 	/**
@@ -2350,32 +2370,62 @@ class API extends BaseAPI {
 	const INNODB_STOPWORDS = [ 'a', 'about', 'an', 'are', 'as', 'at', 'be', 'by', 'com', 'de', 'en', 'for', 'from', 'how', 'i', 'in', 'is', 'it', 'la', 'of', 'on', 'or', 'that', 'the', 'this', 'to', 'und', 'was', 'what', 'when', 'where', 'who', 'will', 'with', 'www' ];
 
 	/**
-	 * Keyword candidates eligible for source links, independent of term frequency.
-	 * Indexed words match prefixes; segments match substrings, as in lexical_search().
+	 * Words of three or more letters that carry no topic, left out of the
+	 * diagnostic coverage: the index's stopwords plus common English
+	 * pronouns, auxiliaries and question scaffolding ("can you tell me").
+	 * The platform keeps the same list.
 	 *
-	 * @param array<int, FusedCandidate> $candidates Fused candidates.
-	 * @param string                     $query      The keyword query.
+	 * @var array<int, string>
+	 */
+	const COVERAGE_STOPWORDS = [ 'about', 'above', 'after', 'again', 'against', 'all', 'also', 'and', 'any', 'are', 'aren', 'been', 'before', 'being', 'below', 'between', 'both', 'but', 'can', 'cannot', 'com', 'could', 'couldn', 'did', 'didn', 'does', 'doesn', 'doing', 'don', 'done', 'during', 'each', 'either', 'else', 'even', 'ever', 'every', 'few', 'for', 'from', 'further', 'get', 'gets', 'getting', 'give', 'got', 'had', 'hadn', 'has', 'hasn', 'have', 'haven', 'having', 'hello', 'her', 'here', 'hers', 'herself', 'hey', 'him', 'himself', 'his', 'how', 'however', 'into', 'isn', 'its', 'itself', 'just', 'know', 'let', 'lets', 'like', 'may', 'might', 'more', 'most', 'much', 'must', 'myself', 'need', 'needs', 'neither', 'nor', 'not', 'now', 'once', 'only', 'other', 'others', 'our', 'ours', 'ourselves', 'out', 'own', 'per', 'please', 'same', 'shall', 'she', 'should', 'shouldn', 'since', 'some', 'such', 'tell', 'than', 'thank', 'thanks', 'that', 'the', 'their', 'theirs', 'them', 'themselves', 'then', 'there', 'these', 'they', 'this', 'those', 'though', 'through', 'thus', 'too', 'und', 'until', 'upon', 'very', 'want', 'wants', 'was', 'wasn', 'were', 'weren', 'what', 'whatever', 'when', 'whenever', 'where', 'whether', 'which', 'while', 'who', 'whom', 'whose', 'why', 'will', 'with', 'within', 'without', 'won', 'would', 'wouldn', 'www', 'yes', 'yet', 'you', 'your', 'yours', 'yourself', 'yourselves' ];
+
+	/**
+	 * Keyword candidates eligible for source links, independent of term frequency.
+	 *
+	 * @param array<string, int> $matches Query patterns each keyword candidate matches, by key.
 	 *
 	 * @return array<string, true> Candidate keys with the best positive coverage.
 	 */
-	private static function keyword_source_keys( array $candidates, string $query ): array {
-		$candidates = array_filter( $candidates, fn( $candidate ) => null !== $candidate['lexical'] );
-		if ( empty( $candidates ) ) {
+	private static function keyword_source_keys( array $matches ): array {
+		if ( empty( $matches ) ) {
 			return [];
 		}
 
-		$normalize = static function ( string $text ): string {
+		$best = max( $matches );
+
+		return array_fill_keys( array_keys( array_filter( $matches, fn( $count ) => $count > 0 && $count === $best ) ), true );
+	}
+
+	/**
+	 * How many of the query's terms each keyword candidate contains (title
+	 * and text). Indexed words match prefixes; segments match substrings,
+	 * as in lexical_search(). The diagnostic counts every content word: no
+	 * term cap, with COVERAGE_STOPWORDS left out. The platform mirrors the
+	 * diagnostic with the default locale's accent folding; the shared cases
+	 * live in tests/php/unit/fixtures/keyword-coverage.json.
+	 *
+	 * @since 2.1.0
+	 *
+	 * @param array<int, array{key: string, title: string, content: string}> $candidates Keyword candidates.
+	 * @param string                                                         $query      The keyword query.
+	 * @param string                                                         $locale     Accent-folding locale; '' for the site's.
+	 * @param bool                                                           $diagnostic Use the diagnostic's rules instead of the search's.
+	 *
+	 * @return KeywordCoverage Pattern count, and the patterns each candidate matches by key.
+	 */
+	public static function keyword_coverage( array $candidates, string $query, string $locale = '', bool $diagnostic = false ): array {
+		$normalize = static function ( string $text ) use ( $locale ): string {
 			// Fold Latin accents without stripping vowel signs in other scripts.
 			$text = (string) preg_replace( '/(?<=\p{Latin})\p{M}+/u', '', $text );
-			return mb_strtolower( remove_accents( $text ) );
+			return mb_strtolower( remove_accents( $text, $locale ) );
 		};
-		$terms     = DB_Table::query_terms( $query );
-		$segments  = DB_Table::query_segments( $query );
+		$terms     = $diagnostic ? DB_Table::query_terms( $query, null ) : DB_Table::query_terms( $query );
+		$segments  = $diagnostic ? DB_Table::query_segments( $query, null ) : DB_Table::query_segments( $query );
 		if ( empty( $terms ) ) {
-			$segments = array_merge( $segments, DB_Table::query_short_words( $query ) );
+			$segments = array_merge( $segments, $diagnostic ? DB_Table::query_short_words( $query, null ) : DB_Table::query_short_words( $query ) );
 		}
 		// The index ignores its stopwords, so they must not count here either.
-		$terms    = array_diff( array_unique( array_map( $normalize, $terms ) ), self::INNODB_STOPWORDS );
+		$terms    = array_diff( array_unique( array_map( $normalize, $terms ) ), $diagnostic ? self::COVERAGE_STOPWORDS : self::INNODB_STOPWORDS );
 		$segments = array_unique( array_map( $normalize, $segments ) );
 		$patterns = [];
 		foreach ( array_diff( $terms, $segments ) as $term ) {
@@ -2385,18 +2435,38 @@ class API extends BaseAPI {
 			$patterns[] = '/' . preg_quote( $segment, '/' ) . '/u';
 		}
 
-		$coverage = [];
+		$matches = [];
 		foreach ( $candidates as $candidate ) {
 			$text  = $normalize( $candidate['title'] . ' ' . $candidate['content'] );
 			$count = 0;
 			foreach ( $patterns as $pattern ) {
 				$count += 1 === preg_match( $pattern, $text ) ? 1 : 0;
 			}
-			$coverage[ $candidate['key'] ] = $count;
+			$matches[ $candidate['key'] ] = $count;
 		}
-		$best = max( $coverage );
 
-		return array_fill_keys( array_keys( array_filter( $coverage, fn( $count ) => $count > 0 && $count === $best ) ), true );
+		return [
+			'terms'   => count( $patterns ),
+			'matches' => $matches,
+		];
+	}
+
+	/**
+	 * The best candidate's share of the query's terms, 0–1.
+	 *
+	 * @since 2.1.0
+	 *
+	 * @param array $coverage See keyword_coverage().
+	 * @phpstan-param KeywordCoverage $coverage
+	 *
+	 * @return float|null Null when the query has no terms to measure.
+	 */
+	public static function coverage_ratio( array $coverage ): ?float {
+		if ( 0 === $coverage['terms'] ) {
+			return null;
+		}
+
+		return round( ( empty( $coverage['matches'] ) ? 0 : max( $coverage['matches'] ) ) / $coverage['terms'], 4 );
 	}
 
 	/**
@@ -2511,6 +2581,7 @@ class API extends BaseAPI {
 		$this->source_post_ids = [];
 		$this->retrieval_trace = [];
 		$this->chunk_scores    = [];
+		$this->retrieval_stats = null;
 
 		/**
 		 * Filters the token budget for the knowledge base context sent with a
@@ -2525,24 +2596,69 @@ class API extends BaseAPI {
 		 */
 		$tokens_threshold = (int) apply_filters( 'hyve_chat_context_token_limit', $tokens_threshold );
 
-		$settings = self::hybrid_settings();
-		$limit    = max( 1, (int) $settings['candidates'] );
-		$query    = trim( (string) $query );
-		$vector   = [];
+		$settings     = self::hybrid_settings();
+		$limit        = max( 1, (int) $settings['candidates'] );
+		$query        = trim( (string) $query );
+		$vector       = [];
+		$backend      = null;
+		$vector_limit = null;
 
 		if ( ! empty( $message_vector ) ) {
+			$vector = null;
+
 			// Local vectors stay complete while Qdrant is migrating or unavailable.
-			$vector = Qdrant_API::is_active() && ! Qdrant_API::has_pending_migration()
-				? $this->vector_candidates_qdrant( $message_vector, $similarity_score_threshold, $limit )
-				: $this->vector_candidates_wp( $message_vector, $similarity_score_threshold, $limit );
+			if ( Qdrant_API::is_active() && ! Qdrant_API::has_pending_migration() ) {
+				$vector       = $this->vector_candidates_qdrant( $message_vector, $similarity_score_threshold, $limit );
+				$backend      = 'qdrant';
+				$vector_limit = min( Qdrant_API::SEARCH_LIMIT, $limit );
+			}
 
 			if ( null === $vector ) {
-				$vector = $this->vector_candidates_wp( $message_vector, $similarity_score_threshold, $limit );
+				$vector       = $this->vector_candidates_wp( $message_vector, $similarity_score_threshold, $limit );
+				$backend      = 'local';
+				$vector_limit = $limit;
 			}
 		}
 
 		$lexical = '' !== $query ? $this->lexical_candidates( $query, $limit ) : [];
-		$context = $this->assemble_context( $this->fuse_candidates( $vector, $lexical, $query, $settings ), $tokens_threshold, $query );
+		// A failed keyword query was not measured; retrieval goes on without it.
+		$keyword_ran = '' !== $query && null !== $lexical;
+		$lexical     = $lexical ?? [];
+		// The stats use the diagnostic's rules on the stored slice of the
+		// query (one pattern per word, so a huge message stays cheap) and
+		// fold accents by the default locale, as the platform does; source
+		// links keep the search's rules and the site's folding.
+		$keyword_query = mb_substr( $query, 0, 2000 );
+		$coverage      = $keyword_ran ? self::keyword_coverage( $lexical, $keyword_query, 'en_US', true ) : null;
+		$matches       = null === $coverage ? [] : $coverage['matches'];
+		$link_matches  = '' !== $query ? self::keyword_coverage( $lexical, $query )['matches'] : [];
+
+		list( $context, $scored_used ) = $this->assemble_context( $this->fuse_candidates( $vector, $lexical, $query, $settings ), $tokens_threshold, $link_matches );
+
+		$top_score = null === $backend || empty( $vector ) ? null : (float) $vector[0]['score'];
+		$terms     = null === $coverage ? 0 : $coverage['terms'];
+
+		$this->retrieval_stats = [
+			'version'               => 1,
+			'keyword_query'         => $keyword_query,
+			'vector_backend'        => $backend,
+			'vector_limit'          => $vector_limit,
+			'keyword_limit'         => $limit,
+			'vector_floor'          => (float) $similarity_score_threshold,
+			'vector_above_floor'    => null === $backend ? null : count( $vector ),
+			'vector_within_cutoff'  => null === $backend ? null : count( self::within_cutoff( $vector, 'score' ) ),
+			'vector_top_score'      => null === $top_score ? null : round( $top_score, 4 ),
+			'vector_cutoff'         => null === $top_score ? null : round( self::relative_score_cutoff( $top_score ), 4 ),
+			// Keyword hits are not cut here; the platform cuts them by ratio.
+			'keyword_hits'          => $keyword_ran ? count( $lexical ) : null,
+			'keyword_within_cutoff' => $keyword_ran ? count( $lexical ) : null,
+			'keyword_matching_hits' => $terms > 0 ? count( array_filter( $matches ) ) : null,
+			'scored_used'           => $scored_used,
+			'used'                  => $scored_used,
+			'keyword_term_count'    => $terms > 0 ? $terms : null,
+			'keyword_matched_terms' => $terms > 0 ? ( empty( $matches ) ? 0 : max( $matches ) ) : null,
+			'keyword_coverage'      => null === $coverage ? null : self::coverage_ratio( $coverage ),
+		];
 
 		// A knowledge base that fits the budget goes in whole: same cost, and
 		// no gamble on the threshold. The scored search still picks the sources.
@@ -2552,8 +2668,9 @@ class API extends BaseAPI {
 			$full = $this->full_context( $tokens_threshold );
 
 			if ( '' !== $full ) {
-				$context              = $full;
-				$this->retrieval_mode = 'kb_full_context';
+				$context                       = $full;
+				$this->retrieval_mode          = 'kb_full_context';
+				$this->retrieval_stats['used'] = count( $this->retrieval_trace );
 			}
 		}
 
@@ -2619,12 +2736,13 @@ class API extends BaseAPI {
 	/**
 	 * Get what the last knowledge base search retrieved.
 	 *
-	 * @return array{sources: array<int, int|string>, chunks: array<int, array<string, mixed>>}
+	 * @return array{sources: array<int, int|string>, chunks: array<int, array<string, mixed>>, stats: RetrievalStats|null}
 	 */
 	public function get_last_retrieval() {
 		return [
 			'sources' => $this->source_post_ids,
 			'chunks'  => $this->retrieval_trace,
+			'stats'   => $this->retrieval_stats,
 		];
 	}
 
@@ -3524,6 +3642,10 @@ class API extends BaseAPI {
 			'started'   => microtime( true ),
 		];
 
+		if ( null !== $this->retrieval_stats ) {
+			$this->chat_debug['retrieval_stats'] = $this->retrieval_stats;
+		}
+
 		if ( $this->query_rewritten ) {
 			$this->chat_debug['query_rewritten'] = true;
 		}
@@ -3881,6 +4003,14 @@ class API extends BaseAPI {
 			}
 		}
 
+		if ( isset( $result['tools_used'] ) && is_bool( $result['tools_used'] ) ) {
+			$debug['tools_used'] = $result['tools_used'];
+		}
+
+		if ( isset( $result['retrieval_stats'] ) && is_array( $result['retrieval_stats'] ) ) {
+			$debug['retrieval_stats'] = self::sanitize_retrieval_stats( $result['retrieval_stats'] );
+		}
+
 		if ( empty( $result['sources'] ) || ! is_array( $result['sources'] ) ) {
 			return $debug;
 		}
@@ -3905,5 +4035,48 @@ class API extends BaseAPI {
 		}
 
 		return $debug;
+	}
+
+	/**
+	 * The platform's `retrieval_stats`, with known keys and types only.
+	 * Unusable values become null (unknown).
+	 *
+	 * @since 2.1.0
+	 *
+	 * @param array<mixed> $stats Stats from the platform result.
+	 *
+	 * @return RetrievalStats
+	 */
+	public static function sanitize_retrieval_stats( array $stats ): array {
+		$int = static function ( string $key ) use ( $stats ): ?int {
+			return isset( $stats[ $key ] ) && is_numeric( $stats[ $key ] ) && 0 <= $stats[ $key ] ? (int) $stats[ $key ] : null;
+		};
+
+		$float = static function ( string $key ) use ( $stats ): ?float {
+			return isset( $stats[ $key ] ) && is_numeric( $stats[ $key ] ) ? round( (float) $stats[ $key ], 4 ) : null;
+		};
+
+		$backend = isset( $stats['vector_backend'] ) && is_string( $stats['vector_backend'] ) ? sanitize_key( $stats['vector_backend'] ) : '';
+
+		return [
+			'version'               => (int) $int( 'version' ),
+			'keyword_query'         => isset( $stats['keyword_query'] ) && is_string( $stats['keyword_query'] ) ? mb_substr( $stats['keyword_query'], 0, 2000 ) : '',
+			'vector_backend'        => '' !== $backend ? $backend : null,
+			'vector_limit'          => $int( 'vector_limit' ),
+			'keyword_limit'         => $int( 'keyword_limit' ),
+			'vector_floor'          => $float( 'vector_floor' ),
+			'vector_above_floor'    => $int( 'vector_above_floor' ),
+			'vector_within_cutoff'  => $int( 'vector_within_cutoff' ),
+			'vector_top_score'      => $float( 'vector_top_score' ),
+			'vector_cutoff'         => $float( 'vector_cutoff' ),
+			'keyword_hits'          => $int( 'keyword_hits' ),
+			'keyword_within_cutoff' => $int( 'keyword_within_cutoff' ),
+			'keyword_matching_hits' => $int( 'keyword_matching_hits' ),
+			'scored_used'           => $int( 'scored_used' ),
+			'used'                  => $int( 'used' ),
+			'keyword_term_count'    => $int( 'keyword_term_count' ),
+			'keyword_matched_terms' => $int( 'keyword_matched_terms' ),
+			'keyword_coverage'      => $float( 'keyword_coverage' ),
+		];
 	}
 }
