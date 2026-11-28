@@ -7,6 +7,7 @@
 
 use ThemeIsle\HyveLite\API;
 use ThemeIsle\HyveLite\DB_Table;
+use ThemeIsle\HyveLite\Encryption;
 use ThemeIsle\HyveLite\Hyve_Connect;
 
 /**
@@ -173,6 +174,70 @@ class ConnectImportTest extends WP_UnitTestCase {
 
 		// The user must not be stuck in Connect mode.
 		$this->assertSame( Hyve_Connect::MODE_SELF, \ThemeIsle\HyveLite\Main::get_settings()['ai_mode'] );
+	}
+
+	/**
+	 * Disconnect leaves stored credentials encrypted.
+	 */
+	public function test_disconnect_keeps_credentials_encrypted() {
+		$api_key    = Encryption::encrypt( 'sk-openai' );
+		$qdrant_key = Encryption::encrypt( 'qdrant-secret' );
+
+		update_option(
+			'hyve_settings',
+			[
+				'ai_mode'        => Hyve_Connect::MODE_CONNECT,
+				'api_key'        => $api_key,
+				'qdrant_api_key' => $qdrant_key,
+			]
+		);
+
+		$this->intercept(
+			[
+				'deleted' => [],
+				'all'     => true,
+			]
+		);
+
+		$request = new WP_REST_Request( 'POST', '/hyve/v1/connect/disconnect' );
+		$request->set_param( 'mode', 'clear' );
+
+		API::instance()->connect_disconnect( $request );
+
+		$stored = get_option( 'hyve_settings' );
+
+		$this->assertSame( Hyve_Connect::MODE_SELF, $stored['ai_mode'] );
+		$this->assertSame( $api_key, $stored['api_key'] );
+		$this->assertSame( $qdrant_key, $stored['qdrant_api_key'] );
+	}
+
+	/**
+	 * Disconnect keeps a credential it cannot decrypt (changed salts) instead of blanking it.
+	 */
+	public function test_disconnect_keeps_unreadable_credentials() {
+		$unreadable = Encryption::PREFIX . base64_encode( str_repeat( 'x', 29 ) ); // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode
+
+		update_option(
+			'hyve_settings',
+			[
+				'ai_mode' => Hyve_Connect::MODE_CONNECT,
+				'api_key' => $unreadable,
+			]
+		);
+
+		$this->intercept(
+			[
+				'deleted' => [],
+				'all'     => true,
+			]
+		);
+
+		$request = new WP_REST_Request( 'POST', '/hyve/v1/connect/disconnect' );
+		$request->set_param( 'mode', 'clear' );
+
+		API::instance()->connect_disconnect( $request );
+
+		$this->assertSame( $unreadable, get_option( 'hyve_settings' )['api_key'] );
 	}
 
 	/**

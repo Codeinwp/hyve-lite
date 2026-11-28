@@ -351,7 +351,8 @@ body.wp-admin {
 		}
 	}
 
-	.hyve-privacy-notice {
+	.hyve-privacy-notice,
+	.hyve-empty-kb-notice {
 		display: flex;
 		align-items: center;
 		gap: 9px;
@@ -364,7 +365,8 @@ body.wp-admin {
 		background-color: rgba(15, 23, 42, 0.035);
 		border-radius: 10px;
 
-		.hyve-privacy-notice__icon {
+		.hyve-privacy-notice__icon,
+		.hyve-empty-kb-notice__icon {
 			display: inline-flex;
 			flex-shrink: 0;
 			width: 15px;
@@ -378,11 +380,13 @@ body.wp-admin {
 			}
 		}
 
-		.hyve-privacy-notice__text {
+		.hyve-privacy-notice__text,
+		.hyve-empty-kb-notice__text {
 			flex-grow: 1;
 		}
 
-		.hyve-privacy-notice__link {
+		.hyve-privacy-notice__link,
+		.hyve-empty-kb-notice__link {
 			color: inherit;
 			font-weight: 600;
 			text-decoration: underline;
@@ -576,12 +580,15 @@ body.wp-admin {
 			color: #94a3b8;
 		}
 
-		.hyve-privacy-notice {
+		.hyve-privacy-notice,
+		.hyve-empty-kb-notice {
 			color: #cbd5e1;
 			background-color: rgba(255, 255, 255, 0.06);
 
 			.hyve-privacy-notice__link:hover,
-			.hyve-privacy-notice__link:focus-visible {
+			.hyve-privacy-notice__link:focus-visible,
+			.hyve-empty-kb-notice__link:hover,
+			.hyve-empty-kb-notice__link:focus-visible {
 				color: #fff;
 			}
 

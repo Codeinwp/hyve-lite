@@ -27,6 +27,13 @@ class Stream {
 	public const NONCE_ACTION = 'hyve_stream';
 
 	/**
+	 * AJAX action that renews the widget's nonces.
+	 *
+	 * @var string
+	 */
+	public const REFRESH_ACTION = 'hyve_refresh_nonce';
+
+	/**
 	 * Find the byte offset where the JSON `response` field's value begins.
 	 *
 	 * @param string $buffer The JSON text received so far.
@@ -139,6 +146,30 @@ class Stream {
 	public function __construct() {
 		add_action( 'wp_ajax_hyve_stream', [ $this, 'stream' ] );
 		add_action( 'wp_ajax_nopriv_hyve_stream', [ $this, 'stream' ] );
+		add_action( 'wp_ajax_' . self::REFRESH_ACTION, [ $this, 'refresh_nonce' ] );
+		add_action( 'wp_ajax_nopriv_' . self::REFRESH_ACTION, [ $this, 'refresh_nonce' ] );
+	}
+
+	/**
+	 * Hand the widget fresh REST and stream nonces.
+	 *
+	 * Cached pages can outlive the nonces they embed, and core's `rest-nonce`
+	 * renewal is for logged-in users only. admin-ajax sends no-cache headers,
+	 * and POST only keeps the reply out of URL-keyed caches.
+	 *
+	 * @return void
+	 */
+	public function refresh_nonce() {
+		if ( ! isset( $_SERVER['REQUEST_METHOD'] ) || 'POST' !== $_SERVER['REQUEST_METHOD'] ) {
+			wp_send_json_error( null, 405 );
+		}
+
+		wp_send_json(
+			[
+				'rest'   => wp_create_nonce( 'wp_rest' ),
+				'stream' => wp_create_nonce( self::NONCE_ACTION ),
+			]
+		);
 	}
 
 	/**
@@ -374,7 +405,8 @@ class Stream {
 		}
 
 		if ( isset( $data['message'] ) && is_string( $data['message'] ) ) {
-			$final = $data['message'];
+			$data['message'] = OpenAI::sanitize_chat_response( $data['message'] );
+			$final           = $data['message'];
 		}
 
 		$extra = [
@@ -478,6 +510,23 @@ class Stream {
 			return;
 		}
 
+		// The platform found nothing to answer from (the local count was stale).
+		if ( API::connect_kb_empty( $result ) ) {
+			API::instance()->record_chat_failure( $thread_id, $record_id, $message, $is_test, 'kb_empty' );
+
+			$this->send_event(
+				'done',
+				[
+					'success'   => false,
+					'message'   => esc_html( $default_message ),
+					'code'      => 'kb_empty',
+					'record_id' => $record_id ? $record_id : null,
+				]
+			);
+
+			return;
+		}
+
 		$resolved = API::instance()->connect_reply_final( $result, $settings, esc_html( $default_message ) );
 		$answered = $resolved['answered'];
 		$reply    = $resolved['reply'];
@@ -531,7 +580,8 @@ class Stream {
 		}
 
 		if ( isset( $data['message'] ) && is_string( $data['message'] ) ) {
-			$final = $data['message'];
+			$data['message'] = OpenAI::sanitize_chat_response( $data['message'] );
+			$final           = $data['message'];
 		}
 
 		$payload['debug'] = API::finalize_chat_debug(

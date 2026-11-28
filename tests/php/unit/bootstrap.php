@@ -34,6 +34,20 @@ require $_tests_dir . '/includes/bootstrap.php';
 
 activate_plugin( 'hyve-lite/hyve-lite.php' );
 
+// The SDK's load.php returns early here: the bootstrap autoloads before ABSPATH exists.
+if ( ! function_exists( 'tsdk_utmify' ) ) {
+	/**
+	 * Pass-through stand-in for the SDK helper.
+	 *
+	 * @param string $url URL.
+	 *
+	 * @return string
+	 */
+	function tsdk_utmify( $url ) {
+		return $url;
+	}
+}
+
 global $current_user;
 $current_user = new WP_User( 1 ); // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited
 $current_user->set_role( 'administrator' );
@@ -49,3 +63,15 @@ wp_update_user(
 // Clean DB before tests.
 global $wpdb;
 $wpdb->query( 'DROP TABLE IF EXISTS ' . $wpdb->prefix . 'hyve' ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.SchemaChange
+
+// The test case turns every CREATE TABLE into a temporary one, but InnoDB
+// cannot put a FULLTEXT index on a temporary table. The plugin's table stays
+// real (dropped above). Rows a test commits stay after its rollback; see
+// RetrievalTest::commit_seeds().
+add_filter(
+	'query',
+	function ( $query ) use ( $wpdb ) {
+		return str_replace( 'CREATE TEMPORARY TABLE ' . $wpdb->prefix . 'hyve ', 'CREATE TABLE ' . $wpdb->prefix . 'hyve ', $query );
+	},
+	20
+);
